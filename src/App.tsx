@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AuthProvider } from './context/AuthContext';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { Sidebar } from './components/common/Sidebar';
 import { Header } from './components/common/Header';
@@ -24,7 +25,7 @@ const AppContent: React.FC = () => {
     setActiveView('explore');
   };
 
-  const handleSearchSelect = (track: Track) => {
+  const handleSearchSelect = (_track: Track) => {
     // Song is played automatically by Header
   };
 
@@ -94,8 +95,11 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <PlayerProvider>
-      <AppContent />
-    </PlayerProvider>
+    <AuthProvider>
+      <PlayerProvider>
+        <AppContent />
+      </PlayerProvider>
+    </AuthProvider>
   );
 }
+

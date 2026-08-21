@@ -42,7 +42,7 @@ function youtubeSearchPlugin() {
             return;
           }
 
-          const data = await response.json();
+          const data = (await response.json()) as any;
           const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
           const itemSection = contents?.find((c: any) => c.itemSectionRenderer)?.itemSectionRenderer?.contents || [];
           

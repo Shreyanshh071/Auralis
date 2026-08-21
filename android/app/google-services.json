@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "30030184374",
+    "project_id": "auralis-70cf8",
+    "storage_bucket": "auralis-70cf8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30030184374:android:b4dabb16a9c3a96e71cb17",
+        "android_client_info": {
+          "package_name": "com.auralis.music"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "30030184374-pe7h8deq7qp2josb62junld16udgnnin.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBSJXXQQXkQ0o-uACoLpZTHiuzhHD0VKo8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "30030184374-pe7h8deq7qp2josb62junld16udgnnin.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

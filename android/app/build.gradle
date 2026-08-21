@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.metrolist.music"
+    namespace = "com.auralis.music"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.metrolist.music"
+        applicationId "com.auralis.music"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
