@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Music2, Command, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, X, Music2, Command, ChevronLeft, ChevronRight, LogIn, LogOut, Cloud, CloudOff, Loader2 } from 'lucide-react';
 import { searchYouTube } from '../../services/youtube';
 import type { Track } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface HeaderProps {
   onSearchSelect?: (track: Track) => void;
@@ -19,14 +20,19 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<Track[]>([]);
   const [isOpenDropdown, setIsOpenDropdown] = useState(false);
-  const { playTrack } = usePlayer();
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const { playTrack, showToast } = usePlayer();
+  const { user, isSyncing, signInWithGoogle, logout } = useAuth();
+  
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Track view changes in history
   useEffect(() => {
     if (viewHistory[viewHistoryIndex] !== activeView) {
-      // Trim forward history and push new view
       viewHistory.splice(viewHistoryIndex + 1, viewHistory.length, activeView);
       viewHistoryIndex = viewHistory.length - 1;
     }
@@ -85,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Click outside
+  // Click outside search and user menu
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -93,6 +99,12 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
         !searchContainerRef.current.contains(event.target as Node)
       ) {
         setIsOpenDropdown(false);
+      }
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsUserMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -113,8 +125,32 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
     }
   };
 
+  const handleLogin = async () => {
+    try {
+      setIsLoggingIn(true);
+      await signInWithGoogle();
+      showToast('Signed in with Google!', 'success');
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        showToast('Login failed. Check internet connection.', 'error');
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setIsUserMenuOpen(false);
+      showToast('Signed out', 'info');
+    } catch (err) {
+      showToast('Error signing out', 'error');
+    }
+  };
+
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-8 py-3.5 backdrop-blur-2xl bg-[#09090b]/80 border-b border-white/[0.04]">
+    <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-8 py-3.5 backdrop-blur-2xl bg-[#09090b]/80 border-b border-white/[0.04]">
       {/* Navigation history arrows + Search */}
       <div className="flex items-center gap-4 flex-1 max-w-xl" ref={searchContainerRef}>
         <div className="hidden sm:flex items-center gap-1">
@@ -228,22 +264,107 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
         </div>
       </div>
 
-      {/* Right controls */}
-      <div className="flex items-center gap-2">
+      {/* Right controls: Navigation links & Google Auth */}
+      <div className="flex items-center gap-3">
         <button
           onClick={() => setActiveView('explore')}
-          className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/[0.06] transition"
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/[0.06] transition"
         >
           <span>Explore</span>
         </button>
 
         <button
           onClick={() => setActiveView('library')}
-          className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/[0.06] transition"
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/[0.06] transition"
         >
           <span>Library</span>
         </button>
+
+        {/* User / Google Sign-in Menu */}
+        <div className="relative" ref={userMenuRef}>
+          {user ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] transition text-left"
+              >
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'User'}
+                    className="w-7 h-7 rounded-full object-cover ring-1 ring-emerald-500/50"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-purple-600 to-emerald-500 flex items-center justify-center text-xs font-bold text-white">
+                    {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className="hidden sm:inline text-xs font-medium text-neutral-200 max-w-[100px] truncate">
+                  {user.displayName?.split(' ')[0] || 'Account'}
+                </span>
+                {isSyncing && (
+                  <Loader2 className="w-3 h-3 text-emerald-400 animate-spin" />
+                )}
+              </button>
+
+              {/* User Dropdown */}
+              {isUserMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-[#141418] border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/90 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-3 py-2.5 border-b border-white/[0.06] mb-1">
+                    <p className="text-xs font-semibold text-white truncate">
+                      {user.displayName || 'Auralis User'}
+                    </p>
+                    <p className="text-[11px] text-neutral-400 truncate">{user.email}</p>
+                    <div className="mt-2 flex items-center gap-1.5 text-[10px] text-emerald-400">
+                      <Cloud className="w-3 h-3" />
+                      <span>Cloud Sync Active</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={handleLogin}
+              disabled={isLoggingIn}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white text-black font-semibold text-xs hover:bg-neutral-200 active:scale-95 transition shadow-sm"
+            >
+              {isLoggingIn ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+              )}
+              <span>Sign In</span>
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );
 };
+

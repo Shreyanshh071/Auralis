@@ -12,6 +12,12 @@
     "SplashScreen": {
       "launchShowDuration": 1500,
       "backgroundColor": "#0a0a0c"
+    },
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "30030184374-pe7h8deq7qp2josb62junld16udgnnin.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
     }
   }
 }
+

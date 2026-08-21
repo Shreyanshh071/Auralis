@@ -4,6 +4,7 @@ import { searchYouTube } from '../services/youtube';
 import { fetchLyrics } from '../services/lyrics';
 import { getDominantColor } from '../services/colorExtractor';
 import { getAlbumArtwork } from '../services/artwork';
+import { useAuth } from './AuthContext';
 
 // ---------------------------------------------------------------------------
 // Play Count Tracking
@@ -181,6 +182,8 @@ declare global {
 }
 
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, fetchCloudData, saveFavoritesToCloud, savePlaylistsToCloud } = useAuth();
+
   // ---- No pre-seeded track or queue ----
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -276,14 +279,52 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isPlayerReadyRef = useRef<boolean>(false);
   const pendingTrackRef = useRef<Track | null>(null);
 
-  // ---- Persist to localStorage ----
+  // ---- Sync from Firestore on user login ----
+  useEffect(() => {
+    if (!user) return;
+
+    let isCancelled = false;
+    fetchCloudData().then((cloudData) => {
+      if (isCancelled || !cloudData) return;
+
+      if (cloudData.favorites && Array.isArray(cloudData.favorites)) {
+        setFavorites((localFavs) => {
+          const map = new Map<string, Track>();
+          cloudData.favorites?.forEach((t) => map.set(t.id, t));
+          localFavs.forEach((t) => map.set(t.id, t));
+          return Array.from(map.values());
+        });
+      }
+
+      if (cloudData.playlists && Array.isArray(cloudData.playlists)) {
+        setPlaylists((localPls) => {
+          const map = new Map<string, Playlist>();
+          cloudData.playlists?.forEach((p) => map.set(p.id, p));
+          localPls.forEach((p) => map.set(p.id, p));
+          return Array.from(map.values());
+        });
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [user]);
+
+  // ---- Persist to localStorage & Firestore ----
   useEffect(() => {
     localStorage.setItem('auralis_favorites', JSON.stringify(favorites));
-  }, [favorites]);
+    if (user) {
+      saveFavoritesToCloud(favorites);
+    }
+  }, [favorites, user]);
 
   useEffect(() => {
     localStorage.setItem('auralis_playlists', JSON.stringify(playlists));
-  }, [playlists]);
+    if (user) {
+      savePlaylistsToCloud(playlists);
+    }
+  }, [playlists, user]);
 
   useEffect(() => {
     localStorage.setItem('auralis_volume', volume.toString());

@@ -130,10 +130,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Sleep Timer Indicator if active */}
-      {sleepTimerRemaining !== null && (
-        <div className="p-3 border-t border-white/[0.04]">
-          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-neutral-900 border border-white/[0.06] text-xs text-neutral-300">
+      {/* User Account & Cloud Sync footer */}
+      <div className="p-3 border-t border-white/[0.04]">
+        {/* Sleep Timer Indicator if active */}
+        {sleepTimerRemaining !== null && (
+          <div className="mb-2 flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-neutral-900 border border-white/[0.06] text-xs text-neutral-300">
             <div className="flex items-center gap-1.5">
               <Moon className="w-3 h-3 text-neutral-400" />
               <span className="text-[11px]">Sleep Timer</span>
@@ -143,8 +144,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {(sleepTimerRemaining % 60).toString().padStart(2, '0')}
             </span>
           </div>
+        )}
+
+        <div className="flex items-center gap-2 px-1">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] text-neutral-400 font-medium">Auralis Cloud Ready</span>
         </div>
-      )}
+      </div>
     </aside>
   );
 };
+
