@@ -1,0 +1,17 @@
+{
+  "appId": "com.auralis.music",
+  "appName": "Auralis",
+
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#0a0a0c"
+    }
+  }
+}

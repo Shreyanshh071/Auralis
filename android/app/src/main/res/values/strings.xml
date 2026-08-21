@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Metrolist</string>
+    <string name="title_activity_main">Metrolist</string>
+    <string name="package_name">com.metrolist.music</string>
+    <string name="custom_url_scheme">com.metrolist.music</string>
+</resources>
