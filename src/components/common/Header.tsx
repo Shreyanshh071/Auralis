@@ -1,7 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Music2, Command, ChevronLeft, ChevronRight, LogOut, Cloud, Loader2, AlertTriangle } from 'lucide-react';
+import {
+  Search,
+  X,
+  Music2,
+  Command,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Cloud,
+  Loader2,
+  AlertTriangle,
+  Sun,
+  Moon,
+  Monitor,
+  Check,
+} from 'lucide-react';
 import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
-import type { Track } from '../../types/music';
+import type { Track, ThemeMode } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -31,16 +46,18 @@ export const Header: React.FC<HeaderProps> = ({
   const [results, setResults] = useState<Track[]>([]);
   const [isOpenDropdown, setIsOpenDropdown] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   /** Non-null when the typeahead search could not reach any provider. */
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const { playTrack, showToast } = usePlayer();
+  const { playTrack, showToast, theme, effectiveTheme, setTheme } = usePlayer();
   const { user, isSyncing, isAuthAvailable, authError, lastSyncedAt, signInWithGoogle, logout } =
     useAuth();
   
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Track view changes in history
@@ -119,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, [query]);
 
-  // Click outside search and user menu
+  // Click outside search, user menu, and theme menu
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -133,6 +150,12 @@ export const Header: React.FC<HeaderProps> = ({
         !userMenuRef.current.contains(event.target as Node)
       ) {
         setIsUserMenuOpen(false);
+      }
+      if (
+        themeMenuRef.current &&
+        !themeMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsThemeMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -191,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-8 py-3.5 backdrop-blur-2xl bg-[#09090b]/80 border-b border-white/[0.04]">
+    <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-8 py-3.5 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200">
       {/* Navigation history arrows + Search */}
       <div className="flex items-center gap-4 flex-1 max-w-xl" ref={searchContainerRef}>
         <div className="hidden sm:flex items-center gap-1">
@@ -200,8 +223,8 @@ export const Header: React.FC<HeaderProps> = ({
             disabled={!canGoBack}
             className={`p-1.5 rounded-full transition ${
               canGoBack
-                ? 'hover:bg-white/[0.06] text-neutral-400 hover:text-white'
-                : 'text-neutral-600 cursor-not-allowed'
+                ? 'hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                : 'text-[var(--text-subtle)] opacity-40 cursor-not-allowed'
             }`}
             title="Go Back"
           >
@@ -212,8 +235,8 @@ export const Header: React.FC<HeaderProps> = ({
             disabled={!canGoForward}
             className={`p-1.5 rounded-full transition ${
               canGoForward
-                ? 'hover:bg-white/[0.06] text-neutral-400 hover:text-white'
-                : 'text-neutral-600 cursor-not-allowed'
+                ? 'hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                : 'text-[var(--text-subtle)] opacity-40 cursor-not-allowed'
             }`}
             title="Go Forward"
           >
@@ -226,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
             {isSearching ? (
               <div className="absolute left-3.5 w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin pointer-events-none" />
             ) : (
-              <Search className="absolute left-3.5 w-4 h-4 text-neutral-400 pointer-events-none" />
+              <Search className="absolute left-3.5 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
             )}
             <input
               ref={inputRef}
@@ -236,7 +259,7 @@ export const Header: React.FC<HeaderProps> = ({
               onKeyDown={handleKeyDown}
               onFocus={() => query.trim() && setIsOpenDropdown(true)}
               placeholder="What do you want to play?"
-              className="w-full pl-10 pr-16 py-2 bg-neutral-900/70 hover:bg-neutral-900 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 rounded-full border border-white/[0.08] focus:border-neutral-500 focus:outline-none focus:ring-2 focus:ring-white/[0.08] transition"
+              className="w-full pl-10 pr-16 py-2 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-full border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-subtle)] transition"
             />
             {query ? (
               <button
@@ -245,12 +268,12 @@ export const Header: React.FC<HeaderProps> = ({
                   setResults([]);
                   setSearchError(null);
                 }}
-                className="absolute right-3 p-1 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white transition"
+                className="absolute right-3 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             ) : (
-              <div className="absolute right-3 hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-[10px] font-mono text-neutral-500">
+              <div className="absolute right-3 hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[10px] font-mono text-[var(--text-muted)]">
                 <Command className="w-2.5 h-2.5" />
                 <span>K</span>
               </div>
@@ -259,16 +282,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Instant Search Dropdown */}
           {isOpenDropdown && (
-            <div className="absolute top-full left-0 right-0 mt-1.5 py-1.5 bg-[#121215] border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/90 z-50 max-h-96 overflow-y-auto">
-              <div className="px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-neutral-400 border-b border-white/[0.04] flex items-center justify-between">
+            <div className="absolute top-full left-0 right-0 mt-1.5 py-1.5 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 max-h-96 overflow-y-auto">
+              <div className="px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[var(--text-muted)] border-b border-[var(--border-subtle)] flex items-center justify-between">
                 <span>{isSearching ? 'Searching...' : searchError ? 'Search error' : 'Top Matches'}</span>
-                {results.length > 0 && <span className="text-[10px] text-neutral-500 font-mono">{results.length} found</span>}
+                {results.length > 0 && <span className="text-[10px] text-[var(--text-subtle)] font-mono">{results.length} found</span>}
               </div>
 
               {searchError && !isSearching && (
                 <div className="px-4 py-6 text-center space-y-2.5">
                   <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
-                  <p className="text-xs text-neutral-300 font-medium">{searchError}</p>
+                  <p className="text-xs text-[var(--text-secondary)] font-medium">{searchError}</p>
                   <button
                     onClick={() => {
                       const submitted = query.trim();
@@ -277,7 +300,7 @@ export const Header: React.FC<HeaderProps> = ({
                       else setActiveView('explore');
                       setIsOpenDropdown(false);
                     }}
-                    className="text-[11px] font-semibold text-purple-300 hover:text-purple-200 transition"
+                    className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 transition"
                   >
                     Retry in Explore
                   </button>
@@ -285,7 +308,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
 
               {results.length === 0 && !isSearching && !searchError && (
-                <div className="px-4 py-8 text-center text-xs text-neutral-500 font-medium">
+                <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)] font-medium">
                   No matching tracks found for "{query}"
                 </div>
               )}
@@ -295,7 +318,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <div
                     key={track.id}
                     onClick={() => handleSelectTrack(track)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/[0.06] cursor-pointer transition group"
+                    className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--bg-surface-hover)] cursor-pointer transition group"
                   >
                     <img
                       src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
@@ -311,12 +334,12 @@ export const Header: React.FC<HeaderProps> = ({
                       }}
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs sm:text-sm font-semibold text-neutral-100 truncate group-hover:text-white transition">
+                      <p className="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-purple-400 transition">
                         {track.title}
                       </p>
-                      <p className="text-[11px] text-neutral-400 truncate">{track.artist}</p>
+                      <p className="text-[11px] text-[var(--text-muted)] truncate">{track.artist}</p>
                     </div>
-                    <Music2 className="w-3.5 h-3.5 text-neutral-500 opacity-0 group-hover:opacity-100 transition" />
+                    <Music2 className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition" />
                   </div>
                 ))}
               </div>
@@ -325,21 +348,78 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right controls: Navigation links & Google Auth */}
-      <div className="flex items-center gap-3">
+      {/* Right controls: Navigation links, Theme Toggle, & Google Auth */}
+      <div className="flex items-center gap-2 sm:gap-3">
         <button
           onClick={() => setActiveView('explore')}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/[0.06] transition"
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
         >
           <span>Explore</span>
         </button>
 
         <button
           onClick={() => setActiveView('library')}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/[0.06] transition"
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
         >
           <span>Library</span>
         </button>
+
+        {/* Theme Toggle Menu */}
+        <div className="relative" ref={themeMenuRef}>
+          <button
+            onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+            className="p-2 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
+            title={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)} (${effectiveTheme})`}
+            aria-label="Toggle theme mode"
+          >
+            {theme === 'system' ? (
+              <Monitor className="w-4 h-4" />
+            ) : effectiveTheme === 'dark' ? (
+              <Moon className="w-4 h-4" />
+            ) : (
+              <Sun className="w-4 h-4 text-amber-500" />
+            )}
+          </button>
+
+          {/* Theme Dropdown */}
+          {isThemeMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-40 p-1.5 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)] mb-1">
+                Theme
+              </div>
+              {(
+                [
+                  { id: 'dark', label: 'Dark', icon: Moon },
+                  { id: 'light', label: 'Light', icon: Sun },
+                  { id: 'system', label: 'System', icon: Monitor },
+                ] as const
+              ).map((opt) => {
+                const IconComponent = opt.icon;
+                const isSelected = theme === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => {
+                      setTheme(opt.id);
+                      setIsThemeMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-[var(--bg-surface-hover)] text-[var(--text-primary)] font-bold'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconComponent className="w-3.5 h-3.5" />
+                      <span>{opt.label}</span>
+                    </div>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-purple-400" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* User / Google Sign-in Menu */}
         <div className="relative" ref={userMenuRef}>
@@ -347,7 +427,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] transition text-left"
+                className="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] transition text-left"
               >
                 {user.photoURL ? (
                   <img
@@ -360,7 +440,7 @@ export const Header: React.FC<HeaderProps> = ({
                     {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
                   </div>
                 )}
-                <span className="hidden sm:inline text-xs font-medium text-neutral-200 max-w-[100px] truncate">
+                <span className="hidden sm:inline text-xs font-medium text-[var(--text-primary)] max-w-[100px] truncate">
                   {user.displayName?.split(' ')[0] || 'Account'}
                 </span>
                 {isSyncing && (
@@ -370,12 +450,12 @@ export const Header: React.FC<HeaderProps> = ({
 
               {/* User Dropdown */}
               {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-[#141418] border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/90 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="px-3 py-2.5 border-b border-white/[0.06] mb-1">
-                    <p className="text-xs font-semibold text-white truncate">
+                <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-3 py-2.5 border-b border-[var(--border-subtle)] mb-1">
+                    <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
                       {user.displayName || 'Auralis User'}
                     </p>
-                    <p className="text-[11px] text-neutral-400 truncate">{user.email}</p>
+                    <p className="text-[11px] text-[var(--text-muted)] truncate">{user.email}</p>
                     {/*
                       Honest scope statement. This is Firebase Google sign-in with
                       Firestore sync of Auralis favorites and playlists only. It is
@@ -399,12 +479,12 @@ export const Header: React.FC<HeaderProps> = ({
                           <span>Favorites &amp; playlists synced</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 text-[10px] text-neutral-500">
+                        <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                           <Cloud className="w-3 h-3" />
                           <span>Not yet synced</span>
                         </div>
                       )}
-                      <p className="text-[10px] text-neutral-500 leading-snug">
+                      <p className="text-[10px] text-[var(--text-muted)] leading-snug">
                         Auralis favorites and playlists only — not YouTube Music library sync.
                       </p>
                     </div>
@@ -412,7 +492,7 @@ export const Header: React.FC<HeaderProps> = ({
 
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Sign Out</span>
@@ -427,8 +507,8 @@ export const Header: React.FC<HeaderProps> = ({
               title={isAuthAvailable ? 'Sign in with Google' : (authError ?? undefined)}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full font-semibold text-xs transition shadow-sm ${
                 isAuthAvailable
-                  ? 'bg-white text-black hover:bg-neutral-200 active:scale-95'
-                  : 'bg-white/[0.06] text-neutral-500 border border-white/[0.08] cursor-not-allowed'
+                  ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 active:scale-95'
+                  : 'bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)] cursor-not-allowed'
               }`}
             >
               {isLoggingIn ? (

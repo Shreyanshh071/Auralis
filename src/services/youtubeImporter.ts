@@ -39,9 +39,11 @@ export async function importYouTubePlaylist(playlistInput: string): Promise<Play
 
   const instances = [
     `https://pipedapi.kavin.rocks/playlists/${playlistId}`,
+    `https://pipedapi.leptons.xyz/playlists/${playlistId}`,
     `https://api.piped.privacydev.net/playlists/${playlistId}`,
     `https://invidious.nerdvpn.de/api/v1/playlists/${playlistId}`,
     `https://inv.nadeko.net/api/v1/playlists/${playlistId}`,
+    `https://invidious.jing.rocks/api/v1/playlists/${playlistId}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://pipedapi.kavin.rocks/playlists/${playlistId}`)}`,
   ];
 
@@ -49,6 +51,7 @@ export async function importYouTubePlaylist(playlistInput: string): Promise<Play
     try {
       const res = await fetch(endpoint, {
         headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
       });
 
       if (res.ok) {

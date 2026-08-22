@@ -12,7 +12,7 @@ function youtubeSearchPlugin() {
           const q = url.searchParams.get('q') || '';
           if (!q.trim()) {
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ results: [] }));
+            res.end(JSON.stringify({ songs: [], artists: [], playlists: [], results: [] }));
             return;
           }
 
@@ -38,18 +38,30 @@ function youtubeSearchPlugin() {
           if (!response.ok) {
             res.statusCode = response.status;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ results: [] }));
+            res.end(JSON.stringify({ songs: [], artists: [], playlists: [], results: [] }));
             return;
           }
 
           const data = (await response.json()) as any;
           const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
           const itemSection = contents?.find((c: any) => c.itemSectionRenderer)?.itemSectionRenderer?.contents || [];
-          
-          const results: any[] = [];
+
+          // Thumbnail urls from InnerTube are often protocol-relative (`//host/…`).
+          const pickThumb = (thumbs: any): string | undefined => {
+            if (!Array.isArray(thumbs) || !thumbs.length) return undefined;
+            let u = thumbs[thumbs.length - 1]?.url;
+            if (typeof u !== 'string' || !u) return undefined;
+            if (u.startsWith('//')) u = `https:${u}`;
+            return u;
+          };
+
+          const songs: any[] = [];
+          const artists: any[] = [];
+          const playlists: any[] = [];
+
           for (const item of itemSection) {
             const vr = item.videoRenderer;
-            if (vr && vr.videoId) {
+            if (vr && vr.videoId && songs.length < 25) {
               const rawTitle = vr.title?.runs?.[0]?.text || 'Untitled Track';
               const owner = vr.ownerText?.runs?.[0]?.text || 'YouTube Artist';
               let artist = owner;
@@ -61,30 +73,120 @@ function youtubeSearchPlugin() {
               }
               const lengthText = vr.lengthText?.simpleText || '3:30';
               const parts = lengthText.split(':').map(Number);
-              const duration = parts.length === 2 
-                ? parts[0] * 60 + parts[1] 
+              const duration = parts.length === 2
+                ? parts[0] * 60 + parts[1]
                 : (parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : 200);
-              
-              const thumb = `https://i.ytimg.com/vi/${vr.videoId}/hqdefault.jpg`;
-              
-              results.push({
+
+              songs.push({
                 id: vr.videoId,
                 title,
                 artist,
                 duration,
-                thumbnail: thumb,
+                thumbnail: `https://i.ytimg.com/vi/${vr.videoId}/hqdefault.jpg`,
                 source: 'youtube',
               });
-              if (results.length >= 25) break;
+              continue;
+            }
+
+            // Channels → artists.
+            const cr = item.channelRenderer;
+            if (cr && cr.channelId && artists.length < 12) {
+              const name = cr.title?.simpleText || cr.title?.runs?.[0]?.text;
+              if (name) {
+                artists.push({
+                  id: cr.channelId,
+                  name,
+                  thumbnail: pickThumb(cr.thumbnail?.thumbnails),
+                  subscribers: cr.subscriberCountText?.simpleText || cr.videoCountText?.simpleText || undefined,
+                  query: `${name} top songs`,
+                });
+              }
+              continue;
+            }
+
+            // Playlists (YouTube models albums as playlists too).
+            const pr = item.playlistRenderer;
+            if (pr && pr.playlistId && playlists.length < 12) {
+              const title = pr.title?.simpleText || pr.title?.runs?.[0]?.text;
+              if (title) {
+                const rawCount = pr.videoCount ?? pr.videoCountText?.runs?.[0]?.text;
+                const trackCount = rawCount != null ? Number(String(rawCount).replace(/[^\d]/g, '')) : undefined;
+                playlists.push({
+                  id: pr.playlistId,
+                  title,
+                  thumbnail: pickThumb(pr.thumbnail?.thumbnails) || pickThumb(pr.thumbnails?.[0]?.thumbnails),
+                  author: pr.shortBylineText?.runs?.[0]?.text || pr.longBylineText?.runs?.[0]?.text || undefined,
+                  trackCount: Number.isFinite(trackCount) && (trackCount as number) > 0 ? trackCount : undefined,
+                });
+              }
+              continue;
+            }
+          }
+
+          // Modern WEB search increasingly returns "viewModel" formats instead of
+          // the classic renderers above: the artist as `officialCardViewModel` and
+          // playlists/albums as `lockupViewModel`. Extract those too, so dev returns
+          // the same typed shape a production Piped/Invidious instance would.
+          if (artists.length === 0) {
+            const oc = itemSection.find((x: any) => x.officialCardViewModel)?.officialCardViewModel;
+            const name = oc?.header?.pageHeaderViewModel?.title?.dynamicTextViewModel?.text?.content;
+            if (oc && typeof name === 'string' && name.trim()) {
+              // The artist's channel id is the first UC… browseId inside the card.
+              let channelId: string | null = null;
+              (function findUC(o: any) {
+                if (!o || typeof o !== 'object' || channelId) return;
+                const b = o.browseEndpoint?.browseId || o.browseId;
+                if (typeof b === 'string' && /^UC[\w-]{20,}$/.test(b)) { channelId = b; return; }
+                for (const k in o) { if (channelId) break; findUC(o[k]); }
+              })(oc);
+              artists.push({
+                id: channelId || `yt:${name.trim()}`,
+                name: name.trim(),
+                // The only images in this card are song thumbnails, not an artist
+                // photo — omit rather than mislabel one (the UI shows an initial).
+                thumbnail: undefined,
+                subscribers: undefined,
+                query: `${name.trim()} top songs`,
+              });
+            }
+          }
+
+          if (playlists.length < 12) {
+            const lockups: any[] = [];
+            (function collect(node: any) {
+              if (!node || typeof node !== 'object') return;
+              if (node.lockupViewModel) lockups.push(node.lockupViewModel);
+              for (const k in node) collect(node[k]);
+            })(data.contents?.twoColumnSearchResultsRenderer?.primaryContents);
+
+            const seenPl = new Set(playlists.map((p) => p.id));
+            for (const lk of lockups) {
+              if (playlists.length >= 12) break;
+              const ct = lk.contentType || '';
+              if (!/PLAYLIST|ALBUM/.test(ct)) continue; // skip VIDEO lockups
+              const id = lk.contentId;
+              const title = lk.metadata?.lockupMetadataViewModel?.title?.content;
+              if (typeof id !== 'string' || !id || typeof title !== 'string' || !title || seenPl.has(id)) continue;
+              seenPl.add(id);
+              const img =
+                lk.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel?.image?.sources?.[0]?.url ||
+                lk.contentImage?.thumbnailViewModel?.image?.sources?.[0]?.url;
+              playlists.push({
+                id,
+                title,
+                thumbnail: typeof img === 'string' ? img : undefined,
+                author: undefined,
+                trackCount: undefined,
+              });
             }
           }
 
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ results }));
+          res.end(JSON.stringify({ songs, artists, playlists, results: songs }));
         } catch (err: any) {
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ results: [] }));
+          res.end(JSON.stringify({ songs: [], artists: [], playlists: [], results: [] }));
         }
       });
     },
