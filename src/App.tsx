@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
+import { ListenTogetherProvider, useListenTogether } from './context/ListenTogetherContext';
 import { Sidebar } from './components/common/Sidebar';
 import { Header } from './components/common/Header';
 import { HomeView } from './components/views/HomeView';
@@ -11,7 +12,9 @@ import { MiniPlayer } from './components/player/MiniPlayer';
 import { NowPlayingModal } from './components/player/NowPlayingModal';
 import { MobileNav } from './components/common/MobileNav';
 import { CreatePlaylistModal } from './components/modals/CreatePlaylistModal';
+import { ListenTogetherModal } from './components/modals/ListenTogetherModal';
 import { ToastContainer } from './components/common/Toast';
+import { extractRoomCodeFromUrl } from './lib/listenTogether';
 import type { Track } from './types/music';
 
 const AppContent: React.FC = () => {
@@ -28,6 +31,22 @@ const AppContent: React.FC = () => {
   // away and back does not reopen it.
   const [pendingPlaylistId, setPendingPlaylistId] = useState<string | undefined>(undefined);
   const { dominantColor } = usePlayer();
+  const { setInviteCodeToOpen, setIsModalOpen } = useListenTogether();
+
+  // Check URL on startup for ?room=CODE invite links
+  useEffect(() => {
+    const code = extractRoomCodeFromUrl(window.location.href);
+    if (code) {
+      setInviteCodeToOpen(code);
+      setIsModalOpen(true);
+      // Clean up room code from query params so page refresh is clean
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('room');
+        window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+      } catch {}
+    }
+  }, [setInviteCodeToOpen, setIsModalOpen]);
 
   /** Send a query to Explore and switch to it. Used by genre tiles and header search. */
   const handleSelectGenre = (genreQuery: string) => {
@@ -113,20 +132,23 @@ const AppContent: React.FC = () => {
         onClose={() => setIsCreatePlaylistOpen(false)}
       />
 
+      {/* Listen Together Modal */}
+      <ListenTogetherModal />
+
       {/* Toast Notifications */}
       <ToastContainer />
     </div>
   );
 };
 
-
 export default function App() {
   return (
     <AuthProvider>
       <PlayerProvider>
-        <AppContent />
+        <ListenTogetherProvider>
+          <AppContent />
+        </ListenTogetherProvider>
       </PlayerProvider>
     </AuthProvider>
   );
 }
-

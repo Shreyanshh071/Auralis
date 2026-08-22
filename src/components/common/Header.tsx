@@ -14,11 +14,13 @@ import {
   Moon,
   Monitor,
   Check,
+  Radio,
 } from 'lucide-react';
 import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import type { Track, ThemeMode } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
+import { useListenTogether } from '../../context/ListenTogetherContext';
 import { isSignInCancellation } from '../../services/googleSignIn';
 
 interface HeaderProps {
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { playTrack, showToast, theme, effectiveTheme, setTheme } = usePlayer();
   const { user, isSyncing, isAuthAvailable, authError, lastSyncedAt, signInWithGoogle, logout } =
     useAuth();
+  const { isInRoom, isHost, roomCode, members, setIsModalOpen } = useListenTogether();
   
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -365,6 +368,27 @@ export const Header: React.FC<HeaderProps> = ({
           className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
         >
           <span>Library</span>
+        </button>
+
+        {/* Listen Together Button */}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+            isInRoom
+              ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 shadow-sm'
+              : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+          }`}
+          title={isInRoom ? `Listen Together: Room ${roomCode} (${members.length} listening)` : 'Listen Together'}
+        >
+          <Radio className={`w-3.5 h-3.5 ${isInRoom ? 'text-purple-400 animate-pulse' : ''}`} />
+          <span className="hidden sm:inline">
+            {isInRoom ? (isHost ? `Host (${roomCode})` : `Room ${roomCode}`) : 'Listen Together'}
+          </span>
+          {isInRoom && (
+            <span className="flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-purple-500/25 text-[10px] font-bold text-purple-300">
+              {members.length}
+            </span>
+          )}
         </button>
 
         {/* Theme Toggle Menu */}
