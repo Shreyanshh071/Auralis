@@ -5,6 +5,14 @@ import { fetchLyrics } from '../services/lyrics';
 import { getDominantColor } from '../services/colorExtractor';
 import { getAlbumArtwork } from '../services/artwork';
 import { useAuth } from './AuthContext';
+import {
+  asUserPlaylist,
+  loadStoredPlaylists,
+  loadStoredQueue,
+  saveStoredQueue,
+} from '../lib/queueStorage';
+import type { StoredQueue } from '../lib/queueStorage';
+import { moveItem, removeAt, reorderQueue as reorderQueueTracks } from '../lib/queueOps';
 
 // ---------------------------------------------------------------------------
 // Play Count Tracking
@@ -28,6 +36,26 @@ function loadPlayCounts(): PlayCountMap {
 
 function savePlayCounts(map: PlayCountMap) {
   localStorage.setItem('auralis_playcounts', JSON.stringify(map));
+}
+
+// ---------------------------------------------------------------------------
+// Playback speed
+//
+// The only speeds offered are ones the YouTube IFrame player is guaranteed to
+// support (its getAvailablePlaybackRates is a superset of these), so the control
+// can never desync from real playback. Changing the rate on the cross-origin
+// IFrame also shifts pitch — that is an accepted limitation, documented in
+// docs/parity-audit.md; independent pitch shift needs a Web Audio graph we do
+// not have.
+// ---------------------------------------------------------------------------
+export const PLAYBACK_RATES: number[] = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+function loadPlaybackRate(): number {
+  try {
+    const saved = Number(localStorage.getItem('auralis_playback_rate'));
+    if (PLAYBACK_RATES.includes(saved)) return saved;
+  } catch {}
+  return 1;
 }
 
 function recordPlay(map: PlayCountMap, track: Track): PlayCountMap {
@@ -85,6 +113,23 @@ function computeTopArtists(map: PlayCountMap, limit: number): { name: string; im
 }
 
 // ---------------------------------------------------------------------------
+// Queue persistence
+//
+// The queue used to live only in memory, so closing the app or reloading the
+// page discarded it silently. It is now written to localStorage alongside the
+// other auralis_* keys and restored on start.
+//
+// Restoring is deliberately passive: the tracks and the last played track come
+// back, but nothing is handed to the YouTube player and nothing plays until the
+// user presses play. The current track is restored too, because without it the
+// mini player stays hidden and a restored queue would be unreachable from the
+// UI, which would make the persistence pointless.
+// ---------------------------------------------------------------------------
+// The parsing rules live in src/lib/queueStorage.ts so they can be tested
+// directly against real and corrupt stored values.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Toast System
 // ---------------------------------------------------------------------------
 export interface ToastMessage {
@@ -104,6 +149,7 @@ interface PlayerContextType {
   duration: number;
   volume: number;
   isMuted: boolean;
+  playbackRate: number;
   repeatMode: RepeatMode;
   isShuffle: boolean;
   isLoadingAudio: boolean;
@@ -132,9 +178,16 @@ interface PlayerContextType {
   toggleFavorite: (track: Track) => void;
   isFavorite: (trackId: string) => boolean;
   playlists: Playlist[];
-  createPlaylist: (title: string, description?: string) => void;
+  /**
+   * Creates a playlist and returns it, so a caller that needs to put a track in
+   * a brand-new playlist can do both in one step. Going through `addToPlaylist`
+   * straight after would not work: that call reads the playlists it can see in
+   * the current render, which does not yet include the new one.
+   */
+  createPlaylist: (title: string, description?: string, initialTracks?: Track[]) => Playlist;
   addToPlaylist: (playlistId: string, track: Track) => void;
   removeFromPlaylist: (playlistId: string, trackId: string) => void;
+  reorderPlaylist: (playlistId: string, from: number, to: number) => void;
   importPlaylistToState: (playlist: Playlist) => void;
   deletePlaylist: (playlistId: string) => void;
 
@@ -153,10 +206,12 @@ interface PlayerContextType {
   prevTrack: () => void;
   setVolume: (vol: number) => void;
   toggleMute: () => void;
+  setPlaybackRate: (rate: number) => void;
   toggleRepeat: () => void;
   toggleShuffle: () => void;
   addToQueue: (track: Track) => void;
   removeFromQueue: (index: number) => void;
+  reorderQueue: (from: number, to: number) => void;
   clearQueue: () => void;
 
   // Sleep Timer
@@ -184,23 +239,29 @@ declare global {
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, fetchCloudData, saveFavoritesToCloud, savePlaylistsToCloud } = useAuth();
 
-  // ---- No pre-seeded track or queue ----
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
+  // ---- Restored queue (read once, before any state that depends on it) ----
+  const [restoredQueue] = useState<StoredQueue>(loadStoredQueue);
+
+  // ---- No pre-seeded track or queue: only what the last session left ----
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(restoredQueue.currentTrack);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [duration, setDuration] = useState<number>(0);
+  // Seeded from the restored track so the scrubber shows its real length instead
+  // of 0:00 / 0:00. The player overwrites this with its own duration on play.
+  const [duration, setDuration] = useState<number>(restoredQueue.currentTrack?.duration ?? 0);
   const [volume, setVolumeState] = useState<number>(() => {
     const saved = localStorage.getItem('auralis_volume');
     return saved ? Number(saved) : 90;
   });
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [playbackRate, setPlaybackRateState] = useState<number>(loadPlaybackRate);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [isShuffle, setIsShuffle] = useState<boolean>(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState<boolean>(false);
 
-  // ---- Queue & History (both start empty) ----
-  const [queue, setQueue] = useState<Track[]>([]);
-  const [queueIndex, setQueueIndex] = useState<number>(0);
+  // ---- Queue (restored from the previous session, paused) ----
+  const [queue, setQueue] = useState<Track[]>(restoredQueue.tracks);
+  const [queueIndex, setQueueIndex] = useState<number>(restoredQueue.index);
 
   // History persisted to localStorage
   const [history, setHistory] = useState<Track[]>(() => {
@@ -233,21 +294,36 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   });
 
-  // ---- Playlists: Only user-created, no defaults ----
-  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
-    try {
-      const saved = localStorage.getItem('auralis_playlists');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // ---- Playlists: Only user-created and imported ones, no defaults ----
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => loadStoredPlaylists());
 
   // ---- Play Count Analytics ----
   const [playCounts, setPlayCounts] = useState<PlayCountMap>(loadPlayCounts);
 
   // Sleep Timer
-  const [sleepTimerRemaining, setSleepTimerRemaining] = useState<number | null>(null);
+  //
+  // The source of truth is an ABSOLUTE deadline (epoch ms), not a decrementing
+  // counter. A per-second `setInterval` is throttled or frozen while a mobile
+  // WebView is backgrounded, so counting ticks drifts badly and can stall; and a
+  // plain counter is lost on reload. Storing the deadline fixes both: whenever the
+  // tick does run (or the tab becomes visible), it compares against the real clock,
+  // so it fires on time after being backgrounded and survives a reload.
+  const [sleepDeadline, setSleepDeadline] = useState<number | null>(() => {
+    try {
+      const raw = localStorage.getItem('auralis_sleep_deadline');
+      if (!raw) return null;
+      const dl = Number(raw);
+      // A deadline already in the past is meaningless after a reload — nothing is
+      // playing yet — so drop it instead of firing a pause the user never set up.
+      if (!Number.isFinite(dl) || dl <= Date.now()) return null;
+      return dl;
+    } catch {
+      return null;
+    }
+  });
+  const [sleepTimerRemaining, setSleepTimerRemaining] = useState<number | null>(
+    () => (sleepDeadline ? Math.max(0, Math.ceil((sleepDeadline - Date.now()) / 1000)) : null)
+  );
 
   // Toast notifications
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -257,14 +333,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const defaultSettings: PlayerSettings = {
       volume: 90,
       isMuted: false,
-      playbackRate: 1,
-      audioQuality: 'high',
-      ambientVisuals: true,
       lyricsFontSize: 'medium',
       lyricsMode: 'spicy',
       lyricsAlignment: 'left',
       lyricsDepthBlur: true,
-      karaokeSweep: true,
     };
     try {
       const saved = localStorage.getItem('auralis_settings');
@@ -278,57 +350,121 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const timeUpdateInterval = useRef<any>(null);
   const isPlayerReadyRef = useRef<boolean>(false);
   const pendingTrackRef = useRef<Track | null>(null);
+  // Latest chosen playback speed, read inside the once-mounted player callbacks
+  // (which close over stale state) so the rate can be re-applied on every load.
+  const playbackRateRef = useRef<number>(playbackRate);
+  playbackRateRef.current = playbackRate;
+  // Video id currently loaded into the YouTube player, or null if it has never
+  // been given one. A restored session has a currentTrack but no loaded video,
+  // and play/seek must not pretend to work in that state.
+  const loadedVideoIdRef = useRef<string | null>(null);
+  // Assigned once `showToast` is defined below, so effects declared earlier can
+  // notify the user without depending on declaration order.
+  const showToastRef = useRef<
+    ((text: string, type?: 'success' | 'info' | 'error') => void) | null
+  >(null);
+
+  // ---- Cloud hydration gate ----
+  //
+  // Holds the uid whose cloud data has been successfully read and merged into
+  // local state. Cloud WRITES are blocked until this matches the signed-in uid.
+  //
+  // Without this gate, the persist effects below fire the moment `user` changes —
+  // before the read completes — so a freshly signed-in device with an empty local
+  // library would write `favorites: []` and wipe the existing cloud data.
+  //
+  // The gate also stays shut if the read fails, because in that case local state
+  // has not been reconciled and writing it back could destroy cloud data.
+  const [hydratedUid, setHydratedUid] = useState<string | null>(null);
 
   // ---- Sync from Firestore on user login ----
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setHydratedUid(null);
+      return;
+    }
 
     let isCancelled = false;
-    fetchCloudData().then((cloudData) => {
-      if (isCancelled || !cloudData) return;
+    // Close the gate for this uid until its data has been read.
+    setHydratedUid(null);
 
-      if (cloudData.favorites && Array.isArray(cloudData.favorites)) {
-        setFavorites((localFavs) => {
-          const map = new Map<string, Track>();
-          cloudData.favorites?.forEach((t) => map.set(t.id, t));
-          localFavs.forEach((t) => map.set(t.id, t));
-          return Array.from(map.values());
-        });
-      }
+    (async () => {
+      try {
+        const cloudData = await fetchCloudData();
+        if (isCancelled) return;
 
-      if (cloudData.playlists && Array.isArray(cloudData.playlists)) {
-        setPlaylists((localPls) => {
-          const map = new Map<string, Playlist>();
-          cloudData.playlists?.forEach((p) => map.set(p.id, p));
-          localPls.forEach((p) => map.set(p.id, p));
-          return Array.from(map.values());
-        });
+        // A null result means the document does not exist yet — that is a valid,
+        // fully-reconciled state, so the gate may open and seed the cloud.
+        if (cloudData?.favorites && Array.isArray(cloudData.favorites)) {
+          setFavorites((localFavs) => {
+            const map = new Map<string, Track>();
+            cloudData.favorites?.forEach((t) => map.set(t.id, t));
+            // Local entries win on id collision, but nothing is ever dropped.
+            localFavs.forEach((t) => map.set(t.id, t));
+            return Array.from(map.values());
+          });
+        }
+
+        if (cloudData?.playlists && Array.isArray(cloudData.playlists)) {
+          setPlaylists((localPls) => {
+            const map = new Map<string, Playlist>();
+            cloudData.playlists?.forEach((p) => map.set(p.id, asUserPlaylist(p)));
+            localPls.forEach((p) => map.set(p.id, p));
+            return Array.from(map.values());
+          });
+        }
+
+        if (!isCancelled) setHydratedUid(user.uid);
+      } catch (err) {
+        // Read failed. Leave the gate shut so local data cannot overwrite the
+        // cloud, and tell the user instead of failing silently.
+        if (isCancelled) return;
+        console.error('Cloud hydration failed; cloud writes stay disabled.', err);
+        showToastRef.current?.(
+          'Could not load your cloud library. Cloud saving is paused to protect it.',
+          'error'
+        );
       }
-    });
+    })();
 
     return () => {
       isCancelled = true;
     };
   }, [user]);
 
-  // ---- Persist to localStorage & Firestore ----
+  // ---- Persist to localStorage (always) ----
   useEffect(() => {
     localStorage.setItem('auralis_favorites', JSON.stringify(favorites));
-    if (user) {
-      saveFavoritesToCloud(favorites);
-    }
-  }, [favorites, user]);
+  }, [favorites]);
 
   useEffect(() => {
     localStorage.setItem('auralis_playlists', JSON.stringify(playlists));
-    if (user) {
-      savePlaylistsToCloud(playlists);
-    }
-  }, [playlists, user]);
+  }, [playlists]);
+
+  // ---- Persist to Firestore (only after successful hydration) ----
+  useEffect(() => {
+    if (!user || hydratedUid !== user.uid) return;
+    saveFavoritesToCloud(favorites);
+  }, [favorites, user, hydratedUid]);
+
+  useEffect(() => {
+    if (!user || hydratedUid !== user.uid) return;
+    savePlaylistsToCloud(playlists);
+  }, [playlists, user, hydratedUid]);
 
   useEffect(() => {
     localStorage.setItem('auralis_volume', volume.toString());
   }, [volume]);
+
+  useEffect(() => {
+    localStorage.setItem('auralis_playback_rate', String(playbackRate));
+  }, [playbackRate]);
+
+  // Persist the sleep deadline so a reload can resume the same countdown.
+  useEffect(() => {
+    if (sleepDeadline === null) localStorage.removeItem('auralis_sleep_deadline');
+    else localStorage.setItem('auralis_sleep_deadline', String(sleepDeadline));
+  }, [sleepDeadline]);
 
   useEffect(() => {
     localStorage.setItem('auralis_settings', JSON.stringify(settings));
@@ -337,6 +473,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     localStorage.setItem('auralis_history', JSON.stringify(history.slice(0, 50)));
   }, [history]);
+
+  // ---- Persist the queue so it survives a reload ----
+  useEffect(() => {
+    const payload: StoredQueue = { tracks: queue, index: queueIndex, currentTrack };
+    try {
+      saveStoredQueue(payload);
+    } catch (err) {
+      // A very large imported playlist can exceed the storage quota. Playback
+      // continues, but the failure is logged rather than swallowed: otherwise
+      // the queue would silently stop persisting with no way to tell.
+      console.warn('Could not persist the playback queue.', err);
+    }
+  }, [queue, queueIndex, currentTrack]);
 
   useEffect(() => {
     savePlayCounts(playCounts);
@@ -350,6 +499,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
   }, []);
+
+  // Keep the ref in sync so earlier effects can call it.
+  showToastRef.current = showToast;
 
   // ---- Play Count Accessors ----
   const getTopTracks = useCallback(
@@ -398,6 +550,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               pendingTrackRef.current = null;
               event.target.loadVideoById({ videoId: tr.id, startSeconds: 0 });
               event.target.playVideo();
+              loadedVideoIdRef.current = tr.id;
               setIsPlaying(true);
             }
           },
@@ -407,6 +560,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               setIsLoadingAudio(false);
               const dur = event.target.getDuration();
               if (dur && dur > 0) setDuration(dur);
+              // YouTube resets the rate to 1 whenever a new video loads, so
+              // re-apply the user's chosen speed each time playback begins.
+              if (typeof event.target.setPlaybackRate === 'function') {
+                try { event.target.setPlaybackRate(playbackRateRef.current); } catch {}
+              }
             } else if (event.data === 2) {
               setIsPlaying(false);
               setIsLoadingAudio(false);
@@ -506,20 +664,35 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .finally(() => setIsLoadingLyrics(false));
   }, [currentTrack?.id]);
 
-  // Sleep timer countdown
+  // Sleep timer countdown — driven by the absolute deadline, so it stays correct
+  // across background throttling and reloads. It also re-checks the moment the tab
+  // becomes visible again, catching the common case where the WebView froze the
+  // interval while backgrounded and the deadline passed in the meantime.
   useEffect(() => {
-    if (sleepTimerRemaining === null || sleepTimerRemaining <= 0) return;
-    const timer = setInterval(() => {
-      setSleepTimerRemaining((prev) => {
-        if (prev === null || prev <= 1) {
-          pause();
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [sleepTimerRemaining]);
+    if (sleepDeadline === null) return;
+
+    const check = () => {
+      const remaining = Math.ceil((sleepDeadline - Date.now()) / 1000);
+      if (remaining <= 0) {
+        pause();
+        setSleepDeadline(null);
+        setSleepTimerRemaining(null);
+      } else {
+        setSleepTimerRemaining(remaining);
+      }
+    };
+
+    check(); // sync immediately on set / restore / dependency change
+    const timer = setInterval(check, 1000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [sleepDeadline]);
 
   const handleTrackEnded = () => {
     if (repeatMode === 'one') {
@@ -533,6 +706,28 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   // ---- Playback Controls ----
+
+  /**
+   * Hand a track to the YouTube player and start it.
+   *
+   * Split out of `playTrack` so the cold-start path in `togglePlay` can reuse it
+   * without re-recording history. If the iframe API has not finished loading the
+   * track is parked in `pendingTrackRef` and the onReady handler picks it up.
+   */
+  const loadAndPlay = (track: Track) => {
+    if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+      try {
+        playerRef.current.loadVideoById({ videoId: track.id, startSeconds: 0 });
+        playerRef.current.playVideo();
+        loadedVideoIdRef.current = track.id;
+      } catch (err) {
+        console.error('Error loading video:', err);
+      }
+    } else {
+      pendingTrackRef.current = track;
+    }
+  };
+
   const playTrack = (track: Track, newQueue?: Track[]) => {
     // Add current track to history
     if (currentTrack) {
@@ -562,21 +757,34 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
 
-    if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-      try {
-        playerRef.current.loadVideoById({ videoId: track.id, startSeconds: 0 });
-        playerRef.current.playVideo();
-      } catch (err) {
-        console.error('Error loading video:', err);
-      }
-    } else {
-      pendingTrackRef.current = track;
-    }
+    loadAndPlay(track);
+  };
+
+  /**
+   * Start the restored track from the beginning.
+   *
+   * After a reload the track came back from storage but the player has never
+   * been given a video, so `playVideo()` would do nothing while the UI flipped
+   * to "playing". Loading it first is what makes the restored state real.
+   */
+  const startFromCold = (track: Track) => {
+    setCurrentTime(0);
+    setIsPlaying(true);
+    setIsLoadingAudio(true);
+    setPlayCounts((prev) => recordPlay(prev, track));
+    loadAndPlay(track);
   };
 
   const togglePlay = () => {
+    if (!currentTrack) return;
+
+    if (!isPlaying && loadedVideoIdRef.current !== currentTrack.id) {
+      startFromCold(currentTrack);
+      return;
+    }
+
     if (!playerRef.current) {
-      if (currentTrack) playTrack(currentTrack);
+      playTrack(currentTrack);
       return;
     }
     try {
@@ -600,6 +808,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const resume = () => {
+    if (!currentTrack) return;
+    // Same cold-start rule as togglePlay: with nothing loaded, reporting
+    // playback would be a lie, so load the track instead.
+    if (loadedVideoIdRef.current !== currentTrack.id) {
+      startFromCold(currentTrack);
+      return;
+    }
     if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
       try { playerRef.current.playVideo(); } catch {}
     }
@@ -607,6 +822,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const seekTo = (seconds: number) => {
+    // Nothing is loaded straight after a reload, so a seek would move the
+    // progress bar while the audio stayed where it was. Refuse instead.
+    if (!currentTrack || loadedVideoIdRef.current !== currentTrack.id) return;
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
       try {
         playerRef.current.seekTo(seconds, true);
@@ -668,6 +886,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRepeatMode((prev) => (prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'));
   };
 
+  // Change playback speed. Clamped to the supported set so the control and the
+  // real player rate can never disagree; applied immediately and also re-applied
+  // on each new track load by the onStateChange handler.
+  const setPlaybackRate = (rate: number) => {
+    const next = PLAYBACK_RATES.includes(rate) ? rate : 1;
+    setPlaybackRateState(next);
+    if (playerRef.current && typeof playerRef.current.setPlaybackRate === 'function') {
+      try { playerRef.current.setPlaybackRate(next); } catch {}
+    }
+  };
+
   const toggleShuffle = () => {
     setIsShuffle((prev) => !prev);
   };
@@ -687,56 +916,80 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
-  const createPlaylist = (title: string, description?: string) => {
+  const createPlaylist = (title: string, description?: string, initialTracks?: Track[]): Playlist => {
     const newPl: Playlist = {
-      id: `pl-${Date.now()}`,
+      // The random suffix avoids a collision if two playlists are created inside
+      // the same millisecond, which the previous `pl-${Date.now()}` allowed.
+      id: `pl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title,
       description,
-      tracks: [],
+      tracks: initialTracks ? [...initialTracks] : [],
       createdAt: Date.now(),
+      // Marks the playlist as the user's own, which is what enables the delete
+      // and remove-track controls in LibraryView. Omitting this was the reason a
+      // playlist created in the app could never be deleted.
+      isCustom: true,
     };
     setPlaylists((prev) => [...prev, newPl]);
     showToast(`Playlist "${title}" created`, 'success');
+    return newPl;
   };
 
+  // Reads the target from the current `playlists` value rather than from inside
+  // the state updater, so the toast is not a side effect of rendering and cannot
+  // fire twice under React's double-invoked updaters in development.
   const addToPlaylist = (playlistId: string, track: Track) => {
+    const target = playlists.find((pl) => pl.id === playlistId);
+    if (!target) {
+      showToast('That playlist no longer exists', 'error');
+      return;
+    }
+    if (target.tracks.some((t) => t.id === track.id)) {
+      showToast(`Already in "${target.title}"`, 'info');
+      return;
+    }
     setPlaylists((prev) =>
-      prev.map((pl) => {
-        if (pl.id === playlistId) {
-          if (pl.tracks.some((t) => t.id === track.id)) return pl;
-          showToast(`Added to "${pl.title}"`, 'success');
-          return { ...pl, tracks: [...pl.tracks, track] };
-        }
-        return pl;
-      })
+      prev.map((pl) => (pl.id === playlistId ? { ...pl, tracks: [...pl.tracks, track] } : pl))
     );
+    showToast(`Added to "${target.title}"`, 'success');
   };
 
   const removeFromPlaylist = (playlistId: string, trackId: string) => {
+    const target = playlists.find((pl) => pl.id === playlistId);
+    if (!target || !target.tracks.some((t) => t.id === trackId)) return;
+
     setPlaylists((prev) =>
-      prev.map((pl) => {
-        if (pl.id === playlistId) {
-          return { ...pl, tracks: pl.tracks.filter((t) => t.id !== trackId) };
-        }
-        return pl;
-      })
+      prev.map((pl) =>
+        pl.id === playlistId ? { ...pl, tracks: pl.tracks.filter((t) => t.id !== trackId) } : pl
+      )
+    );
+    showToast(`Removed from "${target.title}"`, 'info');
+  };
+
+  // Reorder tracks within a playlist. Uses the same positional move helper as the
+  // queue so the two behave identically; a missing playlist is simply ignored.
+  const reorderPlaylist = (playlistId: string, from: number, to: number) => {
+    setPlaylists((prev) =>
+      prev.map((pl) =>
+        pl.id === playlistId ? { ...pl, tracks: moveItem(pl.tracks, from, to) } : pl
+      )
     );
   };
 
   const importPlaylistToState = (playlist: Playlist) => {
     setPlaylists((prev) => {
       const filtered = prev.filter((p) => p.id !== playlist.id);
-      return [...filtered, playlist];
+      return [...filtered, asUserPlaylist(playlist)];
     });
     showToast(`Imported "${playlist.title}" (${playlist.tracks.length} songs)`, 'success');
   };
 
   const deletePlaylist = (playlistId: string) => {
-    setPlaylists((prev) => {
-      const pl = prev.find((p) => p.id === playlistId);
-      if (pl) showToast(`Deleted "${pl.title}"`, 'info');
-      return prev.filter((p) => p.id !== playlistId);
-    });
+    const target = playlists.find((p) => p.id === playlistId);
+    if (!target) return;
+
+    setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
+    showToast(`Deleted "${target.title}"`, 'info');
   };
 
   const addToQueue = (track: Track) => {
@@ -744,15 +997,34 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showToast('Added to queue', 'success');
   };
 
+  // Removing a queue entry has to move `queueIndex` with it, or the index would
+  // keep pointing at whatever track slid into that position — the old inline
+  // filter left the index untouched, so deleting anything above the current
+  // track made next/prev jump to the wrong song. The rules live in queueOps.
   const removeFromQueue = (index: number) => {
-    setQueue((prev) => prev.filter((_, idx) => idx !== index));
+    const result = removeAt(queue, queueIndex, index);
+    setQueue(result.tracks);
+    setQueueIndex(result.index);
+  };
+
+  // Reorder the up-next queue (e.g. drag or move-up/down), keeping the currently
+  // playing track under the index so playback and next/prev stay correct.
+  const reorderQueue = (from: number, to: number) => {
+    const result = reorderQueueTracks(queue, queueIndex, from, to);
+    setQueue(result.tracks);
+    setQueueIndex(result.index);
   };
 
   const clearQueue = () => {
+    // The current track stays so playback is not cut off. With nothing playing
+    // the queue is emptied outright: the previous version left it untouched
+    // while still reporting "Queue cleared".
     if (currentTrack) {
       setQueue([currentTrack]);
-      setQueueIndex(0);
+    } else {
+      setQueue([]);
     }
+    setQueueIndex(0);
     showToast('Queue cleared', 'info');
   };
 
@@ -760,9 +1032,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const setSleepTimer = (minutes: number | null) => {
     if (minutes === null) {
+      setSleepDeadline(null);
       setSleepTimerRemaining(null);
       showToast('Sleep timer cancelled', 'info');
     } else {
+      setSleepDeadline(Date.now() + minutes * 60 * 1000);
       setSleepTimerRemaining(minutes * 60);
       showToast(`Sleep timer set for ${minutes} minutes`, 'success');
     }
@@ -781,6 +1055,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         duration,
         volume,
         isMuted,
+        playbackRate,
         repeatMode,
         isShuffle,
         isLoadingAudio,
@@ -804,6 +1079,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         createPlaylist,
         addToPlaylist,
         removeFromPlaylist,
+        reorderPlaylist,
         importPlaylistToState,
         deletePlaylist,
         getTopTracks,
@@ -818,10 +1094,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         prevTrack,
         setVolume,
         toggleMute,
+        setPlaybackRate,
         toggleRepeat,
         toggleShuffle,
         addToQueue,
         removeFromQueue,
+        reorderQueue,
         clearQueue,
         sleepTimerRemaining,
         setSleepTimer,

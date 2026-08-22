@@ -1,4 +1,4 @@
-package com.metrolist.music;
+package com.auralis.music;
 
 import com.getcapacitor.BridgeActivity;
 

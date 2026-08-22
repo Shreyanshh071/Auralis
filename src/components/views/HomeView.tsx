@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
-import { searchYouTube, CURATED_TRACKS } from '../../services/youtube';
+import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import type { Track } from '../../types/music';
 import {
   History,
@@ -14,7 +14,11 @@ import {
   Heart,
   Music2,
   Flame,
+  AlertTriangle,
+  RefreshCw,
+  X,
 } from 'lucide-react';
+import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
 interface HomeViewProps {
   onSelectGenre: (genreQuery: string) => void;
@@ -47,8 +51,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
 
   const [activeChip, setActiveChip] = useState<string>('all');
   const [speedDialPage, setSpeedDialPage] = useState<number>(0);
-  const [recommendedTracks, setRecommendedTracks] = useState<Track[]>(CURATED_TRACKS);
+  const [recommendedTracks, setRecommendedTracks] = useState<Track[]>([]);
   const [isLoadingRecs, setIsLoadingRecs] = useState<boolean>(false);
+  /** Set when the recommendation search could not reach any provider. */
+  const [recsError, setRecsError] = useState<string | null>(null);
+  /** Bumped to re-run the recommendation effect on an explicit retry. */
+  const [recsAttempt, setRecsAttempt] = useState<number>(0);
+  /** Set when a chip / speed-dial search could not reach any provider. */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const filterChips = [
     { id: 'podcasts', name: 'Podcasts', query: 'podcasts music' },
@@ -59,40 +69,59 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
     { id: 'focus', name: 'Focus', query: 'lofi study focus beats' },
   ];
 
-  // Dynamically fetch smart recommendations based on active or recently played music
+  // Fetch recommendations based on the active or most recently played artist.
+  //
+  // There is deliberately no hardcoded fallback list here. If no provider can be
+  // reached the section shows a real error with a retry; if a provider answers with
+  // nothing the section shows a real empty state.
   useEffect(() => {
+    let cancelled = false;
+
     const fetchDynamicRecommendations = async () => {
       const activeArtist = currentTrack?.artist || (history.length > 0 ? history[0].artist : null);
       if (!activeArtist) {
-        setRecommendedTracks(CURATED_TRACKS);
+        setRecommendedTracks([]);
+        setRecsError(null);
+        setIsLoadingRecs(false);
         return;
       }
 
       setIsLoadingRecs(true);
+      setRecsError(null);
       try {
         const cleanArtist = activeArtist.split(',')[0].split('feat')[0].trim();
         const results = await searchYouTube(`${cleanArtist} top songs hits`);
-        if (results && results.length > 0) {
-          // Combine user's recent songs + freshly fetched recommendations, deduplicated
-          const merged: Track[] = [];
-          if (currentTrack) merged.push(currentTrack);
-          history.slice(0, 3).forEach((t) => {
-            if (!merged.some((m) => m.id === t.id)) merged.push(t);
-          });
-          results.forEach((t) => {
-            if (!merged.some((m) => m.id === t.id)) merged.push(t);
-          });
-          setRecommendedTracks(merged.slice(0, 8));
-        }
+        if (cancelled) return;
+
+        // Combine the user's recent songs + freshly fetched recommendations,
+        // deduplicated. `results` may legitimately be empty.
+        const merged: Track[] = [];
+        if (currentTrack) merged.push(currentTrack);
+        history.slice(0, 3).forEach((t) => {
+          if (!merged.some((m) => m.id === t.id)) merged.push(t);
+        });
+        results.forEach((t) => {
+          if (!merged.some((m) => m.id === t.id)) merged.push(t);
+        });
+        setRecommendedTracks(merged.slice(0, 8));
       } catch (err) {
-        console.warn('Could not fetch recommendations, using curated tracks', err);
+        if (cancelled) return;
+        setRecommendedTracks([]);
+        setRecsError(
+          err instanceof SearchUnavailableError
+            ? 'Search is unavailable right now, so recommendations could not be loaded.'
+            : 'Recommendations could not be loaded.'
+        );
       } finally {
-        setIsLoadingRecs(false);
+        if (!cancelled) setIsLoadingRecs(false);
       }
     };
 
     fetchDynamicRecommendations();
-  }, [currentTrack?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.id, recsAttempt]);
 
   // ---- Speed Dial: driven by real play counts ----
   const topTracks = getTopTracks(24);
@@ -144,21 +173,46 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
   const speedDialPages = buildSpeedDialPages();
   const currentSpeedDialItems = speedDialPages[speedDialPage] || [];
 
+  const describeSearchFailure = (err: unknown) =>
+    err instanceof SearchUnavailableError
+      ? 'Search is unavailable right now. Check your connection and try again.'
+      : 'That search failed. Please try again.';
+
   const handleSpeedDialClick = async (item: SpeedDialItem) => {
     if (item.type === 'track' && item.track) {
       playTrack(item.track);
-    } else if (item.type === 'artist' && item.artistQuery) {
-      const tracks = await searchYouTube(`${item.artistQuery} top songs`);
-      if (tracks.length > 0) playTrack(tracks[0], tracks);
-    } else {
-      setActiveView('explore');
+      return;
     }
+    if (item.type === 'artist' && item.artistQuery) {
+      setActionError(null);
+      try {
+        const tracks = await searchYouTube(`${item.artistQuery} top songs`);
+        if (tracks.length > 0) {
+          playTrack(tracks[0], tracks);
+        } else {
+          setActionError(`No songs found for ${item.artistQuery}.`);
+        }
+      } catch (err) {
+        setActionError(describeSearchFailure(err));
+      }
+      return;
+    }
+    setActiveView('explore');
   };
 
-  const handleChipClick = async (chip: { id: string; query: string }) => {
+  const handleChipClick = async (chip: { id: string; name?: string; query: string }) => {
     setActiveChip(chip.id);
-    const tracks = await searchYouTube(chip.query);
-    if (tracks.length > 0) playTrack(tracks[0], tracks);
+    setActionError(null);
+    try {
+      const tracks = await searchYouTube(chip.query);
+      if (tracks.length > 0) {
+        playTrack(tracks[0], tracks);
+      } else {
+        setActionError(`No songs found for “${chip.name ?? chip.query}”.`);
+      }
+    } catch (err) {
+      setActionError(describeSearchFailure(err));
+    }
   };
 
   const formatDuration = (secs: number) => {
@@ -219,7 +273,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
         })}
       </div>
 
-      {/* Speed Dial Section */}
+      {/* Real failure notice for chip / speed-dial searches. Not shown otherwise. */}
+      {actionError && (
+        <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#2a1c14] border border-[#4a2f1e] text-[#f0d9c4]">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-[#e2a06a]" />
+          <p className="text-xs leading-relaxed flex-1">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="p-0.5 rounded-full hover:bg-white/10 transition flex-shrink-0"
+            title="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-display font-bold text-lg text-[#dce7b5] tracking-wide">
@@ -382,6 +450,43 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
             <div className="w-4 h-4 rounded-full border-2 border-[#dbe7b5]/30 border-t-[#dbe7b5] animate-spin" />
             <span>Finding recommendations...</span>
           </div>
+        ) : recsError ? (
+          /* ---- Real error state: provider unreachable ---- */
+          <div className="flex flex-col items-center justify-center py-8 px-6 rounded-2xl bg-[#141810] border border-[#2d2318] text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-[#2a1c14] border border-[#4a2f1e] flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-[#e2a06a]" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-[#dbe7b5]">Couldn’t load recommendations</h3>
+              <p className="text-xs text-[#8f9b75] mt-1 max-w-xs">{recsError}</p>
+            </div>
+            <button
+              onClick={() => setRecsAttempt((n) => n + 1)}
+              className="mt-1 px-5 py-2 rounded-full bg-[#dbe7b5] text-[#14190c] text-xs font-bold hover:bg-[#c9d79e] transition flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : recommendedTracks.length === 0 ? (
+          /* ---- Real empty state: nothing to recommend yet ---- */
+          <div className="flex flex-col items-center justify-center py-8 px-6 rounded-2xl bg-[#141810] border border-[#242d1a] text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-[#1e2616] border border-[#303b22] flex items-center justify-center">
+              <Music2 className="w-6 h-6 text-[#8f9b75]" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-[#dbe7b5]">No recommendations yet</h3>
+              <p className="text-xs text-[#8f9b75] mt-1 max-w-xs">
+                Play a song and Auralis will build quick picks from what you listen to.
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveView('explore')}
+              className="mt-1 px-5 py-2 rounded-full bg-[#dbe7b5] text-[#14190c] text-xs font-bold hover:bg-[#c9d79e] transition"
+            >
+              Explore Music
+            </button>
+          </div>
         ) : (
           <div className="space-y-1.5">
             {recommendedTracks.map((track) => {
@@ -435,6 +540,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
                     >
                       <Heart className={`w-4 h-4 ${favorite ? 'fill-red-500 text-red-500' : 'text-[#9ba582]'}`} />
                     </button>
+
+                    <AddToPlaylistButton
+                      track={track}
+                      className="p-2 rounded-full hover:bg-white/10 hover:text-white transition text-[#9ba582]"
+                    />
 
                     <button
                       onClick={(e) => {

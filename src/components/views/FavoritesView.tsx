@@ -1,6 +1,7 @@
 import React from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { Play, Heart, Shuffle, Music } from 'lucide-react';
+import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
 export const FavoritesView: React.FC = () => {
   const {
@@ -117,10 +118,15 @@ export const FavoritesView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 sm:gap-4">
                     <span className="text-xs font-mono text-neutral-500">
                       {formatDuration(track.duration)}
                     </span>
+
+                    <AddToPlaylistButton
+                      track={track}
+                      className="p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition"
+                    />
 
                     <button
                       onClick={(e) => {

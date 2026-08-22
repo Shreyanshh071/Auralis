@@ -87,7 +87,7 @@ export const MiniPlayer: React.FC = () => {
       className="fixed bottom-[64px] md:bottom-0 left-3 right-3 md:left-0 md:right-0 z-40 bg-[#161b12]/95 md:bg-[#0e110c]/95 backdrop-blur-2xl border border-[#2d3623] md:border-t md:border-x-0 md:border-b-0 md:border-white/[0.06] rounded-full md:rounded-none px-3 md:px-6 py-2 md:py-2.5 shadow-2xl transition-all cursor-pointer select-none"
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
-        {/* Left: Circular Artwork with Circular Progress Ring (Metrolist Style) */}
+        {/* Left: Circular Artwork with Circular Progress Ring */}
         <div className="flex items-center gap-3 min-w-0 flex-1 max-w-sm">
           <div className="relative w-11 h-11 flex-shrink-0 flex items-center justify-center">
             {/* SVG Circular Progress Bar */}

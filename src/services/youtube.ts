@@ -1,9 +1,20 @@
 import type { Track } from '../types/music';
 
 /**
- * Curated high-fidelity catalog with authentic, reliable album artwork
+ * OPTIONAL DEMO CONTENT — not search results, not recommendations.
+ *
+ * This is a fixed, hand-written list of well-known tracks. It exists only so the
+ * app can be demonstrated without a working search provider.
+ *
+ * Rules:
+ *   - MUST NOT be returned from `searchYouTube()`.
+ *   - MUST NOT be used as recommendations, quick picks, or "trending".
+ *   - MUST only ever be shown behind an explicit, user-visible "demo content" label.
+ *
+ * If a search or recommendation path fails, it must surface a real error or a real
+ * empty result — never this list.
  */
-export const CURATED_TRACKS: Track[] = [
+export const DEMO_TRACKS: Track[] = [
   {
     id: 'sBzrzS1Ag_g',
     title: 'The Less I Know The Better',
@@ -158,6 +169,8 @@ export const MOODS = [
   { id: 'party', name: 'Party & Upbeat', subtitle: 'Dance hits & club bangers', query: 'dance party club hits', color: '#f59e0b' },
 ];
 
+// Static browse categories. These are query presets for the Explore view, not
+// content — each one runs a real search when selected.
 export const GENRES = [
   { id: 'pop', name: 'Pop Hits', query: 'top pop hits music', gradient: 'from-pink-500/20 to-rose-600/20' },
   { id: 'hiphop', name: 'Hip-Hop / Rap', query: 'hip hop top rap hits', gradient: 'from-amber-500/20 to-orange-600/20' },
@@ -167,102 +180,151 @@ export const GENRES = [
   { id: 'rnb', name: 'R&B / Soul', query: 'r&b soul smooth hits', gradient: 'from-purple-500/20 to-indigo-600/20' },
 ];
 
-// Memory cache for instant instant search responses
+// Memory cache for search responses. Only non-empty result sets are cached, so a
+// zero-result or failed query is always retried rather than remembered.
 const searchCache = new Map<string, Track[]>();
 
 /**
- * Search YouTube using fast internal API with fallback to iTunes & Public Proxies
+ * Thrown when every search provider was unreachable or errored.
+ *
+ * This is deliberately distinct from "the providers worked and found nothing".
+ * Callers must be able to tell a broken backend apart from an empty result set,
+ * so the UI can show a retry affordance instead of "no results".
+ */
+export class SearchUnavailableError extends Error {
+  readonly attempted: string[];
+
+  constructor(attempted: string[]) {
+    super(
+      'No search provider could be reached. The local search endpoint only exists ' +
+        'under `vite dev`, and the public fallback instances did not respond.'
+    );
+    this.name = 'SearchUnavailableError';
+    this.attempted = attempted;
+  }
+}
+
+/** Normalise one raw Piped/Invidious item into a Track, or null if unusable. */
+function parseProviderItem(item: any): Track | null {
+  const videoId = item.url ? String(item.url).replace('/watch?v=', '') : item.videoId || item.id;
+  if (!videoId || typeof videoId !== 'string' || videoId.length < 5) return null;
+
+  const rawTitle = item.title || 'Untitled Track';
+  const uploader = item.uploaderName || item.author || 'Unknown artist';
+
+  let artist = uploader;
+  let title = rawTitle;
+  if (rawTitle.includes(' - ')) {
+    const parts = rawTitle.split(' - ');
+    artist = parts[0].trim();
+    title = parts.slice(1).join(' - ').trim();
+  }
+
+  const rawDuration = item.duration ?? (item.lengthSeconds ? Number(item.lengthSeconds) : undefined);
+  const duration = typeof rawDuration === 'number' && rawDuration > 0 ? rawDuration : 0;
+
+  return {
+    id: videoId,
+    title,
+    artist,
+    duration,
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    source: 'youtube',
+  };
+}
+
+/**
+ * Search for tracks.
+ *
+ * Resolution rules — there is no hardcoded fallback:
+ *   - Empty query                         → `[]`
+ *   - A provider responded with results   → those results
+ *   - A provider responded with nothing   → `[]` (genuine "no results")
+ *   - Every provider failed / timed out   → throws `SearchUnavailableError`
+ *
+ * Known limitation: the primary endpoint (`/api/youtube-search`) is registered by a
+ * Vite `configureServer` middleware, so it exists only while running `vite dev`. In a
+ * production web build or the Capacitor Android build it is absent and this function
+ * depends entirely on the public fallback instances below.
  */
 export async function searchYouTube(query: string): Promise<Track[]> {
   const cleanQ = query.trim();
-  if (!cleanQ) return CURATED_TRACKS.slice(0, 8);
+  if (!cleanQ) return [];
 
   const cacheKey = cleanQ.toLowerCase();
-  if (searchCache.has(cacheKey)) {
-    return searchCache.get(cacheKey)!;
-  }
+  const cached = searchCache.get(cacheKey);
+  if (cached) return cached;
 
-  // 1. Primary: Fast Internal Vite Server API (no CORS, sub-200ms)
+  const attempted: string[] = [];
+  let anyProviderResponded = false;
+
+  // 1. Primary: local dev-server middleware (dev only — see note above).
+  const localEndpoint = `/api/youtube-search?q=${encodeURIComponent(cleanQ)}`;
+  attempted.push(localEndpoint);
   try {
-    const res = await fetch(`/api/youtube-search?q=${encodeURIComponent(cleanQ)}`, {
-      signal: AbortSignal.timeout(3500),
-    });
+    const res = await fetch(localEndpoint, { signal: AbortSignal.timeout(3500) });
     if (res.ok) {
       const data = await res.json();
-      if (data && Array.isArray(data.results) && data.results.length > 0) {
-        searchCache.set(cacheKey, data.results);
-        return data.results;
+      if (data && Array.isArray(data.results)) {
+        // The middleware also answers 200 + `[]` on its own internal errors, so an
+        // empty response here is not authoritative. Fall through to the public
+        // providers instead of reporting "no results".
+        if (data.results.length > 0) {
+          searchCache.set(cacheKey, data.results);
+          return data.results;
+        }
       }
     }
-  } catch {}
+  } catch {
+    // Unreachable (expected outside `vite dev`) — try the public providers.
+  }
 
-  // 2. Fallback: Fast public Invidious instances with strict 1500ms timeout
+  // 2. Fallback: public Piped / Invidious instances.
   const instances = [
     `https://pipedapi.leptons.xyz/search?q=${encodeURIComponent(cleanQ)}&filter=music_songs`,
     `https://invidious.jing.rocks/api/v1/search?q=${encodeURIComponent(cleanQ)}&type=video`,
   ];
 
   for (const endpoint of instances) {
+    attempted.push(endpoint);
     try {
       const res = await fetch(endpoint, {
         headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(1500),
+        signal: AbortSignal.timeout(6000),
       });
+      if (!res.ok) continue;
 
-      if (res.ok) {
-        const data = await res.json();
-        const items = data.items || data || [];
+      const data = await res.json();
+      const items = data.items || data || [];
+      if (!Array.isArray(items)) continue;
 
-        if (Array.isArray(items) && items.length > 0) {
-          const results: Track[] = [];
-          for (const item of items) {
-            const videoId = item.url ? item.url.replace('/watch?v=', '') : item.videoId || item.id;
-            if (!videoId || typeof videoId !== 'string' || videoId.length < 5) continue;
+      // This instance answered with a well-formed payload.
+      anyProviderResponded = true;
 
-            const rawTitle = item.title || 'Untitled Track';
-            const uploader = item.uploaderName || item.author || 'YouTube Artist';
-
-            let artist = uploader;
-            let title = rawTitle;
-
-            if (rawTitle.includes(' - ')) {
-              const parts = rawTitle.split(' - ');
-              artist = parts[0].trim();
-              title = parts.slice(1).join(' - ').trim();
-            }
-
-            const duration = item.duration || (item.lengthSeconds ? Number(item.lengthSeconds) : 200);
-            const thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-            results.push({
-              id: videoId,
-              title,
-              artist,
-              duration: typeof duration === 'number' ? duration : 200,
-              thumbnail,
-              source: 'youtube',
-            });
-
-            if (results.length >= 15) break;
-          }
-
-          if (results.length > 0) {
-            searchCache.set(cacheKey, results);
-            return results;
-          }
-        }
+      const results: Track[] = [];
+      for (const item of items) {
+        const track = parseProviderItem(item);
+        if (track) results.push(track);
+        if (results.length >= 25) break;
       }
-    } catch {}
+
+      if (results.length > 0) {
+        searchCache.set(cacheKey, results);
+        return results;
+      }
+      // Well-formed but empty — keep trying the remaining instances before
+      // concluding there are genuinely no results.
+    } catch {
+      // This instance is unreachable; try the next.
+    }
   }
 
-  // 3. Fallback to matching curated catalog
-  const q = cleanQ.toLowerCase();
-  const matched = CURATED_TRACKS.filter(
-    (t) => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)
-  );
+  if (anyProviderResponded) {
+    // At least one provider answered and none had matches: a real empty result.
+    return [];
+  }
 
-  const fallback = matched.length > 0 ? matched : CURATED_TRACKS.slice(0, 8);
-  searchCache.set(cacheKey, fallback);
-  return fallback;
+  throw new SearchUnavailableError(attempted);
 }
+
 

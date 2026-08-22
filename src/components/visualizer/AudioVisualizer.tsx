@@ -80,9 +80,17 @@ export const AudioVisualizer: React.FC = () => {
       <div className="w-full max-w-3xl h-64 relative flex items-center justify-center">
         <canvas ref={canvasRef} className="w-full h-full" />
       </div>
-      <div className="text-center mt-4">
-        <p className="text-sm font-semibold text-neutral-300">Fluid Harmonic Visualizer</p>
-        <p className="text-xs text-neutral-500">Synchronized to active audio stream</p>
+      <div className="text-center mt-4 space-y-1">
+        <p className="text-sm font-semibold text-neutral-300">Ambient Motion</p>
+        {/*
+          Truthful caption. These bars are generated from sine waves and the play/pause
+          state — they are NOT frequency analysis of the audio. Playback runs through a
+          cross-origin YouTube IFrame player, so no MediaElementAudioSourceNode can be
+          attached and real spectrum data is not available to this app.
+        */}
+        <p className="text-xs text-neutral-500">
+          Decorative animation driven by playback state, not audio analysis
+        </p>
       </div>
     </div>
   );

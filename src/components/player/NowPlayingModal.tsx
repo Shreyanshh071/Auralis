@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { usePlayer } from '../../context/PlayerContext';
+import { usePlayer, PLAYBACK_RATES } from '../../context/PlayerContext';
 import { SyncedLyrics } from '../lyrics/SyncedLyrics';
 import { AudioVisualizer } from '../visualizer/AudioVisualizer';
 import {
   ChevronDown,
+  ChevronUp,
   Heart,
   Shuffle,
   SkipBack,
@@ -21,6 +22,7 @@ import {
   Mic2,
   Radio,
 } from 'lucide-react';
+import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
 export const NowPlayingModal: React.FC = () => {
   const {
@@ -46,11 +48,14 @@ export const NowPlayingModal: React.FC = () => {
     queueIndex,
     playTrack,
     removeFromQueue,
+    reorderQueue,
     clearQueue,
     volume,
     setVolume,
     isMuted,
     toggleMute,
+    playbackRate,
+    setPlaybackRate,
     dominantColor,
     sleepTimerRemaining,
     setSleepTimer,
@@ -72,6 +77,29 @@ export const NowPlayingModal: React.FC = () => {
   const displayTime = isScrubbing ? scrubTime : currentTime;
   const progressPercent = duration > 0 ? (displayTime / duration) * 100 : 0;
   const favorite = isFavorite(currentTrack.id);
+
+  // Step through the supported speeds, wrapping back to the slowest. Rates the
+  // player can't honour are impossible here because the list is the same one the
+  // context clamps to.
+  const cyclePlaybackRate = () => {
+    const i = PLAYBACK_RATES.indexOf(playbackRate);
+    const next = PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length];
+    setPlaybackRate(next);
+  };
+
+  /**
+   * Exactly one tab may render in the right-hand panel.
+   *
+   * The previous conditions OR-ed `mobileTab` with `activeModalTab`, so on a phone
+   * with the Queue tab selected while `activeModalTab` was still 'lyrics', both the
+   * lyrics view and the queue rendered stacked inside the same panel. Deriving a
+   * single value makes that impossible.
+   *
+   * The mobile tab bar owns the panel whenever it is off 'player'; otherwise the
+   * desktop tab selection applies.
+   */
+  const panelTab: 'lyrics' | 'queue' | 'visualizer' | 'info' =
+    mobileTab !== 'player' ? mobileTab : activeModalTab;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0e110c] overflow-hidden select-none animate-in fade-in duration-200">
@@ -168,6 +196,18 @@ export const NowPlayingModal: React.FC = () => {
         {/* Sleep Timer Tool */}
         <div className="flex items-center gap-2">
           <button
+            onClick={cyclePlaybackRate}
+            className={`px-2.5 py-1.5 rounded-full text-xs font-bold tabular-nums text-center min-w-[2.9rem] transition ${
+              playbackRate !== 1
+                ? 'bg-[#27301c] text-[#dbe7b5]'
+                : 'hover:bg-white/10 text-[#a2ad87] hover:text-white'
+            }`}
+            title="Playback speed"
+            aria-label={`Playback speed ${playbackRate}x, tap to change`}
+          >
+            {playbackRate}&times;
+          </button>
+          <button
             onClick={() => setShowSleepModal(!showSleepModal)}
             className={`p-2 rounded-full transition relative ${
               sleepTimerRemaining !== null
@@ -252,16 +292,25 @@ export const NowPlayingModal: React.FC = () => {
                 </p>
               </div>
 
-              <button
-                onClick={() => toggleFavorite(currentTrack)}
-                className="p-2.5 rounded-full hover:bg-white/10 transition flex-shrink-0"
-              >
-                <Heart
-                  className={`w-6 h-6 ${
-                    favorite ? 'fill-rose-500 text-rose-500' : 'text-[#9ba582] hover:text-white'
-                  }`}
+              <div className="flex items-center flex-shrink-0">
+                <AddToPlaylistButton
+                  track={currentTrack}
+                  className="p-2.5 rounded-full hover:bg-white/10 transition text-[#9ba582] hover:text-white"
+                  iconClassName="w-6 h-6"
                 />
-              </button>
+
+                <button
+                  onClick={() => toggleFavorite(currentTrack)}
+                  className="p-2.5 rounded-full hover:bg-white/10 transition"
+                  title={favorite ? 'Remove from Liked' : 'Add to Liked'}
+                >
+                  <Heart
+                    className={`w-6 h-6 ${
+                      favorite ? 'fill-rose-500 text-rose-500' : 'text-[#9ba582] hover:text-white'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
             {/* Scrubber */}
@@ -385,9 +434,9 @@ export const NowPlayingModal: React.FC = () => {
             mobileTab !== 'player' ? 'flex' : 'hidden lg:flex'
           } lg:col-span-7 h-full flex-col rounded-3xl bg-[#14190f]/90 border border-[#27301c] overflow-hidden`}
         >
-          {((mobileTab === 'lyrics') || (activeModalTab === 'lyrics')) && <SyncedLyrics />}
+          {panelTab === 'lyrics' && <SyncedLyrics />}
 
-          {((mobileTab === 'queue') || (activeModalTab === 'queue')) && (
+          {panelTab === 'queue' && (
             <div className="flex flex-col h-full overflow-hidden">
               <div className="flex items-center justify-between p-4 sm:p-5 border-b border-white/[0.04]">
                 <div>
@@ -442,16 +491,43 @@ export const NowPlayingModal: React.FC = () => {
                           {formatTime(track.duration)}
                         </span>
                         {queue.length > 1 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeFromQueue(idx);
-                            }}
-                            className="p-1.5 rounded-lg text-[#8a9573] hover:text-rose-400 transition"
-                            title="Remove from queue"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                reorderQueue(idx, idx - 1);
+                              }}
+                              disabled={idx === 0}
+                              className="p-1.5 rounded-lg text-[#8a9573] hover:text-[#dbe7b5] transition disabled:opacity-30 disabled:pointer-events-none"
+                              title="Move up"
+                              aria-label="Move up in queue"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                reorderQueue(idx, idx + 1);
+                              }}
+                              disabled={idx === queue.length - 1}
+                              className="p-1.5 rounded-lg text-[#8a9573] hover:text-[#dbe7b5] transition disabled:opacity-30 disabled:pointer-events-none"
+                              title="Move down"
+                              aria-label="Move down in queue"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFromQueue(idx);
+                              }}
+                              className="p-1.5 rounded-lg text-[#8a9573] hover:text-rose-400 transition"
+                              title="Remove from queue"
+                              aria-label="Remove from queue"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -461,7 +537,7 @@ export const NowPlayingModal: React.FC = () => {
             </div>
           )}
 
-          {((mobileTab === 'visualizer') || (activeModalTab === 'visualizer')) && <AudioVisualizer />}
+          {panelTab === 'visualizer' && <AudioVisualizer />}
         </div>
       </div>
     </div>

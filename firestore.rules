@@ -1,0 +1,71 @@
+rules_version = '2';
+
+// Auralis Firestore security rules.
+//
+// Model: every signed-in user owns exactly one document at `users/{uid}` holding
+// their favorites and playlists. Nothing else is readable or writable.
+//
+// Deploy with:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Helpers ----------------------------------------------------------
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Reject documents that are too large to be a legitimate library, so a
+    // compromised client cannot use a user document as bulk storage.
+    function withinSizeLimit() {
+      return request.resource.data.keys().size() <= 16
+        && (!('favorites' in request.resource.data)
+            || request.resource.data.favorites.size() <= 5000)
+        && (!('playlists' in request.resource.data)
+            || request.resource.data.playlists.size() <= 500);
+    }
+
+    function hasValidShape() {
+      return (!('favorites' in request.resource.data)
+              || request.resource.data.favorites is list)
+        && (!('playlists' in request.resource.data)
+            || request.resource.data.playlists is list)
+        && (!('updatedAt' in request.resource.data)
+            || request.resource.data.updatedAt is number)
+        && (!('favoritesUpdatedAt' in request.resource.data)
+            || request.resource.data.favoritesUpdatedAt is number)
+        && (!('playlistsUpdatedAt' in request.resource.data)
+            || request.resource.data.playlistsUpdatedAt is number)
+        && (!('schemaVersion' in request.resource.data)
+            || request.resource.data.schemaVersion is int);
+    }
+
+    // ---- User library ----------------------------------------------------
+
+    match /users/{uid} {
+      // A user may only ever read their own document.
+      allow get: if isOwner(uid);
+
+      // No collection-wide listing: it would expose the set of user ids.
+      allow list: if false;
+
+      allow create, update: if isOwner(uid) && hasValidShape() && withinSizeLimit();
+
+      // Account deletion is not implemented in the client yet. Allowing the owner
+      // to delete their own document is intentional and self-limited.
+      allow delete: if isOwner(uid);
+
+      // No nested collections are used. Deny them explicitly rather than
+      // relying on the absence of a rule.
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // ---- Default deny ----------------------------------------------------
+    // Anything not matched above is inaccessible.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

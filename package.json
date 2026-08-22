@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "node scripts/test-queue-storage.mjs && node scripts/test-queue-ops.mjs && node scripts/test-lyrics-matching.mjs",
     "preview": "vite preview",
     "cap:add:android": "npx cap add android",
     "cap:sync": "npm run build && npx cap sync",
