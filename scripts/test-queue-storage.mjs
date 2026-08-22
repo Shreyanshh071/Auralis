@@ -33,6 +33,8 @@ try {
 const {
   QUEUE_STORAGE_KEY,
   PLAYLISTS_STORAGE_KEY,
+  ARTISTS_STORAGE_KEY,
+  ALBUMS_STORAGE_KEY,
   emptyStoredQueue,
   isTrackLike,
   parseStoredQueue,
@@ -41,6 +43,12 @@ const {
   asUserPlaylist,
   parseStoredPlaylists,
   loadStoredPlaylists,
+  parseStoredArtists,
+  loadStoredArtists,
+  saveStoredArtists,
+  parseStoredAlbums,
+  loadStoredAlbums,
+  saveStoredAlbums,
 } = mod;
 
 /** Minimal stand-in for window.localStorage. */
@@ -259,3 +267,49 @@ test('a playlist survives a full save and reload cycle', () => {
   );
   assert.equal(reloaded.isCustom, true);
 });
+
+test('saved artists survive parsing, validation, and storage cycles', () => {
+  const storage = fakeStorage();
+  const validArtist = {
+    id: 'UC12345678',
+    name: 'Daft Punk',
+    thumbnail: 'https://img.com/dp.jpg',
+    subscribers: '5M subscribers',
+    savedAt: 1000,
+  };
+  const malformed = [{ id: '', name: 'No ID' }, null, { id: 'ok' }, validArtist];
+
+  const parsed = parseStoredArtists(JSON.stringify(malformed));
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].name, 'Daft Punk');
+
+  saveStoredArtists([validArtist], storage);
+  const reloaded = loadStoredArtists(storage);
+  assert.equal(reloaded.length, 1);
+  assert.equal(reloaded[0].id, 'UC12345678');
+  assert.equal(reloaded[0].name, 'Daft Punk');
+});
+
+test('saved albums survive parsing, validation, and storage cycles', () => {
+  const storage = fakeStorage();
+  const validAlbum = {
+    id: 'OLAK5uy_testalbum',
+    title: 'Random Access Memories',
+    artist: 'Daft Punk',
+    thumbnail: 'https://img.com/ram.jpg',
+    trackCount: 13,
+    savedAt: 2000,
+  };
+  const malformed = [{ id: '' }, null, validAlbum];
+
+  const parsed = parseStoredAlbums(JSON.stringify(malformed));
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].title, 'Random Access Memories');
+
+  saveStoredAlbums([validAlbum], storage);
+  const reloaded = loadStoredAlbums(storage);
+  assert.equal(reloaded.length, 1);
+  assert.equal(reloaded[0].id, 'OLAK5uy_testalbum');
+  assert.equal(reloaded[0].trackCount, 13);
+});
+

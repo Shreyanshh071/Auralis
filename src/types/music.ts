@@ -11,6 +11,40 @@ export interface Track {
   color?: string; // Dominant theme color (e.g. #8b5cf6)
 }
 
+/** A channel / artist returned by a typed search. */
+export interface Artist {
+  id: string; // channel id (UC…) or a stable slug when the provider omits one
+  name: string;
+  thumbnail?: string;
+  /** Human-readable subscriber count as the provider phrased it, when present. */
+  subscribers?: string;
+  /** Search query used to open this artist ("<name> top songs"). */
+  query: string;
+}
+
+/** A playlist (or album, which YouTube models as a playlist) returned by search. */
+export interface PlaylistResult {
+  id: string; // playlist id (PL…, OLAK…, RD…)
+  title: string;
+  thumbnail?: string;
+  /** Uploader / channel that owns the playlist, when the provider reports it. */
+  author?: string;
+  /** Number of items, when the provider reports it. */
+  trackCount?: number;
+}
+
+/**
+ * Typed result of a discovery search. Each bucket holds only entities the
+ * provider actually distinguished — nothing is fabricated to fill a section.
+ * `songs` are playable streams; `artists` are channels; `playlists` includes
+ * albums (YouTube exposes albums as playlists).
+ */
+export interface SearchResults {
+  songs: Track[];
+  artists: Artist[];
+  playlists: PlaylistResult[];
+}
+
 export interface LyricWord {
   word: string;
   time: number;
@@ -20,6 +54,7 @@ export interface LyricWord {
 export interface LyricLine {
   time: number; // In seconds
   text: string;
+  translatedText?: string;
   words?: LyricWord[];
   isInstrumental?: boolean;
 }
@@ -28,11 +63,30 @@ export interface LyricsData {
   syncType: 'richsync' | 'line-sync' | 'plain';
   lines: LyricLine[];
   plainLyrics?: string;
+  translatedPlainLyrics?: string;
+  translatedLanguage?: string;
   provider: 'lrclib' | 'local' | 'youtube';
   trackName?: string;
   artistName?: string;
 }
 
+export interface SavedArtist {
+  id: string; // channel id (UC...) or stable slug
+  name: string;
+  thumbnail?: string;
+  subscribers?: string;
+  query?: string;
+  savedAt: number;
+}
+
+export interface SavedAlbum {
+  id: string; // playlist id (PL..., OLAK...)
+  title: string;
+  artist?: string;
+  thumbnail?: string;
+  trackCount?: number;
+  savedAt: number;
+}
 
 export interface Playlist {
   id: string;
@@ -47,21 +101,12 @@ export interface Playlist {
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
+export type ThemeMode = 'dark' | 'light' | 'system';
+
 export interface PlayerSettings {
   volume: number;
   isMuted: boolean;
-  // Playback speed is NOT kept here. It lives as first-class player state in
-  // PlayerContext (`playbackRate` / `setPlaybackRate`), wired directly to the
-  // YouTube IFrame `setPlaybackRate` API and re-applied on every track load,
-  // with a visible control in the now-playing view — so it is real behaviour,
-  // not an inert stored value.
-  //
-  // `audioQuality`, `ambientVisuals` and `karaokeSweep` were also removed for the
-  // same reason: each was declared, defaulted and persisted but read by nothing
-  // and exposed by no control. `audioQuality` in particular is unimplementable on
-  // the current pipeline — the YouTube IFrame quality API is deprecated and the
-  // audio is cross-origin — so any control would have been fake. Reintroduce any
-  // of these only together with real wiring and a real control.
+  theme: ThemeMode;
   lyricsFontSize: 'small' | 'medium' | 'large';
   lyricsMode: 'spicy' | 'cinema' | 'classic';
   lyricsAlignment: 'left' | 'center';

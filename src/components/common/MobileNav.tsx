@@ -17,7 +17,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ activeView, setActiveView 
   ];
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0e100c] border-t border-[#1e2316] px-2 py-1.5 flex items-center justify-around select-none">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[var(--bg-nav)] border-t border-[var(--border-subtle)] backdrop-blur-xl px-2 py-1.5 flex items-center justify-around select-none transition-colors duration-200">
       {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = activeView === item.id || (item.id === 'explore' && activeView === 'search');
@@ -25,18 +25,20 @@ export const MobileNav: React.FC<MobileNavProps> = ({ activeView, setActiveView 
           <button
             key={item.id}
             onClick={() => setActiveView(item.id)}
-            className="flex flex-col items-center gap-1 py-1 px-2 transition"
+            className="flex flex-col items-center gap-1 py-1 px-2 transition cursor-pointer"
           >
             <div
               className={`flex items-center justify-center px-4 py-1 rounded-full transition-all duration-200 ${
-                isActive ? 'bg-[#3c472a] text-[#dbe7b5]' : 'text-[#8f9b75] hover:text-[#dbe7b5]'
+                isActive
+                  ? 'bg-purple-500/15 text-purple-600 dark:bg-[#3c472a] dark:text-[#dbe7b5]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
             >
               <Icon className="w-5 h-5" />
             </div>
             <span
               className={`text-[11px] tracking-wide ${
-                isActive ? 'font-bold text-[#e1e9cc]' : 'font-medium text-[#8f9b75]'
+                isActive ? 'font-bold text-[var(--text-primary)]' : 'font-medium text-[var(--text-muted)]'
               }`}
             >
               {item.label}

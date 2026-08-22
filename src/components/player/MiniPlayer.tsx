@@ -84,7 +84,7 @@ export const MiniPlayer: React.FC = () => {
   return (
     <div
       onClick={() => setIsNowPlayingOpen(true)}
-      className="fixed bottom-[64px] md:bottom-0 left-3 right-3 md:left-0 md:right-0 z-40 bg-[#161b12]/95 md:bg-[#0e110c]/95 backdrop-blur-2xl border border-[#2d3623] md:border-t md:border-x-0 md:border-b-0 md:border-white/[0.06] rounded-full md:rounded-none px-3 md:px-6 py-2 md:py-2.5 shadow-2xl transition-all cursor-pointer select-none"
+      className="fixed bottom-[64px] md:bottom-0 left-3 right-3 md:left-0 md:right-0 z-40 bg-[var(--bg-player-bar)] backdrop-blur-2xl border border-[var(--border-medium)] md:border-t md:border-x-0 md:border-b-0 md:border-[var(--border-subtle)] rounded-full md:rounded-none px-3 md:px-6 py-2 md:py-2.5 shadow-2xl transition-all cursor-pointer select-none text-[var(--text-primary)]"
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         {/* Left: Circular Artwork with Circular Progress Ring */}
@@ -96,14 +96,14 @@ export const MiniPlayer: React.FC = () => {
                 cx="23"
                 cy="23"
                 r={radius}
-                className="stroke-[#2c3520] fill-none"
+                className="stroke-[var(--border-medium)] fill-none"
                 strokeWidth="2.5"
               />
               <circle
                 cx="23"
                 cy="23"
                 r={radius}
-                className="stroke-[#dbe7b5] fill-none transition-all duration-150"
+                className="stroke-purple-500 dark:stroke-[#dbe7b5] fill-none transition-all duration-150"
                 strokeWidth="2.5"
                 strokeDasharray={circumference}
                 strokeDashoffset={strokeDashoffset}
@@ -112,7 +112,7 @@ export const MiniPlayer: React.FC = () => {
             </svg>
 
             {/* Inner Circular Artwork */}
-            <div className="absolute inset-1 rounded-full overflow-hidden bg-neutral-900 border border-[#2b331f]">
+            <div className="absolute inset-1 rounded-full overflow-hidden bg-neutral-900 border border-[var(--border-subtle)]">
               <img
                 src={currentTrack.thumbnail}
                 alt={currentTrack.title}
@@ -141,21 +141,21 @@ export const MiniPlayer: React.FC = () => {
           </div>
 
           <div className="min-w-0 flex-1">
-            <h4 className="text-xs sm:text-sm font-bold text-[#f2f6dc] truncate">
+            <h4 className="text-xs sm:text-sm font-bold text-[var(--text-primary)] truncate">
               {currentTrack.title}
             </h4>
-            <p className="text-[11px] text-[#9ba582] truncate mt-0.5">{currentTrack.artist}</p>
+            <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{currentTrack.artist}</p>
           </div>
         </div>
 
-        {/* Mobile Quick Action Buttons (User, Plus, Heart, Play) */}
-        <div className="flex md:hidden items-center gap-2 flex-shrink-0 text-[#a2ad87]">
+        {/* Mobile Quick Action Buttons */}
+        <div className="flex md:hidden items-center gap-2 flex-shrink-0 text-[var(--text-secondary)]">
           <button
             onClick={(e) => {
               e.stopPropagation();
               togglePlay();
             }}
-            className="p-1.5 rounded-full hover:bg-white/10 text-white"
+            className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)]"
           >
             {isPlaying ? (
               <Pause className="w-4 h-4 fill-current" />
@@ -169,7 +169,7 @@ export const MiniPlayer: React.FC = () => {
               e.stopPropagation();
               openLyrics(e);
             }}
-            className="p-1.5 rounded-full hover:bg-white/10 hover:text-white"
+            className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
             title="Lyrics"
           >
             <Mic2 className="w-4 h-4" />
@@ -177,11 +177,11 @@ export const MiniPlayer: React.FC = () => {
 
           <button
             onClick={handleFavorite}
-            className="p-1.5 rounded-full hover:bg-white/10 transition"
+            className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] transition"
           >
             <Heart
               className={`w-4 h-4 ${
-                favorite ? 'fill-rose-500 text-rose-500' : 'text-[#a2ad87]'
+                favorite ? 'fill-rose-500 text-rose-500' : 'text-[var(--text-muted)]'
               }`}
             />
           </button>
@@ -195,8 +195,8 @@ export const MiniPlayer: React.FC = () => {
                 e.stopPropagation();
                 toggleShuffle();
               }}
-              className={`p-1.5 rounded-full transition ${
-                isShuffle ? 'text-[#dbe7b5]' : 'text-neutral-400 hover:text-white'
+              className={`p-1.5 rounded-full transition cursor-pointer ${
+                isShuffle ? 'text-purple-600 dark:text-[#dbe7b5]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
               title="Shuffle"
             >
@@ -208,7 +208,7 @@ export const MiniPlayer: React.FC = () => {
                 e.stopPropagation();
                 prevTrack();
               }}
-              className="p-1.5 rounded-full hover:bg-white/10 text-neutral-300 hover:text-white transition active:scale-95"
+              className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition active:scale-95 cursor-pointer"
               title="Previous"
             >
               <SkipBack className="w-4 h-4 fill-current" />
@@ -220,7 +220,7 @@ export const MiniPlayer: React.FC = () => {
                 togglePlay();
               }}
               disabled={isLoadingAudio}
-              className="p-2.5 rounded-full bg-[#dbe7b5] text-[#1a200f] hover:scale-105 active:scale-95 transition shadow flex items-center justify-center"
+              className="p-2.5 rounded-full bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#1a200f] hover:scale-105 active:scale-95 transition shadow flex items-center justify-center cursor-pointer"
               title={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
@@ -235,7 +235,7 @@ export const MiniPlayer: React.FC = () => {
                 e.stopPropagation();
                 nextTrack();
               }}
-              className="p-1.5 rounded-full hover:bg-white/10 text-neutral-300 hover:text-white transition active:scale-95"
+              className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition active:scale-95 cursor-pointer"
               title="Next"
             >
               <SkipForward className="w-4 h-4 fill-current" />
@@ -246,8 +246,8 @@ export const MiniPlayer: React.FC = () => {
                 e.stopPropagation();
                 toggleRepeat();
               }}
-              className={`p-1.5 rounded-full transition ${
-                repeatMode !== 'off' ? 'text-[#dbe7b5]' : 'text-neutral-400 hover:text-white'
+              className={`p-1.5 rounded-full transition cursor-pointer ${
+                repeatMode !== 'off' ? 'text-purple-600 dark:text-[#dbe7b5]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
               title={`Repeat: ${repeatMode}`}
             >
@@ -263,7 +263,7 @@ export const MiniPlayer: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
             className="w-full flex items-center gap-2 mt-1"
           >
-            <span className="text-[10px] font-mono text-[#8f9a76] w-7 text-right">
+            <span className="text-[10px] font-mono text-[var(--text-muted)] w-7 text-right">
               {formatTime(displayTime)}
             </span>
             <input
@@ -286,28 +286,28 @@ export const MiniPlayer: React.FC = () => {
                 setIsScrubbing(false);
                 seekTo(scrubTime);
               }}
-              className="w-full h-1 rounded-lg bg-[#272f1c] appearance-none cursor-pointer outline-none"
+              className="w-full h-1 rounded-lg bg-[var(--border-medium)] appearance-none cursor-pointer outline-none"
             />
-            <span className="text-[10px] font-mono text-[#8f9a76] w-7">
+            <span className="text-[10px] font-mono text-[var(--text-muted)] w-7">
               {formatTime(duration)}
             </span>
           </div>
         </div>
 
         {/* Desktop Right Controls */}
-        <div className="hidden md:flex items-center gap-2 flex-1 max-w-xs justify-end text-[#9ba582]">
+        <div className="hidden md:flex items-center gap-2 flex-1 max-w-xs justify-end text-[var(--text-secondary)]">
           <button
             onClick={openLyrics}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#202616] hover:bg-[#2b331f] text-[#dbe7b5] text-xs font-semibold border border-[#2f3821] transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-subtle)] transition cursor-pointer shadow-sm"
             title="Lyrics"
           >
-            <Mic2 className="w-3.5 h-3.5" />
+            <Mic2 className="w-3.5 h-3.5 text-purple-500 dark:text-[#dbe7b5]" />
             <span>Lyrics</span>
           </button>
 
           <button
             onClick={openQueue}
-            className="p-2 rounded-full hover:bg-white/10 text-[#9ba582] hover:text-white transition"
+            className="p-2 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
             title="Queue"
           >
             <ListMusic className="w-4 h-4" />
@@ -319,10 +319,10 @@ export const MiniPlayer: React.FC = () => {
           >
             <button
               onClick={toggleMute}
-              className="text-[#9ba582] hover:text-white transition"
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
             >
               {isMuted || volume === 0 ? (
-                <VolumeX className="w-4 h-4 text-neutral-500" />
+                <VolumeX className="w-4 h-4 text-[var(--text-muted)]" />
               ) : (
                 <Volume2 className="w-4 h-4" />
               )}
@@ -333,13 +333,13 @@ export const MiniPlayer: React.FC = () => {
               max={100}
               value={isMuted ? 0 : volume}
               onChange={(e) => setVolume(Number(e.target.value))}
-              className="w-20 h-1 rounded-lg bg-[#272f1c] appearance-none cursor-pointer outline-none"
+              className="w-20 h-1 rounded-lg bg-[var(--border-medium)] appearance-none cursor-pointer outline-none"
             />
           </div>
 
           <button
             onClick={() => setIsNowPlayingOpen(true)}
-            className="p-2 rounded-full hover:bg-white/10 text-[#9ba582] hover:text-white transition"
+            className="p-2 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
             title="Expand Fullscreen"
           >
             <Maximize2 className="w-4 h-4" />
