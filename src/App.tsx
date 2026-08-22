@@ -47,9 +47,9 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="relative flex h-screen w-screen bg-[#09090b] text-neutral-100 overflow-hidden font-sans">
+    <div className="relative flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden font-sans transition-colors duration-200">
       {/* Background Ambient Glow Tint based on current album artwork */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-15 transition-all duration-1000">
+      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-10 dark:opacity-15 transition-all duration-1000">
         <div
           className="absolute -top-[10%] -left-[10%] w-[50vw] h-[50vw] rounded-full blur-[140px] transition-colors duration-1000"
           style={{ background: dominantColor }}
@@ -90,6 +90,7 @@ const AppContent: React.FC = () => {
               openCreatePlaylistModal={() => setIsCreatePlaylistOpen(true)}
               openPlaylistId={pendingPlaylistId}
               onPlaylistOpened={() => setPendingPlaylistId(undefined)}
+              onSelectArtist={handleSelectGenre}
             />
           )}
 

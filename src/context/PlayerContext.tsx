@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { Track, LyricsData, RepeatMode, Playlist, PlayerSettings } from '../types/music';
+import type { Track, LyricsData, RepeatMode, Playlist, PlayerSettings, SavedArtist, SavedAlbum, Artist, PlaylistResult, ThemeMode } from '../types/music';
 import { searchYouTube } from '../services/youtube';
 import { fetchLyrics } from '../services/lyrics';
 import { getDominantColor } from '../services/colorExtractor';
@@ -10,6 +10,10 @@ import {
   loadStoredPlaylists,
   loadStoredQueue,
   saveStoredQueue,
+  loadStoredArtists,
+  saveStoredArtists,
+  loadStoredAlbums,
+  saveStoredAlbums,
 } from '../lib/queueStorage';
 import type { StoredQueue } from '../lib/queueStorage';
 import { moveItem, removeAt, reorderQueue as reorderQueueTracks } from '../lib/queueOps';
@@ -191,6 +195,16 @@ interface PlayerContextType {
   importPlaylistToState: (playlist: Playlist) => void;
   deletePlaylist: (playlistId: string) => void;
 
+  // Saved Artists & Albums
+  savedArtists: SavedArtist[];
+  saveArtist: (artist: Artist | SavedArtist) => void;
+  removeArtist: (artistId: string) => void;
+  isArtistSaved: (artistId: string) => boolean;
+  savedAlbums: SavedAlbum[];
+  saveAlbum: (album: PlaylistResult | Playlist | SavedAlbum) => void;
+  removeAlbum: (albumId: string) => void;
+  isAlbumSaved: (albumId: string) => boolean;
+
   // Play Count Analytics
   getTopTracks: (limit: number) => Track[];
   getTopArtists: (limit: number) => { name: string; image: string; playCount: number }[];
@@ -218,9 +232,12 @@ interface PlayerContextType {
   sleepTimerRemaining: number | null;
   setSleepTimer: (minutes: number | null) => void;
 
-  // Settings
+  // Settings & Theme
   settings: PlayerSettings;
   updateSettings: (newSettings: Partial<PlayerSettings>) => void;
+  theme: ThemeMode;
+  effectiveTheme: 'dark' | 'light';
+  setTheme: (theme: ThemeMode) => void;
 
   // Toast
   toasts: ToastMessage[];
@@ -297,6 +314,18 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // ---- Playlists: Only user-created and imported ones, no defaults ----
   const [playlists, setPlaylists] = useState<Playlist[]>(() => loadStoredPlaylists());
 
+  // ---- Saved Artists & Albums ----
+  const [savedArtists, setSavedArtists] = useState<SavedArtist[]>(() => loadStoredArtists());
+  const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>(() => loadStoredAlbums());
+
+  useEffect(() => {
+    saveStoredArtists(savedArtists);
+  }, [savedArtists]);
+
+  useEffect(() => {
+    saveStoredAlbums(savedAlbums);
+  }, [savedAlbums]);
+
   // ---- Play Count Analytics ----
   const [playCounts, setPlayCounts] = useState<PlayCountMap>(loadPlayCounts);
 
@@ -330,9 +359,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Settings
   const [settings, setSettings] = useState<PlayerSettings>(() => {
+    let initialTheme: ThemeMode = 'system';
+    try {
+      const savedTheme = localStorage.getItem('auralis_theme');
+      if (savedTheme) initialTheme = JSON.parse(savedTheme);
+    } catch {}
+
     const defaultSettings: PlayerSettings = {
       volume: 90,
       isMuted: false,
+      theme: initialTheme,
       lyricsFontSize: 'medium',
       lyricsMode: 'spicy',
       lyricsAlignment: 'left',
@@ -345,6 +381,59 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return defaultSettings;
     }
   });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('auralis_settings', JSON.stringify(settings));
+    } catch {}
+  }, [settings]);
+
+  // Effective Theme & OS scheme detection
+  const [effectiveTheme, setEffectiveTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const mode = settings.theme || 'system';
+    if (mode === 'dark') return 'dark';
+    if (mode === 'light') return 'light';
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    const applyTheme = () => {
+      const mode = settings.theme || 'system';
+      let resolved: 'dark' | 'light' = 'dark';
+      if (mode === 'dark') {
+        resolved = 'dark';
+      } else if (mode === 'light') {
+        resolved = 'light';
+      } else {
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        resolved = prefersDark ? 'dark' : 'light';
+      }
+
+      setEffectiveTheme(resolved);
+      if (resolved === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+      try {
+        localStorage.setItem('auralis_theme', JSON.stringify(mode));
+      } catch {}
+    };
+
+    applyTheme();
+
+    if (settings.theme === 'system' && typeof window !== 'undefined' && window.matchMedia) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = () => applyTheme();
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    }
+  }, [settings.theme]);
 
   const playerRef = useRef<any>(null);
   const timeUpdateInterval = useRef<any>(null);
@@ -992,6 +1081,65 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showToast(`Deleted "${target.title}"`, 'info');
   };
 
+  const isArtistSaved = (artistId: string) => savedArtists.some((a) => a.id === artistId);
+
+  const saveArtist = (artist: Artist | SavedArtist) => {
+    if (isArtistSaved(artist.id)) {
+      showToast(`"${artist.name}" is already in your library`, 'info');
+      return;
+    }
+    const newArtist: SavedArtist = {
+      id: artist.id,
+      name: artist.name,
+      thumbnail: artist.thumbnail,
+      subscribers: artist.subscribers,
+      query: (artist as Artist).query || `${artist.name} top songs`,
+      savedAt: Date.now(),
+    };
+    setSavedArtists((prev) => [newArtist, ...prev]);
+    showToast(`Saved artist "${artist.name}" to Library`, 'success');
+  };
+
+  const removeArtist = (artistId: string) => {
+    const target = savedArtists.find((a) => a.id === artistId);
+    setSavedArtists((prev) => prev.filter((a) => a.id !== artistId));
+    showToast(`Removed "${target?.name || 'artist'}" from Library`, 'info');
+  };
+
+  const isAlbumSaved = (albumId: string) => savedAlbums.some((a) => a.id === albumId);
+
+  const saveAlbum = (album: PlaylistResult | Playlist | SavedAlbum) => {
+    if (isAlbumSaved(album.id)) {
+      showToast(`"${album.title}" is already in your library`, 'info');
+      return;
+    }
+    const artistName =
+      (album as SavedAlbum).artist ||
+      (album as PlaylistResult).author ||
+      (album as Playlist).description ||
+      'Album';
+    const albumThumb =
+      ('thumbnail' in album && typeof album.thumbnail === 'string' ? album.thumbnail : '') ||
+      ('cover' in album && typeof (album as Playlist).cover === 'string' ? (album as Playlist).cover : '');
+
+    const newAlbum: SavedAlbum = {
+      id: album.id,
+      title: album.title,
+      artist: artistName,
+      thumbnail: albumThumb,
+      trackCount: (album as PlaylistResult).trackCount || (album as Playlist).tracks?.length,
+      savedAt: Date.now(),
+    };
+    setSavedAlbums((prev) => [newAlbum, ...prev]);
+    showToast(`Saved album "${album.title}" to Library`, 'success');
+  };
+
+  const removeAlbum = (albumId: string) => {
+    const target = savedAlbums.find((a) => a.id === albumId);
+    setSavedAlbums((prev) => prev.filter((a) => a.id !== albumId));
+    showToast(`Removed "${target?.title || 'album'}" from Library`, 'info');
+  };
+
   const addToQueue = (track: Track) => {
     setQueue((prev) => [...prev, track]);
     showToast('Added to queue', 'success');
@@ -1046,6 +1194,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setSettings((prev) => ({ ...prev, ...newSettings }));
   };
 
+  const setTheme = (theme: ThemeMode) => {
+    updateSettings({ theme });
+    showToast(`Theme set to ${theme.charAt(0).toUpperCase() + theme.slice(1)}`, 'info');
+  };
+
   return (
     <PlayerContext.Provider
       value={{
@@ -1082,6 +1235,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         reorderPlaylist,
         importPlaylistToState,
         deletePlaylist,
+        savedArtists,
+        saveArtist,
+        removeArtist,
+        isArtistSaved,
+        savedAlbums,
+        saveAlbum,
+        removeAlbum,
+        isAlbumSaved,
         getTopTracks,
         getTopArtists,
         playCounts,
@@ -1105,6 +1266,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setSleepTimer,
         settings,
         updateSettings,
+        theme: settings.theme || 'system',
+        effectiveTheme,
+        setTheme,
         toasts,
         showToast,
       }}

@@ -1,7 +1,7 @@
-import type { Playlist, Track } from '../types/music';
+import type { Playlist, SavedAlbum, SavedArtist, Track } from '../types/music';
 
 /**
- * Storage helpers for the playback queue and stored playlists.
+ * Storage helpers for playback queue, stored playlists, saved artists, and saved albums.
  *
  * These live outside PlayerContext so the parsing rules can be exercised
  * directly by `scripts/test-queue-storage.mjs` — the restore path is fed
@@ -11,6 +11,8 @@ import type { Playlist, Track } from '../types/music';
 
 export const QUEUE_STORAGE_KEY = 'auralis_queue';
 export const PLAYLISTS_STORAGE_KEY = 'auralis_playlists';
+export const ARTISTS_STORAGE_KEY = 'auralis_saved_artists';
+export const ALBUMS_STORAGE_KEY = 'auralis_saved_albums';
 
 export interface StoredQueue {
   tracks: Track[];
@@ -164,3 +166,90 @@ export function loadStoredPlaylists(
     return [];
   }
 }
+
+/** Check if a candidate object matches SavedArtist structure */
+export function isSavedArtistLike(value: unknown): value is SavedArtist {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SavedArtist>;
+  return (
+    typeof candidate.id === 'string' &&
+    candidate.id.length > 0 &&
+    typeof candidate.name === 'string' &&
+    candidate.name.length > 0
+  );
+}
+
+/** Parse stored artists safely, dropping malformed records */
+export function parseStoredArtists(raw: string | null): SavedArtist[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSavedArtistLike);
+  } catch {
+    return [];
+  }
+}
+
+export function loadStoredArtists(
+  storage: QueueStorage | null = defaultStorage(),
+): SavedArtist[] {
+  if (!storage) return [];
+  try {
+    return parseStoredArtists(storage.getItem(ARTISTS_STORAGE_KEY));
+  } catch {
+    return [];
+  }
+}
+
+export function saveStoredArtists(
+  artists: SavedArtist[],
+  storage: QueueStorage | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  storage.setItem(ARTISTS_STORAGE_KEY, JSON.stringify(artists));
+}
+
+/** Check if a candidate object matches SavedAlbum structure */
+export function isSavedAlbumLike(value: unknown): value is SavedAlbum {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SavedAlbum>;
+  return (
+    typeof candidate.id === 'string' &&
+    candidate.id.length > 0 &&
+    typeof candidate.title === 'string' &&
+    candidate.title.length > 0
+  );
+}
+
+/** Parse stored albums safely, dropping malformed records */
+export function parseStoredAlbums(raw: string | null): SavedAlbum[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSavedAlbumLike);
+  } catch {
+    return [];
+  }
+}
+
+export function loadStoredAlbums(
+  storage: QueueStorage | null = defaultStorage(),
+): SavedAlbum[] {
+  if (!storage) return [];
+  try {
+    return parseStoredAlbums(storage.getItem(ALBUMS_STORAGE_KEY));
+  } catch {
+    return [];
+  }
+}
+
+export function saveStoredAlbums(
+  albums: SavedAlbum[],
+  storage: QueueStorage | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  storage.setItem(ALBUMS_STORAGE_KEY, JSON.stringify(albums));
+}
+

@@ -1,4 +1,4 @@
-import type { Track } from '../types/music';
+import type { Artist, PlaylistResult, SearchResults, Track } from '../types/music';
 
 /**
  * OPTIONAL DEMO CONTENT — not search results, not recommendations.
@@ -182,7 +182,7 @@ export const GENRES = [
 
 // Memory cache for search responses. Only non-empty result sets are cached, so a
 // zero-result or failed query is always retried rather than remembered.
-const searchCache = new Map<string, Track[]>();
+const resultsCache = new Map<string, SearchResults>();
 
 /**
  * Thrown when every search provider was unreachable or errored.
@@ -233,98 +233,437 @@ function parseProviderItem(item: any): Track | null {
   };
 }
 
+// Per-bucket caps. Songs dominate the Explore grid; artists/playlists are shown
+// as compact rows, so a dozen of each is plenty.
+const MAX_SONGS = 25;
+const MAX_ARTISTS = 12;
+const MAX_PLAYLISTS = 12;
+
+/** One normalised entity from a provider search item (exactly one field set), or null. */
+export interface ParsedSearchItem {
+  song?: Track;
+  artist?: Artist;
+  playlist?: PlaylistResult;
+}
+
+/** Human-friendly count: 1_234 → "1.2K", 3_400_000 → "3.4M". */
+export function formatCount(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '';
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1).replace(/\.0$/, '')}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(n);
+}
+
+/** Accept a full https URL, upgrade a protocol-relative `//host/…`, else drop it. */
+function normalizeThumbUrl(url: unknown): string | undefined {
+  if (typeof url !== 'string' || !url) return undefined;
+  if (url.startsWith('//')) return `https:${url}`;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return undefined;
+}
+
+/** Pull a channel id (UC…) out of a Piped `/channel/UC…` url. */
+function channelIdFromUrl(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  const m = url.match(/\/channel\/([\w-]+)/);
+  return m ? m[1] : null;
+}
+
+/** Pull a playlist id out of a Piped `/playlist?list=…` url. */
+function playlistIdFromUrl(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  const m = url.match(/[?&]list=([\w-]+)/);
+  return m ? m[1] : null;
+}
+
 /**
- * Search for tracks.
+ * Normalise one Piped search item. Piped tags items with a `type`:
+ *   - `stream`   → a song (delegated to `parseProviderItem`)
+ *   - `channel`  → an artist
+ *   - `playlist` → a playlist / album
+ * Anything else (e.g. `radio`) is skipped. Exported for fixture tests.
+ */
+export function parsePipedSearchItem(item: any): ParsedSearchItem | null {
+  if (!item || typeof item !== 'object') return null;
+  const type = item.type;
+
+  if (type === 'channel') {
+    const name = String(item.name || '').trim();
+    if (!name) return null;
+    const subs =
+      typeof item.subscribers === 'number' && item.subscribers >= 0
+        ? `${formatCount(item.subscribers)} subscribers`
+        : undefined;
+    return {
+      artist: {
+        id: channelIdFromUrl(item.url) || `piped:${name}`,
+        name,
+        thumbnail: normalizeThumbUrl(item.thumbnail),
+        subscribers: subs,
+        query: `${name} top songs`,
+      },
+    };
+  }
+
+  if (type === 'playlist') {
+    const id = playlistIdFromUrl(item.url);
+    const title = String(item.name || '').trim();
+    if (!id || !title) return null;
+    return {
+      playlist: {
+        id,
+        title,
+        thumbnail: normalizeThumbUrl(item.thumbnail),
+        author: item.uploaderName ? String(item.uploaderName) : undefined,
+        trackCount: typeof item.videos === 'number' && item.videos > 0 ? item.videos : undefined,
+      },
+    };
+  }
+
+  // Streams (songs). Piped uses `stream`; some payloads omit the field entirely.
+  if (type === 'stream' || type === undefined) {
+    const song = parseProviderItem(item);
+    return song ? { song } : null;
+  }
+
+  return null;
+}
+
+/**
+ * Normalise one Invidious search item. Invidious tags items with a `type`:
+ *   - `video`    → a song
+ *   - `channel`  → an artist
+ *   - `playlist` → a playlist / album
+ * Exported for fixture tests.
+ */
+export function parseInvidiousSearchItem(item: any): ParsedSearchItem | null {
+  if (!item || typeof item !== 'object') return null;
+  const type = item.type;
+
+  if (type === 'channel') {
+    const name = String(item.author || '').trim();
+    if (!name) return null;
+    const thumbs = Array.isArray(item.authorThumbnails) ? item.authorThumbnails : [];
+    const bestThumb = thumbs.length ? thumbs[thumbs.length - 1]?.url : undefined;
+    const subs =
+      typeof item.subCount === 'number' && item.subCount >= 0
+        ? `${formatCount(item.subCount)} subscribers`
+        : undefined;
+    return {
+      artist: {
+        id: item.authorId ? String(item.authorId) : `inv:${name}`,
+        name,
+        thumbnail: normalizeThumbUrl(bestThumb),
+        subscribers: subs,
+        query: `${name} top songs`,
+      },
+    };
+  }
+
+  if (type === 'playlist') {
+    const id = item.playlistId ? String(item.playlistId) : null;
+    const title = String(item.title || '').trim();
+    if (!id || !title) return null;
+    return {
+      playlist: {
+        id,
+        title,
+        thumbnail: normalizeThumbUrl(item.playlistThumbnail),
+        author: item.author ? String(item.author) : undefined,
+        trackCount: typeof item.videoCount === 'number' && item.videoCount > 0 ? item.videoCount : undefined,
+      },
+    };
+  }
+
+  if (type === 'video' || type === undefined) {
+    const song = parseProviderItem(item);
+    return song ? { song } : null;
+  }
+
+  return null;
+}
+
+/**
+ * Bucket a raw provider payload into typed songs / artists / playlists, de-duping
+ * by id within each bucket and honouring the per-bucket caps. Exported for tests.
+ */
+export function bucketItems(items: any[], provider: 'piped' | 'invidious'): SearchResults {
+  const out: SearchResults = { songs: [], artists: [], playlists: [] };
+  if (!Array.isArray(items)) return out;
+
+  const seenSong = new Set<string>();
+  const seenArtist = new Set<string>();
+  const seenPlaylist = new Set<string>();
+  const parse = provider === 'piped' ? parsePipedSearchItem : parseInvidiousSearchItem;
+
+  for (const item of items) {
+    const parsed = parse(item);
+    if (!parsed) continue;
+
+    if (parsed.song && out.songs.length < MAX_SONGS && !seenSong.has(parsed.song.id)) {
+      seenSong.add(parsed.song.id);
+      out.songs.push(parsed.song);
+    } else if (parsed.artist && out.artists.length < MAX_ARTISTS && !seenArtist.has(parsed.artist.id)) {
+      seenArtist.add(parsed.artist.id);
+      out.artists.push(parsed.artist);
+    } else if (parsed.playlist && out.playlists.length < MAX_PLAYLISTS && !seenPlaylist.has(parsed.playlist.id)) {
+      seenPlaylist.add(parsed.playlist.id);
+      out.playlists.push(parsed.playlist);
+    }
+  }
+
+  return out;
+}
+
+/** True when a valid, playable Track (real video id + title). */
+function isPlayableTrack(t: any): t is Track {
+  return !!t && typeof t.id === 'string' && t.id.length >= 5 && typeof t.title === 'string' && !!t.title;
+}
+
+/**
+ * Normalise the local dev middleware's response. It emits `{ songs, artists,
+ * playlists }`; the legacy shape `{ results }` (songs only) is still accepted.
+ * Every entry is validated so a malformed payload can never inject junk.
+ */
+function normalizeLocalResponse(data: any): SearchResults {
+  const out: SearchResults = { songs: [], artists: [], playlists: [] };
+  if (!data || typeof data !== 'object') return out;
+
+  const songs = Array.isArray(data.songs) ? data.songs : Array.isArray(data.results) ? data.results : [];
+  for (const s of songs) {
+    if (isPlayableTrack(s) && out.songs.length < MAX_SONGS) {
+      out.songs.push({ ...s, source: s.source || 'youtube' });
+    }
+  }
+
+  if (Array.isArray(data.artists)) {
+    for (const a of data.artists) {
+      if (a && typeof a.id === 'string' && typeof a.name === 'string' && a.name && out.artists.length < MAX_ARTISTS) {
+        out.artists.push({
+          id: a.id,
+          name: a.name,
+          thumbnail: normalizeThumbUrl(a.thumbnail),
+          subscribers: typeof a.subscribers === 'string' ? a.subscribers : undefined,
+          query: typeof a.query === 'string' && a.query ? a.query : `${a.name} top songs`,
+        });
+      }
+    }
+  }
+
+  if (Array.isArray(data.playlists)) {
+    for (const p of data.playlists) {
+      if (p && typeof p.id === 'string' && typeof p.title === 'string' && p.title && out.playlists.length < MAX_PLAYLISTS) {
+        out.playlists.push({
+          id: p.id,
+          title: p.title,
+          thumbnail: normalizeThumbUrl(p.thumbnail),
+          author: typeof p.author === 'string' ? p.author : undefined,
+          trackCount: typeof p.trackCount === 'number' && p.trackCount > 0 ? p.trackCount : undefined,
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+function hasAnyResult(r: SearchResults): boolean {
+  return r.songs.length > 0 || r.artists.length > 0 || r.playlists.length > 0;
+}
+
+/**
+ * Pool of public Piped and Invidious search instances used as fallbacks
+ * when the local dev middleware is unavailable (e.g. in production / Capacitor Android)
+ * or when an instance is down or rate-limited.
+ */
+export interface ProviderEndpoint {
+  url: (q: string) => string;
+  provider: 'piped' | 'invidious';
+}
+
+export const PUBLIC_SEARCH_PROVIDERS: ProviderEndpoint[] = [
+  { url: (q) => `https://pipedapi.kavin.rocks/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.leptons.xyz/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://api.piped.privacydev.net/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.tokhmi.xyz/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://invidious.jing.rocks/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://inv.nadeko.net/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://invidious.nerdvpn.de/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://iv.ggtyler.dev/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://invidious.private.coffee/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+];
+
+export interface ProviderResponse {
+  url: string;
+  results: SearchResults;
+  responded: boolean;
+}
+
+/** Query a single provider instance with an individual timeout and honest error handling. */
+export async function queryProvider(
+  endpoint: ProviderEndpoint,
+  cleanQ: string,
+  timeoutMs = 4500
+): Promise<ProviderResponse> {
+  const url = endpoint.url(encodeURIComponent(cleanQ));
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      return { url, results: { songs: [], artists: [], playlists: [] }, responded: false };
+    }
+    const data = await res.json();
+    const items = data.items || data || [];
+    if (!Array.isArray(items)) {
+      return { url, results: { songs: [], artists: [], playlists: [] }, responded: false };
+    }
+    const bucketed = bucketItems(items, endpoint.provider);
+    return { url, results: bucketed, responded: true };
+  } catch {
+    return { url, results: { songs: [], artists: [], playlists: [] }, responded: false };
+  }
+}
+
+/**
+ * Race a concurrent batch of search providers.
+ * Returns the first provider that responds with non-empty results immediately.
+ */
+export async function raceProviderBatch(
+  providers: ProviderEndpoint[],
+  cleanQ: string,
+  timeoutMs = 4500
+): Promise<{ winner: SearchResults | null; attempted: string[]; anyResponded: boolean }> {
+  const attempted: string[] = [];
+  let anyResponded = false;
+
+  const promises = providers.map(async (p) => {
+    const res = await queryProvider(p, cleanQ, timeoutMs);
+    attempted.push(res.url);
+    if (res.responded) {
+      anyResponded = true;
+    }
+    if (hasAnyResult(res.results)) {
+      return res.results;
+    }
+    return null;
+  });
+
+  const winner = await new Promise<SearchResults | null>((resolve) => {
+    let pending = promises.length;
+    let resolved = false;
+
+    if (pending === 0) {
+      resolve(null);
+      return;
+    }
+
+    for (const p of promises) {
+      p.then((res) => {
+        if (resolved) return;
+        if (res && hasAnyResult(res)) {
+          resolved = true;
+          resolve(res);
+        } else {
+          pending--;
+          if (pending === 0) {
+            resolve(null);
+          }
+        }
+      }).catch(() => {
+        if (resolved) return;
+        pending--;
+        if (pending === 0) {
+          resolve(null);
+        }
+      });
+    }
+  });
+
+  return { winner, attempted, anyResponded };
+}
+
+/**
+ * Typed discovery search — songs, artists, and playlists/albums.
  *
  * Resolution rules — there is no hardcoded fallback:
- *   - Empty query                         → `[]`
- *   - A provider responded with results   → those results
- *   - A provider responded with nothing   → `[]` (genuine "no results")
+ *   - Empty query                         → empty buckets
+ *   - A provider responded with results   → those (typed, bucketed)
+ *   - A provider responded with nothing   → empty buckets (genuine "no results")
  *   - Every provider failed / timed out   → throws `SearchUnavailableError`
  *
- * Known limitation: the primary endpoint (`/api/youtube-search`) is registered by a
- * Vite `configureServer` middleware, so it exists only while running `vite dev`. In a
- * production web build or the Capacitor Android build it is absent and this function
- * depends entirely on the public fallback instances below.
+ * Resilience strategy:
+ *   1. Primary: local dev middleware (/api/youtube-search) when running under `vite dev` (timeout 2500ms).
+ *   2. Fallback pool: concurrent batch racing across trusted Piped / Invidious instances with per-instance
+ *      timeouts, resolving as soon as the fastest working instance responds.
  */
-export async function searchYouTube(query: string): Promise<Track[]> {
+export async function searchAll(query: string): Promise<SearchResults> {
   const cleanQ = query.trim();
-  if (!cleanQ) return [];
+  const empty: SearchResults = { songs: [], artists: [], playlists: [] };
+  if (!cleanQ) return empty;
 
   const cacheKey = cleanQ.toLowerCase();
-  const cached = searchCache.get(cacheKey);
+  const cached = resultsCache.get(cacheKey);
   if (cached) return cached;
 
   const attempted: string[] = [];
   let anyProviderResponded = false;
 
-  // 1. Primary: local dev-server middleware (dev only — see note above).
+  // 1. Primary: local dev-server middleware (dev only — see note above). It returns
+  //    typed buckets; an empty response is not authoritative (the middleware answers
+  //    200 + empty on its own internal errors), so we fall through when it is empty.
   const localEndpoint = `/api/youtube-search?q=${encodeURIComponent(cleanQ)}`;
   attempted.push(localEndpoint);
   try {
-    const res = await fetch(localEndpoint, { signal: AbortSignal.timeout(3500) });
+    const res = await fetch(localEndpoint, { signal: AbortSignal.timeout(2500) });
     if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.results)) {
-        // The middleware also answers 200 + `[]` on its own internal errors, so an
-        // empty response here is not authoritative. Fall through to the public
-        // providers instead of reporting "no results".
-        if (data.results.length > 0) {
-          searchCache.set(cacheKey, data.results);
-          return data.results;
-        }
+      const local = normalizeLocalResponse(await res.json());
+      if (hasAnyResult(local)) {
+        resultsCache.set(cacheKey, local);
+        return local;
       }
     }
   } catch {
     // Unreachable (expected outside `vite dev`) — try the public providers.
   }
 
-  // 2. Fallback: public Piped / Invidious instances.
-  const instances = [
-    `https://pipedapi.leptons.xyz/search?q=${encodeURIComponent(cleanQ)}&filter=music_songs`,
-    `https://invidious.jing.rocks/api/v1/search?q=${encodeURIComponent(cleanQ)}&type=video`,
-  ];
-
-  for (const endpoint of instances) {
-    attempted.push(endpoint);
-    try {
-      const res = await fetch(endpoint, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!res.ok) continue;
-
-      const data = await res.json();
-      const items = data.items || data || [];
-      if (!Array.isArray(items)) continue;
-
-      // This instance answered with a well-formed payload.
+  // 2. Fallback: race public Piped / Invidious instances in concurrent batches of 3.
+  const BATCH_SIZE = 3;
+  for (let i = 0; i < PUBLIC_SEARCH_PROVIDERS.length; i += BATCH_SIZE) {
+    const batch = PUBLIC_SEARCH_PROVIDERS.slice(i, i + BATCH_SIZE);
+    const { winner, attempted: batchAttempted, anyResponded } = await raceProviderBatch(batch, cleanQ, 4500);
+    for (const url of batchAttempted) {
+      if (!attempted.includes(url)) attempted.push(url);
+    }
+    if (anyResponded) {
       anyProviderResponded = true;
-
-      const results: Track[] = [];
-      for (const item of items) {
-        const track = parseProviderItem(item);
-        if (track) results.push(track);
-        if (results.length >= 25) break;
-      }
-
-      if (results.length > 0) {
-        searchCache.set(cacheKey, results);
-        return results;
-      }
-      // Well-formed but empty — keep trying the remaining instances before
-      // concluding there are genuinely no results.
-    } catch {
-      // This instance is unreachable; try the next.
+    }
+    if (winner && hasAnyResult(winner)) {
+      resultsCache.set(cacheKey, winner);
+      return winner;
     }
   }
 
   if (anyProviderResponded) {
     // At least one provider answered and none had matches: a real empty result.
-    return [];
+    return empty;
   }
 
   throw new SearchUnavailableError(attempted);
 }
+
+/**
+ * Song-only search. Thin wrapper over {@link searchAll} that returns just the
+ * `songs` bucket, preserving the historic `Promise<Track[]>` contract for callers
+ * that only play tracks (Header typeahead, Home quick picks). It inherits
+ * `searchAll`'s resolution rules verbatim: `[]` for an empty query or a genuine
+ * empty result, and `SearchUnavailableError` when every provider is unreachable.
+ */
+export async function searchYouTube(query: string): Promise<Track[]> {
+  return (await searchAll(query)).songs;
+}
+
 
 
