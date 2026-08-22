@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { usePlayer, PLAYBACK_RATES } from '../../context/PlayerContext';
+import { useListenTogether } from '../../context/ListenTogetherContext';
 import { SyncedLyrics } from '../lyrics/SyncedLyrics';
 import { AudioVisualizer } from '../visualizer/AudioVisualizer';
 import {
@@ -60,6 +61,7 @@ export const NowPlayingModal: React.FC = () => {
     sleepTimerRemaining,
     setSleepTimer,
   } = usePlayer();
+  const { isInRoom, isHost, roomCode, members, setIsModalOpen: openListenTogether } = useListenTogether();
 
   const [showSleepModal, setShowSleepModal] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -217,6 +219,17 @@ export const NowPlayingModal: React.FC = () => {
             title="Sleep Timer"
           >
             <Moon className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => openListenTogether(true)}
+            className={`p-2 rounded-full transition relative cursor-pointer ${
+              isInRoom
+                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-sm'
+                : 'hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+            title={isInRoom ? `Listen Together Room ${roomCode} (${members.length} members)` : 'Listen Together'}
+          >
+            <Radio className={`w-5 h-5 ${isInRoom ? 'animate-pulse' : ''}`} />
           </button>
         </div>
       </div>

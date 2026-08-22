@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
+import { useListenTogether } from '../../context/ListenTogetherContext';
 
 interface SidebarProps {
   activeView: string;
@@ -28,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { favorites, playlists, sleepTimerRemaining } = usePlayer();
   const { user, isAuthAvailable, isSyncing, authError, lastSyncedAt } = useAuth();
+  const { isInRoom, roomCode, members, setIsModalOpen } = useListenTogether();
 
   /**
    * Real sync state. This replaces a previously hardcoded green "Auralis Cloud
@@ -92,6 +94,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           );
         })}
+
+        {/* Listen Together Sidebar Item */}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 cursor-pointer ${
+            isInRoom
+              ? 'text-purple-400 bg-purple-500/10 font-bold border border-purple-500/20'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+          }`}
+          title={isInRoom ? `Listen Together Room ${roomCode}` : 'Listen Together'}
+        >
+          <Radio className={`w-4 h-4 ${isInRoom ? 'text-purple-400 animate-pulse' : ''}`} />
+          <span className="flex-1 text-left">Listen Together</span>
+          {isInRoom && (
+            <span className="text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 px-1.5 py-0.2 rounded-full">
+              {members.length}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="mx-4 my-2 border-t border-[var(--border-subtle)]" />
