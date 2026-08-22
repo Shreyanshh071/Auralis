@@ -16,7 +16,9 @@ import {
   Mic2,
   User,
   Plus,
+  Radio,
 } from 'lucide-react';
+import { useListenTogether } from '../../context/ListenTogetherContext';
 
 export const MiniPlayer: React.FC = () => {
   const {
@@ -43,6 +45,7 @@ export const MiniPlayer: React.FC = () => {
     isLoadingAudio,
     dominantColor,
   } = usePlayer();
+  const { isInRoom, isHost, roomCode, setIsModalOpen: openListenTogether } = useListenTogether();
 
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
@@ -144,7 +147,22 @@ export const MiniPlayer: React.FC = () => {
             <h4 className="text-xs sm:text-sm font-bold text-[var(--text-primary)] truncate">
               {currentTrack.title}
             </h4>
-            <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{currentTrack.artist}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-[11px] text-[var(--text-muted)] truncate">{currentTrack.artist}</p>
+              {isInRoom && roomCode && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openListenTogether(true);
+                  }}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 text-[10px] font-bold border border-purple-500/25 hover:bg-purple-500/25 transition cursor-pointer flex-shrink-0"
+                >
+                  <Radio className="w-2.5 h-2.5 animate-pulse" />
+                  <span>{isHost ? `Host (${roomCode})` : 'Together'}</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

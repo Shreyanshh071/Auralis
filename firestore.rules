@@ -2,8 +2,10 @@ rules_version = '2';
 
 // Auralis Firestore security rules.
 //
-// Model: every signed-in user owns exactly one document at `users/{uid}` holding
-// their favorites and playlists. Nothing else is readable or writable.
+// Models:
+// 1. User library: every signed-in user owns exactly one document at `users/{uid}`.
+// 2. Listen Together: shared listening rooms at `rooms/{roomId}` with presence
+//    subcollections at `rooms/{roomId}/members/{memberId}`.
 //
 // Deploy with:  firebase deploy --only firestore:rules
 service cloud.firestore {
@@ -11,13 +13,17 @@ service cloud.firestore {
 
     // ---- Helpers ----------------------------------------------------------
 
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+      return isAuthenticated() && request.auth.uid == uid;
     }
 
     // Reject documents that are too large to be a legitimate library, so a
     // compromised client cannot use a user document as bulk storage.
-    function withinSizeLimit() {
+    function withinUserSizeLimit() {
       return request.resource.data.keys().size() <= 16
         && (!('favorites' in request.resource.data)
             || request.resource.data.favorites.size() <= 5000)
@@ -25,7 +31,7 @@ service cloud.firestore {
             || request.resource.data.playlists.size() <= 500);
     }
 
-    function hasValidShape() {
+    function hasValidUserShape() {
       return (!('favorites' in request.resource.data)
               || request.resource.data.favorites is list)
         && (!('playlists' in request.resource.data)
@@ -40,6 +46,28 @@ service cloud.firestore {
             || request.resource.data.schemaVersion is int);
     }
 
+    function hasValidRoomShape() {
+      return request.resource.data.keys().size() <= 20
+        && request.resource.data.id is string
+        && request.resource.data.code is string
+        && request.resource.data.hostId is string
+        && request.resource.data.hostName is string
+        && request.resource.data.isPlaying is bool
+        && request.resource.data.playbackPosition is number
+        && request.resource.data.updatedAt is number
+        && request.resource.data.status in ['active', 'closed']
+        && (!('queue' in request.resource.data)
+            || request.resource.data.queue.size() <= 100);
+    }
+
+    function hasValidMemberShape() {
+      return request.resource.data.keys().size() <= 10
+        && request.resource.data.id is string
+        && request.resource.data.name is string
+        && request.resource.data.isHost is bool
+        && request.resource.data.lastSeen is number;
+    }
+
     // ---- User library ----------------------------------------------------
 
     match /users/{uid} {
@@ -49,16 +77,54 @@ service cloud.firestore {
       // No collection-wide listing: it would expose the set of user ids.
       allow list: if false;
 
-      allow create, update: if isOwner(uid) && hasValidShape() && withinSizeLimit();
+      allow create, update: if isOwner(uid) && hasValidUserShape() && withinUserSizeLimit();
 
       // Account deletion is not implemented in the client yet. Allowing the owner
       // to delete their own document is intentional and self-limited.
       allow delete: if isOwner(uid);
 
-      // No nested collections are used. Deny them explicitly rather than
-      // relying on the absence of a rule.
+      // No nested collections are used under users.
       match /{document=**} {
         allow read, write: if false;
+      }
+    }
+
+    // ---- Listen Together Rooms -------------------------------------------
+
+    match /rooms/{roomId} {
+      // Any authenticated participant (Google Auth or Anonymous) can look up a room by ID/code.
+      allow get: if isAuthenticated();
+
+      // Collection-wide listing is denied to prevent scraping active room codes.
+      allow list: if false;
+
+      // Only the host can create a room, matching their own auth UID.
+      allow create: if isAuthenticated()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.status == 'active'
+        && hasValidRoomShape();
+
+      // Only the room host can update room state or close the room.
+      allow update: if isAuthenticated()
+        && resource.data.hostId == request.auth.uid
+        && (request.resource.data.status == 'closed' || hasValidRoomShape());
+
+      // Only the host can delete the room document.
+      allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // ---- Room Members Subcollection ----
+      match /members/{memberId} {
+        // Members in the room can see the active roster.
+        allow get, list: if isAuthenticated();
+
+        // A user may only create or update their own presence/heartbeat record.
+        allow create, update: if isAuthenticated()
+          && memberId == request.auth.uid
+          && request.resource.data.id == request.auth.uid
+          && hasValidMemberShape();
+
+        // A user can delete their own member record (leave room).
+        allow delete: if isAuthenticated() && memberId == request.auth.uid;
       }
     }
 
