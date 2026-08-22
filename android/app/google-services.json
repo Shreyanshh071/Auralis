@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "30030184374-9ijhbcbtchd8jca397gia2cvdm2dtdrn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.auralis.music",
+            "certificate_hash": "8580eb7fa1b422ae086201079a09ddebeaaae580"
+          }
+        },
+        {
           "client_id": "30030184374-pe7h8deq7qp2josb62junld16udgnnin.apps.googleusercontent.com",
           "client_type": 3
         }
