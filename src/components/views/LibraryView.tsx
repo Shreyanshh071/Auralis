@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import type { Playlist } from '../../types/music';
 import {
@@ -7,40 +7,125 @@ import {
   User,
   Heart,
   Download,
-  RotateCcw,
   CloudUpload,
   Plus,
   Play,
   Trash2,
+  ChevronUp,
+  ChevronDown,
   Link,
   Music2,
   Info,
   Clock,
+  X,
 } from 'lucide-react';
 import { importYouTubePlaylist } from '../../services/youtubeImporter';
+import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
 interface LibraryViewProps {
   openCreatePlaylistModal: () => void;
+  /**
+   * A playlist to open on mount, set when one is clicked in the sidebar. Cleared
+   * through `onPlaylistOpened` once consumed, so returning to the Library later
+   * does not reopen it.
+   */
+  openPlaylistId?: string;
+  onPlaylistOpened?: () => void;
 }
 
-export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModal }) => {
+/**
+ * Which collection the detail overlay is showing.
+ *
+ * This is a descriptor rather than a copy of the playlist. The previous version
+ * stored a snapshot, so the overlay kept rendering the tracks as they were when
+ * it opened: removing a track, or adding one, changed nothing on screen until it
+ * was closed and reopened.
+ */
+type Selection =
+  | { kind: 'stored'; id: string }
+  | { kind: 'favorites' }
+  | { kind: 'recent' }
+  | { kind: 'top50' };
+
+export const LibraryView: React.FC<LibraryViewProps> = ({
+  openCreatePlaylistModal,
+  openPlaylistId,
+  onPlaylistOpened,
+}) => {
   const {
     playlists,
     favorites,
     history,
     playTrack,
-    currentTrack,
     getTopTracks,
     importPlaylistToState,
     deletePlaylist,
-    showToast,
+    removeFromPlaylist,
+    reorderPlaylist,
   } = usePlayer();
 
-  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [ytInput, setYtInput] = useState<string>('');
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importError, setImportError] = useState<string>('');
+
+  const top50 = getTopTracks(50);
+
+  // Open the playlist that was clicked in the sidebar, then hand the request
+  // back so it is not replayed the next time this view mounts. Only the id is a
+  // dependency on purpose: the callback is an inline arrow in App, so including
+  // it would re-run this on every parent render.
+  useEffect(() => {
+    if (!openPlaylistId) return;
+    setSelection({ kind: 'stored', id: openPlaylistId });
+    onPlaylistOpened?.();
+  }, [openPlaylistId]);
+
+  /**
+   * Resolve the current selection against live state on every render.
+   *
+   * Liked, Recently Played and My Top 50 are views over other state and are
+   * assembled here; they are not stored and carry no `isCustom` flag, which is
+   * what keeps the delete and remove-track controls off them. A stored playlist
+   * that has just been deleted resolves to null, which closes the overlay.
+   */
+  const resolveSelection = (): Playlist | null => {
+    if (!selection) return null;
+    switch (selection.kind) {
+      case 'favorites':
+        return {
+          id: 'pl-favorites',
+          title: 'Liked',
+          description: `${favorites.length} songs`,
+          tracks: favorites,
+          createdAt: 0,
+        };
+      case 'recent':
+        return {
+          id: 'pl-recent',
+          title: 'Recently Played',
+          description: `${history.length} songs`,
+          tracks: history,
+          createdAt: 0,
+        };
+      case 'top50':
+        return {
+          id: 'pl-top50-view',
+          title: 'My Top 50',
+          description: `${top50.length} songs ranked by play count`,
+          tracks: top50,
+          createdAt: 0,
+        };
+      case 'stored':
+        return playlists.find((p) => p.id === selection.id) ?? null;
+    }
+  };
+
+  const selected = resolveSelection();
+  // Only a stored playlist can be edited. `isCustom` is set on every playlist the
+  // user creates or imports, and never on the three views above.
+  const isEditable = selected?.isCustom === true;
 
   const formatDuration = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -74,12 +159,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
   const handleDeletePlaylist = (playlistId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     deletePlaylist(playlistId);
-    if (selectedPlaylist?.id === playlistId) {
-      setSelectedPlaylist(null);
-    }
+    // The overlay is driven by the selection, and a deleted playlist no longer
+    // resolves, so clearing it here just avoids a dangling descriptor.
+    setSelection(null);
   };
-
-  const top50 = getTopTracks(50);
 
   return (
     <div className="space-y-6 pb-44 max-w-2xl mx-auto select-none text-[#e2e8c0]">
@@ -90,26 +173,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
         </h1>
         <div className="flex items-center gap-4 text-[#c4cca5]">
           <button
-            onClick={() => setSelectedPlaylist({
-              id: 'pl-recent',
-              title: 'Recently Played',
-              description: `${history.length} songs`,
-              tracks: history,
-              createdAt: Date.now(),
-            })}
+            onClick={() => setSelection({ kind: 'recent' })}
             className="p-1 hover:text-white transition"
             title="Recently Played"
           >
             <History className="w-5 h-5" />
           </button>
           <button
-            onClick={() => setSelectedPlaylist({
-              id: 'pl-top50-view',
-              title: 'My Top 50',
-              description: `${top50.length} songs ranked by play count`,
-              tracks: top50,
-              createdAt: Date.now(),
-            })}
+            onClick={() => setSelection({ kind: 'top50' })}
             className="p-1 hover:text-white transition"
             title="Top 50 Most Played"
           >
@@ -129,13 +200,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
       <div className="grid grid-cols-2 gap-3">
         {/* Liked */}
         <div
-          onClick={() => setSelectedPlaylist({
-            id: 'pl-favorites',
-            title: 'Liked',
-            description: `${favorites.length} songs`,
-            tracks: favorites,
-            createdAt: Date.now(),
-          })}
+          onClick={() => setSelection({ kind: 'favorites' })}
           className="rounded-2xl bg-[#171b11] border border-[#272f1c] hover:bg-[#202717] transition p-3 flex flex-col justify-between cursor-pointer group"
         >
           <div className="w-full aspect-square rounded-xl bg-[#232a19] border border-[#333e25] flex items-center justify-center text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
@@ -161,15 +226,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
           </div>
         </div>
 
-        {/* Recently Played (was "Cached") */}
+        {/* Recently Played */}
         <div
-          onClick={() => setSelectedPlaylist({
-            id: 'pl-recent',
-            title: 'Recently Played',
-            description: `${history.length} songs`,
-            tracks: history,
-            createdAt: Date.now(),
-          })}
+          onClick={() => setSelection({ kind: 'recent' })}
           className="rounded-2xl bg-[#171b11] border border-[#272f1c] hover:bg-[#202717] transition p-3 flex flex-col justify-between cursor-pointer group"
         >
           <div className="w-full aspect-square rounded-xl bg-[#232a19] border border-[#333e25] flex items-center justify-center text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
@@ -183,13 +242,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
 
         {/* My Top 50 — real play-count ranking */}
         <div
-          onClick={() => setSelectedPlaylist({
-            id: 'pl-top50-view',
-            title: 'My Top 50',
-            description: `${top50.length} songs ranked by play count`,
-            tracks: top50,
-            createdAt: Date.now(),
-          })}
+          onClick={() => setSelection({ kind: 'top50' })}
           className="rounded-2xl bg-[#171b11] border border-[#272f1c] hover:bg-[#202717] transition p-3 flex flex-col justify-between cursor-pointer group"
         >
           <div className="w-full aspect-square rounded-xl bg-[#232a19] border border-[#333e25] flex items-center justify-center text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
@@ -223,7 +276,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
           return (
             <div
               key={pl.id}
-              onClick={() => setSelectedPlaylist(pl)}
+              onClick={() => setSelection({ kind: 'stored', id: pl.id })}
               className="rounded-2xl bg-[#171b11] border border-[#272f1c] hover:bg-[#202717] transition p-3 flex flex-col justify-between cursor-pointer group"
             >
               <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-[#222a19] border border-[#303a23] mb-2">
@@ -269,11 +322,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
         })}
       </div>
 
-      {/* FAB */}
+      {/* FAB — creates a playlist.
+          It used to open the import dialog, which already has two other entry
+          points (the header button and the Import tile), while playlist creation
+          had none outside the desktop sidebar and so was unreachable on a phone. */}
       <button
-        onClick={() => setShowImportModal(true)}
+        onClick={openCreatePlaylistModal}
         className="fixed bottom-24 right-5 z-40 w-14 h-14 rounded-2xl bg-[#59693d] hover:bg-[#6c7f4a] active:scale-95 text-[#14190c] shadow-2xl flex items-center justify-center transition"
-        title="Import YouTube Playlist"
+        title="Create playlist"
+        aria-label="Create playlist"
       >
         <Plus className="w-7 h-7 text-[#f3f7d8] stroke-[2.5]" />
       </button>
@@ -292,8 +349,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
               <button
                 onClick={() => { setShowImportModal(false); setImportError(''); }}
                 className="p-1 rounded-full text-[#8f9b75] hover:text-white"
+                title="Close"
+                aria-label="Close"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -348,39 +407,42 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
       )}
 
       {/* Selected Playlist Modal */}
-      {selectedPlaylist && (
+      {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
           <div className="relative w-full max-w-xl max-h-[82vh] rounded-3xl bg-[#13170e] border border-[#2b351f] p-5 sm:p-6 flex flex-col shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between pb-3 border-b border-white/[0.04]">
-              <div>
-                <h3 className="font-bold text-xl text-[#f0f4dc]">{selectedPlaylist.title}</h3>
-                <p className="text-xs text-[#8f9b75]">{selectedPlaylist.tracks.length} songs</p>
+              <div className="min-w-0">
+                <h3 className="font-bold text-xl text-[#f0f4dc] truncate">{selected.title}</h3>
+                <p className="text-xs text-[#8f9b75]">{selected.tracks.length} songs</p>
               </div>
-              <div className="flex items-center gap-2">
-                {selectedPlaylist.isCustom && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {isEditable && (
                   <button
-                    onClick={(e) => handleDeletePlaylist(selectedPlaylist.id, e)}
+                    onClick={(e) => handleDeletePlaylist(selected.id, e)}
                     className="p-1.5 rounded-lg text-[#8f9b75] hover:text-rose-400 transition"
                     title="Delete playlist"
+                    aria-label="Delete playlist"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
                 <button
-                  onClick={() => setSelectedPlaylist(null)}
+                  onClick={() => setSelection(null)}
                   className="p-1.5 rounded-full text-[#8f9b75] hover:text-white"
+                  title="Close"
+                  aria-label="Close"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {selectedPlaylist.tracks.length > 0 && (
+            {selected.tracks.length > 0 && (
               <div className="flex items-center gap-2 py-3">
                 <button
                   onClick={() => {
-                    playTrack(selectedPlaylist.tracks[0], selectedPlaylist.tracks);
-                    setSelectedPlaylist(null);
+                    playTrack(selected.tracks[0], selected.tracks);
+                    setSelection(null);
                   }}
                   className="flex items-center gap-2 px-5 py-2 rounded-full bg-[#dbe7b5] text-[#14190c] font-bold text-xs shadow hover:bg-[#c9d79e] transition"
                 >
@@ -391,26 +453,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
             )}
 
             <div className="flex-1 overflow-y-auto py-2 space-y-1">
-              {selectedPlaylist.tracks.length === 0 ? (
+              {selected.tracks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
                   <Music2 className="w-10 h-10 text-[#8f9b75]" />
-                  <p className="text-xs text-[#8f9b75]">
-                    {selectedPlaylist.id.includes('top50')
+                  <p className="text-xs text-[#8f9b75] max-w-xs leading-relaxed">
+                    {selection?.kind === 'top50'
                       ? 'Play more songs to build your top tracks chart.'
-                      : selectedPlaylist.id.includes('recent')
+                      : selection?.kind === 'recent'
                       ? 'Your recently played songs will appear here.'
-                      : 'No tracks in this playlist.'}
+                      : selection?.kind === 'favorites'
+                      ? 'Tap the heart on any song to save it here.'
+                      : 'This playlist is empty. Use the add-to-playlist button on any song to put it here.'}
                   </p>
                 </div>
               ) : (
-                selectedPlaylist.tracks.map((t, i) => (
+                selected.tracks.map((t, i) => (
                   <div
                     key={`${t.id}-${i}`}
                     onClick={() => {
-                      playTrack(t, selectedPlaylist.tracks);
-                      setSelectedPlaylist(null);
+                      playTrack(t, selected.tracks);
+                      setSelection(null);
                     }}
-                    className="flex items-center justify-between p-2 rounded-xl hover:bg-[#1f2615] cursor-pointer group"
+                    className="flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-[#1f2615] cursor-pointer group"
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <span className="text-xs font-mono text-[#8f9b75] w-4 text-center">{i + 1}</span>
@@ -430,7 +494,55 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ openCreatePlaylistModa
                         <p className="text-[11px] text-[#8f9b75] truncate">{t.artist}</p>
                       </div>
                     </div>
-                    <span className="text-xs font-mono text-[#8f9b75]">{formatDuration(t.duration)}</span>
+
+                    <div className="flex items-center gap-1 flex-shrink-0 text-[#8f9b75]">
+                      <span className="text-xs font-mono hidden sm:inline">{formatDuration(t.duration)}</span>
+
+                      <AddToPlaylistButton
+                        track={t}
+                        className="p-1.5 rounded-lg hover:bg-white/10 hover:text-white transition text-[#8f9b75]"
+                      />
+
+                      {isEditable && (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              reorderPlaylist(selected.id, i, i - 1);
+                            }}
+                            disabled={i === 0}
+                            className="p-1.5 rounded-lg hover:bg-white/10 hover:text-white transition disabled:opacity-30 disabled:pointer-events-none"
+                            title="Move up"
+                            aria-label="Move up in playlist"
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              reorderPlaylist(selected.id, i, i + 1);
+                            }}
+                            disabled={i === selected.tracks.length - 1}
+                            className="p-1.5 rounded-lg hover:bg-white/10 hover:text-white transition disabled:opacity-30 disabled:pointer-events-none"
+                            title="Move down"
+                            aria-label="Move down in playlist"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeFromPlaylist(selected.id, t.id);
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-white/10 hover:text-rose-400 transition"
+                            title="Remove from this playlist"
+                            aria-label="Remove from this playlist"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))
               )}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Music2, Command, ChevronLeft, ChevronRight, LogIn, LogOut, Cloud, CloudOff, Loader2 } from 'lucide-react';
-import { searchYouTube } from '../../services/youtube';
+import { Search, X, Music2, Command, ChevronLeft, ChevronRight, LogOut, Cloud, Loader2, AlertTriangle } from 'lucide-react';
+import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import type { Track } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
@@ -9,22 +9,35 @@ interface HeaderProps {
   onSearchSelect?: (track: Track) => void;
   activeView: string;
   setActiveView: (view: string) => void;
+  /**
+   * Called when the user submits the search box (Enter). Receives the typed
+   * query so it actually reaches the Explore view instead of being dropped.
+   */
+  onSubmitSearch?: (query: string) => void;
 }
 
 // Simple view history stack for real back/forward navigation
 const viewHistory: string[] = ['home'];
 let viewHistoryIndex = 0;
 
-export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setActiveView }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onSearchSelect,
+  activeView,
+  setActiveView,
+  onSubmitSearch,
+}) => {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<Track[]>([]);
   const [isOpenDropdown, setIsOpenDropdown] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  /** Non-null when the typeahead search could not reach any provider. */
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const { playTrack, showToast } = usePlayer();
-  const { user, isSyncing, signInWithGoogle, logout } = useAuth();
+  const { user, isSyncing, isAuthAvailable, authError, lastSyncedAt, signInWithGoogle, logout } =
+    useAuth();
   
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -67,28 +80,43 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Debounced search
+  // Debounced typeahead search. A failure is reported in the dropdown; it is never
+  // replaced with placeholder content.
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
+      setSearchError(null);
       setIsOpenDropdown(false);
       return;
     }
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setIsSearching(true);
+      setSearchError(null);
       try {
         const res = await searchYouTube(query);
+        if (cancelled) return;
         setResults(res);
         setIsOpenDropdown(true);
       } catch (e) {
-        console.error(e);
+        if (cancelled) return;
+        setResults([]);
+        setSearchError(
+          e instanceof SearchUnavailableError
+            ? 'Search is unavailable right now.'
+            : 'Search failed. Please try again.'
+        );
+        setIsOpenDropdown(true);
       } finally {
-        setIsSearching(false);
+        if (!cancelled) setIsSearching(false);
       }
     }, 180);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query]);
 
   // Click outside search and user menu
@@ -119,20 +147,33 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && query.trim()) {
-      setActiveView('explore');
+    if (e.key === 'Enter') {
+      const submitted = query.trim();
+      if (!submitted) return;
+      // Hand the actual query to the app so Explore runs it. Previously this only
+      // switched views and the typed text was discarded.
+      if (onSubmitSearch) {
+        onSubmitSearch(submitted);
+      } else {
+        setActiveView('explore');
+      }
       setIsOpenDropdown(false);
     }
   };
 
   const handleLogin = async () => {
+    if (!isAuthAvailable) {
+      // Do not show a success state for something that cannot happen.
+      showToast(authError ?? 'Sign-in is not configured for this build.', 'error');
+      return;
+    }
     try {
       setIsLoggingIn(true);
       await signInWithGoogle();
-      showToast('Signed in with Google!', 'success');
+      showToast('Signed in with Google', 'success');
     } catch (err: any) {
       if (err?.code !== 'auth/popup-closed-by-user') {
-        showToast('Login failed. Check internet connection.', 'error');
+        showToast(err?.message || 'Sign-in failed.', 'error');
       }
     } finally {
       setIsLoggingIn(false);
@@ -202,6 +243,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
                 onClick={() => {
                   setQuery('');
                   setResults([]);
+                  setSearchError(null);
                 }}
                 className="absolute right-3 p-1 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white transition"
               >
@@ -219,11 +261,30 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
           {isOpenDropdown && (
             <div className="absolute top-full left-0 right-0 mt-1.5 py-1.5 bg-[#121215] border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/90 z-50 max-h-96 overflow-y-auto">
               <div className="px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-neutral-400 border-b border-white/[0.04] flex items-center justify-between">
-                <span>{isSearching ? 'Searching YouTube...' : 'Top Matches'}</span>
+                <span>{isSearching ? 'Searching...' : searchError ? 'Search error' : 'Top Matches'}</span>
                 {results.length > 0 && <span className="text-[10px] text-neutral-500 font-mono">{results.length} found</span>}
               </div>
 
-              {results.length === 0 && !isSearching && (
+              {searchError && !isSearching && (
+                <div className="px-4 py-6 text-center space-y-2.5">
+                  <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
+                  <p className="text-xs text-neutral-300 font-medium">{searchError}</p>
+                  <button
+                    onClick={() => {
+                      const submitted = query.trim();
+                      if (!submitted) return;
+                      if (onSubmitSearch) onSubmitSearch(submitted);
+                      else setActiveView('explore');
+                      setIsOpenDropdown(false);
+                    }}
+                    className="text-[11px] font-semibold text-purple-300 hover:text-purple-200 transition"
+                  >
+                    Retry in Explore
+                  </button>
+                </div>
+              )}
+
+              {results.length === 0 && !isSearching && !searchError && (
                 <div className="px-4 py-8 text-center text-xs text-neutral-500 font-medium">
                   No matching tracks found for "{query}"
                 </div>
@@ -315,9 +376,37 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
                       {user.displayName || 'Auralis User'}
                     </p>
                     <p className="text-[11px] text-neutral-400 truncate">{user.email}</p>
-                    <div className="mt-2 flex items-center gap-1.5 text-[10px] text-emerald-400">
-                      <Cloud className="w-3 h-3" />
-                      <span>Cloud Sync Active</span>
+                    {/*
+                      Honest scope statement. This is Firebase Google sign-in with
+                      Firestore sync of Auralis favorites and playlists only. It is
+                      NOT YouTube Music account sync — no YouTube Music library,
+                      artists, albums, or playlists are read or written.
+                    */}
+                    <div className="mt-2 space-y-1">
+                      {authError ? (
+                        <div className="flex items-start gap-1.5 text-[10px] text-amber-400">
+                          <AlertTriangle className="w-3 h-3 mt-px flex-shrink-0" />
+                          <span className="leading-snug">{authError}</span>
+                        </div>
+                      ) : isSyncing ? (
+                        <div className="flex items-center gap-1.5 text-[10px] text-sky-400">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Syncing…</span>
+                        </div>
+                      ) : lastSyncedAt ? (
+                        <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
+                          <Cloud className="w-3 h-3" />
+                          <span>Favorites &amp; playlists synced</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-[10px] text-neutral-500">
+                          <Cloud className="w-3 h-3" />
+                          <span>Not yet synced</span>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-neutral-500 leading-snug">
+                        Auralis favorites and playlists only — not YouTube Music library sync.
+                      </p>
                     </div>
                   </div>
 
@@ -334,8 +423,13 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
           ) : (
             <button
               onClick={handleLogin}
-              disabled={isLoggingIn}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white text-black font-semibold text-xs hover:bg-neutral-200 active:scale-95 transition shadow-sm"
+              disabled={isLoggingIn || !isAuthAvailable}
+              title={isAuthAvailable ? 'Sign in with Google' : (authError ?? undefined)}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full font-semibold text-xs transition shadow-sm ${
+                isAuthAvailable
+                  ? 'bg-white text-black hover:bg-neutral-200 active:scale-95'
+                  : 'bg-white/[0.06] text-neutral-500 border border-white/[0.08] cursor-not-allowed'
+              }`}
             >
               {isLoggingIn ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -359,7 +453,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSelect, activeView, setA
                   />
                 </svg>
               )}
-              <span>Sign In</span>
+              <span>{isAuthAvailable ? 'Sign In' : 'Sign-in unavailable'}</span>
             </button>
           )}
         </div>

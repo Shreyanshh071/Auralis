@@ -1,41 +1,64 @@
 import React, { useState, useEffect } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
-import { GENRES, searchYouTube } from '../../services/youtube';
+import { GENRES, searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import type { Track } from '../../types/music';
-import { Play, Search, Heart, Compass, TrendingUp } from 'lucide-react';
+import { Play, Search, Heart, Compass, TrendingUp, AlertTriangle, RefreshCw } from 'lucide-react';
+import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
+const DEFAULT_QUERY = 'trending music 2025 top hits';
 
 interface ExploreViewProps {
   initialQuery?: string;
+  /**
+   * Changes whenever a new search is submitted from outside this view (e.g. the
+   * header). Included in the effect deps so submitting the *same* query twice
+   * still re-runs the search.
+   */
+  queryNonce?: number;
 }
 
-export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '' }) => {
+export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', queryNonce = 0 }) => {
   const [query, setQuery] = useState(initialQuery);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  /** Non-null when the last search could not reach any provider. */
+  const [error, setError] = useState<string | null>(null);
+  /** The query behind the currently displayed results, so Retry re-runs it. */
+  const [lastQuery, setLastQuery] = useState<string>('');
 
   const { playTrack, currentTrack, isPlaying, isFavorite, toggleFavorite } = usePlayer();
 
-  // Auto-search trending on mount if no initial query
+  // Run the incoming query, or fall back to trending on a plain visit.
   useEffect(() => {
     if (initialQuery) {
       setQuery(initialQuery);
+      setSelectedGenre(null);
       performSearch(initialQuery);
     } else {
-      performSearch('trending music 2025 top hits');
+      performSearch(DEFAULT_QUERY);
     }
-  }, [initialQuery]);
+  }, [initialQuery, queryNonce]);
 
   const performSearch = async (searchQuery: string) => {
     setIsLoading(true);
     setHasSearched(true);
+    setError(null);
+    setLastQuery(searchQuery);
     try {
       const res = await searchYouTube(searchQuery);
       setTracks(res);
     } catch (e) {
-      console.error(e);
+      // No hardcoded fallback: report the real failure and clear stale results.
+      setTracks([]);
+      setError(
+        e instanceof SearchUnavailableError
+          ? 'No search provider could be reached, so results are unavailable. Check your connection and try again.'
+          : e instanceof Error
+            ? e.message
+            : 'Search failed for an unknown reason.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -48,6 +71,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '' }) =
   };
 
   const formatDuration = (secs: number) => {
+    // Providers do not always report a length. Show that honestly rather than 0:00.
+    if (!secs || secs <= 0) return '--:--';
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -95,7 +120,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '' }) =
           onClick={() => {
             setSelectedGenre(null);
             setQuery('');
-            performSearch('trending music 2025 top hits');
+            performSearch(DEFAULT_QUERY);
           }}
           className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
             selectedGenre === null
@@ -136,12 +161,30 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '' }) =
         {isLoading ? (
           <div className="flex items-center justify-center py-20 text-neutral-400 gap-3">
             <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-            <span className="text-sm font-medium">Fetching YouTube streams...</span>
+            <span className="text-sm font-medium">Searching...</span>
+          </div>
+        ) : error ? (
+          /* ---- Real error state: no provider could be reached ---- */
+          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-7 h-7 text-amber-400" />
+            </div>
+            <h3 className="text-base font-bold text-white">Search unavailable</h3>
+            <p className="text-sm text-neutral-400 mt-1.5 max-w-md">{error}</p>
+            <button
+              onClick={() => performSearch(lastQuery || DEFAULT_QUERY)}
+              className="mt-5 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white transition shadow-md flex items-center gap-2"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
           </div>
         ) : tracks.length === 0 && hasSearched ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Search className="w-10 h-10 text-neutral-600 mb-3" />
-            <p className="text-sm text-neutral-400">No results found. Try a different search term.</p>
+            <p className="text-sm text-neutral-400">
+              No results{lastQuery ? ` for “${lastQuery}”` : ''}. Try a different search term.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -195,19 +238,27 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '' }) =
                       <p className="text-xs text-neutral-400 truncate mt-0.5">{track.artist}</p>
                     </div>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(track);
-                      }}
-                      className="p-1.5 rounded-full hover:bg-white/10 transition text-neutral-400 hover:text-white"
-                    >
-                      <Heart
-                        className={`w-4 h-4 ${
-                          favorite ? 'fill-red-500 text-red-500' : 'text-neutral-400'
-                        }`}
+                    <div className="flex items-center flex-shrink-0">
+                      <AddToPlaylistButton
+                        track={track}
+                        className="p-1.5 rounded-full hover:bg-white/10 transition text-neutral-400 hover:text-white"
                       />
-                    </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(track);
+                        }}
+                        className="p-1.5 rounded-full hover:bg-white/10 transition text-neutral-400 hover:text-white"
+                        title={favorite ? 'Remove from Liked' : 'Add to Liked'}
+                      >
+                        <Heart
+                          className={`w-4 h-4 ${
+                            favorite ? 'fill-red-500 text-red-500' : 'text-neutral-400'
+                          }`}
+                        />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/5 text-[10px] font-mono text-neutral-500">

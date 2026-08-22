@@ -50,13 +50,21 @@ export type RepeatMode = 'off' | 'all' | 'one';
 export interface PlayerSettings {
   volume: number;
   isMuted: boolean;
-  playbackRate: number;
-  audioQuality: 'auto' | 'high' | 'medium';
-  ambientVisuals: boolean;
+  // Playback speed is NOT kept here. It lives as first-class player state in
+  // PlayerContext (`playbackRate` / `setPlaybackRate`), wired directly to the
+  // YouTube IFrame `setPlaybackRate` API and re-applied on every track load,
+  // with a visible control in the now-playing view — so it is real behaviour,
+  // not an inert stored value.
+  //
+  // `audioQuality`, `ambientVisuals` and `karaokeSweep` were also removed for the
+  // same reason: each was declared, defaulted and persisted but read by nothing
+  // and exposed by no control. `audioQuality` in particular is unimplementable on
+  // the current pipeline — the YouTube IFrame quality API is deprecated and the
+  // audio is cross-origin — so any control would have been fake. Reintroduce any
+  // of these only together with real wiring and a real control.
   lyricsFontSize: 'small' | 'medium' | 'large';
   lyricsMode: 'spicy' | 'cinema' | 'classic';
   lyricsAlignment: 'left' | 'center';
   lyricsDepthBlur: boolean;
-  karaokeSweep: boolean;
 }
 

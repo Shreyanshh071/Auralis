@@ -16,13 +16,30 @@ import type { Track } from './types/music';
 
 const AppContent: React.FC = () => {
   const [activeView, setActiveView] = useState<string>('home');
-  const [searchGenreQuery, setSearchGenreQuery] = useState<string>('');
+  // The query Explore should run, plus a nonce so submitting the *same* query
+  // again still re-triggers the search instead of being ignored as unchanged.
+  const [exploreRequest, setExploreRequest] = useState<{ query: string; nonce: number }>({
+    query: '',
+    nonce: 0,
+  });
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
+  // A playlist the Library should open as soon as it mounts, set when one is
+  // clicked in the sidebar. Cleared by the Library once consumed, so switching
+  // away and back does not reopen it.
+  const [pendingPlaylistId, setPendingPlaylistId] = useState<string | undefined>(undefined);
   const { dominantColor } = usePlayer();
 
+  /** Send a query to Explore and switch to it. Used by genre tiles and header search. */
   const handleSelectGenre = (genreQuery: string) => {
-    setSearchGenreQuery(genreQuery);
+    setExploreRequest((prev) => ({ query: genreQuery, nonce: prev.nonce + 1 }));
     setActiveView('explore');
+  };
+
+  /** Open a specific playlist. The sidebar previously just switched to the
+   *  Library and dropped the id, so every playlist link led to the same grid. */
+  const handleOpenPlaylist = (playlistId: string) => {
+    setPendingPlaylistId(playlistId);
+    setActiveView('library');
   };
 
   const handleSearchSelect = (_track: Track) => {
@@ -44,6 +61,7 @@ const AppContent: React.FC = () => {
         activeView={activeView}
         setActiveView={setActiveView}
         openCreatePlaylistModal={() => setIsCreatePlaylistOpen(true)}
+        openPlaylist={handleOpenPlaylist}
       />
 
       {/* Main Content Area */}
@@ -52,6 +70,7 @@ const AppContent: React.FC = () => {
           activeView={activeView}
           setActiveView={setActiveView}
           onSearchSelect={handleSearchSelect}
+          onSubmitSearch={handleSelectGenre}
         />
 
         <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 pb-44 md:pb-24">
@@ -60,11 +79,18 @@ const AppContent: React.FC = () => {
           )}
 
           {activeView === 'explore' && (
-            <ExploreView initialQuery={searchGenreQuery} />
+            <ExploreView
+              initialQuery={exploreRequest.query}
+              queryNonce={exploreRequest.nonce}
+            />
           )}
 
           {activeView === 'library' && (
-            <LibraryView openCreatePlaylistModal={() => setIsCreatePlaylistOpen(true)} />
+            <LibraryView
+              openCreatePlaylistModal={() => setIsCreatePlaylistOpen(true)}
+              openPlaylistId={pendingPlaylistId}
+              onPlaylistOpened={() => setPendingPlaylistId(undefined)}
+            />
           )}
 
           {activeView === 'favorites' && <FavoritesView />}
