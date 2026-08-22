@@ -10,19 +10,41 @@ import {
   Radio,
 } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface SidebarProps {
   activeView: string;
   setActiveView: (view: string) => void;
   openCreatePlaylistModal: () => void;
+  /** Opens one specific playlist in the Library. */
+  openPlaylist: (playlistId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeView,
   setActiveView,
   openCreatePlaylistModal,
+  openPlaylist,
 }) => {
   const { favorites, playlists, sleepTimerRemaining } = usePlayer();
+  const { user, isAuthAvailable, isSyncing, authError, lastSyncedAt } = useAuth();
+
+  /**
+   * Real sync state. This replaces a previously hardcoded green "Auralis Cloud
+   * Ready" dot that was shown regardless of whether Firebase was configured, a
+   * user was signed in, or any write had ever succeeded.
+   */
+  const syncStatus: { dot: string; label: string; pulse: boolean } = !isAuthAvailable
+    ? { dot: 'bg-neutral-600', label: 'Cloud sync not configured', pulse: false }
+    : authError
+      ? { dot: 'bg-amber-500', label: 'Cloud sync problem', pulse: false }
+      : !user
+        ? { dot: 'bg-neutral-600', label: 'Saved on this device only', pulse: false }
+        : isSyncing
+          ? { dot: 'bg-sky-500', label: 'Syncing…', pulse: true }
+          : lastSyncedAt
+            ? { dot: 'bg-emerald-500', label: 'Favorites & playlists synced', pulse: false }
+            : { dot: 'bg-neutral-600', label: 'Signed in — not yet synced', pulse: false };
 
   const mainNav = [
     { id: 'home', label: 'Home', icon: Home },
@@ -118,7 +140,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {playlists.map((pl) => (
               <button
                 key={pl.id}
-                onClick={() => setActiveView('library')}
+                onClick={() => openPlaylist(pl.id)}
+                title={pl.title}
                 className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.03] transition truncate text-left"
               >
                 <ListMusic className="w-3.5 h-3.5 text-neutral-500 flex-shrink-0" />
@@ -146,9 +169,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        <div className="flex items-center gap-2 px-1">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] text-neutral-400 font-medium">Auralis Cloud Ready</span>
+        <div className="flex items-center gap-2 px-1" title={authError ?? undefined}>
+          <div
+            className={`w-2 h-2 rounded-full flex-shrink-0 ${syncStatus.dot} ${
+              syncStatus.pulse ? 'animate-pulse' : ''
+            }`}
+          />
+          <span className="text-[10px] text-neutral-400 font-medium truncate">
+            {syncStatus.label}
+          </span>
         </div>
       </div>
     </aside>

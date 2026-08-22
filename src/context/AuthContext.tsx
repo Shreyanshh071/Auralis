@@ -1,26 +1,70 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   type User,
   signInWithPopup,
   signOut as firebaseSignOut,
-  onAuthStateChanged
+  onAuthStateChanged,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, googleProvider, db } from '../services/firebase';
+import {
+  auth,
+  googleProvider,
+  db,
+  isFirebaseConfigured,
+  firebaseConfigError,
+} from '../services/firebase';
 import type { Track, Playlist } from '../types/music';
 
-interface UserCloudData {
+/** Current shape of the `users/{uid}` document. Bump when the shape changes. */
+export const CLOUD_SCHEMA_VERSION = 1;
+
+export interface UserCloudData {
   favorites?: Track[];
   playlists?: Playlist[];
+  /** Last write to the document, from any field. Epoch milliseconds. */
+  updatedAt?: number;
+  /** Last write to `favorites`. Epoch milliseconds. */
+  favoritesUpdatedAt?: number;
+  /** Last write to `playlists`. Epoch milliseconds. */
+  playlistsUpdatedAt?: number;
+  schemaVersion?: number;
+  /** Legacy field written by earlier builds; read-only compatibility. */
   lastSyncedAt?: number;
+}
+
+/**
+ * Thrown when a Firestore read failed. Callers MUST treat this differently from
+ * "the document does not exist": on a read failure the local state has not been
+ * reconciled, so writing local data back would risk overwriting cloud data.
+ */
+export class CloudReadError extends Error {
+  constructor(cause: unknown) {
+    super(
+      cause instanceof Error
+        ? `Could not read cloud data: ${cause.message}`
+        : 'Could not read cloud data.'
+    );
+    this.name = 'CloudReadError';
+  }
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   isSyncing: boolean;
+  /** False when Firebase env vars are missing; sign-in is genuinely unavailable. */
+  isAuthAvailable: boolean;
+  /** Why auth/sync is unavailable, or the last sync failure. Null when healthy. */
+  authError: string | null;
+  /** Timestamp of the last successful cloud write, or null if none this session. */
+  lastSyncedAt: number | null;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Reads `users/{uid}`.
+   * Resolves to the document data, or `null` when the document does not exist.
+   * Rejects with `CloudReadError` when the read itself failed.
+   */
   fetchCloudData: () => Promise<UserCloudData | null>;
   saveFavoritesToCloud: (favorites: Track[]) => Promise<void>;
   savePlaylistsToCloud: (playlists: Playlist[]) => Promise<void>;
@@ -30,86 +74,111 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  // With Firebase unconfigured there is no auth state to wait for.
+  const [loading, setLoading] = useState<boolean>(isFirebaseConfigured);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(firebaseConfigError);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!auth) return;
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+      if (!currentUser) setLastSyncedAt(null);
     });
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = useCallback(async () => {
+    if (!auth) {
+      // Do not pretend sign-in is possible.
+      throw new Error(firebaseConfigError ?? 'Firebase is not configured.');
+    }
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
+      setAuthError(null);
+    } catch (error) {
       console.error('Google Sign-in Error:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
+    if (!auth) return;
     try {
       await firebaseSignOut(auth);
-    } catch (error: any) {
+      setLastSyncedAt(null);
+    } catch (error) {
       console.error('Sign-out Error:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const fetchCloudData = async (): Promise<UserCloudData | null> => {
-    if (!auth.currentUser) return null;
+  const fetchCloudData = useCallback(async (): Promise<UserCloudData | null> => {
+    if (!auth?.currentUser || !db) return null;
     setIsSyncing(true);
     try {
       const userRef = doc(db, 'users', auth.currentUser.uid);
       const snapshot = await getDoc(userRef);
-      if (snapshot.exists()) {
-        return snapshot.data() as UserCloudData;
-      }
-      return null;
+      setAuthError(null);
+      return snapshot.exists() ? (snapshot.data() as UserCloudData) : null;
     } catch (error) {
       console.error('Error fetching cloud data:', error);
-      return null;
+      const readError = new CloudReadError(error);
+      setAuthError(readError.message);
+      // Surfaced as a rejection so the caller does NOT open the write gate.
+      throw readError;
     } finally {
       setIsSyncing(false);
     }
-  };
+  }, []);
 
-  const saveFavoritesToCloud = async (favorites: Track[]) => {
-    if (!auth.currentUser) return;
+  const saveFavoritesToCloud = useCallback(async (favorites: Track[]) => {
+    if (!auth?.currentUser || !db) return;
+    const now = Date.now();
     try {
       const userRef = doc(db, 'users', auth.currentUser.uid);
       await setDoc(
         userRef,
         {
           favorites,
-          lastSyncedAt: Date.now(),
+          favoritesUpdatedAt: now,
+          updatedAt: now,
+          schemaVersion: CLOUD_SCHEMA_VERSION,
         },
         { merge: true }
       );
+      setLastSyncedAt(now);
+      setAuthError(null);
     } catch (error) {
       console.error('Error syncing favorites to cloud:', error);
+      setAuthError('Favorites could not be saved to the cloud.');
     }
-  };
+  }, []);
 
-  const savePlaylistsToCloud = async (playlists: Playlist[]) => {
-    if (!auth.currentUser) return;
+  const savePlaylistsToCloud = useCallback(async (playlists: Playlist[]) => {
+    if (!auth?.currentUser || !db) return;
+    const now = Date.now();
     try {
       const userRef = doc(db, 'users', auth.currentUser.uid);
       await setDoc(
         userRef,
         {
           playlists,
-          lastSyncedAt: Date.now(),
+          playlistsUpdatedAt: now,
+          updatedAt: now,
+          schemaVersion: CLOUD_SCHEMA_VERSION,
         },
         { merge: true }
       );
+      setLastSyncedAt(now);
+      setAuthError(null);
     } catch (error) {
       console.error('Error syncing playlists to cloud:', error);
+      setAuthError('Playlists could not be saved to the cloud.');
     }
-  };
+  }, []);
 
   return (
     <AuthContext.Provider
@@ -117,6 +186,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         isSyncing,
+        isAuthAvailable: isFirebaseConfigured,
+        authError,
+        lastSyncedAt,
         signInWithGoogle,
         logout,
         fetchCloudData,
