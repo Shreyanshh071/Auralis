@@ -1,6 +1,14 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
+import {
+  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  GoogleAuthProvider,
+  type Auth,
+} from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
 
 /**
  * Firebase web configuration.
@@ -80,6 +88,26 @@ let app: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let dbInstance: Firestore | null = null;
 
+/**
+ * Resolves the Auth instance with persistence appropriate to the platform.
+ *
+ * On native (the Capacitor Android WebView) the session is explicitly pinned to
+ * durable storage so it survives an app restart, matching the plugin's
+ * recommendation for the Firebase JS SDK. On web, `getAuth()` already resolves
+ * to durable persistence and `initializeAuth` must not run twice (Fast Refresh),
+ * so it is used as-is. The try/catch tolerates a repeated init on native too.
+ */
+const createAuth = (firebaseApp: FirebaseApp): Auth => {
+  if (!Capacitor.isNativePlatform()) return getAuth(firebaseApp);
+  try {
+    return initializeAuth(firebaseApp, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+    });
+  } catch {
+    return getAuth(firebaseApp);
+  }
+};
+
 if (isFirebaseConfigured) {
   const firebaseConfig = {
     apiKey: read('VITE_FIREBASE_API_KEY'),
@@ -92,7 +120,7 @@ if (isFirebaseConfigured) {
   };
 
   app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-  authInstance = getAuth(app);
+  authInstance = createAuth(app);
   dbInstance = getFirestore(app);
 } else {
   // Deliberately not throwing: the rest of the app works without an account.

@@ -19,6 +19,7 @@ import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import type { Track, ThemeMode } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
+import { isSignInCancellation } from '../../services/googleSignIn';
 
 interface HeaderProps {
   onSearchSelect?: (track: Track) => void;
@@ -195,7 +196,9 @@ export const Header: React.FC<HeaderProps> = ({
       await signInWithGoogle();
       showToast('Signed in with Google', 'success');
     } catch (err: any) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
+      // A user-cancelled sign-in (web popup closed, or native sheet dismissed)
+      // is not an error — stay silent. Surface everything else.
+      if (!isSignInCancellation(err)) {
         showToast(err?.message || 'Sign-in failed.', 'error');
       }
     } finally {

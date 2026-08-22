@@ -1,18 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import {
-  type User,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-} from 'firebase/auth';
+import { type User, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import {
   auth,
-  googleProvider,
   db,
   isFirebaseConfigured,
   firebaseConfigError,
 } from '../services/firebase';
+import {
+  signInWithGoogle as googleSignIn,
+  signOutEverywhere,
+  isSignInCancellation,
+} from '../services/googleSignIn';
 import type { Track, Playlist } from '../types/music';
 
 /** Current shape of the `users/{uid}` document. Bump when the shape changes. */
@@ -96,10 +95,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(firebaseConfigError ?? 'Firebase is not configured.');
     }
     try {
-      await signInWithPopup(auth, googleProvider);
+      await googleSignIn(auth);
       setAuthError(null);
     } catch (error) {
-      console.error('Google Sign-in Error:', error);
+      // Cancellation is a user choice, not a failure — do not log it as an
+      // error. It is still re-thrown so the caller skips the success toast.
+      if (!isSignInCancellation(error)) {
+        console.error('Google Sign-in Error:', error);
+      }
       throw error;
     }
   }, []);
@@ -107,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(async () => {
     if (!auth) return;
     try {
-      await firebaseSignOut(auth);
+      await signOutEverywhere(auth);
       setLastSyncedAt(null);
     } catch (error) {
       console.error('Sign-out Error:', error);
