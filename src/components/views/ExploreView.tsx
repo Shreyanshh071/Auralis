@@ -8,19 +8,23 @@ import {
   Search,
   Heart,
   Compass,
-  TrendingUp,
+  Music2,
   AlertTriangle,
   RefreshCw,
   Users,
   ListMusic,
+  Disc3,
   Loader2,
   Bookmark,
+  X,
 } from 'lucide-react';
 import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
 const DEFAULT_QUERY = 'trending music 2025 top hits';
 
 const EMPTY_RESULTS: SearchResults = { songs: [], artists: [], playlists: [] };
+
+type SearchCategory = 'all' | 'songs' | 'artists' | 'albums' | 'playlists';
 
 interface ExploreViewProps {
   initialQuery?: string;
@@ -37,6 +41,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<SearchCategory>('all');
   const [hasSearched, setHasSearched] = useState(false);
   /** Non-null when the last search could not reach any provider. */
   const [error, setError] = useState<string | null>(null);
@@ -74,16 +79,17 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   }, [initialQuery, queryNonce]);
 
   const performSearch = async (searchQuery: string) => {
+    const q = searchQuery.trim();
+    if (!q) return;
     setIsLoading(true);
     setHasSearched(true);
     setError(null);
     setPlaylistError(null);
-    setLastQuery(searchQuery);
+    setLastQuery(q);
     try {
-      const res = await searchAll(searchQuery);
+      const res = await searchAll(q);
       setResults(res);
     } catch (e) {
-      // No hardcoded fallback: report the real failure and clear stale results.
       setResults(EMPTY_RESULTS);
       setError(
         e instanceof SearchUnavailableError
@@ -110,7 +116,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   };
 
   const handlePlaylistClick = async (pl: PlaylistResult) => {
-    if (openingPlaylistId) return; // one at a time
+    if (openingPlaylistId) return;
     setOpeningPlaylistId(pl.id);
     setPlaylistError(null);
     try {
@@ -128,7 +134,6 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   };
 
   const formatDuration = (secs: number) => {
-    // Providers do not always report a length. Show that honestly rather than 0:00.
     if (!secs || secs <= 0) return '--:--';
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
@@ -138,67 +143,114 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const { songs, artists, playlists } = results;
   const hasAnyResult = songs.length > 0 || artists.length > 0 || playlists.length > 0;
 
+  // Filter categories
+  const showSongs = (activeCategory === 'all' || activeCategory === 'songs') && songs.length > 0;
+  const showArtists = (activeCategory === 'all' || activeCategory === 'artists') && artists.length > 0;
+  const showPlaylists = (activeCategory === 'all' || activeCategory === 'playlists' || activeCategory === 'albums') && playlists.length > 0;
+
   return (
-    <div className="space-y-8 pb-32 animate-in fade-in duration-300 text-[var(--text-primary)]">
-      {/* Header & Search */}
-      <div className="space-y-4">
+    <div className="space-y-6 pb-36 animate-in fade-in duration-300 text-[var(--text-primary)] max-w-5xl mx-auto">
+      {/* Header & Search Bar */}
+      <div className="space-y-3 pt-1">
         <div className="flex items-center gap-3">
-          <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-500 dark:text-purple-400">
-            <Compass className="w-6 h-6" />
+          <div className="p-2.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-500 dark:text-[#dbe7b5]">
+            <Compass className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="font-display font-black text-3xl text-[var(--text-primary)]">Explore & Discover</h1>
+            <h1 className="font-display font-black text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
+              Search &amp; Explore
+            </h1>
             <p className="text-xs text-[var(--text-muted)]">
-              Search songs, artists, and playlists across YouTube, and stream with synced lyrics
+              Discover songs, artists, and playlists with synchronized lyrics
             </p>
           </div>
         </div>
 
-        {/* Search Input */}
-        <div className="relative max-w-xl">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)] pointer-events-none" />
+        {/* Search Input Bar */}
+        <div className="relative w-full max-w-2xl">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && performSearch(query)}
-            placeholder="Search any song, artist, album, or vibe..."
-            className="w-full pl-12 pr-28 py-3.5 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-2xl border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition shadow-sm"
+            placeholder="Search songs, artists, albums, or vibes..."
+            className="w-full pl-10 pr-24 py-2.5 sm:py-3 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-2xl border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition shadow-sm"
           />
+          {query && (
+            <button
+              onClick={() => {
+                setQuery('');
+                setResults(EMPTY_RESULTS);
+                setHasSearched(false);
+              }}
+              className="absolute right-16 top-1/2 -translate-y-1/2 p-1 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={() => performSearch(query)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white transition shadow-md cursor-pointer"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#171b11] text-xs font-bold transition shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
           >
             Search
           </button>
         </div>
       </div>
 
-      {/* Genre Chips */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+      {/* Category Filter Pills (Music-First: All, Songs, Artists, Albums, Playlists) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {(
+          [
+            { id: 'all', label: 'All' },
+            { id: 'songs', label: 'Songs' },
+            { id: 'artists', label: 'Artists' },
+            { id: 'albums', label: 'Albums' },
+            { id: 'playlists', label: 'Playlists' },
+          ] as const
+        ).map((cat) => {
+          const isActive = activeCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id)}
+              className={`px-3.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+                isActive
+                  ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#171b11] shadow-sm'
+                  : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+              }`}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Genre Tags (Quick discovery presets) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={() => {
             setSelectedGenre(null);
             setQuery('');
             performSearch(DEFAULT_QUERY);
           }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
-            selectedGenre === null
-              ? 'bg-purple-600 text-white shadow-md'
-              : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+          className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
+            selectedGenre === null && query === DEFAULT_QUERY
+              ? 'bg-purple-600/20 text-purple-600 dark:text-[#dbe7b5] border border-purple-500/40'
+              : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
           }`}
         >
-          All Top Charts
+          Top Hits
         </button>
 
         {GENRES.map((g) => (
           <button
             key={g.id}
             onClick={() => handleGenreClick(g.query, g.name)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+            className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
               selectedGenre === g.name
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+                ? 'bg-purple-600/20 text-purple-600 dark:text-[#dbe7b5] border border-purple-500/40'
+                : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
             }`}
           >
             {g.name}
@@ -206,66 +258,72 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
         ))}
       </div>
 
-      {/* A playlist failed to open — surfaced honestly, dismissable by the next action. */}
+      {/* Playlist open error notification */}
       {playlistError && (
-        <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-200 text-sm">
+        <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-200 text-xs">
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
           <span>{playlistError}</span>
         </div>
       )}
 
+      {/* Loading state */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20 text-[var(--text-muted)] gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-          <span className="text-sm font-medium">Searching...</span>
+          <div className="w-7 h-7 rounded-full border-2 border-purple-500 dark:border-[#dbe7b5] border-t-transparent animate-spin" />
+          <span className="text-xs font-medium">Finding songs...</span>
         </div>
       ) : error ? (
-        /* ---- Real error state: no provider could be reached ---- */
+        /* Error State */
         <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center mb-4">
-            <AlertTriangle className="w-7 h-7 text-amber-500" />
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center mb-3">
+            <AlertTriangle className="w-6 h-6 text-amber-500" />
           </div>
-          <h3 className="text-base font-bold text-[var(--text-primary)]">Search unavailable</h3>
-          <p className="text-sm text-[var(--text-muted)] mt-1.5 max-w-md">{error}</p>
+          <h3 className="text-sm font-bold text-[var(--text-primary)]">Search unavailable</h3>
+          <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md">{error}</p>
           <button
             onClick={() => performSearch(lastQuery || DEFAULT_QUERY)}
-            className="mt-5 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white transition shadow-md flex items-center gap-2 cursor-pointer"
+            className="mt-4 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white transition shadow-sm flex items-center gap-2 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>Retry</span>
+            <span>Retry Search</span>
           </button>
         </div>
       ) : !hasAnyResult && hasSearched ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <Search className="w-10 h-10 text-[var(--text-muted)] opacity-50 mb-3" />
-          <p className="text-sm text-[var(--text-muted)]">
-            No results{lastQuery ? ` for “${lastQuery}”` : ''}. Try a different search term.
+        /* Empty State */
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-2">
+          <Search className="w-8 h-8 text-[var(--text-muted)] opacity-40" />
+          <p className="text-xs font-medium text-[var(--text-muted)]">
+            No music found for “{lastQuery}”. Try a different title or artist.
           </p>
         </div>
       ) : (
-        <div className="space-y-10">
-          {/* ---- Artists ---- */}
-          {artists.length > 0 && (
-            <section className="space-y-4">
-              <h2 className="font-display font-bold text-xl text-[var(--text-primary)] flex items-center gap-2">
-                <Users className="w-5 h-5 text-purple-500 dark:text-purple-400" />
-                <span>Artists</span>
-              </h2>
-              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+        /* Music Results */
+        <div className="space-y-8">
+          {/* ---- Artists Section ---- */}
+          {showArtists && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display font-bold text-base sm:text-lg text-[var(--text-primary)] flex items-center gap-2">
+                  <Users className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+                  <span>Artists</span>
+                </h2>
+              </div>
+
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
                 {artists.map((artist) => {
                   const isSaved = isArtistSaved(artist.id);
                   return (
                     <div
                       key={artist.id}
-                      className="group flex flex-col items-center gap-2 w-28 flex-shrink-0"
+                      className="group flex flex-col items-center gap-1.5 w-24 sm:w-28 flex-shrink-0"
                     >
                       <button
                         onClick={() => handleArtistClick(artist)}
-                        className="flex flex-col items-center gap-2 w-full focus:outline-none cursor-pointer"
+                        className="flex flex-col items-center gap-1.5 w-full focus:outline-none cursor-pointer"
                         title={`Search ${artist.name}`}
                       >
-                        <div className="relative w-24 h-24 rounded-full overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-purple-500/50 transition shadow-sm flex items-center justify-center">
-                          <span className="text-2xl font-black text-[var(--text-muted)] select-none">
+                        <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-purple-500/50 transition shadow-sm flex items-center justify-center">
+                          <span className="text-xl font-black text-[var(--text-muted)] select-none">
                             {artist.name.charAt(0).toUpperCase()}
                           </span>
                           {artist.thumbnail && (
@@ -280,7 +338,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                           )}
                         </div>
                         <div className="text-center min-w-0 w-full">
-                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-purple-300">
+                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5]">
                             {artist.name}
                           </p>
                           {artist.subscribers && (
@@ -300,10 +358,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                         }}
                         className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer ${
                           isSaved
-                            ? 'bg-purple-600/25 text-purple-600 dark:text-purple-300 border-purple-500/40 hover:bg-rose-500/20 hover:text-rose-500 hover:border-rose-500/30'
+                            ? 'bg-purple-600/25 text-purple-600 dark:text-[#dbe7b5] border-purple-500/40'
                             : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                         }`}
-                        title={isSaved ? 'Remove from Library' : 'Save to Library'}
                       >
                         {isSaved ? 'Following' : '+ Follow'}
                       </button>
@@ -314,51 +371,54 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             </section>
           )}
 
-          {/* ---- Playlists & Albums ---- */}
-          {playlists.length > 0 && (
-            <section className="space-y-4">
-              <h2 className="font-display font-bold text-xl text-[var(--text-primary)] flex items-center gap-2">
-                <ListMusic className="w-5 h-5 text-purple-500 dark:text-purple-400" />
-                <span>Playlists & Albums</span>
-              </h2>
-              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+          {/* ---- Playlists & Albums Section ---- */}
+          {showPlaylists && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display font-bold text-base sm:text-lg text-[var(--text-primary)] flex items-center gap-2">
+                  <ListMusic className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+                  <span>Albums &amp; Playlists</span>
+                </h2>
+              </div>
+
+              <div className="flex gap-3.5 overflow-x-auto pb-2 scrollbar-none">
                 {playlists.map((pl) => {
                   const opening = openingPlaylistId === pl.id;
                   const isSaved = isAlbumSaved(pl.id);
                   return (
                     <div
                       key={pl.id}
-                      className="group relative flex flex-col gap-2 w-40 flex-shrink-0 text-left"
+                      className="group relative flex flex-col gap-1.5 w-32 sm:w-36 flex-shrink-0 text-left"
                     >
                       <button
                         onClick={() => handlePlaylistClick(pl)}
                         disabled={!!openingPlaylistId}
-                        className="group flex flex-col gap-2 w-full text-left focus:outline-none disabled:opacity-60 cursor-pointer"
+                        className="group flex flex-col gap-1.5 w-full text-left focus:outline-none disabled:opacity-60 cursor-pointer"
                         title={`Play “${pl.title}”`}
                       >
-                        <div className="relative w-40 h-40 rounded-2xl overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-purple-500/50 transition shadow-sm flex items-center justify-center">
+                        <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-2xl overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-purple-500/50 transition shadow-sm flex items-center justify-center">
                           {pl.thumbnail ? (
                             <img
                               src={pl.thumbnail}
                               alt={pl.title}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                               onError={(e) => {
                                 e.currentTarget.style.display = 'none';
                               }}
                             />
                           ) : (
-                            <ListMusic className="w-10 h-10 text-[var(--text-muted)]" />
+                            <Disc3 className="w-8 h-8 text-[var(--text-muted)]" />
                           )}
                           <div
-                            className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${
+                            className={`absolute inset-0 bg-black/45 flex items-center justify-center transition-opacity ${
                               opening ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                             }`}
                           >
                             {opening ? (
-                              <Loader2 className="w-7 h-7 text-white animate-spin" />
+                              <Loader2 className="w-6 h-6 text-white animate-spin" />
                             ) : (
-                              <div className="p-3 rounded-full bg-purple-600 text-white shadow-lg">
-                                <Play className="w-5 h-5 fill-current ml-0.5" />
+                              <div className="p-2.5 rounded-full bg-purple-600 text-white shadow-md">
+                                <Play className="w-4 h-4 fill-current ml-0.5" />
                               </div>
                             )}
                           </div>
@@ -367,11 +427,11 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
 
                       <div className="flex items-start justify-between min-w-0 gap-1">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-purple-300">
+                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5]">
                             {pl.title}
                           </p>
                           <p className="text-[10px] text-[var(--text-muted)] truncate">
-                            {pl.author ? pl.author : 'Playlist'}
+                            {pl.author || 'Album'}
                             {typeof pl.trackCount === 'number' ? ` · ${pl.trackCount} tracks` : ''}
                           </p>
                         </div>
@@ -384,14 +444,14 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                               saveAlbum(pl);
                             }
                           }}
-                          className={`p-1.5 rounded-lg border transition flex-shrink-0 cursor-pointer ${
+                          className={`p-1 rounded-lg border transition flex-shrink-0 cursor-pointer ${
                             isSaved
-                              ? 'bg-purple-600/30 text-purple-600 dark:text-purple-300 border-purple-500/50'
+                              ? 'bg-purple-600/30 text-purple-600 dark:text-[#dbe7b5] border-purple-500/50'
                               : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                           }`}
                           title={isSaved ? 'Saved in Library' : 'Save to Library'}
                         >
-                          <Bookmark className={`w-3.5 h-3.5 ${isSaved ? 'fill-current' : ''}`} />
+                          <Bookmark className={`w-3 h-3 ${isSaved ? 'fill-current' : ''}`} />
                         </button>
                       </div>
                     </div>
@@ -401,21 +461,22 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             </section>
           )}
 
-          {/* ---- Songs ---- */}
-          {songs.length > 0 && (
-            <section className="space-y-4">
+          {/* ---- Compact Songs List (Music-First, High-Density) ---- */}
+          {showSongs && (
+            <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="font-display font-bold text-xl text-[var(--text-primary)] flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-purple-500 dark:text-purple-400" />
-                  <span>{selectedGenre ? `${selectedGenre} Hits` : 'Songs'}</span>
+                <h2 className="font-display font-bold text-base sm:text-lg text-[var(--text-primary)] flex items-center gap-2">
+                  <Music2 className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+                  <span>{selectedGenre ? `${selectedGenre} Songs` : 'Songs'}</span>
                 </h2>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {songs.length} {songs.length === 1 ? 'track' : 'tracks'}
+                <span className="text-[11px] font-mono text-[var(--text-muted)]">
+                  {songs.length} {songs.length === 1 ? 'song' : 'songs'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {songs.map((track: Track) => {
+              {/* Compact Vertical Song Rows (Screenshots 1 & 2 layout) */}
+              <div className="divide-y divide-[var(--border-subtle)] bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)] overflow-hidden shadow-sm">
+                {songs.map((track, idx) => {
                   const isCurrent = currentTrack?.id === track.id;
                   const favorite = isFavorite(track.id);
 
@@ -423,74 +484,93 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                     <div
                       key={track.id}
                       onClick={() => playTrack(track, songs)}
-                      className={`group relative flex flex-col p-4 rounded-3xl border transition-all duration-300 cursor-pointer ${
+                      className={`group flex items-center justify-between gap-2.5 sm:gap-4 px-3 py-2 sm:px-4 sm:py-2.5 transition cursor-pointer ${
                         isCurrent
-                          ? 'bg-purple-500/10 border-purple-500/40 shadow-xl'
-                          : 'bg-[var(--bg-card)] hover:bg-[var(--bg-card-hover)] border-[var(--border-subtle)] hover:border-[var(--border-medium)] shadow-sm hover:scale-[1.02]'
+                          ? 'bg-purple-500/10 dark:bg-[#dbe7b5]/10 text-purple-600 dark:text-[#dbe7b5]'
+                          : 'hover:bg-[var(--bg-surface-hover)]'
                       }`}
                     >
-                      <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-[var(--bg-surface-elevated)] shadow-sm mb-3">
-                        <img
-                          src={track.thumbnail}
-                          alt={track.title}
-                          className="w-full h-full object-cover aspect-square group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            if (!target.src.includes('hqdefault')) {
-                              target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
-                            }
-                          }}
-                        />
+                      {/* Left: Thumbnail & Title/Artist */}
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        {/* Artwork with quick-play hover state */}
+                        <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden bg-[var(--bg-surface-elevated)] flex-shrink-0 shadow-sm">
+                          <img
+                            src={track.thumbnail}
+                            alt={track.title}
+                            loading="lazy"
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (!target.src.includes('hqdefault')) {
+                                target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
+                              }
+                            }}
+                          />
+                          <div
+                            className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
+                              isCurrent && isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            {isCurrent && isPlaying ? (
+                              <div className="flex items-end gap-0.5 h-3">
+                                <span className="w-0.5 bg-white rounded-full animate-bounce" style={{ height: '70%' }} />
+                                <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:0.15s]" style={{ height: '100%' }} />
+                                <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:0.3s]" style={{ height: '50%' }} />
+                              </div>
+                            ) : (
+                              <Play className="w-4 h-4 text-white fill-current ml-0.5" />
+                            )}
+                          </div>
+                        </div>
 
-                        <div
-                          className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
-                            isCurrent && isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                          }`}
-                        >
-                          <div className="p-3 rounded-full bg-purple-600 text-white shadow-lg">
-                            <Play className="w-6 h-6 fill-current ml-0.5" />
+                        {/* Title & Artist */}
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className={`text-xs sm:text-sm font-bold truncate ${
+                              isCurrent
+                                ? 'text-purple-600 dark:text-[#dbe7b5]'
+                                : 'text-[var(--text-primary)] group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition'
+                            }`}
+                          >
+                            {track.title}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                            <span className="truncate">{track.artist}</span>
+                            {track.album && (
+                              <>
+                                <span className="text-[var(--text-subtle)]">•</span>
+                                <span className="truncate hidden sm:inline">{track.album}</span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex items-start justify-between gap-2 min-w-0">
-                        <div className="min-w-0 flex-1">
-                          <h3
-                            className={`text-sm font-bold truncate ${
-                              isCurrent ? 'text-purple-600 dark:text-purple-300' : 'text-[var(--text-primary)] group-hover:text-purple-500 dark:group-hover:text-purple-300'
+                      {/* Right: Duration & Actions */}
+                      <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
+                        <span className="text-[11px] font-mono text-[var(--text-muted)] pr-1 sm:pr-2">
+                          {formatDuration(track.duration)}
+                        </span>
+
+                        <AddToPlaylistButton
+                          track={track}
+                          className="p-1.5 rounded-full hover:bg-[var(--bg-surface-elevated)] transition text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                        />
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite(track);
+                          }}
+                          className="p-1.5 rounded-full hover:bg-[var(--bg-surface-elevated)] transition text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                          title={favorite ? 'Remove from Liked' : 'Add to Liked'}
+                        >
+                          <Heart
+                            className={`w-3.5 h-3.5 ${
+                              favorite ? 'fill-rose-500 text-rose-500' : 'text-[var(--text-muted)]'
                             }`}
-                          >
-                            {track.title}
-                          </h3>
-                          <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">{track.artist}</p>
-                        </div>
-
-                        <div className="flex items-center flex-shrink-0">
-                          <AddToPlaylistButton
-                            track={track}
-                            className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] transition text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                           />
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleFavorite(track);
-                            }}
-                            className="p-1.5 rounded-full hover:bg-[var(--bg-surface-hover)] transition text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                            title={favorite ? 'Remove from Liked' : 'Add to Liked'}
-                          >
-                            <Heart
-                              className={`w-4 h-4 ${
-                                favorite ? 'fill-red-500 text-red-500' : 'text-[var(--text-muted)]'
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-3 pt-2 border-t border-[var(--border-subtle)] text-[10px] font-mono text-[var(--text-muted)]">
-                        <span>{formatDuration(track.duration)}</span>
-                        {track.album && <span className="truncate ml-2">{track.album}</span>}
+                        </button>
                       </div>
                     </div>
                   );

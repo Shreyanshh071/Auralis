@@ -64,12 +64,18 @@ function youtubeSearchPlugin() {
             if (vr && vr.videoId && songs.length < 25) {
               const rawTitle = vr.title?.runs?.[0]?.text || 'Untitled Track';
               const owner = vr.ownerText?.runs?.[0]?.text || 'YouTube Artist';
-              let artist = owner;
+              let artist = owner.replace(/\s*-\s*Topic$/i, '').replace(/VEVO$/i, '').trim() || owner;
               let title = rawTitle;
-              if (rawTitle.includes(' - ')) {
-                const parts = rawTitle.split(' - ');
-                artist = parts[0].trim();
-                title = parts.slice(1).join(' - ').trim();
+              const sepMatch = rawTitle.match(/^(.*?)\s*[-–—:|]\s*(.*)$/);
+              if (sepMatch) {
+                artist = sepMatch[1].trim();
+                title = sepMatch[2].trim();
+              } else {
+                const pipeMatch = rawTitle.match(/^(.*?)\s*\|([^|]+)\|\s*$/);
+                if (pipeMatch) {
+                  title = pipeMatch[1].trim();
+                  artist = pipeMatch[2].trim();
+                }
               }
               const lengthText = vr.lengthText?.simpleText || '3:30';
               const parts = lengthText.split(':').map(Number);

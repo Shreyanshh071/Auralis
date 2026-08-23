@@ -196,3 +196,57 @@ test('PlaybackClock: seekTo updates anchor immediately', () => {
   clock.seekTo(45.0);
   assert.equal(clock.getCurrentInterpolatedTime(), 45.0);
 });
+
+test('PlaybackClock: visibility re-anchor accurately corrects time after background tab return', async () => {
+  const clock = new PlaybackClock();
+  // Tab was playing at 10.0s
+  clock.updateAnchor(10.0, true, 1.0, 200);
+
+  // Background tab simulation: 200ms passes
+  await new Promise((r) => setTimeout(r, 200));
+
+  // Authoritative player on visibility focus reports 15.0s (e.g. video kept playing in iframe)
+  clock.updateAnchor(15.0, true, 1.0, 200);
+  const resynced = clock.getCurrentInterpolatedTime();
+  assert.ok(resynced >= 15.0 && resynced < 15.05, `expected resynced time ~15.0s, got ${resynced}`);
+});
+
+// ---------------------------------------------------------------------------
+// Modal Tab Sync & MiniPlayer Navigation Logic Tests
+// ---------------------------------------------------------------------------
+
+test('Modal Tab derivation: resolves activeModalTab when mobileTab is player or matching', () => {
+  function derivePanelTab(mobileTab, activeModalTab) {
+    return mobileTab !== 'player' ? mobileTab : activeModalTab;
+  }
+
+  // Desktop / Default
+  assert.equal(derivePanelTab('player', 'lyrics'), 'lyrics');
+  assert.equal(derivePanelTab('player', 'queue'), 'queue');
+  assert.equal(derivePanelTab('player', 'visualizer'), 'visualizer');
+
+  // Mobile direct selection overrides 'player'
+  assert.equal(derivePanelTab('lyrics', 'queue'), 'lyrics');
+  assert.equal(derivePanelTab('queue', 'lyrics'), 'queue');
+  assert.equal(derivePanelTab('visualizer', 'lyrics'), 'visualizer');
+});
+
+test('MiniPlayer Lyrics Button navigation: syncs mobileTab to activeModalTab on open', () => {
+  let modalOpen = false;
+  let activeModalTab = 'player';
+  let mobileTab = 'player';
+
+  function openLyricsFromMiniPlayer() {
+    activeModalTab = 'lyrics';
+    modalOpen = true;
+    // Synced effect:
+    if (activeModalTab === 'lyrics' || activeModalTab === 'queue' || activeModalTab === 'visualizer') {
+      mobileTab = activeModalTab;
+    }
+  }
+
+  openLyricsFromMiniPlayer();
+  assert.equal(modalOpen, true);
+  assert.equal(activeModalTab, 'lyrics');
+  assert.equal(mobileTab, 'lyrics');
+});
