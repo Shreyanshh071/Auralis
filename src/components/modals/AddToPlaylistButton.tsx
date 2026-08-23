@@ -130,7 +130,7 @@ export const AddToPlaylistButton: React.FC<AddToPlaylistButtonProps> = ({
                         </span>
                       </span>
                       {alreadyIn ? (
-                        <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-[#dbe7b5] flex-shrink-0">
+                        <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--m3-primary)] flex-shrink-0">
                           <Check className="w-3.5 h-3.5" />
                           Added
                         </span>
@@ -157,7 +157,7 @@ export const AddToPlaylistButton: React.FC<AddToPlaylistButtonProps> = ({
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white dark:bg-[#dbe7b5] dark:text-[#14190c] dark:hover:bg-[#c9d79e] font-bold text-xs transition flex-shrink-0 cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-[var(--m3-on-primary)] font-bold text-xs transition flex-shrink-0 cursor-pointer"
                   >
                     Create
                   </button>
@@ -169,7 +169,7 @@ export const AddToPlaylistButton: React.FC<AddToPlaylistButtonProps> = ({
                     e.stopPropagation();
                     setIsNaming(true);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-purple-600 dark:text-[#dbe7b5] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-[var(--m3-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   New playlist

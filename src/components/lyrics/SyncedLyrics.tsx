@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import {
   Clock,
@@ -35,12 +35,12 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     isLoadingLyrics,
     activeLyricIndex,
     isPlaying,
+    currentTime,
     seekTo,
     lyricsOffset,
     setManualLyricsOffset,
     settings,
     updateSettings,
-    dominantColor,
   } = usePlayer();
 
   const [copied, setCopied] = useState(false);
@@ -60,14 +60,18 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
   const activeLineRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const userScrollTimeoutRef = useRef<any>(null);
 
-  // Refs for rAF-driven word highlighting (no React re-renders)
-  const wordSpansRef = useRef<Map<string, HTMLSpanElement[]>>(new Map());
-  const cinemaWordSpansRef = useRef<HTMLSpanElement[]>([]);
+  // Refs for rAF-driven word highlighting (no React re-renders).
+  // Entries are nulled/dropped when a span unmounts, so the per-frame loop only
+  // ever walks spans that are still in the document.
+  const wordSpansRef = useRef<Map<string, (HTMLSpanElement | null)[]>>(new Map());
+  const cinemaWordSpansRef = useRef<(HTMLSpanElement | null)[]>([]);
   const rafIdRef = useRef<number>(0);
   const lyricsOffsetRef = useRef(lyricsOffset);
   lyricsOffsetRef.current = lyricsOffset;
+  // Read inside observers/callbacks that must not re-subscribe on every toggle.
+  const autoScrollRef = useRef(autoScroll);
+  autoScrollRef.current = autoScroll;
 
   // Translate lyrics whenever lyrics, currentTrack, targetLang, or translation active changes
   useEffect(() => {
@@ -132,7 +136,19 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
   // User vs programmatic scroll detection
   const isProgrammaticScrollRef = useRef(false);
   const programmaticScrollTimerRef = useRef<any>(null);
+  const isUserInteractingRef = useRef(false);
+  const userGestureTimeoutRef = useRef<any>(null);
   const isInitialScrollRef = useRef(true);
+  const expectedScrollTopRef = useRef<number | null>(null);
+
+  const endProgrammaticScroll = useCallback(() => {
+    isProgrammaticScrollRef.current = false;
+    expectedScrollTopRef.current = null;
+    if (programmaticScrollTimerRef.current) {
+      clearTimeout(programmaticScrollTimerRef.current);
+      programmaticScrollTimerRef.current = null;
+    }
+  }, []);
 
   // Center active lyric line mathematically within the container viewport
   const scrollToActiveLine = useCallback((smooth = true) => {
@@ -140,37 +156,48 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     const activeEl = activeLineRef.current;
     if (!container || !activeEl) return;
 
-    const lineOffsetTop = activeEl.offsetTop;
-    const lineHeight = activeEl.offsetHeight;
+    // Use getBoundingClientRect delta to be completely immune to offsetParent changes or transforms
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = activeEl.getBoundingClientRect();
+    const lineTopInContainer = activeRect.top - containerRect.top + container.scrollTop;
+    const lineHeight = activeRect.height || activeEl.offsetHeight;
     const containerHeight = container.clientHeight;
 
     // Center active line at 50% of container viewport height
-    const targetScrollTop = lineOffsetTop - (containerHeight / 2) + (lineHeight / 2);
+    const targetScrollTop = lineTopInContainer - (containerHeight / 2) + (lineHeight / 2);
     const maxScrollTop = container.scrollHeight - containerHeight;
     const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
 
+    // Already centered within 1px
+    if (Math.abs(container.scrollTop - clampedScrollTop) < 1) {
+      endProgrammaticScroll();
+      return;
+    }
+
     isProgrammaticScrollRef.current = true;
+    expectedScrollTopRef.current = clampedScrollTop;
     if (programmaticScrollTimerRef.current) {
       clearTimeout(programmaticScrollTimerRef.current);
     }
-    programmaticScrollTimerRef.current = setTimeout(() => {
-      isProgrammaticScrollRef.current = false;
-    }, smooth ? 650 : 50);
+    // Safety net fallback
+    programmaticScrollTimerRef.current = setTimeout(endProgrammaticScroll, smooth ? 1200 : 100);
 
     container.scrollTo({
       top: clampedScrollTop,
       behavior: smooth ? 'smooth' : 'auto',
     });
-  }, []);
+  }, [endProgrammaticScroll]);
 
   // Track changes / initial load reset
   useEffect(() => {
     isInitialScrollRef.current = true;
+    isUserInteractingRef.current = false;
+    endProgrammaticScroll();
     setAutoScroll(true);
-  }, [currentTrack?.id]);
+  }, [currentTrack?.id, endProgrammaticScroll]);
 
-  // Auto-scroll to active lyric line on line changes or resume
-  useEffect(() => {
+  // Auto-scroll to active lyric line on line changes or resume.
+  useLayoutEffect(() => {
     if (!autoScroll || activeLyricIndex < 0 || !activeLineRef.current || !containerRef.current) return;
 
     const isFirst = isInitialScrollRef.current;
@@ -180,15 +207,74 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     }
   }, [activeLyricIndex, autoScroll, scrollToActiveLine]);
 
-  // Handle user manual scroll — pause auto-scroll without fighting
-  const handleUserInteraction = useCallback(() => {
-    if (isProgrammaticScrollRef.current) return;
-    if (!autoScroll) return;
+  // Anything that changes line metrics has to re-center
+  useEffect(() => {
+    if (!autoScrollRef.current) return;
+    scrollToActiveLine(false);
+  }, [
+    scrollToActiveLine,
+    settings.lyricsFontSize,
+    settings.lyricsAlignment,
+    settings.lyricsDepthBlur,
+    settings.lyricsMode,
+    isTranslationActive,
+    translatedLines,
+  ]);
+
+  // Container resize (rotation, window resize, panel/tab layout changes)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (autoScrollRef.current) scrollToActiveLine(false);
+      });
+    });
+    observer.observe(container);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [lyrics, scrollToActiveLine]);
+
+  // Handle user manual scroll gesture — pause auto-scroll without fighting
+  const handleUserGesture = useCallback(() => {
+    isUserInteractingRef.current = true;
+    if (userGestureTimeoutRef.current) {
+      clearTimeout(userGestureTimeoutRef.current);
+    }
+    userGestureTimeoutRef.current = setTimeout(() => {
+      isUserInteractingRef.current = false;
+    }, 1200);
+    endProgrammaticScroll();
     setAutoScroll(false);
-  }, [autoScroll]);
+  }, [endProgrammaticScroll]);
+
+  const handleScroll = useCallback(() => {
+    if (isUserInteractingRef.current) {
+      setAutoScroll(false);
+      return;
+    }
+    if (!isProgrammaticScrollRef.current) {
+      return;
+    }
+    const container = containerRef.current;
+    const expected = expectedScrollTopRef.current;
+    if (!container || expected === null) return;
+    if (Math.abs(container.scrollTop - expected) <= 3) {
+      endProgrammaticScroll();
+    }
+  }, [endProgrammaticScroll]);
 
   // Resume auto-scroll button handler: immediately re-enable and center active line
   const handleResumeAutoScroll = () => {
+    isUserInteractingRef.current = false;
+    if (userGestureTimeoutRef.current) clearTimeout(userGestureTimeoutRef.current);
     setAutoScroll(true);
     requestAnimationFrame(() => {
       scrollToActiveLine(true);
@@ -224,15 +310,15 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
   // Typography sizes
   const fontSizes = {
-    small: 'text-lg sm:text-xl md:text-2xl font-bold leading-relaxed',
-    medium: 'text-xl sm:text-2xl md:text-3xl font-extrabold leading-relaxed',
-    large: 'text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight',
+    small: 'text-base sm:text-xl md:text-2xl font-bold leading-relaxed',
+    medium: 'text-lg sm:text-2xl md:text-3xl font-extrabold leading-relaxed',
+    large: 'text-xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight',
   };
 
   const activeFontSizes = {
-    small: 'text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight leading-snug',
-    medium: 'text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-none',
-    large: 'text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-none',
+    small: 'text-xl sm:text-3xl md:text-4xl font-extrabold tracking-tight leading-snug',
+    medium: 'text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-none',
+    large: 'text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-none',
   };
 
   // --- Derived state ---
@@ -243,12 +329,133 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
   // Sync type badge label
   const syncBadgeLabel = isRichSynced ? 'Word Synced' : isLineSynced ? 'Line Synced' : 'Lyrics';
-  const activeLanguageObj = SUPPORTED_LANGUAGES.find((l) => l.code === targetLang) || SUPPORTED_LANGUAGES[0];
+
+  // --- Richsync word highlighting -------------------------------------------
+  // Direct DOM class toggling on the registered word <span>s. Deliberately kept
+  // out of React state so nothing re-renders per frame. Declared above the
+  // loading/empty early returns below so the hook order stays stable when
+  // lyrics arrive or the track changes.
+  const applyWordHighlight = useCallback((adjustedTime: number) => {
+    // Scroll-mode word spans (only the active line renders any)
+    wordSpansRef.current.forEach((spans) => {
+      for (const span of spans) {
+        if (!span) continue;
+        const wordTime = Number(span.dataset.wordTime);
+        if (Number.isFinite(wordTime)) {
+          const active = adjustedTime >= wordTime;
+          if (active) {
+            span.classList.add('lyrics-word-active');
+            span.classList.remove('lyrics-word-inactive');
+          } else {
+            span.classList.remove('lyrics-word-active');
+            span.classList.add('lyrics-word-inactive');
+          }
+        }
+      }
+    });
+
+    // Cinema-mode word spans
+    for (const span of cinemaWordSpansRef.current) {
+      if (!span) continue;
+      const wordTime = Number(span.dataset.wordTime);
+      if (Number.isFinite(wordTime)) {
+        const active = adjustedTime >= wordTime;
+        if (active) {
+          span.classList.add('lyrics-word-active');
+          span.classList.remove('lyrics-word-inactive');
+        } else {
+          span.classList.remove('lyrics-word-active');
+          span.classList.add('lyrics-word-inactive');
+        }
+      }
+    }
+  }, []);
+
+  // One-shot resync. The rAF loop below only runs while playing, so without
+  // this a seek (or a line change) while paused would leave the previous line's
+  // words highlighted. Layout effect so freshly mounted spans get their state
+  // before the first paint instead of flashing in fully dimmed.
+  useLayoutEffect(() => {
+    if (!isRichSynced) return;
+    applyWordHighlight(globalPlaybackClock.getCurrentInterpolatedTime() + lyricsOffsetRef.current);
+  }, [
+    isRichSynced,
+    applyWordHighlight,
+    activeLyricIndex,
+    currentTime,
+    isPlaying,
+    lyricsOffset,
+    settings.lyricsMode,
+    isTranslationActive,
+    translatedLines,
+  ]);
+
+  // The per-frame loop: reads the interpolating clock and toggles the two CSS
+  // classes. Only alive while richsync words exist and playback is running.
+  useEffect(() => {
+    if (!isRichSynced || !isPlaying) {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+      return;
+    }
+
+    const tick = () => {
+      // When tab is hidden/backgrounded, pause DOM updates to save CPU/GPU resources
+      if (document.hidden) {
+        rafIdRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      applyWordHighlight(globalPlaybackClock.getCurrentInterpolatedTime() + lyricsOffsetRef.current);
+
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        applyWordHighlight(globalPlaybackClock.getCurrentInterpolatedTime() + lyricsOffsetRef.current);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    rafIdRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+    };
+  }, [isRichSynced, isPlaying, applyWordHighlight]);
+
+  // Helpers to register word span refs for the loop above. React calls these
+  // with null on unmount — dropping the entry then is what keeps the map from
+  // growing for the whole session and the loop from walking detached spans.
+  const registerWordRef = useCallback((lineKey: string, index: number, el: HTMLSpanElement | null) => {
+    const map = wordSpansRef.current;
+    if (!el) {
+      const existing = map.get(lineKey);
+      if (existing) {
+        existing[index] = null;
+        if (existing.every((span) => span === null)) map.delete(lineKey);
+      }
+      return;
+    }
+    let spans = map.get(lineKey);
+    if (!spans) {
+      spans = [];
+      map.set(lineKey, spans);
+    }
+    spans[index] = el;
+  }, []);
+
+  const registerCinemaWordRef = useCallback((index: number, el: HTMLSpanElement | null) => {
+    cinemaWordSpansRef.current[index] = el;
+  }, []);
 
   // --- Loading state ---
   if (isLoadingLyrics) {
     return (
-      <div className="relative flex flex-col items-center justify-center h-full min-h-[350px] gap-3 text-purple-500 dark:text-[#dbe7b5] select-none">
+      <div className="relative flex flex-col items-center justify-center h-full min-h-[350px] gap-3 text-[var(--m3-primary)] select-none">
         <div className="relative flex items-center justify-center">
           <div className="w-12 h-12 rounded-full border-2 border-current/20 border-t-current animate-spin" />
           <Sparkles className="w-5 h-5 text-current absolute animate-pulse" />
@@ -299,124 +506,19 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     : null;
 
   // --- Richsync: rAF loop drives per-word highlighting via direct DOM updates ---
-  // This loop runs only when richsync words exist and playback is active.
-  // It reads the interpolating clock and toggles CSS classes on word <span> refs
-  // without triggering any React state changes or re-renders.
-  useEffect(() => {
-    if (!isRichSynced || !isPlaying) {
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = 0;
-      return;
-    }
-
-    const updateWords = (adjustedTime: number) => {
-      // Update scroll-mode word spans
-      wordSpansRef.current.forEach((spans) => {
-        for (const span of spans) {
-          if (!span) continue;
-          const wordTime = Number(span.dataset.wordTime);
-          if (Number.isFinite(wordTime)) {
-            const active = adjustedTime >= wordTime;
-            if (active) {
-              span.classList.add('lyrics-word-active');
-              span.classList.remove('lyrics-word-inactive');
-            } else {
-              span.classList.remove('lyrics-word-active');
-              span.classList.add('lyrics-word-inactive');
-            }
-          }
-        }
-      });
-
-      // Update cinema-mode word spans
-      for (const span of cinemaWordSpansRef.current) {
-        if (!span) continue;
-        const wordTime = Number(span.dataset.wordTime);
-        if (Number.isFinite(wordTime)) {
-          const active = adjustedTime >= wordTime;
-          if (active) {
-            span.classList.add('lyrics-word-active');
-            span.classList.remove('lyrics-word-inactive');
-          } else {
-            span.classList.remove('lyrics-word-active');
-            span.classList.add('lyrics-word-inactive');
-          }
-        }
-      }
-    };
-
-    const tick = () => {
-      // When tab is hidden/backgrounded, pause DOM updates to save CPU/GPU resources
-      if (document.hidden) {
-        rafIdRef.current = requestAnimationFrame(tick);
-        return;
-      }
-
-      const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
-      const offset = lyricsOffsetRef.current;
-      const adjustedTime = clockTime + offset;
-
-      updateWords(adjustedTime);
-
-      rafIdRef.current = requestAnimationFrame(tick);
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
-        const offset = lyricsOffsetRef.current;
-        updateWords(clockTime + offset);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    rafIdRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = 0;
-    };
-  }, [isRichSynced, isPlaying, activeLyricIndex]);
-
-  // Helper to register word span refs for rAF-driven highlighting
-  const registerWordRef = useCallback((lineKey: string, index: number, el: HTMLSpanElement | null) => {
-    if (!el) return;
-    let spans = wordSpansRef.current.get(lineKey);
-    if (!spans) {
-      spans = [];
-      wordSpansRef.current.set(lineKey, spans);
-    }
-    spans[index] = el;
-  }, []);
-
-  const registerCinemaWordRef = useCallback((index: number, el: HTMLSpanElement | null) => {
-    if (el) cinemaWordSpansRef.current[index] = el;
-  }, []);
+  // (declared above the early returns — see applyWordHighlight)
 
   return (
     <div className="relative flex flex-col h-full overflow-hidden select-text">
-      {/* Ambient glow backdrop */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-20">
-        <div
-          className="absolute -top-[20%] -left-[20%] w-[70vw] h-[70vw] rounded-full blur-[160px] transition-colors duration-1000"
-          style={{ background: dominantColor }}
-        />
-        <div
-          className="absolute -bottom-[20%] -right-[20%] w-[60vw] h-[60vw] rounded-full blur-[180px] opacity-70 transition-colors duration-1000"
-          style={{ background: dominantColor }}
-        />
-      </div>
-
       {/* Control Header Bar */}
       <div className="relative flex items-center justify-between gap-1.5 sm:gap-3 px-3 sm:px-6 py-2.5 sm:py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-header)] backdrop-blur-2xl z-20 text-[var(--text-primary)]">
         <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1 flex-wrap">
           {/* Sync type badge */}
           <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] shadow-sm flex-shrink-0">
             {isTimeSynced && (
-              <span className="w-2 h-2 rounded-full bg-purple-500 dark:bg-[#dbe7b5] animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-[var(--m3-primary)] animate-pulse" />
             )}
-            <span className="text-[11px] sm:text-xs font-black text-purple-600 dark:text-[#dbe7b5] tracking-wide">
+            <span className="text-[11px] sm:text-xs font-black text-[var(--m3-primary)] tracking-wide">
               {syncBadgeLabel}
             </span>
           </div>
@@ -427,7 +529,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
               onClick={handleToggleTranslation}
               className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-l-full text-[11px] sm:text-xs font-bold transition border cursor-pointer ${
                 isTranslationActive
-                  ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d] border-purple-600 dark:border-[#dbe7b5] shadow-md'
+                  ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)] border-[var(--m3-primary)] shadow-md'
                   : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
               }`}
               title={isTranslationActive ? 'Disable translation' : 'Translate lyrics'}
@@ -444,12 +546,12 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
               onClick={() => setShowLangMenu(!showLangMenu)}
               className={`px-1.5 py-1 rounded-r-full text-xs font-bold transition border-y border-r cursor-pointer ${
                 isTranslationActive
-                  ? 'bg-purple-700 text-white dark:bg-[#c9d79e] dark:text-[#161c0d] border-purple-600 dark:border-[#dbe7b5]'
+                  ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)] border-[var(--m3-primary)]'
                   : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] border-[var(--border-subtle)]'
               }`}
               title="Select translation language"
             >
-              <ChevronDown className="w-3 quasi-3" />
+              <ChevronDown className="w-3 h-3" />
             </button>
 
             {/* Language Selection Dropdown */}
@@ -463,7 +565,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                     key={lang.code}
                     onClick={() => handleSelectLanguage(lang.code)}
                     className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-[var(--bg-surface-hover)] transition cursor-pointer ${
-                      targetLang === lang.code ? 'text-purple-600 dark:text-[#dbe7b5] font-bold bg-[var(--bg-surface-elevated)]' : 'text-[var(--text-primary)]'
+                      targetLang === lang.code ? 'text-[var(--m3-primary)] font-bold bg-[var(--bg-surface-elevated)]' : 'text-[var(--text-primary)]'
                     }`}
                   >
                     <span>{lang.name}</span>
@@ -515,7 +617,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
             onClick={() => setShowSettingsPanel(!showSettingsPanel)}
             className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-full text-xs font-bold transition border cursor-pointer ${
               showSettingsPanel
-                ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d] border-purple-600 dark:border-[#dbe7b5] shadow-lg'
+                ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)] border-[var(--m3-primary)] shadow-lg'
                 : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
             }`}
             title="Lyrics Settings"
@@ -541,7 +643,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
       {showSettingsPanel && (
         <div className="absolute top-12 sm:top-14 right-2 sm:right-6 z-40 w-72 max-w-[calc(100vw-1rem)] p-4 rounded-3xl bg-[var(--bg-popover)] backdrop-blur-2xl border border-[var(--border-medium)] shadow-2xl space-y-4 text-[var(--text-primary)]">
           <div className="flex items-center justify-between pb-2 border-b border-[var(--border-subtle)]">
-            <span className="text-xs font-black text-purple-600 dark:text-[#dbe7b5] tracking-wide">Lyrics Settings</span>
+            <span className="text-xs font-black text-[var(--m3-primary)] tracking-wide">Lyrics Settings</span>
             <button
               onClick={() => setShowSettingsPanel(false)}
               className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded-full hover:bg-[var(--bg-surface-hover)] cursor-pointer"
@@ -563,7 +665,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                   className={`py-1.5 text-xs font-semibold rounded-xl capitalize transition cursor-pointer ${
                     (mode === 'scroll' && settings.lyricsMode !== 'cinema') ||
                     (mode === 'cinema' && settings.lyricsMode === 'cinema')
-                      ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d] font-bold shadow-md'
+                      ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)] font-bold shadow-md'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                   }`}
                 >
@@ -585,7 +687,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                   onClick={() => updateSettings({ lyricsFontSize: size })}
                   className={`py-1.5 text-xs font-semibold rounded-xl capitalize transition cursor-pointer ${
                     settings.lyricsFontSize === size
-                      ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d] font-bold shadow-md'
+                      ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)] font-bold shadow-md'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                   }`}
                 >
@@ -602,7 +704,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
               <button
                 onClick={() => updateSettings({ lyricsAlignment: 'left' })}
                 className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  settings.lyricsAlignment === 'left' ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d]' : 'text-[var(--text-muted)]'
+                  settings.lyricsAlignment === 'left' ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)]' : 'text-[var(--text-muted)]'
                 }`}
                 title="Left Align"
               >
@@ -611,7 +713,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
               <button
                 onClick={() => updateSettings({ lyricsAlignment: 'center' })}
                 className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  settings.lyricsAlignment === 'center' ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d]' : 'text-[var(--text-muted)]'
+                  settings.lyricsAlignment === 'center' ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)]' : 'text-[var(--text-muted)]'
                 }`}
                 title="Center Align"
               >
@@ -626,12 +728,12 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
             <button
               onClick={() => updateSettings({ lyricsDepthBlur: !settings.lyricsDepthBlur })}
               className={`w-10 h-5 rounded-full transition relative p-0.5 cursor-pointer ${
-                settings.lyricsDepthBlur ? 'bg-purple-600 dark:bg-[#dbe7b5]' : 'bg-[var(--border-strong)]'
+                settings.lyricsDepthBlur ? 'bg-[var(--m3-primary)]' : 'bg-[var(--border-strong)]'
               }`}
             >
               <div
                 className={`w-4 h-4 rounded-full transition-transform ${
-                  settings.lyricsDepthBlur ? 'bg-white dark:bg-[#161c0d] translate-x-5' : 'bg-neutral-400 translate-x-0'
+                  settings.lyricsDepthBlur ? 'bg-[var(--m3-on-primary)] translate-x-5' : 'bg-neutral-400 translate-x-0'
                 }`}
               />
             </button>
@@ -654,19 +756,15 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
       {/* Main Lyrics Viewport */}
       <div
         ref={containerRef}
-        onWheel={handleUserInteraction}
-        onTouchMove={handleUserInteraction}
+        onWheel={handleUserGesture}
+        onTouchMove={handleUserGesture}
         onPointerDown={(e) => {
           if (e.target === containerRef.current) {
-            handleUserInteraction();
+            handleUserGesture();
           }
         }}
-        onScroll={() => {
-          if (!isProgrammaticScrollRef.current) {
-            handleUserInteraction();
-          }
-        }}
-        className={`flex-1 overflow-y-auto px-6 sm:px-14 pt-[35vh] pb-[45vh] space-y-8 ${
+        onScroll={handleScroll}
+        className={`relative flex-1 overflow-y-auto px-4 sm:px-12 py-[45vh] space-y-8 scrollbar-none ${
           settings.lyricsAlignment === 'center' ? 'text-center' : 'text-left'
         }`}
       >
@@ -708,7 +806,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
               {/* Cinema Mode: Translated Subtitle */}
               {isTranslationActive && activeLine.translatedText && (
-                <p className="font-semibold text-lg sm:text-2xl text-purple-600 dark:text-[#dbe7b5]/90 italic mt-3 drop-shadow-md">
+                <p className="font-semibold text-lg sm:text-2xl text-[var(--m3-primary)] italic mt-3 drop-shadow-md">
                   {activeLine.translatedText}
                 </p>
               )}
@@ -723,7 +821,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                   {nextLine.text}
                 </p>
                 {isTranslationActive && nextLine.translatedText && (
-                  <p className="font-medium text-base sm:text-lg text-purple-500/60 dark:text-[#dbe7b5]/40 italic">
+                  <p className="font-medium text-base sm:text-lg text-[var(--m3-primary)] italic">
                     {nextLine.translatedText}
                   </p>
                 )}
@@ -775,10 +873,10 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                 {isLongGap && (
                   <div className="flex items-center gap-2 py-4 opacity-40">
                     <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)]">
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 dark:bg-[#dbe7b5] animate-bounce" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 dark:bg-[#dbe7b5] animate-bounce [animation-delay:0.2s]" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 dark:bg-[#dbe7b5] animate-bounce [animation-delay:0.4s]" />
-                      <span className="text-[10px] font-mono text-purple-600 dark:text-[#dbe7b5] ml-1">Instrumental</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--m3-primary)] animate-bounce" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--m3-primary)] animate-bounce [animation-delay:0.2s]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--m3-primary)] animate-bounce [animation-delay:0.4s]" />
+                      <span className="text-[10px] font-mono text-[var(--m3-primary)] ml-1">Instrumental</span>
                     </div>
                   </div>
                 )}
@@ -818,7 +916,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                         className={`font-extrabold tracking-tight block ${
                           isActive
                             ? `text-[var(--text-primary)] dark:text-white drop-shadow-lg ${activeFontSizes[settings.lyricsFontSize] || activeFontSizes.medium}`
-                            : `text-[var(--text-secondary)] dark:text-[#f0f4dc] ${fontSizes[settings.lyricsFontSize] || fontSizes.medium}`
+                            : `text-[var(--text-secondary)] ${fontSizes[settings.lyricsFontSize] || fontSizes.medium}`
                         }`}
                       >
                         {line.text}
@@ -832,8 +930,8 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                           settings.lyricsAlignment === 'center' ? 'text-center' : 'text-left'
                         } ${
                           isActive
-                            ? 'text-purple-600 dark:text-[#dbe7b5] opacity-100 text-sm sm:text-base md:text-lg drop-shadow'
-                            : 'text-purple-500/70 dark:text-[#dbe7b5]/70 opacity-70 text-xs sm:text-sm md:text-base'
+                            ? 'text-[var(--m3-primary)] opacity-100 text-sm sm:text-base md:text-lg drop-shadow'
+                            : 'text-[var(--m3-primary)] opacity-70 text-xs sm:text-sm md:text-base'
                         }`}
                       >
                         {line.translatedText}
@@ -843,9 +941,9 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
                   {/* Hover: jump-to-time badge */}
                   <div
-                    className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--bg-surface-elevated)] text-purple-600 dark:text-[#dbe7b5] text-[11px] font-mono border border-[var(--border-subtle)] shadow-md"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--bg-surface-elevated)] text-[var(--m3-primary)] text-[11px] font-mono border border-[var(--border-subtle)] shadow-md"
                   >
-                    <Zap className="w-3 h-3 text-purple-500 dark:text-[#dbe7b5]" />
+                    <Zap className="w-3 h-3 text-[var(--m3-primary)]" />
                     <span>{formatTime(line.time)}</span>
                   </div>
                 </div>
@@ -856,11 +954,11 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
         /* ====== PLAIN LYRICS ====== */
         ) : (
           <div className="space-y-6 max-w-xl mx-auto py-8">
-            <div className="whitespace-pre-line text-xl text-[var(--text-primary)] dark:text-[#f0f4dc] font-semibold leading-loose">
+            <div className="whitespace-pre-line text-xl text-[var(--text-primary)] font-semibold leading-loose">
               {lyrics.plainLyrics}
             </div>
             {isTranslationActive && translatedPlain && (
-              <div className="pt-6 border-t border-[var(--border-subtle)] whitespace-pre-line text-lg text-purple-600 dark:text-[#dbe7b5]/85 font-medium italic leading-relaxed">
+              <div className="pt-6 border-t border-[var(--border-subtle)] whitespace-pre-line text-lg text-[var(--m3-primary)] font-medium italic leading-relaxed">
                 <div className="text-xs font-mono text-[var(--text-muted)] uppercase mb-2">
                   Translation ({targetLang.toUpperCase()})
                 </div>
@@ -880,11 +978,13 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
         </div>
       </div>
 
-      {/* Auto-scroll resume floating button */}
+      {/* Auto-scroll resume floating button.
+          Plain offsets: the NowPlayingModal wrapper already applies the
+          safe-area padding, so adding env() again pushed it inward twice. */}
       {!autoScroll && isTimeSynced && (
         <button
           onClick={handleResumeAutoScroll}
-          className="absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] sm:bottom-6 right-[max(1rem,calc(env(safe-area-inset-right,0px)+0.75rem))] sm:right-8 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#dbe7b5] dark:text-[#14190c] dark:hover:bg-[#c9d79e] text-xs font-black shadow-2xl border border-purple-500/50 dark:border-[#dbe7b5]/50 transition active:scale-95 z-30 flex items-center gap-2 cursor-pointer"
+          className="absolute bottom-4 sm:bottom-6 right-4 sm:right-8 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-[var(--m3-on-primary)] text-xs font-black shadow-2xl border border-[var(--m3-primary-40)] transition active:scale-95 z-30 flex items-center gap-2 cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>Resume Auto-Scroll</span>

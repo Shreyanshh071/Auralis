@@ -16,9 +16,25 @@ import {
   saveStoredArtists,
   loadStoredAlbums,
   saveStoredAlbums,
+  loadStoredPlaybackPosition,
+  saveStoredPlaybackPosition,
+  resumePositionFor,
 } from '../lib/queueStorage';
-import type { StoredQueue } from '../lib/queueStorage';
+import type { StoredQueue, StoredPlaybackPosition } from '../lib/queueStorage';
 import { moveItem, removeAt, reorderQueue as reorderQueueTracks } from '../lib/queueOps';
+import { applyMaterialPalette, FALLBACK_SEED } from '../lib/materialPalette';
+
+/**
+ * How often the playback position is checkpointed while a track is playing.
+ *
+ * Deliberately coarse. The position only needs to be good enough to drop the
+ * user back roughly where they were, and a write every few seconds costs
+ * nothing — whereas writing on every time update (10x a second) would hammer
+ * localStorage synchronously on the main thread for no benefit. Events that
+ * genuinely matter (pause, backgrounding, teardown) bypass this and write
+ * immediately.
+ */
+const POSITION_WRITE_INTERVAL_MS = 5000;
 
 // ---------------------------------------------------------------------------
 // Play Count Tracking
@@ -175,9 +191,9 @@ interface PlayerContextType {
   // Visuals & Themes
   dominantColor: string;
   isNowPlayingOpen: boolean;
-  activeModalTab: 'lyrics' | 'queue' | 'visualizer' | 'info';
+  activeModalTab: 'player' | 'lyrics' | 'queue' | 'visualizer' | 'info';
   setIsNowPlayingOpen: (open: boolean) => void;
-  setActiveModalTab: (tab: 'lyrics' | 'queue' | 'visualizer' | 'info') => void;
+  setActiveModalTab: (tab: 'player' | 'lyrics' | 'queue' | 'visualizer' | 'info') => void;
 
   // Playlists & Favorites
   favorites: Track[];
@@ -260,14 +276,28 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // ---- Restored queue (read once, before any state that depends on it) ----
   const [restoredQueue] = useState<StoredQueue>(loadStoredQueue);
+  // ---- Where the last session left off in that track, if anywhere useful ----
+  const [restoredPosition] = useState<StoredPlaybackPosition | null>(loadStoredPlaybackPosition);
+  const [initialResumeSeconds] = useState<number>(() =>
+    resumePositionFor(
+      restoredPosition,
+      restoredQueue.currentTrack?.id,
+      restoredQueue.currentTrack?.duration ?? 0,
+    ),
+  );
 
   // ---- No pre-seeded track or queue: only what the last session left ----
   const [currentTrack, setCurrentTrack] = useState<Track | null>(restoredQueue.currentTrack);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [currentTime, setCurrentTime] = useState<number>(0);
+  // Restoring stays passive — nothing plays until the user presses play — but
+  // the scrubber and the lyrics both start at the point they were left, so
+  // reopening Auralis shows 1:13 rather than 0:00.
+  const [currentTime, setCurrentTime] = useState<number>(initialResumeSeconds);
   // Seeded from the restored track so the scrubber shows its real length instead
   // of 0:00 / 0:00. The player overwrites this with its own duration on play.
-  const [duration, setDuration] = useState<number>(restoredQueue.currentTrack?.duration ?? 0);
+  const [duration, setDuration] = useState<number>(
+    restoredQueue.currentTrack?.duration ?? restoredPosition?.duration ?? 0,
+  );
   const [volume, setVolumeState] = useState<number>(() => {
     const saved = localStorage.getItem('auralis_volume');
     return saved ? Number(saved) : 90;
@@ -298,10 +328,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeLyricIndex, setActiveLyricIndex] = useState<number>(-1);
   const [lyricsOffset, setLyricsOffset] = useState<number>(0);
 
-  // Dynamic Theme
-  const [dominantColor, setDominantColor] = useState<string>('#dbe7b5');
+  // Dynamic Theme. Seeded with the Material 3 fallback source colour, which is
+  // Auralis' own olive — so the very first paint already has a real accent and
+  // never flashes a stand-in colour before artwork is sampled.
+  const [dominantColor, setDominantColor] = useState<string>(FALLBACK_SEED);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState<boolean>(false);
-  const [activeModalTab, setActiveModalTab] = useState<'lyrics' | 'queue' | 'visualizer' | 'info'>('lyrics');
+  const [activeModalTab, setActiveModalTab] = useState<'player' | 'lyrics' | 'queue' | 'visualizer' | 'info'>('player');
 
   // ---- Favorites: Start empty if no saved data ----
   const [favorites, setFavorites] = useState<Track[]>(() => {
@@ -437,10 +469,33 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [settings.theme]);
 
+  /**
+   * Publish the Material 3 accent roles for the current artwork colour.
+   *
+   * This is the single place the whole interface gets its accent from: the roles
+   * land on <html> as custom properties, so every component that uses
+   * `var(--m3-primary)` and friends follows the album cover without knowing
+   * anything about it. It replaces the old arrangement where the accent was a
+   * hardcoded purple/olive in ~250 places and the artwork colour only reached
+   * two decorative background blobs.
+   *
+   * Cheap enough to run on every artwork or theme change: the palette is pure
+   * arithmetic on one colour, the extractor caches per image URL, and the writes
+   * are 17 custom properties that the compositor picks up via CSS transitions
+   * rather than any per-frame JavaScript.
+   */
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    applyMaterialPalette(document.documentElement, dominantColor, effectiveTheme);
+  }, [dominantColor, effectiveTheme]);
+
   const playerRef = useRef<any>(null);
   const timeUpdateInterval = useRef<any>(null);
   const isPlayerReadyRef = useRef<boolean>(false);
   const pendingTrackRef = useRef<Track | null>(null);
+  // Offset the pending track should start at, for the case where the user hits
+  // play on a restored track before the IFrame API has finished loading.
+  const pendingStartRef = useRef<number>(0);
   // Latest chosen playback speed, read inside the once-mounted player callbacks
   // (which close over stale state) so the rate can be re-applied on every load.
   const playbackRateRef = useRef<number>(playbackRate);
@@ -449,6 +504,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // been given one. A restored session has a currentTrack but no loaded video,
   // and play/seek must not pretend to work in that state.
   const loadedVideoIdRef = useRef<string | null>(null);
+  // The restored offset, held until the track it belongs to is actually handed
+  // to the player, then cleared. Consumed once so that later cold starts of a
+  // *different* track can never inherit a stale position.
+  const resumeSecondsRef = useRef<number>(initialResumeSeconds);
   // Assigned once `showToast` is defined below, so effects declared earlier can
   // notify the user without depending on declaration order.
   const showToastRef = useRef<
@@ -639,8 +698,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
             if (pendingTrackRef.current) {
               const tr = pendingTrackRef.current;
+              const startSeconds = pendingStartRef.current;
               pendingTrackRef.current = null;
-              event.target.loadVideoById({ videoId: tr.id, startSeconds: 0 });
+              pendingStartRef.current = 0;
+              event.target.loadVideoById({ videoId: tr.id, startSeconds });
               event.target.playVideo();
               loadedVideoIdRef.current = tr.id;
               setIsPlaying(true);
@@ -708,6 +769,106 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, []);
 
+  /* -------------------------------------------------------------------------
+   * Playback position persistence
+   *
+   * Closing Auralis mid-song used to lose your place: the queue came back but
+   * always at 0:00. The rules here are deliberately boring — checkpoint every
+   * few seconds while playing, write immediately on the events that mean "this
+   * is the position that matters" (pause, tab hidden, page going away), and
+   * never write per animation frame.
+   *
+   * Nothing on this path touches the PlaybackClock or the lyrics pipeline: it
+   * only *reads* the values the player already publishes.
+   * ----------------------------------------------------------------------- */
+
+  // Latest playback values, read by the write helper. Refs rather than
+  // dependencies so the unload listeners can be registered exactly once and
+  // still see current values instead of a stale closure.
+  const positionSnapshotRef = useRef({
+    trackId: null as string | null,
+    position: 0,
+    duration: 0,
+    isPlaying: false,
+  });
+  positionSnapshotRef.current = {
+    trackId: currentTrack?.id ?? null,
+    position: currentTime,
+    duration,
+    isPlaying,
+  };
+
+  const lastPositionWriteRef = useRef<number>(0);
+
+  /**
+   * Write the current position. `force` bypasses the throttle and is used for
+   * the events that are the whole point of this feature.
+   */
+  const persistPlaybackPosition = useCallback((force: boolean = false) => {
+    const snapshot = positionSnapshotRef.current;
+    if (!snapshot.trackId) return;
+
+    const now = Date.now();
+    if (!force && now - lastPositionWriteRef.current < POSITION_WRITE_INTERVAL_MS) return;
+    lastPositionWriteRef.current = now;
+
+    saveStoredPlaybackPosition({
+      trackId: snapshot.trackId,
+      position: snapshot.position,
+      duration: snapshot.duration,
+      wasPlaying: snapshot.isPlaying,
+      savedAt: now,
+    });
+  }, []);
+
+  // Pausing is the strongest signal that a position should be remembered, so it
+  // is written straight away rather than waiting for the next checkpoint.
+  // Starting playback writes too, so `wasPlaying` reflects reality if the app is
+  // killed without any further event, and a track change writes the new track's
+  // position so a stale record cannot outlive the song it belonged to.
+  useEffect(() => {
+    if (!currentTrack) return;
+    persistPlaybackPosition(true);
+  }, [isPlaying, currentTrack, persistPlaybackPosition]);
+
+  // Anchor the clock at the restored offset so a restored session opens with
+  // the lyrics on the right line, not at the first one. Anchoring while paused
+  // only moves the clock's stored position — `getCurrentInterpolatedTime()`
+  // returns the anchor verbatim until playback starts — so this cannot make the
+  // lyrics drift.
+  useEffect(() => {
+    if (initialResumeSeconds <= 0) return;
+    globalPlaybackClock.updateAnchor(
+      initialResumeSeconds,
+      false,
+      1,
+      restoredQueue.currentTrack?.duration ?? restoredPosition?.duration ?? 0,
+    );
+    // Restore-time only; every value read here is a first-render constant.
+  }, [initialResumeSeconds, restoredQueue, restoredPosition]);
+
+  // Lifecycle writes. `visibilitychange` covers backgrounding on Android (the
+  // Capacitor WebView reports hidden when the activity stops) as well as
+  // switching tabs on the web; `pagehide` covers navigation and app teardown.
+  // `beforeunload` is the belt-and-braces case for desktop browsers that skip
+  // `pagehide` on some close paths. All three are idempotent, and all three are
+  // DOM events — no extra Capacitor plugin is needed for this.
+  useEffect(() => {
+    const writeNow = () => persistPlaybackPosition(true);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') writeNow();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', writeNow);
+    window.addEventListener('beforeunload', writeNow);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', writeNow);
+      window.removeEventListener('beforeunload', writeNow);
+    };
+  }, [persistPlaybackPosition]);
+
   // Track progress interval — kept at 100ms for progress bars, scrubbers, and
   // time counters. The interpolating clock is also re-anchored here to prevent
   // drift, but lyrics animations read the clock directly via rAF and do NOT
@@ -726,6 +887,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
             const dur = playerRef.current.getDuration();
             if (typeof dur === 'number' && dur > 0) setDuration(dur);
+            // Checkpoint the position from the same tick the time came from, but
+            // no more often than POSITION_WRITE_INTERVAL_MS.
+            persistPlaybackPosition();
           } catch {}
         }
       }, 100);
@@ -735,7 +899,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       if (timeUpdateInterval.current) clearInterval(timeUpdateInterval.current);
     };
-  }, [isPlaying]);
+  }, [isPlaying, persistPlaybackPosition]);
 
   // Lyrics sync — uses the interpolating clock for smoother line transitions.
   // The effect fires on every currentTime tick (100ms) but uses the clock's
@@ -767,6 +931,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!currentTrack) {
       setLyrics(null);
       setIsLoadingLyrics(false);
+      // Nothing playing, so drop back to the fallback accent instead of keeping
+      // the last cover's colour on an empty player.
+      setDominantColor(FALLBACK_SEED);
       return;
     }
 
@@ -890,11 +1057,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * Split out of `playTrack` so the cold-start path in `togglePlay` can reuse it
    * without re-recording history. If the iframe API has not finished loading the
    * track is parked in `pendingTrackRef` and the onReady handler picks it up.
+   *
+   * `startSeconds` is how a restored session resumes mid-song: it is handed
+   * straight to `loadVideoById`, so the player buffers from that point rather
+   * than loading at 0:00 and seeking afterwards (which is audible).
    */
-  const loadAndPlay = (track: Track) => {
+  const loadAndPlay = (track: Track, startSeconds: number = 0) => {
+    const startAt = Number.isFinite(startSeconds) && startSeconds > 0 ? startSeconds : 0;
     if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
       try {
-        playerRef.current.loadVideoById({ videoId: track.id, startSeconds: 0 });
+        playerRef.current.loadVideoById({ videoId: track.id, startSeconds: startAt });
         playerRef.current.playVideo();
         loadedVideoIdRef.current = track.id;
       } catch (err) {
@@ -902,6 +1074,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     } else {
       pendingTrackRef.current = track;
+      pendingStartRef.current = startAt;
     }
   };
 
@@ -914,6 +1087,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentTrack(track);
     setCurrentTime(0);
     setLyricsOffset(0);
+    // An explicit play starts at the beginning, so any pending resume offset from
+    // the restored session is spent here rather than surfacing later.
+    resumeSecondsRef.current = 0;
     globalPlaybackClock.reset();
     setIsPlaying(true);
     setIsLoadingAudio(true);
@@ -939,19 +1115,33 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   /**
-   * Start the restored track from the beginning.
+   * Start the restored track — from where the last session left it, if anywhere.
    *
    * After a reload the track came back from storage but the player has never
    * been given a video, so `playVideo()` would do nothing while the UI flipped
    * to "playing". Loading it first is what makes the restored state real.
+   *
+   * The saved position is consumed once and only for the track it belongs to:
+   * pressing play on the restored song resumes it, while picking any other song
+   * starts at 0:00 as usual. `resumeSecondsRef` is cleared either way, so a
+   * later replay of the same track is a fresh listen rather than a rewind.
    */
   const startFromCold = (track: Track) => {
-    setCurrentTime(0);
+    const startAt =
+      resumeSecondsRef.current > 0 && restoredPosition?.trackId === track.id
+        ? resumeSecondsRef.current
+        : 0;
+    resumeSecondsRef.current = 0;
+
+    setCurrentTime(startAt);
     setIsPlaying(true);
     setIsLoadingAudio(true);
+    // reset() would zero the clock; seekTo moves the anchor without touching the
+    // playing flag, which is what a resume needs.
     globalPlaybackClock.reset();
+    if (startAt > 0) globalPlaybackClock.seekTo(startAt);
     setPlayCounts((prev) => recordPlay(prev, track));
-    loadAndPlay(track);
+    loadAndPlay(track, startAt);
   };
 
   const togglePlay = () => {
@@ -1009,6 +1199,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         playerRef.current.seekTo(seconds, true);
         setCurrentTime(seconds);
         globalPlaybackClock.seekTo(seconds);
+        if (lyrics && lyrics.syncType !== 'plain' && lyrics.lines.length > 0) {
+          const newIdx = findActiveLyricIndex(lyrics.lines, seconds, lyricsOffset);
+          prevLyricIndexRef.current = newIdx;
+          setActiveLyricIndex(newIdx);
+        }
       } catch {}
     }
   };

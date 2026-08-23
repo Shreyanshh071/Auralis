@@ -275,7 +275,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative w-full min-w-0 max-w-2xl">
           <div className="relative flex items-center">
             {isSearching ? (
-              <div className="absolute left-3.5 w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin pointer-events-none" />
+              <div className="absolute left-3.5 w-4 h-4 border-2 border-[var(--m3-primary)] border-t-transparent rounded-full animate-spin pointer-events-none" />
             ) : (
               <Search className="absolute left-3.5 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
             )}
@@ -324,7 +324,7 @@ export const Header: React.FC<HeaderProps> = ({
                       else setActiveView('explore');
                       setIsOpenDropdown(false);
                     }}
-                    className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 transition cursor-pointer"
+                    className="text-[11px] font-semibold text-[var(--m3-primary)] hover:text-[var(--m3-primary-hover)] transition cursor-pointer"
                   >
                     Search in Explore
                   </button>
@@ -340,8 +340,8 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={() => handleSelectSuggestion(s)}
                       className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-[var(--bg-surface-hover)] text-left cursor-pointer transition group"
                     >
-                      <Search className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-purple-500 transition flex-shrink-0" />
-                      <span className="text-xs font-medium text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition">
+                      <Search className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--m3-primary)] transition flex-shrink-0" />
+                      <span className="text-xs font-medium text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)] transition">
                         {s}
                       </span>
                     </button>
@@ -376,7 +376,7 @@ export const Header: React.FC<HeaderProps> = ({
                         }}
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-purple-400 transition">
+                        <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)] transition">
                           {track.title}
                         </p>
                         <p className="text-[10px] text-[var(--text-muted)] truncate">{track.artist}</p>
@@ -384,6 +384,17 @@ export const Header: React.FC<HeaderProps> = ({
                       <Music2 className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition flex-shrink-0" />
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Loading row. Without it the dropdown collapsed to an empty
+                  sliver while a query was in flight and then popped back open,
+                  which read as the header jumping. Same padding as the
+                  "Press Enter" row so the height stays put between states. */}
+              {isSearching && suggestions.length === 0 && results.length === 0 && !searchError && (
+                <div className="flex items-center justify-center gap-2 px-4 py-6 text-xs font-medium text-[var(--text-muted)]">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Searching…</span>
                 </div>
               )}
 
@@ -397,24 +408,32 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right controls: [ Listen Together ] [ Theme Toggle ] [ Google Sign In (if signed out) ] [ Profile Circle ] */}
+      {/* Right controls: [ Listen Together ] [ Theme Toggle ] [ Google Sign In (if signed out) ] [ Profile Circle ]
+       *
+       * The text labels here only appear from `lg` up, not from `sm`. The
+       * desktop sidebar starts at `md` and takes 224px away from this header,
+       * so the space available for the search box actually *shrinks* at 768px.
+       * With labels on at `sm` this whole cluster is 327px of
+       * non-shrinking content and the search input collapsed to ~82px on a
+       * portrait tablet. Icon-only pills (each with a `title`) keep every
+       * control reachable and give the search box ~260px back. */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 flex-shrink-0">
         {/* Listen Together Button */}
         <button
           onClick={() => setIsModalOpen(true)}
-          className={`flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-full text-xs font-semibold transition cursor-pointer flex-shrink-0 ${
+          className={`flex items-center gap-1.5 p-2 lg:px-3 lg:py-1.5 rounded-full text-xs font-semibold transition cursor-pointer flex-shrink-0 ${
             isInRoom
-              ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 shadow-sm'
+              ? 'bg-[var(--m3-primary-12)] text-[var(--m3-primary)] border border-[var(--m3-primary-24)] hover:bg-[var(--m3-primary-24)] shadow-sm'
               : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
           title={isInRoom ? `Listen Together: Room ${roomCode} (${members.length} listening)` : 'Listen Together'}
         >
-          <Radio className={`w-4 h-4 ${isInRoom ? 'text-purple-400 animate-pulse' : ''}`} />
-          <span className="hidden sm:inline">
+          <Radio className={`w-4 h-4 ${isInRoom ? 'text-[var(--m3-primary)] animate-pulse' : ''}`} />
+          <span className="hidden lg:inline">
             {isInRoom ? (isHost ? `Host (${roomCode})` : `Room ${roomCode}`) : 'Listen Together'}
           </span>
           {isInRoom && (
-            <span className="flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-purple-500/25 text-[10px] font-bold text-purple-300">
+            <span className="flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-[var(--m3-secondary-container)] text-[10px] font-bold text-[var(--m3-on-secondary-container)]">
               {members.length}
             </span>
           )}
@@ -469,7 +488,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <IconComponent className="w-3.5 h-3.5" />
                       <span>{opt.label}</span>
                     </div>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-purple-400" />}
+                    {isSelected && <Check className="w-3.5 h-3.5 text-[var(--m3-primary)]" />}
                   </button>
                 );
               })}
@@ -477,16 +496,18 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Google Sign In Button (when signed out) */}
+        {/* Google Sign In Button (when signed out). Hidden below `lg` for the
+            same width reason as the label above — the profile circle's dropdown
+            carries the identical "Sign In with Google" action there. */}
         {!user && (
           <button
             onClick={handleLogin}
             disabled={isLoggingIn || !isAuthAvailable}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] transition cursor-pointer shadow-sm active:scale-95 flex-shrink-0"
+            className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] transition cursor-pointer shadow-sm active:scale-95 flex-shrink-0"
             title="Sign In with Google"
           >
             {isLoggingIn ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--m3-primary)]" />
             ) : (
               <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z" />
@@ -503,7 +524,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative flex-shrink-0" ref={userMenuRef}>
           <button
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-            className="p-0.5 rounded-full hover:ring-2 hover:ring-purple-500/40 transition flex items-center justify-center cursor-pointer focus:outline-none flex-shrink-0"
+            className="p-0.5 rounded-full hover:ring-2 hover:ring-[var(--m3-primary-40)] transition flex items-center justify-center cursor-pointer focus:outline-none flex-shrink-0"
             title={user ? (user.displayName || user.email || 'Account') : 'Account & Sign In'}
             aria-label="User Account"
           >
@@ -515,7 +536,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="w-8 h-8 rounded-full object-cover ring-1 ring-emerald-500/50"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-emerald-500 flex items-center justify-center text-xs font-bold text-white shadow-sm">
+                <div className="w-8 h-8 rounded-full bg-[var(--m3-primary)] flex items-center justify-center text-xs font-bold text-[var(--m3-on-primary)] shadow-sm">
                   {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
                 </div>
               )
