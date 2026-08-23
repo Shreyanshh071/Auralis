@@ -203,3 +203,23 @@ input[type="range"]:hover::-webkit-slider-thumb {
   background: var(--bg-card-hover);
   border-color: var(--border-medium);
 }
+
+/* ---------------------------------------------------------------------------
+ * Lyrics word highlighting — toggled by requestAnimationFrame, not React state.
+ * The rAF loop in SyncedLyrics.tsx adds/removes these classes on each word
+ * <span> at 60fps using the interpolating PlaybackClock, keeping React out of
+ * the per-frame hot path entirely.
+ * --------------------------------------------------------------------------- */
+.lyrics-word-active {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.dark .lyrics-word-active {
+  color: #ffffff;
+}
+
+.lyrics-word-inactive {
+  color: var(--text-muted);
+  opacity: 0.3;
+}

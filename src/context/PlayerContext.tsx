@@ -5,6 +5,8 @@ import { fetchLyrics } from '../services/lyrics';
 import { getDominantColor } from '../services/colorExtractor';
 import { getAlbumArtwork } from '../services/artwork';
 import { useAuth } from './AuthContext';
+import { globalPlaybackClock } from '../lib/playbackClock';
+import { findActiveLyricIndex } from '../lib/lyricsEngine';
 import {
   asUserPlaylist,
   loadStoredPlaylists,
@@ -654,9 +656,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               if (typeof event.target.setPlaybackRate === 'function') {
                 try { event.target.setPlaybackRate(playbackRateRef.current); } catch {}
               }
+              // Sync the interpolating clock with the authoritative player time.
+              try {
+                const t = event.target.getCurrentTime();
+                globalPlaybackClock.updateAnchor(
+                  typeof t === 'number' ? t : 0,
+                  true,
+                  playbackRateRef.current,
+                  dur && dur > 0 ? dur : 0
+                );
+              } catch {}
             } else if (event.data === 2) {
               setIsPlaying(false);
               setIsLoadingAudio(false);
+              globalPlaybackClock.setPlaying(false);
             } else if (event.data === 3) {
               setIsLoadingAudio(true);
             } else if (event.data === 0) {
@@ -694,14 +707,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, []);
 
-  // Track progress interval
+  // Track progress interval — kept at 100ms for progress bars, scrubbers, and
+  // time counters. The interpolating clock is also re-anchored here to prevent
+  // drift, but lyrics animations read the clock directly via rAF and do NOT
+  // depend on this React state update cycle.
   useEffect(() => {
     if (isPlaying) {
       timeUpdateInterval.current = setInterval(() => {
         if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
           try {
             const time = playerRef.current.getCurrentTime();
-            if (typeof time === 'number') setCurrentTime(time);
+            if (typeof time === 'number') {
+              setCurrentTime(time);
+              // Re-anchor the interpolating clock to the authoritative player
+              // time on every poll so it stays within a single tick of truth.
+              globalPlaybackClock.updateAnchor(time, true, playbackRateRef.current);
+            }
             const dur = playerRef.current.getDuration();
             if (typeof dur === 'number' && dur > 0) setDuration(dur);
           } catch {}
@@ -715,22 +736,26 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [isPlaying]);
 
-  // Lyrics sync — works for both line-sync and richsync
+  // Lyrics sync — uses the interpolating clock for smoother line transitions.
+  // The effect fires on every currentTime tick (100ms) but uses the clock's
+  // interpolated value for precision, and only calls setActiveLyricIndex when
+  // the active line actually changes to avoid unnecessary React re-renders
+  // downstream in SyncedLyrics.
+  const prevLyricIndexRef = useRef(-1);
   useEffect(() => {
     if (!lyrics || lyrics.syncType === 'plain' || lyrics.lines.length === 0) {
-      setActiveLyricIndex(-1);
+      if (prevLyricIndexRef.current !== -1) {
+        prevLyricIndexRef.current = -1;
+        setActiveLyricIndex(-1);
+      }
       return;
     }
-    const adjustedTime = currentTime + lyricsOffset;
-    let activeIdx = -1;
-    for (let i = 0; i < lyrics.lines.length; i++) {
-      if (adjustedTime >= lyrics.lines[i].time) {
-        activeIdx = i;
-      } else {
-        break;
-      }
+    const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
+    const newIdx = findActiveLyricIndex(lyrics.lines, clockTime, lyricsOffset);
+    if (newIdx !== prevLyricIndexRef.current) {
+      prevLyricIndexRef.current = newIdx;
+      setActiveLyricIndex(newIdx);
     }
-    setActiveLyricIndex(activeIdx);
   }, [currentTime, lyrics, lyricsOffset]);
 
   // Load artwork, lyrics, dominant color on track change
@@ -826,6 +851,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentTrack(track);
     setCurrentTime(0);
     setLyricsOffset(0);
+    globalPlaybackClock.reset();
     setIsPlaying(true);
     setIsLoadingAudio(true);
 
@@ -860,6 +886,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentTime(0);
     setIsPlaying(true);
     setIsLoadingAudio(true);
+    globalPlaybackClock.reset();
     setPlayCounts((prev) => recordPlay(prev, track));
     loadAndPlay(track);
   };
@@ -918,6 +945,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         playerRef.current.seekTo(seconds, true);
         setCurrentTime(seconds);
+        globalPlaybackClock.seekTo(seconds);
       } catch {}
     }
   };
@@ -981,6 +1009,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setPlaybackRate = (rate: number) => {
     const next = PLAYBACK_RATES.includes(rate) ? rate : 1;
     setPlaybackRateState(next);
+    globalPlaybackClock.setPlaybackRate(next);
     if (playerRef.current && typeof playerRef.current.setPlaybackRate === 'function') {
       try { playerRef.current.setPlaybackRate(next); } catch {}
     }

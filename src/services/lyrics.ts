@@ -1,4 +1,5 @@
 import type { LyricsData, LyricLine } from '../types/music';
+import { parseTtml } from '../lib/ttmlParser.ts';
 
 /**
  * Clean a track or artist name for matching and display.
@@ -49,8 +50,9 @@ export function normalizeForMatch(text: string): string {
   return text
     .toLowerCase()
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '') // combining diacritical marks
+    .replace(/[\u0300-\u036f]/g, '') // combining diacritical marks
     .replace(/&/g, ' and ')
+    .replace(/[+,/\\|]/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
@@ -76,9 +78,8 @@ export function tokenSimilarity(a: string, b: string): number {
 
 /**
  * Whether a lyrics candidate plausibly IS the requested song, so unrelated
- * matches are rejected instead of shown. A strong title match alone is enough
- * (artist tagging varies: "The Weeknd" vs "Weeknd"); otherwise both title and
- * artist must be reasonably close.
+ * matches are rejected instead of shown. Handles title variants, feat credits,
+ * and artist delimiters (&, /, +, comma).
  */
 export function isRelatedMatch(
   candidateTrack: string,
@@ -86,8 +87,39 @@ export function isRelatedMatch(
   wantTrack: string,
   wantArtist: string
 ): boolean {
-  const titleSim = tokenSimilarity(candidateTrack, wantTrack);
-  const artistSim = tokenSimilarity(candidateArtist, wantArtist);
+  const cleanWantTrack = cleanTitle(wantTrack);
+  const cleanWantArtist = cleanTitle(wantArtist);
+  const cleanCandTrack = cleanTitle(candidateTrack);
+  const cleanCandArtist = cleanTitle(candidateArtist);
+
+  let titleSim = tokenSimilarity(cleanCandTrack, cleanWantTrack);
+
+  // If candidate track has "Artist - Title" format, check individual segments
+  if (cleanCandTrack.includes(' - ') || cleanCandTrack.includes(' | ')) {
+    const segments = cleanCandTrack.split(/\s*[-|]\s*/);
+    for (const seg of segments) {
+      const segSim = tokenSimilarity(cleanTitle(seg), cleanWantTrack);
+      if (segSim > titleSim) titleSim = segSim;
+    }
+  }
+
+  // Also check raw title similarity in case cleanTitle removed a distinctive word
+  const rawTitleSim = tokenSimilarity(candidateTrack, wantTrack);
+  if (rawTitleSim > titleSim) titleSim = rawTitleSim;
+
+  let artistSim = tokenSimilarity(cleanCandArtist, cleanWantArtist);
+  const rawArtistSim = tokenSimilarity(candidateArtist, wantArtist);
+  if (rawArtistSim > artistSim) artistSim = rawArtistSim;
+
+  // If candidate track has artist info embedded
+  if (candidateTrack.includes(' - ') || candidateTrack.includes(' | ')) {
+    const segments = candidateTrack.split(/\s*[-|]\s*/);
+    for (const seg of segments) {
+      const segSim = tokenSimilarity(seg, wantArtist);
+      if (segSim > artistSim) artistSim = segSim;
+    }
+  }
+
   if (titleSim >= 0.8) return true;
   return titleSim >= 0.5 && artistSim >= 0.34;
 }
@@ -249,19 +281,180 @@ async function fetchYouTubeCaptions(videoId: string): Promise<LyricLine[] | null
   }
 }
 
+// In-memory cache for recent lyrics lookups
+const lyricsCache = new Map<string, { data: LyricsData | null; timestamp: number }>();
+const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+const MAX_CACHE_SIZE = 150;
+
+function getCachedLyrics(key: string): LyricsData | null | undefined {
+  const entry = lyricsCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    lyricsCache.delete(key);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function setCachedLyrics(key: string, data: LyricsData | null): void {
+  if (lyricsCache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = lyricsCache.keys().next().value;
+    if (oldestKey) lyricsCache.delete(oldestKey);
+  }
+  lyricsCache.set(key, { data, timestamp: Date.now() });
+}
+
+/**
+ * Fetch word/syllable-level synchronized lyrics from AMLL TTML Database (CC0 Public Domain).
+ *
+ * Checks search endpoint -> validates candidate (title/artist/duration/rendition) ->
+ * fetches raw TTML -> parses genuine word timestamps.
+ * Returns null if no authentic/confident match is found, triggering fallback to LRCLIB.
+ */
+export async function fetchAmllLyrics(
+  trackName: string,
+  artistName: string,
+  duration?: number,
+  mustDowngradeSync?: boolean,
+  videoId?: string
+): Promise<LyricsData | null> {
+  const cleanedTrack = cleanTitle(trackName);
+  const cleanedArtist = cleanTitle(artistName);
+  if (!cleanedTrack) return null;
+
+  const searchQuery = `${cleanedTrack} ${cleanedArtist}`.trim();
+  const searchUrls = [
+    `https://api.amll.dev/v1/lyrics/search?q=${encodeURIComponent(searchQuery)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.amll.dev/v1/lyrics/search?q=${encodeURIComponent(searchQuery)}`)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(`https://api.amll.dev/v1/lyrics/search?q=${encodeURIComponent(searchQuery)}`)}`,
+  ];
+
+  for (const url of searchUrls) {
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } });
+      if (!res.ok) continue;
+
+      const body = await res.json();
+      const items = body?.data?.items || (Array.isArray(body) ? body : []);
+      if (!items || items.length === 0) continue;
+
+      // Filter candidates using conservative matching
+      const candidates = items.filter((item: any) => {
+        const musicNames: string[] = item.musicNames || (item.musicName ? [item.musicName] : []);
+        const artistNames: string[] = item.artistNames || (item.artistName ? [item.artistName] : []);
+
+        const titleMatched =
+          musicNames.some(m => isRelatedMatch(m, artistNames[0] || '', cleanedTrack, cleanedArtist)) ||
+          isRelatedMatch(musicNames[0] || '', artistNames[0] || '', cleanedTrack, cleanedArtist);
+
+        return titleMatched;
+      });
+
+      if (candidates.length === 0) continue;
+
+      // Select candidate with the best title/artist match
+      const best = candidates[0];
+      const matchTrackName = (best.musicNames && best.musicNames[0]) || best.musicName || cleanedTrack;
+      const matchArtistName = (best.artistNames && best.artistNames[0]) || best.artistName || cleanedArtist;
+
+      // Fetch the full TTML: first try direct API endpoint, then jsDelivr CDN
+      let xmlText: string | null = null;
+      if (best.id) {
+        try {
+          const getRes = await fetch(`https://api.amll.dev/v1/lyrics/get?id=${best.id}`, {
+            headers: { 'User-Agent': 'Auralis-Music-Player/2.0' },
+          });
+          if (getRes.ok) {
+            const getData = await getRes.json();
+            xmlText = getData?.data?.lyrics || null;
+          }
+        } catch {
+          // Fall back to jsDelivr
+        }
+      }
+
+      if (!xmlText && best.filename) {
+        try {
+          const cdnRes = await fetch(
+            `https://cdn.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/raw-lyrics/${best.filename}`
+          );
+          if (cdnRes.ok) {
+            xmlText = await cdnRes.text();
+          }
+        } catch {
+          // CDN failed
+        }
+      }
+
+      if (!xmlText) continue;
+
+      const parsed = parseTtml(xmlText);
+      if (!parsed.lines || parsed.lines.length === 0) continue;
+
+      // Validate duration if available from TTML metadata
+      if (duration && duration > 0 && parsed.duration && parsed.duration > 0) {
+        const durDiff = Math.abs(parsed.duration - duration);
+        // If duration difference is too large (>25s), reject to avoid wrong recording/intro mismatches
+        if (durDiff > 25) {
+          continue;
+        }
+      }
+
+      // If rendition is altered (live, acoustic, remix, sped-up), downgrade to plain text
+      if (mustDowngradeSync) {
+        const plainText = parsed.lines.map(l => l.text).join('\n');
+        return {
+          syncType: 'plain',
+          lines: [],
+          plainLyrics: plainText,
+          provider: 'amll',
+          trackName: matchTrackName,
+          artistName: matchArtistName,
+        };
+      }
+
+      const syncType = parsed.hasWordTiming ? 'richsync' : 'line-sync';
+
+      console.info('[Lyrics:AMLL]', {
+        videoId,
+        track: trackName,
+        artist: artistName,
+        provider: 'amll',
+        syncType,
+        lineCount: parsed.lines.length,
+        hasWordTiming: parsed.hasWordTiming,
+        matchedTrack: matchTrackName,
+        matchedArtist: matchArtistName,
+      });
+
+      return {
+        syncType,
+        lines: parsed.lines,
+        plainLyrics: undefined,
+        provider: 'amll',
+        trackName: matchTrackName,
+        artistName: matchArtistName,
+      };
+    } catch {
+      // Continue to next fallback URL or LRCLIB
+    }
+  }
+
+  return null;
+}
+
 /**
  * Fetch lyrics with multi-tier fallback and honest sync-type labeling.
  *
  * Provider chain:
- *   1. LRCLIB (line-sync or plain)
- *   2. YouTube Captions (line-sync, low quality)
+ *   1. AMLL (word-level richsync TTML)
+ *   2. LRCLIB (exact-duration -> canonical -> search line-sync or plain)
+ *   3. YouTube Captions (line-sync, low quality fallback)
  *
  * Every result is labeled:
- *   - 'richsync'  — ONLY if the LRC data contains genuine <mm:ss.ms>word tags
+ *   - 'richsync'  — genuine syllable/word timestamps from TTML or <mm:ss.ms> LRC
  *   - 'line-sync' — standard [mm:ss.ms] line timestamps
  *   - 'plain'     — unsynced text only
- *
- * Duration validation: LRCLIB results with duration mismatch > 15s are rejected.
  */
 export async function fetchLyrics(
   trackName: string,
@@ -269,17 +462,181 @@ export async function fetchLyrics(
   duration?: number,
   videoId?: string
 ): Promise<LyricsData | null> {
+  const cacheKey = `${trackName}:${artistName}:${duration || 0}`;
+  const cached = getCachedLyrics(cacheKey);
+  if (cached !== undefined) return cached;
+
   const cleanedTrack = cleanTitle(trackName);
   const cleanedArtist = cleanTitle(artistName);
 
   // A tempo-altered (sped up / slowed / nightcore) or alternate rendition (live,
   // cover, remix, acoustic...) will NOT line up with the base-recording synced
-  // timings LRCLIB indexes, so any synced result for those must be presented as
+  // timings, so any synced result for those must be presented as
   // plain text rather than as (wrong) synchronized lyrics.
   const rendition = detectRendition(trackName);
   const mustDowngradeSync = rendition.tempoAltered || rendition.alternateVersion;
 
-  // 1. Fetch from LRCLIB with CORS Proxy Fallback
+  // 1. Check AMLL TTML Database for authentic word-level richsync
+  if (cleanedTrack) {
+    try {
+      const amllResult = await fetchAmllLyrics(
+        trackName,
+        artistName,
+        duration,
+        mustDowngradeSync,
+        videoId
+      );
+      if (amllResult && (amllResult.lines.length > 0 || amllResult.plainLyrics)) {
+        setCachedLyrics(cacheKey, amllResult);
+        return amllResult;
+      }
+    } catch {
+      // Graceful fallback to LRCLIB
+    }
+  }
+
+  // 2. Exact lookup from LRCLIB if track duration is known
+  if (duration && duration > 0 && cleanedTrack && cleanedArtist) {
+    const getUrls = [
+      `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTrack)}&artist_name=${encodeURIComponent(cleanedArtist)}&duration=${Math.round(duration)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTrack)}&artist_name=${encodeURIComponent(cleanedArtist)}&duration=${Math.round(duration)}`)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTrack)}&artist_name=${encodeURIComponent(cleanedArtist)}&duration=${Math.round(duration)}`)}`,
+    ];
+
+    for (const url of getUrls) {
+      try {
+        const res = await fetch(url, { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && (data.syncedLyrics || data.plainLyrics)) {
+            if (isRelatedMatch(data.trackName || '', data.artistName || '', cleanedTrack, cleanedArtist)) {
+              if (data.syncedLyrics && !mustDowngradeSync) {
+                const parsed = parseLrc(data.syncedLyrics);
+                const syncType = parsed.hasWordTiming ? 'richsync' : 'line-sync';
+
+                const result: LyricsData = {
+                  syncType,
+                  lines: parsed.lines,
+                  plainLyrics: data.plainLyrics || undefined,
+                  provider: 'lrclib',
+                  trackName: data.trackName,
+                  artistName: data.artistName,
+                };
+
+                console.info('[Lyrics:ExactGet]', {
+                  videoId,
+                  track: trackName,
+                  artist: artistName,
+                  provider: 'lrclib',
+                  syncType,
+                  lineCount: parsed.lines.length,
+                  hasWordTiming: parsed.hasWordTiming,
+                  matchedTrack: data.trackName,
+                  matchedArtist: data.artistName,
+                  matchedDuration: data.duration,
+                  requestedDuration: duration,
+                });
+
+                setCachedLyrics(cacheKey, result);
+                return result;
+              }
+
+              const plain =
+                data.plainLyrics ||
+                (data.syncedLyrics ? linesToPlainText(parseLrc(data.syncedLyrics).lines) : '');
+              if (plain) {
+                const plainResult: LyricsData = {
+                  syncType: 'plain',
+                  lines: [],
+                  plainLyrics: plain,
+                  provider: 'lrclib',
+                  trackName: data.trackName,
+                  artistName: data.artistName,
+                };
+                setCachedLyrics(cacheKey, plainResult);
+                return plainResult;
+              }
+            }
+          }
+        }
+      } catch {
+        // Fall back to next proxy or broad search
+      }
+    }
+    // 2. Canonical get lookup (track_name + artist_name) if exact-duration 404s
+    const canonicalUrls = [
+      `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTrack)}&artist_name=${encodeURIComponent(cleanedArtist)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTrack)}&artist_name=${encodeURIComponent(cleanedArtist)}`)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTrack)}&artist_name=${encodeURIComponent(cleanedArtist)}`)}`,
+    ];
+
+    for (const url of canonicalUrls) {
+      try {
+        const res = await fetch(url, { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && (data.syncedLyrics || data.plainLyrics)) {
+            if (isRelatedMatch(data.trackName || '', data.artistName || '', cleanedTrack, cleanedArtist)) {
+              // Check that canonical duration is reasonably close (within 30s) if duration is known
+              const durDiff = duration && data.duration ? Math.abs(data.duration - duration) : 0;
+              if (durDiff <= 30) {
+                if (data.syncedLyrics && !mustDowngradeSync) {
+                  const parsed = parseLrc(data.syncedLyrics);
+                  const syncType = parsed.hasWordTiming ? 'richsync' : 'line-sync';
+
+                  const result: LyricsData = {
+                    syncType,
+                    lines: parsed.lines,
+                    plainLyrics: data.plainLyrics || undefined,
+                    provider: 'lrclib',
+                    trackName: data.trackName,
+                    artistName: data.artistName,
+                  };
+
+                  console.info('[Lyrics:CanonicalGet]', {
+                    videoId,
+                    track: trackName,
+                    artist: artistName,
+                    provider: 'lrclib',
+                    syncType,
+                    lineCount: parsed.lines.length,
+                    hasWordTiming: parsed.hasWordTiming,
+                    matchedTrack: data.trackName,
+                    matchedArtist: data.artistName,
+                    matchedDuration: data.duration,
+                    requestedDuration: duration,
+                  });
+
+                  setCachedLyrics(cacheKey, result);
+                  return result;
+                }
+
+                const plain =
+                  data.plainLyrics ||
+                  (data.syncedLyrics ? linesToPlainText(parseLrc(data.syncedLyrics).lines) : '');
+                if (plain) {
+                  const plainResult: LyricsData = {
+                    syncType: 'plain',
+                    lines: [],
+                    plainLyrics: plain,
+                    provider: 'lrclib',
+                    trackName: data.trackName,
+                    artistName: data.artistName,
+                  };
+                  setCachedLyrics(cacheKey, plainResult);
+                  return plainResult;
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Fall back to next proxy or search
+      }
+    }
+  }
+
+  // 3. Fetch from LRCLIB Search with CORS Proxy Fallback
   const searchUrls = [
     `https://lrclib.net/api/search?q=${encodeURIComponent(`${cleanedTrack} ${cleanedArtist}`)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://lrclib.net/api/search?q=${encodeURIComponent(`${cleanedTrack} ${cleanedArtist}`)}`)}`,
@@ -301,9 +658,24 @@ export async function fetchLyrics(
           );
           if (candidates.length === 0) continue; // nothing here matches — try next proxy
 
-          // Prefer the closest duration among the related candidates. Skipped when
-          // no related candidate is within tolerance (e.g. a sped-up rip is shorter
-          // than its base track) so we still surface the base lyrics as plain text.
+          // Sort candidates:
+          // 1. If synced lyrics desired, prefer candidates that have syncedLyrics
+          // 2. Prefer candidates closest to the actual requested duration
+          candidates.sort((a: any, b: any) => {
+            if (!mustDowngradeSync) {
+              const aSynced = Boolean(a.syncedLyrics);
+              const bSynced = Boolean(b.syncedLyrics);
+              if (aSynced !== bSynced) return aSynced ? -1 : 1;
+            }
+            if (duration && duration > 0) {
+              const aDiff = a.duration ? Math.abs(a.duration - duration) : 999;
+              const bDiff = b.duration ? Math.abs(b.duration - duration) : 999;
+              return aDiff - bDiff;
+            }
+            return 0;
+          });
+
+          // Prefer the closest duration among the related candidates within 15s tolerance.
           if (duration && duration > 0) {
             const withDur = candidates.filter(
               (m: any) => m.duration && Math.abs(m.duration - duration) <= 15
@@ -340,6 +712,7 @@ export async function fetchLyrics(
               requestedDuration: duration,
             });
 
+            setCachedLyrics(cacheKey, result);
             return result;
           }
 
@@ -363,7 +736,7 @@ export async function fetchLyrics(
               downgradedFrom: mustDowngradeSync && best.syncedLyrics ? rendition.label : undefined,
             });
 
-            return {
+            const plainResult: LyricsData = {
               syncType: 'plain',
               lines: [],
               plainLyrics: plain,
@@ -371,6 +744,8 @@ export async function fetchLyrics(
               trackName: best.trackName,
               artistName: best.artistName,
             };
+            setCachedLyrics(cacheKey, plainResult);
+            return plainResult;
           }
         }
       }
@@ -379,7 +754,7 @@ export async function fetchLyrics(
     }
   }
 
-  // 2. Fetch from YouTube Captions (last resort, low quality)
+  // 4. Fetch from YouTube Captions (last resort, low quality)
   if (videoId) {
     const ytLines = await fetchYouTubeCaptions(videoId);
     if (ytLines && ytLines.length > 0) {
@@ -394,13 +769,15 @@ export async function fetchLyrics(
         note: 'YouTube auto-captions — not music lyrics',
       });
 
-      return {
+      const ytResult: LyricsData = {
         syncType: 'line-sync',
         lines: ytLines,
         provider: 'youtube',
         trackName,
         artistName,
       };
+      setCachedLyrics(cacheKey, ytResult);
+      return ytResult;
     }
   }
 
@@ -413,5 +790,6 @@ export async function fetchLyrics(
     note: 'No lyrics found from any provider',
   });
 
+  setCachedLyrics(cacheKey, null);
   return null;
 }
