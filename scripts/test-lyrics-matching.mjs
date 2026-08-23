@@ -266,3 +266,48 @@ test('parseLrc sorts lines by time and marks instrumental breaks', () => {
 test('parseLrc returns an empty, honest result for empty input', () => {
   assert.deepEqual(parseLrc(''), { lines: [], hasWordTiming: false });
 });
+
+// ---------------------------------------------------------------------------
+// extractTrackAndArtistPairs & Embedded Artist Matching
+// ---------------------------------------------------------------------------
+
+test('extractTrackAndArtistPairs derives clean candidate pairs from messy titles', () => {
+  const { extractTrackAndArtistPairs } = mod;
+
+  // Hyphen without space: "Tv Girl -Loving Machine"
+  const p1 = extractTrackAndArtistPairs('Tv Girl -Loving Machine', 'MusicLand');
+  assert.ok(p1.some((p) => p.track === 'Loving Machine' && p.artist === 'Tv Girl'));
+
+  // Pipe enclosure: "Loving Machine |TV Girl|"
+  const p2 = extractTrackAndArtistPairs('Loving Machine |TV Girl|', 'mono sketches');
+  assert.ok(p2.some((p) => p.track === 'Loving Machine' && p.artist === 'TV Girl'));
+
+  // VEVO Channel: "Glass Animals - Heat Waves (Official Video)"
+  const p3 = extractTrackAndArtistPairs('Glass Animals - Heat Waves (Official Video)', 'GlassAnimalsVEVO');
+  assert.ok(p3.some((p) => p.track === 'Heat Waves' && p.artist === 'Glass Animals'));
+
+  // Inverted: "TV Girl", "Loving Machine"
+  const p4 = extractTrackAndArtistPairs('TV Girl', 'Loving Machine');
+  assert.ok(p4.some((p) => p.track === 'Loving Machine' && p.artist === 'TV Girl'));
+});
+
+test('isRelatedMatch matches candidate when wantTrack embeds both title and artist', () => {
+  // Candidate from LRCLIB: track="Loving Machine", artist="TV Girl"
+  // Request from YouTube: track="Tv Girl -Loving Machine", artist="MusicLand"
+  assert.equal(
+    isRelatedMatch('Loving Machine', 'TV Girl', 'Tv Girl -Loving Machine', 'MusicLand'),
+    true
+  );
+
+  // Request with pipe: track="Loving Machine |TV Girl|", artist="mono sketches"
+  assert.equal(
+    isRelatedMatch('Loving Machine', 'TV Girl', 'Loving Machine |TV Girl|', 'mono sketches'),
+    true
+  );
+
+  // Inverted request: track="TV Girl", artist="Loving Machine"
+  assert.equal(
+    isRelatedMatch('Loving Machine', 'TV Girl', 'TV Girl', 'Loving Machine'),
+    true
+  );
+});

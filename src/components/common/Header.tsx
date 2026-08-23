@@ -15,8 +15,10 @@ import {
   Monitor,
   Check,
   Radio,
+  User,
 } from 'lucide-react';
 import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
+import { getSearchSuggestions } from '../../services/searchSuggestions';
 import type { Track, ThemeMode } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
@@ -46,6 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [results, setResults] = useState<Track[]>([]);
   const [isOpenDropdown, setIsOpenDropdown] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -101,10 +104,10 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Debounced typeahead search. A failure is reported in the dropdown; it is never
-  // replaced with placeholder content.
+  // Debounced search suggestions and typeahead tracks
   useEffect(() => {
     if (!query.trim()) {
+      setSuggestions([]);
       setResults([]);
       setSearchError(null);
       setIsOpenDropdown(false);
@@ -116,9 +119,20 @@ export const Header: React.FC<HeaderProps> = ({
       setIsSearching(true);
       setSearchError(null);
       try {
-        const res = await searchYouTube(query);
+        // Fetch suggestions and track preview concurrently
+        const [suggs, tracks] = await Promise.allSettled([
+          getSearchSuggestions(query),
+          searchYouTube(query),
+        ]);
+
         if (cancelled) return;
-        setResults(res);
+
+        if (suggs.status === 'fulfilled') {
+          setSuggestions(suggs.value);
+        }
+        if (tracks.status === 'fulfilled') {
+          setResults(tracks.value);
+        }
         setIsOpenDropdown(true);
       } catch (e) {
         if (cancelled) return;
@@ -173,12 +187,20 @@ export const Header: React.FC<HeaderProps> = ({
     if (onSearchSelect) onSearchSelect(track);
   };
 
+  const handleSelectSuggestion = (suggestionText: string) => {
+    setQuery(suggestionText);
+    setIsOpenDropdown(false);
+    if (onSubmitSearch) {
+      onSubmitSearch(suggestionText);
+    } else {
+      setActiveView('explore');
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const submitted = query.trim();
       if (!submitted) return;
-      // Hand the actual query to the app so Explore runs it. Previously this only
-      // switched views and the typed text was discarded.
       if (onSubmitSearch) {
         onSubmitSearch(submitted);
       } else {
@@ -220,10 +242,10 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-8 py-3.5 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200">
+    <header className="sticky top-0 z-30 flex items-center justify-between px-3 sm:px-8 py-3 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200 gap-2 sm:gap-4">
       {/* Navigation history arrows + Search */}
-      <div className="flex items-center gap-4 flex-1 max-w-xl" ref={searchContainerRef}>
-        <div className="hidden sm:flex items-center gap-1">
+      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 max-w-md lg:max-w-xl" ref={searchContainerRef}>
+        <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
           <button
             onClick={goBack}
             disabled={!canGoBack}
@@ -250,7 +272,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        <div className="relative w-full">
+        <div className="relative w-full min-w-0">
           <div className="relative flex items-center">
             {isSearching ? (
               <div className="absolute left-3.5 w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin pointer-events-none" />
@@ -265,16 +287,17 @@ export const Header: React.FC<HeaderProps> = ({
               onKeyDown={handleKeyDown}
               onFocus={() => query.trim() && setIsOpenDropdown(true)}
               placeholder="What do you want to play?"
-              className="w-full pl-10 pr-16 py-2 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-full border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-subtle)] transition"
+              className="w-full pl-10 pr-10 py-2 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-full border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-subtle)] transition"
             />
             {query ? (
               <button
                 onClick={() => {
                   setQuery('');
+                  setSuggestions([]);
                   setResults([]);
                   setSearchError(null);
                 }}
-                className="absolute right-3 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition"
+                className="absolute right-3 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -286,17 +309,12 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Instant Search Dropdown */}
+          {/* Instant Search Dropdown: Suggestions + Top Track Matches */}
           {isOpenDropdown && (
             <div className="absolute top-full left-0 right-0 mt-1.5 py-1.5 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 max-h-96 overflow-y-auto">
-              <div className="px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[var(--text-muted)] border-b border-[var(--border-subtle)] flex items-center justify-between">
-                <span>{isSearching ? 'Searching...' : searchError ? 'Search error' : 'Top Matches'}</span>
-                {results.length > 0 && <span className="text-[10px] text-[var(--text-subtle)] font-mono">{results.length} found</span>}
-              </div>
-
               {searchError && !isSearching && (
-                <div className="px-4 py-6 text-center space-y-2.5">
-                  <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
+                <div className="px-4 py-5 text-center space-y-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 mx-auto" />
                   <p className="text-xs text-[var(--text-secondary)] font-medium">{searchError}</p>
                   <button
                     onClick={() => {
@@ -306,66 +324,91 @@ export const Header: React.FC<HeaderProps> = ({
                       else setActiveView('explore');
                       setIsOpenDropdown(false);
                     }}
-                    className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 transition"
+                    className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 transition cursor-pointer"
                   >
-                    Retry in Explore
+                    Search in Explore
                   </button>
                 </div>
               )}
 
-              {results.length === 0 && !isSearching && !searchError && (
-                <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)] font-medium">
-                  No matching tracks found for "{query}"
+              {/* Music Search Suggestions */}
+              {suggestions.length > 0 && (
+                <div className="py-1">
+                  {suggestions.map((s, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSelectSuggestion(s)}
+                      className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-[var(--bg-surface-hover)] text-left cursor-pointer transition group"
+                    >
+                      <Search className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-purple-500 transition flex-shrink-0" />
+                      <span className="text-xs font-medium text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition">
+                        {s}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               )}
 
-              <div className="p-1 space-y-0.5">
-                {results.map((track) => (
-                  <div
-                    key={track.id}
-                    onClick={() => handleSelectTrack(track)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--bg-surface-hover)] cursor-pointer transition group"
-                  >
-                    <img
-                      src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
-                      alt=""
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="w-9 h-9 rounded-lg object-cover bg-neutral-800 flex-shrink-0 shadow-sm"
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        if (!target.src.includes('hqdefault') && track.id) {
-                          target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
-                        }
-                      }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-purple-400 transition">
-                        {track.title}
-                      </p>
-                      <p className="text-[11px] text-[var(--text-muted)] truncate">{track.artist}</p>
-                    </div>
-                    <Music2 className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition" />
+              {/* Top Track Matches */}
+              {results.length > 0 && (
+                <div className={`${suggestions.length > 0 ? 'border-t border-[var(--border-subtle)] mt-1 pt-1.5' : ''} p-1 space-y-0.5`}>
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
+                    <span>Songs</span>
+                    <span className="font-mono text-[9px]">{results.length} found</span>
                   </div>
-                ))}
-              </div>
+                  {results.slice(0, 4).map((track) => (
+                    <div
+                      key={track.id}
+                      onClick={() => handleSelectTrack(track)}
+                      className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-[var(--bg-surface-hover)] cursor-pointer transition group"
+                    >
+                      <img
+                        src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
+                        alt=""
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="w-8 h-8 rounded-lg object-cover bg-neutral-800 flex-shrink-0 shadow-sm"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (!target.src.includes('hqdefault') && track.id) {
+                            target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
+                          }
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-purple-400 transition">
+                          {track.title}
+                        </p>
+                        <p className="text-[10px] text-[var(--text-muted)] truncate">{track.artist}</p>
+                      </div>
+                      <Music2 className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition flex-shrink-0" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {suggestions.length === 0 && results.length === 0 && !isSearching && !searchError && (
+                <div className="px-4 py-6 text-center text-xs text-[var(--text-muted)] font-medium">
+                  Press Enter to search for "{query}"
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Right controls: Navigation links, Theme Toggle, & Google Auth */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      {/* Right controls: Navigation links, Listen Together, Theme Toggle, & Profile Button */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
         <button
           onClick={() => setActiveView('explore')}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
         >
           <span>Explore</span>
         </button>
 
         <button
           onClick={() => setActiveView('library')}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
         >
           <span>Library</span>
         </button>
@@ -373,14 +416,14 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Listen Together Button */}
         <button
           onClick={() => setIsModalOpen(true)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+          className={`flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-full text-xs font-semibold transition cursor-pointer flex-shrink-0 ${
             isInRoom
               ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 shadow-sm'
               : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
           title={isInRoom ? `Listen Together: Room ${roomCode} (${members.length} listening)` : 'Listen Together'}
         >
-          <Radio className={`w-3.5 h-3.5 ${isInRoom ? 'text-purple-400 animate-pulse' : ''}`} />
+          <Radio className={`w-4 h-4 ${isInRoom ? 'text-purple-400 animate-pulse' : ''}`} />
           <span className="hidden sm:inline">
             {isInRoom ? (isHost ? `Host (${roomCode})` : `Room ${roomCode}`) : 'Listen Together'}
           </span>
@@ -395,7 +438,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative" ref={themeMenuRef}>
           <button
             onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
-            className="p-2 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
+            className="p-2 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
             title={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)} (${effectiveTheme})`}
             aria-label="Toggle theme mode"
           >
@@ -448,47 +491,42 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* User / Google Sign-in Menu */}
+        {/* User / Google Profile Button at Top Right */}
         <div className="relative" ref={userMenuRef}>
-          {user ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] transition text-left"
-              >
-                {user.photoURL ? (
-                  <img
-                    src={user.photoURL}
-                    alt={user.displayName || 'User'}
-                    className="w-7 h-7 rounded-full object-cover ring-1 ring-emerald-500/50"
-                  />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-purple-600 to-emerald-500 flex items-center justify-center text-xs font-bold text-white">
-                    {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="hidden sm:inline text-xs font-medium text-[var(--text-primary)] max-w-[100px] truncate">
-                  {user.displayName?.split(' ')[0] || 'Account'}
-                </span>
-                {isSyncing && (
-                  <Loader2 className="w-3 h-3 text-emerald-400 animate-spin" />
-                )}
-              </button>
+          <button
+            onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+            className="p-0.5 rounded-full hover:ring-2 hover:ring-purple-500/40 transition flex items-center justify-center cursor-pointer focus:outline-none"
+            title={user ? (user.displayName || user.email || 'Account') : 'Account & Sign In'}
+          >
+            {user ? (
+              user.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || 'User'}
+                  className="w-8 h-8 rounded-full object-cover ring-1 ring-emerald-500/50"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-emerald-500 flex items-center justify-center text-xs font-bold text-white shadow-sm">
+                  {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                </div>
+              )
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition">
+                <User className="w-4 h-4" />
+              </div>
+            )}
+          </button>
 
-              {/* User Dropdown */}
-              {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+          {/* User Dropdown Menu (Account / Sign-in) */}
+          {isUserMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 p-2 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              {user ? (
+                <>
                   <div className="px-3 py-2.5 border-b border-[var(--border-subtle)] mb-1">
-                    <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                    <p className="text-xs font-bold text-[var(--text-primary)] truncate">
                       {user.displayName || 'Auralis User'}
                     </p>
                     <p className="text-[11px] text-[var(--text-muted)] truncate">{user.email}</p>
-                    {/*
-                      Honest scope statement. This is Firebase Google sign-in with
-                      Firestore sync of Auralis favorites and playlists only. It is
-                      NOT YouTube Music account sync — no YouTube Music library,
-                      artists, albums, or playlists are read or written.
-                    */}
                     <div className="mt-2 space-y-1">
                       {authError ? (
                         <div className="flex items-start gap-1.5 text-[10px] text-amber-400">
@@ -512,56 +550,66 @@ export const Header: React.FC<HeaderProps> = ({
                         </div>
                       )}
                       <p className="text-[10px] text-[var(--text-muted)] leading-snug">
-                        Auralis favorites and playlists only — not YouTube Music library sync.
+                        Auralis favorites &amp; playlists synced via cloud.
                       </p>
                     </div>
                   </div>
 
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Sign Out</span>
                   </button>
+                </>
+              ) : (
+                <div className="p-3 text-center space-y-3">
+                  <div className="w-10 h-10 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center mx-auto text-[var(--text-secondary)]">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-[var(--text-primary)]">Sync your Music</h4>
+                    <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                      Sign in with Google to sync your playlists and liked songs across devices.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleLogin}
+                    disabled={isLoggingIn || !isAuthAvailable}
+                    className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl font-bold text-xs transition shadow-sm cursor-pointer ${
+                      isAuthAvailable
+                        ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 active:scale-95'
+                        : 'bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)] cursor-not-allowed'
+                    }`}
+                  >
+                    {isLoggingIn ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                        />
+                      </svg>
+                    )}
+                    <span>{isAuthAvailable ? 'Sign In with Google' : 'Sign-in unavailable'}</span>
+                  </button>
                 </div>
               )}
             </div>
-          ) : (
-            <button
-              onClick={handleLogin}
-              disabled={isLoggingIn || !isAuthAvailable}
-              title={isAuthAvailable ? 'Sign in with Google' : (authError ?? undefined)}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full font-semibold text-xs transition shadow-sm ${
-                isAuthAvailable
-                  ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 active:scale-95'
-                  : 'bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)] cursor-not-allowed'
-              }`}
-            >
-              {isLoggingIn ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
-                </svg>
-              )}
-              <span>{isAuthAvailable ? 'Sign In' : 'Sign-in unavailable'}</span>
-            </button>
           )}
         </div>
       </div>

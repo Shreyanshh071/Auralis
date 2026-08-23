@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node scripts/test-queue-storage.mjs && node scripts/test-queue-ops.mjs && node scripts/test-lyrics-matching.mjs && node scripts/test-ttml-and-amll.mjs && node scripts/test-search-parsing.mjs && node scripts/test-search-reliability.mjs && node scripts/test-lyrics-translation.mjs && node scripts/test-theme-system.mjs && node scripts/test-google-auth.mjs && node scripts/test-listen-together.mjs && node scripts/test-lyrics-engine.mjs",
+    "test": "node scripts/test-queue-storage.mjs && node scripts/test-queue-ops.mjs && node scripts/test-lyrics-matching.mjs && node scripts/test-ttml-and-amll.mjs && node scripts/test-search-parsing.mjs && node scripts/test-search-reliability.mjs && node scripts/test-search-redesign.mjs && node scripts/test-lyrics-translation.mjs && node scripts/test-theme-system.mjs && node scripts/test-google-auth.mjs && node scripts/test-listen-together.mjs && node scripts/test-lyrics-engine.mjs",
     "preview": "vite preview",
     "cap:add:android": "npx cap add android",
     "cap:sync": "npm run build && npx cap sync",

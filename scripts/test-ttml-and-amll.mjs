@@ -131,4 +131,203 @@ assert.strictEqual(studioTrack.tempoAltered, false);
 assert.strictEqual(studioTrack.alternateVersion, false);
 console.log('✓ AMLL matching & rendition safety tests passed');
 
+// 7. fetchWithTimeout and AMLL fallback pipeline tests
+import { fetchWithTimeout, fetchAmllLyrics, fetchLyrics } from '../src/services/lyrics.ts';
+
+async function runPipelineTests() {
+  console.log('--- Testing AMLL Timeout & Fallback Pipeline ---');
+
+  // A. fetchWithTimeout aborts on slow promise
+  const originalFetch = globalThis.fetch;
+  try {
+    let aborted = false;
+    globalThis.fetch = async (url, options) => {
+      return new Promise((resolve, reject) => {
+        if (options?.signal) {
+          options.signal.addEventListener('abort', () => {
+            aborted = true;
+            const err = new Error('The operation was aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }
+      });
+    };
+
+    let threw = false;
+    try {
+      await fetchWithTimeout('http://example.com/hang', {}, 100);
+    } catch (e) {
+      threw = true;
+    }
+    assert.strictEqual(threw, true, 'fetchWithTimeout should reject on timeout');
+    assert.strictEqual(aborted, true, 'AbortSignal should be triggered on timeout');
+    console.log('✓ fetchWithTimeout aborts hung requests within timeout limit');
+
+    // B. AMLL Search Timeout -> Falls back to LRCLIB (simulated)
+    globalThis.fetch = async (url, options) => {
+      if (url.includes('api.amll.dev/v1/lyrics/search')) {
+        // Simulate AMLL hanging
+        return new Promise((_, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('AMLL search timed out');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      }
+      if (url.includes('lrclib.net/api/get')) {
+        return new Response(
+          JSON.stringify({
+            trackName: 'Test Song',
+            artistName: 'Test Artist',
+            duration: 200,
+            syncedLyrics: '[00:10.00] LRCLIB line fallback\n[00:20.00] Line two',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const resTimeout = await fetchLyrics('Test Song', 'Test Artist', 200);
+    assert.strictEqual(resTimeout?.provider, 'lrclib', 'Should fall back to LRCLIB on AMLL timeout');
+    assert.strictEqual(resTimeout?.syncType, 'line-sync');
+    console.log('✓ AMLL search timeout -> immediate LRCLIB fallback');
+
+    // C. AMLL HTTP Error -> Falls back to LRCLIB
+    globalThis.fetch = async (url) => {
+      if (url.includes('api.amll.dev/v1/lyrics/search')) {
+        return new Response('Internal Server Error', { status: 500 });
+      }
+      if (url.includes('lrclib.net/api/get')) {
+        return new Response(
+          JSON.stringify({
+            trackName: 'Test Song 2',
+            artistName: 'Test Artist 2',
+            duration: 180,
+            syncedLyrics: '[00:05.00] Line from LRCLIB',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const resHttpErr = await fetchLyrics('Test Song 2', 'Test Artist 2', 180);
+    assert.strictEqual(resHttpErr?.provider, 'lrclib');
+    console.log('✓ AMLL HTTP error -> immediate LRCLIB fallback');
+
+    // D. AMLL Malformed Response -> Falls back to LRCLIB
+    globalThis.fetch = async (url) => {
+      if (url.includes('api.amll.dev/v1/lyrics/search')) {
+        return new Response('{ not-valid-json ]]]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('lrclib.net/api/get')) {
+        return new Response(
+          JSON.stringify({
+            trackName: 'Test Song 3',
+            artistName: 'Test Artist 3',
+            duration: 150,
+            syncedLyrics: '[00:05.00] Line from LRCLIB 3',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const resMalformed = await fetchLyrics('Test Song 3', 'Test Artist 3', 150);
+    assert.strictEqual(resMalformed?.provider, 'lrclib');
+    console.log('✓ AMLL malformed response -> immediate LRCLIB fallback');
+
+    // E. AMLL Candidate Mismatch -> Falls back to LRCLIB
+    globalThis.fetch = async (url) => {
+      if (url.includes('api.amll.dev/v1/lyrics/search')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              items: [
+                { id: '123', musicNames: ['Completely Different Song'], artistNames: ['Different Artist'] }
+              ]
+            }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('lrclib.net/api/get')) {
+        return new Response(
+          JSON.stringify({
+            trackName: 'Actual Song',
+            artistName: 'Actual Artist',
+            duration: 160,
+            syncedLyrics: '[00:05.00] Actual LRCLIB Lyrics',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const resMismatch = await fetchLyrics('Actual Song', 'Actual Artist', 160);
+    assert.strictEqual(resMismatch?.provider, 'lrclib');
+    console.log('✓ AMLL candidate mismatch -> immediate LRCLIB fallback');
+
+    // F. AMLL TTML Fetch Timeout -> Falls back to LRCLIB
+    globalThis.fetch = async (url, options) => {
+      if (url.includes('api.amll.dev/v1/lyrics/search')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              items: [
+                { id: 'ttml-hang-id', musicNames: ['Hang Song'], artistNames: ['Hang Artist'] }
+              ]
+            }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('api.amll.dev/v1/lyrics/get?id=ttml-hang-id') || url.includes('jsdelivr.net')) {
+        return new Promise((_, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('TTML fetch timed out');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      }
+      if (url.includes('lrclib.net/api/get')) {
+        return new Response(
+          JSON.stringify({
+            trackName: 'Hang Song',
+            artistName: 'Hang Artist',
+            duration: 170,
+            syncedLyrics: '[00:05.00] LRCLIB Fallback line',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const resTtmlTimeout = await fetchLyrics('Hang Song', 'Hang Artist', 170);
+    assert.strictEqual(resTtmlTimeout?.provider, 'lrclib');
+    console.log('✓ AMLL TTML fetch timeout -> immediate LRCLIB fallback');
+
+    // G. Complete Provider Failure -> returns null (never hangs, clears loading state)
+    globalThis.fetch = async () => {
+      return new Response('Not Found', { status: 404 });
+    };
+
+    const resCompleteFail = await fetchLyrics('Nonexistent Track XYZ', 'Nonexistent Artist ABC', 100);
+    assert.strictEqual(resCompleteFail, null);
+    console.log('✓ Complete provider failure -> returns null cleanly (no infinite loading)');
+
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+await runPipelineTests();
+
 console.log('All TTML & AMLL unit tests passed successfully!');

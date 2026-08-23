@@ -758,24 +758,51 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [currentTime, lyrics, lyricsOffset]);
 
+  // Ref to drop stale in-flight lyrics requests on track change
+  const lyricsRequestIdRef = useRef<number>(0);
+
   // Load artwork, lyrics, dominant color on track change
   useEffect(() => {
-    if (!currentTrack) return;
+    if (!currentTrack) {
+      setLyrics(null);
+      setIsLoadingLyrics(false);
+      return;
+    }
+
+    const activeTrackId = currentTrack.id;
+    const reqId = ++lyricsRequestIdRef.current;
 
     getAlbumArtwork(currentTrack.title, currentTrack.artist, currentTrack.thumbnail).then((resolvedThumb) => {
       if (resolvedThumb && resolvedThumb !== currentTrack.thumbnail) {
-        setCurrentTrack((prev) => (prev ? { ...prev, thumbnail: resolvedThumb } : null));
+        setCurrentTrack((prev) => (prev && prev.id === activeTrackId ? { ...prev, thumbnail: resolvedThumb } : prev));
         setQueue((prev) =>
-          prev.map((t) => (t.id === currentTrack.id ? { ...t, thumbnail: resolvedThumb } : t))
+          prev.map((t) => (t.id === activeTrackId ? { ...t, thumbnail: resolvedThumb } : t))
         );
       }
-      getDominantColor(resolvedThumb).then((color) => setDominantColor(color));
+      getDominantColor(resolvedThumb).then((color) => {
+        if (lyricsRequestIdRef.current === reqId) {
+          setDominantColor(color);
+        }
+      });
     });
 
     setIsLoadingLyrics(true);
     fetchLyrics(currentTrack.title, currentTrack.artist, currentTrack.duration, currentTrack.id)
-      .then((data) => setLyrics(data))
-      .finally(() => setIsLoadingLyrics(false));
+      .then((data) => {
+        if (lyricsRequestIdRef.current === reqId) {
+          setLyrics(data);
+        }
+      })
+      .catch(() => {
+        if (lyricsRequestIdRef.current === reqId) {
+          setLyrics(null);
+        }
+      })
+      .finally(() => {
+        if (lyricsRequestIdRef.current === reqId) {
+          setIsLoadingLyrics(false);
+        }
+      });
   }, [currentTrack?.id]);
 
   // Sleep timer countdown — driven by the absolute deadline, so it stays correct
@@ -807,6 +834,41 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [sleepDeadline]);
+
+  // Tab visibility listener — immediately re-anchors playback position and state
+  // when returning to the tab after being in the background or another tab.
+  useEffect(() => {
+    const handleTabVisibility = () => {
+      if (document.visibilityState === 'visible' && playerRef.current) {
+        try {
+          if (typeof playerRef.current.getCurrentTime === 'function') {
+            const time = playerRef.current.getCurrentTime();
+            if (typeof time === 'number' && Number.isFinite(time)) {
+              setCurrentTime(time);
+              globalPlaybackClock.updateAnchor(time, isPlaying, playbackRateRef.current);
+            }
+          }
+          if (typeof playerRef.current.getPlayerState === 'function') {
+            const state = playerRef.current.getPlayerState();
+            if (state === 1 && !isPlaying) {
+              setIsPlaying(true);
+              globalPlaybackClock.setPlaying(true);
+            } else if (state === 2 && isPlaying) {
+              setIsPlaying(false);
+              globalPlaybackClock.setPlaying(false);
+            }
+          }
+        } catch {}
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleTabVisibility);
+    window.addEventListener('focus', handleTabVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleTabVisibility);
+      window.removeEventListener('focus', handleTabVisibility);
+    };
+  }, [isPlaying]);
 
   const handleTrackEnded = () => {
     if (repeatMode === 'one') {

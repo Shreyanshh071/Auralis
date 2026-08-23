@@ -204,6 +204,38 @@ export class SearchUnavailableError extends Error {
   }
 }
 
+/** Clean YouTube artist name (e.g. 'Ed Sheeran - Topic' → 'Ed Sheeran'). */
+export function cleanArtistName(raw: string): string {
+  if (!raw || typeof raw !== 'string') return 'Unknown artist';
+  let name = raw.trim();
+  name = name.replace(/\s*-\s*Topic$/i, '');
+  name = name.replace(/VEVO$/i, '');
+  return name.trim() || raw.trim();
+}
+
+/** Clean YouTube video noise from track title while preserving genuine musical modifiers. */
+export function cleanTrackTitle(raw: string): string {
+  if (!raw || typeof raw !== 'string') return 'Untitled Track';
+  let cleaned = raw;
+  const videoNoisePatterns = [
+    /\s*[\(\[]\s*official\s*(music)?\s*video\s*[\)\]]/gi,
+    /\s*[\(\[]\s*official\s*audio\s*[\)\]]/gi,
+    /\s*[\(\[]\s*lyric\s*video\s*[\)\]]/gi,
+    /\s*[\(\[]\s*lyrics\s*[\)\]]/gi,
+    /\s*[\(\[]\s*visualizer\s*[\)\]]/gi,
+    /\s*[\(\[]\s*audio\s*[\)\]]/gi,
+    /\s*[\(\[]\s*(?:4k|hd|hq|1080p|720p|uhd|60fps)(?:\s+(?:4k|hd|hq|1080p|720p|uhd|60fps|audio))*\s*[\)\]]/gi,
+    /\s*[\(\[]\s*official\s*[\)\]]/gi,
+    /\s*\|\s*official\s*(music)?\s*video/gi,
+  ];
+
+  for (const pattern of videoNoisePatterns) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+
+  return cleaned.replace(/\s+/g, ' ').trim() || raw;
+}
+
 /** Normalise one raw Piped/Invidious item into a Track, or null if unusable. */
 function parseProviderItem(item: any): Track | null {
   const videoId = item.url ? String(item.url).replace('/watch?v=', '') : item.videoId || item.id;
@@ -212,13 +244,15 @@ function parseProviderItem(item: any): Track | null {
   const rawTitle = item.title || 'Untitled Track';
   const uploader = item.uploaderName || item.author || 'Unknown artist';
 
-  let artist = uploader;
+  let artist = cleanArtistName(uploader);
   let title = rawTitle;
   if (rawTitle.includes(' - ')) {
     const parts = rawTitle.split(' - ');
-    artist = parts[0].trim();
+    artist = cleanArtistName(parts[0].trim());
     title = parts.slice(1).join(' - ').trim();
   }
+
+  title = cleanTrackTitle(title);
 
   const rawDuration = item.duration ?? (item.lengthSeconds ? Number(item.lengthSeconds) : undefined);
   const duration = typeof rawDuration === 'number' && rawDuration > 0 ? rawDuration : 0;
@@ -233,7 +267,7 @@ function parseProviderItem(item: any): Track | null {
   };
 }
 
-// Per-bucket caps. Songs dominate the Explore grid; artists/playlists are shown
+// Per-bucket caps. Songs dominate the Explore view; artists/playlists are shown
 // as compact rows, so a dozen of each is plenty.
 const MAX_SONGS = 25;
 const MAX_ARTISTS = 12;
@@ -430,10 +464,17 @@ function normalizeLocalResponse(data: any): SearchResults {
   const out: SearchResults = { songs: [], artists: [], playlists: [] };
   if (!data || typeof data !== 'object') return out;
 
+  const seenSong = new Set<string>();
   const songs = Array.isArray(data.songs) ? data.songs : Array.isArray(data.results) ? data.results : [];
   for (const s of songs) {
-    if (isPlayableTrack(s) && out.songs.length < MAX_SONGS) {
-      out.songs.push({ ...s, source: s.source || 'youtube' });
+    if (isPlayableTrack(s) && out.songs.length < MAX_SONGS && !seenSong.has(s.id)) {
+      seenSong.add(s.id);
+      out.songs.push({
+        ...s,
+        title: cleanTrackTitle(s.title),
+        artist: cleanArtistName(s.artist),
+        source: s.source || 'youtube',
+      });
     }
   }
 

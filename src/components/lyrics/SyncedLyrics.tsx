@@ -264,14 +264,11 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
       return;
     }
 
-    const tick = () => {
-      const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
-      const offset = lyricsOffsetRef.current;
-      const adjustedTime = clockTime + offset;
-
+    const updateWords = (adjustedTime: number) => {
       // Update scroll-mode word spans
       wordSpansRef.current.forEach((spans) => {
         for (const span of spans) {
+          if (!span) continue;
           const wordTime = Number(span.dataset.wordTime);
           if (Number.isFinite(wordTime)) {
             const active = adjustedTime >= wordTime;
@@ -288,6 +285,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
       // Update cinema-mode word spans
       for (const span of cinemaWordSpansRef.current) {
+        if (!span) continue;
         const wordTime = Number(span.dataset.wordTime);
         if (Number.isFinite(wordTime)) {
           const active = adjustedTime >= wordTime;
@@ -300,12 +298,37 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
           }
         }
       }
+    };
+
+    const tick = () => {
+      // When tab is hidden/backgrounded, pause DOM updates to save CPU/GPU resources
+      if (document.hidden) {
+        rafIdRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
+      const offset = lyricsOffsetRef.current;
+      const adjustedTime = clockTime + offset;
+
+      updateWords(adjustedTime);
 
       rafIdRef.current = requestAnimationFrame(tick);
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
+        const offset = lyricsOffsetRef.current;
+        updateWords(clockTime + offset);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     rafIdRef.current = requestAnimationFrame(tick);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = 0;
     };
