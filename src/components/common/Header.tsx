@@ -242,9 +242,9 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-3 sm:px-8 py-3 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200 gap-2 sm:gap-4">
-      {/* Navigation history arrows + Search */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 max-w-md lg:max-w-xl" ref={searchContainerRef}>
+    <header className="sticky top-0 z-30 flex items-center justify-between px-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] sm:px-6 md:px-8 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-3 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200 gap-2 sm:gap-3 md:gap-4">
+      {/* Navigation history arrows + Flexible Search */}
+      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0" ref={searchContainerRef}>
         <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
           <button
             onClick={goBack}
@@ -272,7 +272,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        <div className="relative w-full min-w-0">
+        <div className="relative w-full min-w-0 max-w-2xl">
           <div className="relative flex items-center">
             {isSearching ? (
               <div className="absolute left-3.5 w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin pointer-events-none" />
@@ -397,22 +397,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right controls: Navigation links, Listen Together, Theme Toggle, & Profile Button */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
-        <button
-          onClick={() => setActiveView('explore')}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
-        >
-          <span>Explore</span>
-        </button>
-
-        <button
-          onClick={() => setActiveView('library')}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
-        >
-          <span>Library</span>
-        </button>
-
+      {/* Right controls: [ Listen Together ] [ Theme Toggle ] [ Google Sign In (if signed out) ] [ Profile Circle ] */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 flex-shrink-0">
         {/* Listen Together Button */}
         <button
           onClick={() => setIsModalOpen(true)}
@@ -435,7 +421,7 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         {/* Theme Toggle Menu */}
-        <div className="relative" ref={themeMenuRef}>
+        <div className="relative flex-shrink-0" ref={themeMenuRef}>
           <button
             onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
             className="p-2 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
@@ -491,12 +477,35 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* User / Google Profile Button at Top Right */}
-        <div className="relative" ref={userMenuRef}>
+        {/* Google Sign In Button (when signed out) */}
+        {!user && (
+          <button
+            onClick={handleLogin}
+            disabled={isLoggingIn || !isAuthAvailable}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] transition cursor-pointer shadow-sm active:scale-95 flex-shrink-0"
+            title="Sign In with Google"
+          >
+            {isLoggingIn ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+            ) : (
+              <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z" />
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z" />
+                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+              </svg>
+            )}
+            <span>Sign In</span>
+          </button>
+        )}
+
+        {/* User / Google Profile Circle Button at FAR TOP-RIGHT */}
+        <div className="relative flex-shrink-0" ref={userMenuRef}>
           <button
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-            className="p-0.5 rounded-full hover:ring-2 hover:ring-purple-500/40 transition flex items-center justify-center cursor-pointer focus:outline-none"
+            className="p-0.5 rounded-full hover:ring-2 hover:ring-purple-500/40 transition flex items-center justify-center cursor-pointer focus:outline-none flex-shrink-0"
             title={user ? (user.displayName || user.email || 'Account') : 'Account & Sign In'}
+            aria-label="User Account"
           >
             {user ? (
               user.photoURL ? (

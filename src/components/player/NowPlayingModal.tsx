@@ -118,7 +118,7 @@ export const NowPlayingModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex flex-col h-[100dvh] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)] bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden select-none animate-in fade-in duration-200">
       {/* Dynamic Ambient Background Glow */}
       <div
         className="absolute inset-0 pointer-events-none opacity-20 transition-all duration-1000"
@@ -128,20 +128,20 @@ export const NowPlayingModal: React.FC = () => {
       />
 
       {/* Top Header Bar */}
-      <div className="relative z-10 flex items-center justify-between px-5 sm:px-8 py-4 border-b border-[var(--border-subtle)]">
+      <div className="relative z-10 flex items-center justify-between px-3 sm:px-8 py-2.5 sm:py-4 border-b border-[var(--border-subtle)]">
         <button
           onClick={() => setIsNowPlayingOpen(false)}
-          className="p-2 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
+          className="p-1.5 sm:p-2 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer flex-shrink-0"
           title="Minimize player"
         >
-          <ChevronDown className="w-6 h-6" />
+          <ChevronDown className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
 
         {/* Mobile Tab Switcher */}
-        <div className="flex lg:hidden items-center p-1 bg-[var(--bg-surface-elevated)] rounded-full border border-[var(--border-subtle)]">
+        <div className="flex lg:hidden items-center p-0.5 sm:p-1 bg-[var(--bg-surface-elevated)] rounded-full border border-[var(--border-subtle)]">
           <button
             onClick={() => handleSelectMobileTab('player')}
-            className={`px-4 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+            className={`px-2.5 sm:px-4 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'player'
                 ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'

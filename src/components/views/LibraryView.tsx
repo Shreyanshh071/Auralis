@@ -5,6 +5,7 @@ import {
   History,
   TrendingUp,
   User,
+  ListPlus,
   Heart,
   Download,
   CloudUpload,
@@ -212,9 +213,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           <button
             onClick={() => setShowImportModal(true)}
             className="w-7 h-7 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
-            title="Import YouTube Playlist"
+            title="Import Playlist"
+            aria-label="Import Playlist"
           >
-            <User className="w-4 h-4" />
+            <ListPlus className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -525,7 +527,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {/* FAB — creates a playlist */}
       <button
         onClick={openCreatePlaylistModal}
-        className="fixed bottom-24 right-5 z-40 w-14 h-14 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#59693d] dark:hover:bg-[#6c7f4a] dark:text-[#14190c] active:scale-95 shadow-2xl flex items-center justify-center transition cursor-pointer"
+        className="fixed bottom-36 sm:bottom-40 md:bottom-24 right-5 sm:right-6 md:right-8 z-30 w-14 h-14 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#59693d] dark:hover:bg-[#6c7f4a] dark:text-[#14190c] active:scale-95 shadow-2xl flex items-center justify-center transition cursor-pointer"
         title="Create playlist"
         aria-label="Create playlist"
       >

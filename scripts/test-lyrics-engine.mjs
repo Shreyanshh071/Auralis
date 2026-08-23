@@ -250,3 +250,45 @@ test('MiniPlayer Lyrics Button navigation: syncs mobileTab to activeModalTab on 
   assert.equal(activeModalTab, 'lyrics');
   assert.equal(mobileTab, 'lyrics');
 });
+
+// ---------------------------------------------------------------------------
+// calculateLyricScrollPosition & Centering Formula
+// ---------------------------------------------------------------------------
+
+function calculateLyricScrollPosition(lineOffsetTop, lineHeight, containerHeight, scrollHeight) {
+  const target = lineOffsetTop - (containerHeight / 2) + (lineHeight / 2);
+  const maxScroll = Math.max(0, scrollHeight - containerHeight);
+  return Math.max(0, Math.min(target, maxScroll));
+}
+
+test('calculateLyricScrollPosition: accurately centers active line at 50% viewport', () => {
+  // Container: 600px tall, scrollHeight 3000px. Line: offset 1200px, height 40px
+  // Target center = 1200 - 300 + 20 = 920px
+  const pos = calculateLyricScrollPosition(1200, 40, 600, 3000);
+  assert.equal(pos, 920);
+});
+
+test('calculateLyricScrollPosition: clamps at top scroll boundary without negative values', () => {
+  // Line near top: offset 50px, height 30px, container 600px
+  // Raw target = 50 - 300 + 15 = -235 -> Clamped to 0
+  const pos = calculateLyricScrollPosition(50, 30, 600, 3000);
+  assert.equal(pos, 0);
+});
+
+test('calculateLyricScrollPosition: clamps at bottom scroll boundary without overscrolling', () => {
+  // Line near bottom: offset 2950px, height 30px, container 600px, scrollHeight 3000px
+  // Max scroll = 3000 - 600 = 2400
+  // Raw target = 2950 - 300 + 15 = 2665 -> Clamped to 2400
+  const pos = calculateLyricScrollPosition(2950, 30, 600, 3000);
+  assert.equal(pos, 2400);
+});
+
+test('calculateLyricScrollPosition: responds dynamically across mobile and desktop container heights', () => {
+  // Mobile (height: 500px): center at 250px
+  const mobilePos = calculateLyricScrollPosition(800, 40, 500, 2500);
+  assert.equal(mobilePos, 800 - 250 + 20); // 570px
+
+  // Desktop (height: 900px): center at 450px
+  const desktopPos = calculateLyricScrollPosition(800, 40, 900, 2500);
+  assert.equal(desktopPos, 800 - 450 + 20); // 370px
+});
