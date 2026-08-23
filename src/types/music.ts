@@ -65,7 +65,7 @@ export interface LyricsData {
   plainLyrics?: string;
   translatedPlainLyrics?: string;
   translatedLanguage?: string;
-  provider: 'lrclib' | 'local' | 'youtube';
+  provider: 'amll' | 'lrclib' | 'local' | 'youtube';
   trackName?: string;
   artistName?: string;
 }

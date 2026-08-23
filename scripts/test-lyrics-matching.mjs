@@ -124,16 +124,83 @@ test('isRelatedMatch accepts the same song even with artist-name variance', () =
   );
 });
 
+test('isRelatedMatch accepts multi-artist delimiters (&, /, comma, +)', () => {
+  // Sam Smith & Kim Petras vs Sam Smith/Kim Petras
+  assert.equal(
+    isRelatedMatch(
+      'Unholy (feat. Kim Petras)',
+      'Sam Smith/Kim Petras',
+      'Unholy',
+      'Sam Smith & Kim Petras'
+    ),
+    true
+  );
+  // Candidate track with Artist - Title format
+  assert.equal(
+    isRelatedMatch(
+      'Sam Smith, Kim Petras - Unholy',
+      'SAM SMITH',
+      'Unholy',
+      'Sam Smith & Kim Petras'
+    ),
+    true
+  );
+  // Comma vs ampersand
+  assert.equal(
+    isRelatedMatch(
+      'Uptown Funk',
+      'Mark Ronson, Bruno Mars',
+      'Uptown Funk',
+      'Mark Ronson ft. Bruno Mars'
+    ),
+    true
+  );
+  // Plus sign vs &
+  assert.equal(
+    isRelatedMatch(
+      'STAY',
+      'The Kid LAROI + Justin Bieber',
+      'Stay',
+      'The Kid LAROI & Justin Bieber'
+    ),
+    true
+  );
+});
+
+test('isRelatedMatch handles embedded Artist - Title format in candidate track', () => {
+  assert.equal(
+    isRelatedMatch(
+      'The Weeknd - Blinding Lights',
+      'The Weeknd',
+      'Blinding Lights',
+      'The Weeknd'
+    ),
+    true
+  );
+  assert.equal(
+    isRelatedMatch(
+      'Foster The People - Pumped Up Kicks',
+      'Foster The People',
+      'Pumped Up Kicks',
+      'Foster the People'
+    ),
+    true
+  );
+});
+
 test('isRelatedMatch rejects a different song', () => {
   assert.equal(
     isRelatedMatch('Levitating', 'Dua Lipa', 'Blinding Lights', 'The Weeknd'),
-    false,
+    false
   );
-  // Same artist, wrong track must NOT match — this is what stops showing the
-  // wrong lyrics for a real hit from the search endpoint.
+  // Same artist, wrong track must NOT match
   assert.equal(
     isRelatedMatch('Save Your Tears', 'The Weeknd', 'Blinding Lights', 'The Weeknd'),
-    false,
+    false
+  );
+  assert.equal(
+    isRelatedMatch('Bad Guy', 'Billie Eilish', 'Happier Than Ever', 'Billie Eilish'),
+    false
   );
 });
 
