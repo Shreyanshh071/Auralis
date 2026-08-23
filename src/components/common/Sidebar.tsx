@@ -60,7 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="px-5 py-5 pb-3">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-primary)] flex-shrink-0">
-            <Radio className="w-4 h-4 text-purple-500" />
+            <Radio className="w-4 h-4 text-[var(--m3-primary)]" />
           </div>
           <div>
             <h1 className="font-display font-bold text-sm text-[var(--text-primary)] tracking-tight leading-none">
@@ -89,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-purple-400' : ''}`} />
+              <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--m3-primary)]' : ''}`} />
               <span>{item.label}</span>
             </button>
           );
@@ -100,15 +100,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => setIsModalOpen(true)}
           className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 cursor-pointer ${
             isInRoom
-              ? 'text-purple-400 bg-purple-500/10 font-bold border border-purple-500/20'
+              ? 'text-[var(--m3-primary)] bg-[var(--m3-primary-08)] font-bold border border-[var(--m3-outline-variant)]'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
           }`}
           title={isInRoom ? `Listen Together Room ${roomCode}` : 'Listen Together'}
         >
-          <Radio className={`w-4 h-4 ${isInRoom ? 'text-purple-400 animate-pulse' : ''}`} />
+          <Radio className={`w-4 h-4 ${isInRoom ? 'text-[var(--m3-primary)] animate-pulse' : ''}`} />
           <span className="flex-1 text-left">Listen Together</span>
           {isInRoom && (
-            <span className="text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 px-1.5 py-0.2 rounded-full">
+            <span className="text-[10px] font-mono font-bold bg-[var(--m3-secondary-container)] text-[var(--m3-on-secondary-container)] px-1.5 py-0.2 rounded-full">
               {members.length}
             </span>
           )}

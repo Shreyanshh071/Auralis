@@ -31,7 +31,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({ isOpen
       <div className="relative w-full max-w-md rounded-3xl bg-[var(--bg-popover)] border border-[var(--border-medium)] p-6 shadow-2xl space-y-6 text-[var(--text-primary)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-purple-500/10 text-purple-500 dark:text-purple-400 border border-purple-500/20">
+            <div className="p-2.5 rounded-2xl bg-[var(--m3-secondary-container)] text-[var(--m3-on-secondary-container)] border border-[var(--m3-outline-variant)]">
               <ListMusic className="w-5 h-5" />
             </div>
             <h3 className="font-display font-black text-xl text-[var(--text-primary)]">Create New Playlist</h3>
@@ -83,7 +83,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({ isOpen
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-full bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white shadow-lg transition cursor-pointer"
+              className="px-6 py-2.5 rounded-full bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-xs font-bold text-[var(--m3-on-primary)] shadow-lg transition cursor-pointer"
             >
               Create Playlist
             </button>
