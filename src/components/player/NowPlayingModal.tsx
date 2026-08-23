@@ -68,6 +68,13 @@ export const NowPlayingModal: React.FC = () => {
   const [scrubTime, setScrubTime] = useState(0);
   const [mobileTab, setMobileTab] = useState<'player' | 'lyrics' | 'queue' | 'visualizer'>('player');
 
+  // Synchronize mobileTab whenever activeModalTab is set externally (e.g. from MiniPlayer Lyrics / Queue buttons)
+  React.useEffect(() => {
+    if (activeModalTab === 'lyrics' || activeModalTab === 'queue' || activeModalTab === 'visualizer') {
+      setMobileTab(activeModalTab);
+    }
+  }, [activeModalTab, isNowPlayingOpen]);
+
   if (!isNowPlayingOpen || !currentTrack) return null;
 
   const formatTime = (secs: number) => {
@@ -103,6 +110,13 @@ export const NowPlayingModal: React.FC = () => {
   const panelTab: 'lyrics' | 'queue' | 'visualizer' | 'info' =
     mobileTab !== 'player' ? mobileTab : activeModalTab;
 
+  const handleSelectMobileTab = (tab: 'player' | 'lyrics' | 'queue' | 'visualizer') => {
+    setMobileTab(tab);
+    if (tab !== 'player') {
+      setActiveModalTab(tab);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden select-none animate-in fade-in duration-200">
       {/* Dynamic Ambient Background Glow */}
@@ -126,7 +140,7 @@ export const NowPlayingModal: React.FC = () => {
         {/* Mobile Tab Switcher */}
         <div className="flex lg:hidden items-center p-1 bg-[var(--bg-surface-elevated)] rounded-full border border-[var(--border-subtle)]">
           <button
-            onClick={() => setMobileTab('player')}
+            onClick={() => handleSelectMobileTab('player')}
             className={`px-4 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'player'
                 ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'
@@ -136,7 +150,7 @@ export const NowPlayingModal: React.FC = () => {
             Track
           </button>
           <button
-            onClick={() => setMobileTab('lyrics')}
+            onClick={() => handleSelectMobileTab('lyrics')}
             className={`flex items-center gap-1 px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'lyrics'
                 ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'
@@ -147,7 +161,7 @@ export const NowPlayingModal: React.FC = () => {
             <span>Lyrics</span>
           </button>
           <button
-            onClick={() => setMobileTab('queue')}
+            onClick={() => handleSelectMobileTab('queue')}
             className={`px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'queue'
                 ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'

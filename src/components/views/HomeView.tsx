@@ -228,29 +228,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
         <h1 className="font-display font-bold text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
           Home
         </h1>
-        <div className="flex items-center gap-4 text-[var(--text-secondary)]">
-          <button
-            onClick={() => setActiveView('library')}
-            className="p-1 hover:text-[var(--text-primary)] transition cursor-pointer"
-            title="History"
-          >
-            <History className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setActiveView('explore')}
-            className="p-1 hover:text-[var(--text-primary)] transition cursor-pointer"
-            title="Trending"
-          >
-            <TrendingUp className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setActiveView('library')}
-            className="w-7 h-7 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-xs font-semibold text-[var(--text-primary)] cursor-pointer"
-            title="Account"
-          >
-            <User className="w-4 h-4" />
-          </button>
-        </div>
       </div>
 
       {/* Filter Chips */}

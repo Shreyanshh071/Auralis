@@ -17,6 +17,11 @@ export const AudioVisualizer: React.FC = () => {
     const numBars = 48;
 
     const render = () => {
+      if (document.hidden) {
+        animFrameId.current = requestAnimationFrame(render);
+        return;
+      }
+
       canvas.width = canvas.parentElement?.clientWidth || 600;
       canvas.height = canvas.parentElement?.clientHeight || 300;
 
