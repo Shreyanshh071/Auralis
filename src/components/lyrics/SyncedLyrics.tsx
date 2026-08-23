@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import {
   Clock,
@@ -22,6 +22,7 @@ import {
   translatePlainLyrics,
 } from '../../services/lyricsTranslation';
 import type { LyricLine } from '../../types/music';
+import { globalPlaybackClock } from '../../lib/playbackClock';
 
 interface SyncedLyricsProps {
   fullscreen?: boolean;
@@ -33,7 +34,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     lyrics,
     isLoadingLyrics,
     activeLyricIndex,
-    currentTime,
+    isPlaying,
     seekTo,
     lyricsOffset,
     setManualLyricsOffset,
@@ -60,6 +61,13 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
   const activeLineRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const userScrollTimeoutRef = useRef<any>(null);
+
+  // Refs for rAF-driven word highlighting (no React re-renders)
+  const wordSpansRef = useRef<Map<string, HTMLSpanElement[]>>(new Map());
+  const cinemaWordSpansRef = useRef<HTMLSpanElement[]>([]);
+  const rafIdRef = useRef<number>(0);
+  const lyricsOffsetRef = useRef(lyricsOffset);
+  lyricsOffsetRef.current = lyricsOffset;
 
   // Translate lyrics whenever lyrics, currentTrack, targetLang, or translation active changes
   useEffect(() => {
@@ -245,20 +253,78 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     ? displayLines[activeLyricIndex + 1]
     : null;
 
-  // --- Richsync: compute which words are active based on real word timestamps ---
-  const getActiveWordCount = (line: typeof displayLines[0]): number => {
-    if (!isRichSynced || !line.words || line.words.length === 0) return -1;
-    const adjustedTime = currentTime + lyricsOffset;
-    let count = 0;
-    for (const w of line.words) {
-      if (adjustedTime >= w.time) {
-        count++;
-      } else {
-        break;
-      }
+  // --- Richsync: rAF loop drives per-word highlighting via direct DOM updates ---
+  // This loop runs only when richsync words exist and playback is active.
+  // It reads the interpolating clock and toggles CSS classes on word <span> refs
+  // without triggering any React state changes or re-renders.
+  useEffect(() => {
+    if (!isRichSynced || !isPlaying) {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+      return;
     }
-    return count;
-  };
+
+    const tick = () => {
+      const clockTime = globalPlaybackClock.getCurrentInterpolatedTime();
+      const offset = lyricsOffsetRef.current;
+      const adjustedTime = clockTime + offset;
+
+      // Update scroll-mode word spans
+      wordSpansRef.current.forEach((spans) => {
+        for (const span of spans) {
+          const wordTime = Number(span.dataset.wordTime);
+          if (Number.isFinite(wordTime)) {
+            const active = adjustedTime >= wordTime;
+            if (active) {
+              span.classList.add('lyrics-word-active');
+              span.classList.remove('lyrics-word-inactive');
+            } else {
+              span.classList.remove('lyrics-word-active');
+              span.classList.add('lyrics-word-inactive');
+            }
+          }
+        }
+      });
+
+      // Update cinema-mode word spans
+      for (const span of cinemaWordSpansRef.current) {
+        const wordTime = Number(span.dataset.wordTime);
+        if (Number.isFinite(wordTime)) {
+          const active = adjustedTime >= wordTime;
+          if (active) {
+            span.classList.add('lyrics-word-active');
+            span.classList.remove('lyrics-word-inactive');
+          } else {
+            span.classList.remove('lyrics-word-active');
+            span.classList.add('lyrics-word-inactive');
+          }
+        }
+      }
+
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
+
+    rafIdRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+    };
+  }, [isRichSynced, isPlaying, activeLyricIndex]);
+
+  // Helper to register word span refs for rAF-driven highlighting
+  const registerWordRef = useCallback((lineKey: string, index: number, el: HTMLSpanElement | null) => {
+    if (!el) return;
+    let spans = wordSpansRef.current.get(lineKey);
+    if (!spans) {
+      spans = [];
+      wordSpansRef.current.set(lineKey, spans);
+    }
+    spans[index] = el;
+  }, []);
+
+  const registerCinemaWordRef = useCallback((index: number, el: HTMLSpanElement | null) => {
+    if (el) cinemaWordSpansRef.current[index] = el;
+  }, []);
 
   return (
     <div className="relative flex flex-col h-full overflow-hidden select-text">
@@ -541,20 +607,16 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
               {isRichSynced && activeLine.words && activeLine.words.length > 0 ? (
                 /* Richsync cinema: per-word activation */
                 <p className="font-black text-4xl sm:text-5xl md:text-6xl tracking-tight drop-shadow-2xl">
-                  {activeLine.words.map((w, wi) => {
-                    const adjustedTime = currentTime + lyricsOffset;
-                    const isWordActive = adjustedTime >= w.time;
-                    return (
-                      <span
-                        key={wi}
-                        className={`transition-colors duration-150 ${
-                          isWordActive ? 'text-[var(--text-primary)] dark:text-white' : 'text-[var(--text-muted)] opacity-30'
-                        }`}
-                      >
-                        {w.word}{' '}
-                      </span>
-                    );
-                  })}
+                  {activeLine.words.map((w, wi) => (
+                    <span
+                      key={wi}
+                      ref={(el) => registerCinemaWordRef(wi, el)}
+                      data-word-time={w.time}
+                      className="transition-colors duration-150 lyrics-word-inactive"
+                    >
+                      {w.word}{' '}
+                    </span>
+                  ))}
                 </p>
               ) : (
                 /* Line-sync cinema: entire line bright */
@@ -658,20 +720,16 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
                           activeFontSizes[settings.lyricsFontSize] || activeFontSizes.medium
                         }`}
                       >
-                        {line.words.map((w, wi) => {
-                          const adjustedTime = currentTime + lyricsOffset;
-                          const isWordActive = adjustedTime >= w.time;
-                          return (
-                            <span
-                              key={wi}
-                              className={`transition-colors duration-150 ${
-                                isWordActive ? 'text-[var(--text-primary)] dark:text-white' : 'text-[var(--text-muted)] opacity-30'
-                              }`}
-                            >
-                              {w.word}{' '}
-                            </span>
-                          );
-                        })}
+                        {line.words.map((w, wi) => (
+                          <span
+                            key={wi}
+                            ref={(el) => registerWordRef(`${line.time}-${index}`, wi, el)}
+                            data-word-time={w.time}
+                            className="transition-colors duration-150 lyrics-word-inactive"
+                          >
+                            {w.word}{' '}
+                          </span>
+                        ))}
                       </span>
                     ) : (
                       /* === LINE-SYNC: entire line bright or dim === */
