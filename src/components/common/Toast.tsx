@@ -9,12 +9,12 @@ export const ToastContainer: React.FC = () => {
 
   const iconMap: Record<ToastMessage['type'], React.ReactNode> = {
     success: <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />,
-    info: <Info className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5] flex-shrink-0" />,
+    info: <Info className="w-4 h-4 text-[var(--m3-primary)] flex-shrink-0" />,
     error: <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />,
   };
 
   return (
-    <div className="fixed bottom-[calc(84px+env(safe-area-inset-bottom,0px))] sm:bottom-28 left-1/2 -translate-x-1/2 z-[70] flex flex-col items-center gap-2 pointer-events-none max-w-[90vw]">
+    <div className="fixed bottom-[var(--toast-bottom)] left-1/2 -translate-x-1/2 z-[70] flex flex-col items-center gap-2 pointer-events-none max-w-[90vw]">
       {toasts.map((toast) => (
         <div
           key={toast.id}

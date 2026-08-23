@@ -189,34 +189,39 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-44 max-w-2xl mx-auto select-none text-[var(--text-primary)]">
+    <div className="space-y-6 max-w-2xl mx-auto select-none text-[var(--text-primary)]">
       {/* Top Header Bar */}
       <div className="flex items-center justify-between pt-1">
         <h1 className="font-display font-bold text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
           Library
         </h1>
-        <div className="flex items-center gap-4 text-[var(--text-secondary)]">
+        <div className="flex items-center gap-1 text-[var(--text-secondary)]">
           <button
             onClick={() => setSelection({ kind: 'recent' })}
-            className="p-1 hover:text-[var(--text-primary)] transition cursor-pointer"
+            className="p-2 rounded-xl hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition cursor-pointer"
             title="Recently Played"
+            aria-label="Recently Played"
           >
             <History className="w-5 h-5" />
           </button>
           <button
             onClick={() => setSelection({ kind: 'top50' })}
-            className="p-1 hover:text-[var(--text-primary)] transition cursor-pointer"
+            className="p-2 rounded-xl hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition cursor-pointer"
             title="Top 50 Most Played"
+            aria-label="Top 50 Most Played"
           >
             <TrendingUp className="w-5 h-5" />
           </button>
+          {/* Import Playlist. Deliberately a square-cornered icon button like its
+              two siblings — as a round avatar-sized chip it read as a profile
+              button, which belongs only in the global header. */}
           <button
             onClick={() => setShowImportModal(true)}
-            className="w-7 h-7 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition cursor-pointer"
+            className="p-2 rounded-xl hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition cursor-pointer"
             title="Import Playlist"
             aria-label="Import Playlist"
           >
-            <ListPlus className="w-4 h-4" />
+            <ListPlus className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -236,7 +241,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             onClick={() => setFilter(tab.id)}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
               filter === tab.id
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#14190c] shadow-sm'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] shadow-sm'
                 : 'bg-[var(--bg-card)] hover:bg-[var(--bg-card-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
             }`}
           >
@@ -253,7 +258,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             onClick={() => setSelection({ kind: 'favorites' })}
             className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:bg-[var(--bg-card-hover)] transition p-3 flex flex-col justify-between cursor-pointer group shadow-sm"
           >
-            <div className="w-full aspect-square rounded-xl bg-gradient-to-br from-rose-500/15 to-pink-500/15 dark:bg-[#232a19] border border-[var(--border-subtle)] flex items-center justify-center text-rose-500 dark:text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
+            <div className="w-full aspect-square rounded-xl bg-gradient-to-br from-rose-500/15 to-pink-500/15 border border-[var(--border-subtle)] flex items-center justify-center text-rose-500 mb-2 group-hover:scale-[1.02] transition">
               <Heart className="w-9 h-9 fill-current" />
             </div>
             <div>
@@ -281,7 +286,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             onClick={() => setSelection({ kind: 'recent' })}
             className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:bg-[var(--bg-card-hover)] transition p-3 flex flex-col justify-between cursor-pointer group shadow-sm"
           >
-            <div className="w-full aspect-square rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-purple-500 dark:text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
+            <div className="w-full aspect-square rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--m3-primary)] mb-2 group-hover:scale-[1.02] transition">
               <Clock className="w-9 h-9" />
             </div>
             <div>
@@ -295,7 +300,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             onClick={() => setSelection({ kind: 'top50' })}
             className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:bg-[var(--bg-card-hover)] transition p-3 flex flex-col justify-between cursor-pointer group shadow-sm"
           >
-            <div className="w-full aspect-square rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-amber-500 dark:text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
+            <div className="w-full aspect-square rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-amber-500 mb-2 group-hover:scale-[1.02] transition">
               <TrendingUp className="w-9 h-9" />
             </div>
             <div>
@@ -309,7 +314,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             onClick={() => setShowImportModal(true)}
             className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:bg-[var(--bg-card-hover)] transition p-3 flex flex-col justify-between cursor-pointer group shadow-sm"
           >
-            <div className="w-full aspect-square rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-emerald-500 dark:text-[#dbe7b5] mb-2 group-hover:scale-[1.02] transition">
+            <div className="w-full aspect-square rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-emerald-500 mb-2 group-hover:scale-[1.02] transition">
               <CloudUpload className="w-9 h-9" />
             </div>
             <div>
@@ -362,7 +367,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   )}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate leading-tight group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition">
+                  <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate leading-tight group-hover:text-[var(--m3-primary)] transition">
                     {pl.title}
                   </h3>
                   <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{pl.tracks.length} songs</p>
@@ -378,7 +383,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         <div className="space-y-3 pt-2">
           {filter === 'all' && savedArtists.length > 0 && (
             <h2 className="text-base font-bold text-[var(--text-primary)] flex items-center gap-2">
-              <User className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+              <User className="w-4 h-4 text-[var(--m3-primary)]" />
               <span>Followed Artists ({savedArtists.length})</span>
             </h2>
           )}
@@ -415,7 +420,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       </span>
                     )}
                   </div>
-                  <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate w-full group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition">
+                  <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate w-full group-hover:text-[var(--m3-primary)] transition">
                     {artist.name}
                   </h3>
                   <p className="text-[10px] text-[var(--text-muted)] truncate w-full mt-0.5">
@@ -444,7 +449,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         <div className="space-y-3 pt-2">
           {filter === 'all' && savedAlbums.length > 0 && (
             <h2 className="text-base font-bold text-[var(--text-primary)] flex items-center gap-2">
-              <Music2 className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+              <Music2 className="w-4 h-4 text-[var(--m3-primary)]" />
               <span>Saved Albums ({savedAlbums.length})</span>
             </h2>
           )}
@@ -489,7 +494,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         {isOpening ? (
                           <div className="w-6 h-6 rounded-full border-2 border-white border-t-transparent animate-spin" />
                         ) : (
-                          <div className="p-2.5 rounded-full bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#14190c] shadow-lg">
+                          <div className="p-2.5 rounded-full bg-[var(--text-primary)] text-[var(--text-inverse)] shadow-lg">
                             <Play className="w-4 h-4 fill-current ml-0.5" />
                           </div>
                         )}
@@ -497,7 +502,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     </div>
 
                     <div className="min-w-0">
-                      <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate leading-tight group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition">
+                      <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate leading-tight group-hover:text-[var(--m3-primary)] transition">
                         {album.title}
                       </h3>
                       <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">
@@ -527,11 +532,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {/* FAB — creates a playlist */}
       <button
         onClick={openCreatePlaylistModal}
-        className="fixed bottom-36 sm:bottom-40 md:bottom-24 right-5 sm:right-6 md:right-8 z-30 w-14 h-14 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#59693d] dark:hover:bg-[#6c7f4a] dark:text-[#14190c] active:scale-95 shadow-2xl flex items-center justify-center transition cursor-pointer"
+        className="fixed bottom-[var(--float-bottom)] right-5 sm:right-6 md:right-8 z-30 w-14 h-14 rounded-2xl bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-[var(--m3-on-primary)] active:scale-95 shadow-2xl flex items-center justify-center transition cursor-pointer"
         title="Create playlist"
         aria-label="Create playlist"
       >
-        <Plus className="w-7 h-7 text-white dark:text-[#f3f7d8] stroke-[2.5]" />
+        <Plus className="w-7 h-7 text-[var(--m3-on-primary)] stroke-[2.5]" />
       </button>
 
       {/* YouTube Import Modal */}
@@ -539,7 +544,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
           <div className="relative w-full max-w-md rounded-3xl bg-[var(--bg-popover)] border border-[var(--border-medium)] p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--border-subtle)]">
-              <div className="flex items-center gap-2 text-purple-500 dark:text-[#dbe7b5]">
+              <div className="flex items-center gap-2 text-[var(--m3-primary)]">
                 <svg className="w-5 h-5 text-red-500 fill-current" viewBox="0 0 24 24">
                   <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                 </svg>
@@ -581,7 +586,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               <button
                 type="submit"
                 disabled={isImporting}
-                className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#dbe7b5] dark:text-[#14190c] dark:hover:bg-[#c9d79e] font-bold text-xs transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-sm"
+                className="w-full py-2.5 rounded-xl bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-[var(--m3-on-primary)] font-bold text-xs transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-sm"
               >
                 {isImporting ? (
                   <>
@@ -596,7 +601,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
             {/* Honest limitation notice */}
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] leading-relaxed">
-              <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-purple-500 dark:text-[#dbe7b5]" />
+              <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-[var(--m3-primary)]" />
               <span>
                 <strong className="text-[var(--text-primary)]">Note:</strong> YouTube Music library sync (liked songs, personal playlists) requires Google OAuth with a backend server, which is planned for a future update. For now, you can import any <strong>public</strong> YouTube playlist by pasting its link above.
               </span>
@@ -643,7 +648,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     playTrack(selected.tracks[0], selected.tracks);
                     setSelection(null);
                   }}
-                  className="flex items-center gap-2 px-5 py-2 rounded-full bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#dbe7b5] dark:text-[#14190c] dark:hover:bg-[#c9d79e] font-bold text-xs shadow transition cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2 rounded-full bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-[var(--m3-on-primary)] font-bold text-xs shadow transition cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Play All</span>
@@ -687,7 +692,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5]">
+                        <p className="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)]">
                           {t.title}
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] truncate">{t.artist}</p>

@@ -30,7 +30,7 @@ const AppContent: React.FC = () => {
   // clicked in the sidebar. Cleared by the Library once consumed, so switching
   // away and back does not reopen it.
   const [pendingPlaylistId, setPendingPlaylistId] = useState<string | undefined>(undefined);
-  const { dominantColor } = usePlayer();
+  const { currentTrack } = usePlayer();
   const { setInviteCodeToOpen, setIsModalOpen } = useListenTogether();
 
   // Check URL on startup for ?room=CODE invite links
@@ -66,14 +66,28 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="relative flex h-[100dvh] w-screen bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden font-sans transition-colors duration-200">
-      {/* Background Ambient Glow Tint based on current album artwork */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-10 dark:opacity-15 transition-all duration-1000">
-        <div
-          className="absolute -top-[10%] -left-[10%] w-[50vw] h-[50vw] rounded-full blur-[140px] transition-colors duration-1000"
-          style={{ background: dominantColor }}
-        />
-      </div>
+    <div
+      /* Drives the --player-h step of the bottom stacking system in index.css,
+       * so the FAB, toasts and scroll padding all collapse by one slot when
+       * nothing is playing and the MiniPlayer renders nothing. */
+      data-has-player={currentTrack ? 'true' : 'false'}
+      className="relative flex h-[100dvh] w-screen bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden font-sans transition-colors duration-200"
+    >
+      {/*
+        Material 3 surface tint: the artwork-derived accent laid over the neutral
+        surface at a very low alpha, strongest at the top of the shell.
+
+        This replaces two 55vw/45vw circles that were blurred by 140-160px and
+        painted with the raw artwork colour — which is what produced the purple
+        wash across the whole app whenever a cover could not be sampled (the
+        extractor's failure colour used to be violet). A flat gradient also costs
+        nothing to raster, where a blurred element that large is one of the most
+        expensive things a mobile WebView can be asked to composite.
+      */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none bg-gradient-to-b from-[var(--m3-surface-tint)] via-transparent to-transparent transition-colors duration-700"
+      />
 
       {/* Desktop Sidebar (Hidden on mobile) */}
       <Sidebar
@@ -92,7 +106,7 @@ const AppContent: React.FC = () => {
           onSubmitSearch={handleSelectGenre}
         />
 
-        <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 pb-44 md:pb-24">
+        <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 pb-[var(--content-bottom)]">
           {activeView === 'home' && (
             <HomeView onSelectGenre={handleSelectGenre} setActiveView={setActiveView} />
           )}

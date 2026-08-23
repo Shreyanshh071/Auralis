@@ -5,31 +5,38 @@
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-display: 'Outfit', system-ui, -apple-system, sans-serif;
 
-    /* Light Theme Palette (Clean, warm, modern, high contrast) */
-    --bg-base: #f5f6f9;
+    /* Light Theme Palette — Material 3 style neutral tonal surfaces.
+     * Neutrals carry an almost-zero chroma at the Auralis olive hue (131deg),
+     * so the shell reads as clean grey while still feeling like Auralis rather
+     * than a stock template. Personality comes from the --m3-* accent roles,
+     * which follow the album artwork. */
+    --bg-base: #f6f7f5;
     --bg-base-subtle: #ffffff;
     --bg-surface: #ffffff;
-    --bg-surface-elevated: #f0f2f5;
-    --bg-surface-hover: #e9ecef;
+    --bg-surface-elevated: #eff1ee;
+    --bg-surface-hover: #e6e8e5;
     --bg-card: #ffffff;
-    --bg-card-subtle: #f8f9fb;
-    --bg-card-hover: #f1f3f7;
-    --bg-input: #eef1f5;
+    --bg-card-subtle: #f8faf7;
+    --bg-card-hover: #f0f2ef;
+    --bg-input: #eff1ee;
     --bg-input-focus: #ffffff;
-    --bg-header: rgba(245, 246, 249, 0.85);
+    --bg-header: rgba(246, 247, 245, 0.82);
     --bg-sidebar: rgba(255, 255, 255, 0.95);
-    --bg-nav: rgba(255, 255, 255, 0.95);
-    --bg-player-bar: rgba(255, 255, 255, 0.78);
-    --bg-player-pill: rgba(255, 255, 255, 0.72);
+    --bg-nav: rgba(255, 255, 255, 0.94);
+    --bg-player-bar: rgba(255, 255, 255, 0.82);
+    --bg-player-pill: rgba(255, 255, 255, 0.84);
     --bg-modal: #ffffff;
-    --bg-modal-panel: #f8f9fb;
+    --bg-modal-panel: #f8faf7;
     --bg-popover: #ffffff;
     --bg-glass: rgba(255, 255, 255, 0.85);
 
-    --text-primary: #0f172a;
-    --text-secondary: #334155;
-    --text-muted: #64748b;
-    --text-subtle: #94a3b8;
+    --text-primary: #1e201c;
+    --text-secondary: #4b4e4a;
+    /* Dark enough to clear WCAG AA (4.5:1) as small text both on --bg-base and
+     * on the translucent nav/player surfaces; it is the unselected bottom-nav
+     * label colour, which is 10px. */
+    --text-muted: #6d706b;
+    --text-subtle: #9d9f9a;
     --text-inverse: #ffffff;
 
     --border-subtle: rgba(0, 0, 0, 0.08);
@@ -37,56 +44,149 @@
     --border-strong: rgba(0, 0, 0, 0.25);
     --border-glass: rgba(0, 0, 0, 0.08);
 
+    /* Auralis' own olive/lime. Also the seed the --m3-* roles below are
+     * generated from whenever there is no usable artwork colour, which is why
+     * the fallback accent still looks like Auralis. See
+     * src/lib/materialPalette.ts (FALLBACK_SEED). */
     --accent-lime: #4d7c0f;
     --accent-lime-hover: #3f6212;
     --accent-lime-bg: rgba(77, 124, 15, 0.12);
     --accent-lime-subtle: #ecfccb;
     --accent-lime-text: #ffffff;
-    --accent-purple: #7c3aed;
-    --accent-purple-hover: #6d28d9;
-    --accent-purple-bg: rgba(124, 58, 237, 0.1);
-    --accent-purple-subtle: #f3e8ff;
+
+    /* ------------------------------------------------------------------
+     * Material 3 accent roles (light).
+     *
+     * These are the *defaults*, generated from FALLBACK_SEED so a first paint
+     * (or a cover whose colour cannot be sampled) already looks right.
+     * PlayerContext overwrites them as inline custom properties on <html>
+     * whenever the artwork colour changes, so nothing here needs to know
+     * which song is playing. Values are always fully resolved colours — never
+     * a var() referencing another var() — because a custom property is
+     * substituted on the element that declares it, and chaining them across
+     * elements silently bakes in the wrong value.
+     * ------------------------------------------------------------------ */
+    --m3-primary: #4c7224;
+    --m3-primary-hover: #3b600d;
+    --m3-on-primary: #fcfefa;
+    --m3-primary-container: #d7eac8;
+    --m3-primary-container-hover: #caddbb;
+    --m3-on-primary-container: #223b03;
+    --m3-secondary-container: #d6e3cc;
+    --m3-on-secondary-container: #233412;
+    --m3-outline: #7c8377;
+    --m3-outline-variant: #cbcfc7;
+    --m3-primary-08: rgba(76, 114, 36, 0.08);
+    --m3-primary-12: rgba(76, 114, 36, 0.12);
+    --m3-primary-16: rgba(76, 114, 36, 0.16);
+    --m3-primary-24: rgba(76, 114, 36, 0.24);
+    --m3-primary-40: rgba(76, 114, 36, 0.4);
+    --m3-surface-tint: rgba(76, 114, 36, 0.05);
+    --m3-player-tint: rgba(215, 234, 200, 0.34);
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
     --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.12);
     --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.16);
+    /* Material 3 style elevation for the floating player surface. */
+    --shadow-player: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.12);
 
     --scrollbar-thumb: rgba(0, 0, 0, 0.2);
     --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+
+    /* ------------------------------------------------------------------
+     * Bottom stacking system.
+     *
+     * The mobile nav, the floating MiniPlayer and everything that has to
+     * clear it (Create-Playlist FAB, toasts, scrollable content) each used
+     * to hardcode their own magic offsets, so nudging one silently made
+     * another overlap. They all derive from these four values instead.
+     * Theme-independent on purpose: these are layout, not colour.
+     * ------------------------------------------------------------------ */
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    /* MobileNav, browser-measured at 360-473px incl. its safe-area padding
+       resolving to 0. */
+    --nav-h: 70px;
+    /* Height of the MiniPlayer pill; 0 until a track is loaded. */
+    --player-h: 0px;
+    --float-gap: 10px;
+  }
+
+  /* The four derived offsets below are declared on the app root — the element
+   * that carries data-has-player — and NOT on :root. A var() inside a custom
+   * property is substituted at computed-value time on the element that
+   * *declares* it, so a --player-h override further down the tree can never
+   * reach a --float-bottom computed up on <html>: it would silently bake in
+   * --player-h: 0px and drop the FAB straight on top of the MiniPlayer.
+   * Declaring both here keeps the substitution on one element. Every consumer
+   * (MiniPlayer, MobileNav, toasts, FABs, <main>) is a descendant. */
+  [data-has-player] {
+    /* Where the MiniPlayer itself sits. */
+    --player-bottom: calc(var(--nav-h) + var(--safe-b) + var(--float-gap));
+    /* Where anything floating *above* the MiniPlayer sits. */
+    --float-bottom: max(1rem, calc(var(--player-bottom) + var(--player-h) + var(--float-gap)));
+    /* One slot higher again, so toasts clear the floating action buttons. */
+    --toast-bottom: calc(var(--float-bottom) + 4rem);
+    /* Scroll padding, so the end of a list is never trapped under the stack. */
+    --content-bottom: calc(var(--float-bottom) + 1.5rem);
+  }
+
+  /* A track is loaded, so the MiniPlayer now occupies space above the nav. */
+  [data-has-player='true'] {
+    --player-h: 62px;
+  }
+
+  /* From `md` up the nav is hidden and the player is a full-width bottom bar. */
+  @media (min-width: 768px) {
+    :root {
+      --nav-h: 0px;
+      --float-gap: 12px;
+    }
+
+    [data-has-player] {
+      --player-bottom: 0px;
+    }
+
+    [data-has-player='true'] {
+      /* Browser-measured height of the full-width desktop bottom bar. */
+      --player-h: 76px;
+    }
   }
 
   .dark, [data-theme="dark"] {
-    /* Dark Theme Palette (Deep, rich olive/sage & obsidian tones) */
-    --bg-base: #09090b;
-    --bg-base-subtle: #0d120a;
-    --bg-surface: #121215;
-    --bg-surface-elevated: #171b11;
-    --bg-surface-hover: #202717;
-    --bg-card: #171b11;
-    --bg-card-subtle: #12160e;
-    --bg-card-hover: #202717;
-    --bg-input: #1b2214;
-    --bg-input-focus: #242c1b;
-    --bg-header: rgba(9, 9, 11, 0.8);
-    --bg-sidebar: rgba(13, 18, 10, 0.95);
-    --bg-nav: rgba(13, 18, 10, 0.95);
-    --bg-player-bar: rgba(18, 22, 14, 0.72);
-    --bg-player-pill: rgba(23, 27, 17, 0.68);
-    --bg-modal: #0d120a;
-    --bg-modal-panel: #14190c;
-    --bg-popover: #171b11;
-    --bg-glass: rgba(18, 22, 14, 0.7);
+    /* Dark Theme Palette — Material 3 style neutral tonal surfaces.
+     * Same tonal ladder as light, walked from the dark end. These are *not*
+     * inverted light values: each tier is placed on its own so elevation reads
+     * as a step up in tone (M3) rather than as a border. */
+    --bg-base: #0b0d0a;
+    --bg-base-subtle: #121311;
+    --bg-surface: #161815;
+    --bg-surface-elevated: #1f211e;
+    --bg-surface-hover: #2b2d2a;
+    --bg-card: #1b1c19;
+    --bg-card-subtle: #131412;
+    --bg-card-hover: #272825;
+    --bg-input: #1d1f1c;
+    --bg-input-focus: #272825;
+    --bg-header: rgba(11, 13, 10, 0.82);
+    --bg-sidebar: rgba(18, 19, 17, 0.95);
+    --bg-nav: rgba(18, 19, 17, 0.94);
+    --bg-player-bar: rgba(22, 24, 21, 0.8);
+    --bg-player-pill: rgba(27, 28, 25, 0.82);
+    --bg-modal: #10110e;
+    --bg-modal-panel: #181a17;
+    --bg-popover: #1f211e;
+    --bg-glass: rgba(22, 24, 21, 0.72);
 
-    --text-primary: #f0f4dc;
-    --text-secondary: #c4cca5;
-    --text-muted: #8f9b75;
-    --text-subtle: #5c6648;
-    --text-inverse: #09090b;
+    --text-primary: #f1f5ef;
+    --text-secondary: #cacdc8;
+    --text-muted: #989b96;
+    --text-subtle: #6e716c;
+    --text-inverse: #10110e;
 
-    --border-subtle: #272f1c;
-    --border-medium: #333e25;
-    --border-strong: #4d5d37;
+    --border-subtle: #2d2e2b;
+    --border-medium: #40423e;
+    --border-strong: #626460;
     --border-glass: rgba(255, 255, 255, 0.08);
 
     --accent-lime: #dbe7b5;
@@ -94,15 +194,32 @@
     --accent-lime-bg: rgba(219, 231, 181, 0.12);
     --accent-lime-subtle: #2b331f;
     --accent-lime-text: #14190c;
-    --accent-purple: #c084fc;
-    --accent-purple-hover: #a855f7;
-    --accent-purple-bg: rgba(168, 85, 247, 0.18);
-    --accent-purple-subtle: #2e1065;
+
+    /* Material 3 accent roles (dark). Defaults from FALLBACK_SEED; overwritten
+     * inline on <html> by PlayerContext when artwork colour is available. */
+    --m3-primary: #bedaa7;
+    --m3-primary-hover: #d5ecc3;
+    --m3-on-primary: #1b270f;
+    --m3-primary-container: #2b391e;
+    --m3-primary-container-hover: #3a492d;
+    --m3-on-primary-container: #cde8b8;
+    --m3-secondary-container: #35402d;
+    --m3-on-secondary-container: #d8edc7;
+    --m3-outline: #5f665b;
+    --m3-outline-variant: #333730;
+    --m3-primary-08: rgba(190, 218, 167, 0.08);
+    --m3-primary-12: rgba(190, 218, 167, 0.12);
+    --m3-primary-16: rgba(190, 218, 167, 0.16);
+    --m3-primary-24: rgba(190, 218, 167, 0.24);
+    --m3-primary-40: rgba(190, 218, 167, 0.4);
+    --m3-surface-tint: rgba(190, 218, 167, 0.07);
+    --m3-player-tint: rgba(43, 57, 30, 0.52);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.6);
     --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.8);
+    --shadow-player: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.55);
 
     --scrollbar-thumb: rgba(255, 255, 255, 0.12);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
@@ -143,29 +260,11 @@
   background: var(--scrollbar-thumb-hover);
 }
 
-/* Ambient gradient mesh motion */
-@keyframes ambientPulse {
-  0%, 100% {
-    transform: scale(1) translate(0, 0);
-    filter: blur(120px);
-  }
-  50% {
-    transform: scale(1.12) translate(3%, -2%);
-    filter: blur(140px);
-  }
-}
-
-.ambient-blob-1 {
-  animation: ambientPulse 16s ease-in-out infinite alternate;
-}
-
-.ambient-blob-2 {
-  animation: ambientPulse 20s ease-in-out infinite alternate-reverse;
-}
-
-/* Custom range sliders */
+/* Custom range sliders. The track and handle follow the artwork-derived accent
+ * instead of a fixed accent colour, which is where the purple progress and
+ * volume bars used to come from. */
 input[type="range"] {
-  accent-color: var(--accent-purple);
+  accent-color: var(--m3-primary);
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -174,14 +273,53 @@ input[type="range"]::-webkit-slider-thumb {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--m3-primary);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 input[type="range"]:hover::-webkit-slider-thumb {
   transform: scale(1.3);
+}
+
+/* Glossy specular highlight for the floating player surface. Static gradients
+ * only — nothing here animates, so it costs one composite and no per-frame
+ * work (the old ambient blobs animated `filter: blur()`, which does not). */
+.m3-gloss::before,
+.m3-gloss::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.m3-gloss::before {
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.12) 38%,
+    rgba(255, 255, 255, 0) 62%
+  );
+}
+
+.dark .m3-gloss::before {
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.03) 40%,
+    rgba(255, 255, 255, 0) 65%
+  );
+}
+
+/* Hairline that reads as the lit top edge of a glass slab. */
+.m3-gloss::after {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dark .m3-gloss::after {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
 /* Glassmorphism & Semantic Card utilities */
@@ -224,4 +362,38 @@ input[type="range"]:hover::-webkit-slider-thumb {
 .lyrics-word-inactive {
   color: var(--text-muted);
   opacity: 0.3;
+}
+
+/* ---------------------------------------------------------------------------
+ * Material 3 Tactile Button Interactions
+ * Spring-like scale-down on press with cubic-bezier easing for a bouncy feel.
+ * Respects prefers-reduced-motion for accessibility.
+ * --------------------------------------------------------------------------- */
+.m3-btn-tactile {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease;
+  will-change: transform;
+}
+
+.m3-btn-tactile:active {
+  transform: scale(0.94);
+}
+
+.m3-btn-primary-tactile {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, box-shadow 0.15s ease;
+  will-change: transform;
+}
+
+.m3-btn-primary-tactile:active {
+  transform: scale(0.93);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-btn-tactile,
+  .m3-btn-primary-tactile {
+    transition: none;
+  }
+  .m3-btn-tactile:active,
+  .m3-btn-primary-tactile:active {
+    transform: none;
+  }
 }

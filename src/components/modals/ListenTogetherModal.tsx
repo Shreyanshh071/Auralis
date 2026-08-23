@@ -129,7 +129,7 @@ export const ListenTogetherModal: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-purple-500/10 text-purple-500 dark:text-purple-400 border border-purple-500/20">
+            <div className="p-2.5 rounded-2xl bg-[var(--m3-secondary-container)] text-[var(--m3-on-secondary-container)] border border-[var(--m3-outline-variant)]">
               <Radio className="w-5 h-5" />
             </div>
             <div>
@@ -211,7 +211,7 @@ export const ListenTogetherModal: React.FC = () => {
                   </button>
                   <button
                     onClick={handleCopyLink}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white transition cursor-pointer shadow-md"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-xs font-bold text-[var(--m3-on-primary)] transition cursor-pointer shadow-md"
                     title="Copy Invite Link"
                   >
                     {copiedLink ? <Check className="w-3.5 h-3.5 text-white" /> : <Share2 className="w-3.5 h-3.5" />}
@@ -226,11 +226,11 @@ export const ListenTogetherModal: React.FC = () => {
               <div className="p-4 rounded-2xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                    <Music2 className="w-3.5 h-3.5 text-purple-400" />
+                    <Music2 className="w-3.5 h-3.5 text-[var(--m3-primary)]" />
                     Now Playing
                   </span>
                   {isHost ? (
-                    <span className="text-[10px] font-semibold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20">
+                    <span className="text-[10px] font-semibold text-[var(--m3-primary)] bg-[var(--m3-primary-08)] px-2 py-0.5 rounded-full border border-[var(--m3-outline-variant)]">
                       Host Controls Playback
                     </span>
                   ) : (
@@ -384,7 +384,7 @@ export const ListenTogetherModal: React.FC = () => {
                     placeholder="e.g. K9X2P4"
                     maxLength={6}
                     autoFocus
-                    className="w-full px-4 py-3 bg-[var(--bg-input)] rounded-2xl border border-[var(--border-subtle)] text-lg font-mono font-bold tracking-widest text-center uppercase text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-purple-500 focus:outline-none"
+                    className="w-full px-4 py-3 bg-[var(--bg-input)] rounded-2xl border border-[var(--border-subtle)] text-lg font-mono font-bold tracking-widest text-center uppercase text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--m3-primary)] focus:outline-none"
                   />
                   <p className="text-[11px] text-[var(--text-muted)] text-center">
                     Enter the code shared by the host or click an invite link
@@ -402,7 +402,7 @@ export const ListenTogetherModal: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isConnecting || !isValidRoomCode(codeInput)}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-xs font-bold text-white shadow-lg transition cursor-pointer"
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] disabled:opacity-50 text-xs font-bold text-[var(--m3-on-primary)] shadow-lg transition cursor-pointer"
                   >
                     {isConnecting ? (
                       <>
@@ -424,7 +424,7 @@ export const ListenTogetherModal: React.FC = () => {
             {activeTab === 'host' && (
               <form onSubmit={handleCreateRoom} className="space-y-4">
                 <div className="p-4 rounded-2xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] space-y-2">
-                  <div className="flex items-center gap-2 text-purple-400 font-bold text-xs">
+                  <div className="flex items-center gap-2 text-[var(--m3-primary)] font-bold text-xs">
                     <Sparkles className="w-4 h-4" />
                     <span>Host Controls Playback</span>
                   </div>
@@ -445,7 +445,7 @@ export const ListenTogetherModal: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isConnecting}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-xs font-bold text-white shadow-lg transition cursor-pointer"
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] disabled:opacity-50 text-xs font-bold text-[var(--m3-on-primary)] shadow-lg transition cursor-pointer"
                   >
                     {isConnecting ? (
                       <>

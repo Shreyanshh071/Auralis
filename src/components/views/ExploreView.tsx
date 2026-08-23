@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Users,
   ListMusic,
+  ListEnd,
   Disc3,
   Loader2,
   Bookmark,
@@ -54,6 +55,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
 
   const {
     playTrack,
+    addToQueue,
     currentTrack,
     isPlaying,
     isFavorite,
@@ -149,11 +151,11 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const showPlaylists = (activeCategory === 'all' || activeCategory === 'playlists' || activeCategory === 'albums') && playlists.length > 0;
 
   return (
-    <div className="space-y-6 pb-36 animate-in fade-in duration-300 text-[var(--text-primary)] max-w-5xl mx-auto">
+    <div className="space-y-6 animate-in fade-in duration-300 text-[var(--text-primary)] max-w-5xl mx-auto">
       {/* Header & Search Bar */}
       <div className="space-y-3 pt-1">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-500 dark:text-[#dbe7b5]">
+          <div className="p-2.5 rounded-2xl bg-[var(--m3-primary-08)] border border-[var(--m3-outline-variant)] text-[var(--m3-primary)]">
             <Compass className="w-5 h-5" />
           </div>
           <div>
@@ -175,7 +177,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && performSearch(query)}
             placeholder="Search songs, artists, albums, or vibes..."
-            className="w-full pl-10 pr-24 py-2.5 sm:py-3 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-2xl border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition shadow-sm"
+            className="w-full pl-10 pr-24 py-2.5 sm:py-3 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-2xl border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--m3-primary-16)] transition shadow-sm"
           />
           {query && (
             <button
@@ -191,7 +193,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
           )}
           <button
             onClick={() => performSearch(query)}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#171b11] text-xs font-bold transition shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-[var(--text-primary)] text-[var(--text-inverse)] text-xs font-bold transition shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
           >
             Search
           </button>
@@ -199,7 +201,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
       </div>
 
       {/* Category Filter Pills (Music-First: All, Songs, Artists, Albums, Playlists) */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none flex-nowrap">
         {(
           [
             { id: 'all', label: 'All' },
@@ -214,10 +216,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             <button
               key={cat.id}
               onClick={() => setActiveCategory(cat.id)}
-              className={`px-3.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer flex-shrink-0 ${
                 isActive
-                  ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#171b11] shadow-sm'
-                  : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+                  ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow-sm'
+                  : 'bg-[var(--bg-card)] hover:bg-[var(--bg-card-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
               }`}
             >
               {cat.label}
@@ -236,7 +238,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
           }}
           className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
             selectedGenre === null && query === DEFAULT_QUERY
-              ? 'bg-purple-600/20 text-purple-600 dark:text-[#dbe7b5] border border-purple-500/40'
+              ? 'bg-[var(--m3-primary-16)] text-[var(--m3-primary)] border border-[var(--m3-primary-40)]'
               : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
           }`}
         >
@@ -249,7 +251,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             onClick={() => handleGenreClick(g.query, g.name)}
             className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
               selectedGenre === g.name
-                ? 'bg-purple-600/20 text-purple-600 dark:text-[#dbe7b5] border border-purple-500/40'
+                ? 'bg-[var(--m3-primary-16)] text-[var(--m3-primary)] border border-[var(--m3-primary-40)]'
                 : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
             }`}
           >
@@ -269,7 +271,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
       {/* Loading state */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20 text-[var(--text-muted)] gap-3">
-          <div className="w-7 h-7 rounded-full border-2 border-purple-500 dark:border-[#dbe7b5] border-t-transparent animate-spin" />
+          <div className="w-7 h-7 rounded-full border-2 border-[var(--m3-primary)] border-t-transparent animate-spin" />
           <span className="text-xs font-medium">Finding songs...</span>
         </div>
       ) : error ? (
@@ -282,7 +284,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
           <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md">{error}</p>
           <button
             onClick={() => performSearch(lastQuery || DEFAULT_QUERY)}
-            className="mt-4 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white transition shadow-sm flex items-center gap-2 cursor-pointer"
+            className="mt-4 px-4 py-2 rounded-xl bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-xs font-bold text-[var(--m3-on-primary)] transition shadow-sm flex items-center gap-2 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Retry Search</span>
@@ -304,7 +306,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-display font-bold text-base sm:text-lg text-[var(--text-primary)] flex items-center gap-2">
-                  <Users className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+                  <Users className="w-4 h-4 text-[var(--m3-primary)]" />
                   <span>Artists</span>
                 </h2>
               </div>
@@ -322,7 +324,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                         className="flex flex-col items-center gap-1.5 w-full focus:outline-none cursor-pointer"
                         title={`Search ${artist.name}`}
                       >
-                        <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-purple-500/50 transition shadow-sm flex items-center justify-center">
+                        <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-[var(--m3-primary-40)] transition shadow-sm flex items-center justify-center">
                           <span className="text-xl font-black text-[var(--text-muted)] select-none">
                             {artist.name.charAt(0).toUpperCase()}
                           </span>
@@ -338,7 +340,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                           )}
                         </div>
                         <div className="text-center min-w-0 w-full">
-                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5]">
+                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)]">
                             {artist.name}
                           </p>
                           {artist.subscribers && (
@@ -358,7 +360,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                         }}
                         className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer ${
                           isSaved
-                            ? 'bg-purple-600/25 text-purple-600 dark:text-[#dbe7b5] border-purple-500/40'
+                            ? 'bg-[var(--m3-primary-24)] text-[var(--m3-primary)] border-[var(--m3-primary-40)]'
                             : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                         }`}
                       >
@@ -376,7 +378,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-display font-bold text-base sm:text-lg text-[var(--text-primary)] flex items-center gap-2">
-                  <ListMusic className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+                  <ListMusic className="w-4 h-4 text-[var(--m3-primary)]" />
                   <span>Albums &amp; Playlists</span>
                 </h2>
               </div>
@@ -396,7 +398,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                         className="group flex flex-col gap-1.5 w-full text-left focus:outline-none disabled:opacity-60 cursor-pointer"
                         title={`Play “${pl.title}”`}
                       >
-                        <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-2xl overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-purple-500/50 transition shadow-sm flex items-center justify-center">
+                        <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-2xl overflow-hidden bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] group-hover:border-[var(--m3-primary-40)] transition shadow-sm flex items-center justify-center">
                           {pl.thumbnail ? (
                             <img
                               src={pl.thumbnail}
@@ -417,7 +419,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                             {opening ? (
                               <Loader2 className="w-6 h-6 text-white animate-spin" />
                             ) : (
-                              <div className="p-2.5 rounded-full bg-purple-600 text-white shadow-md">
+                              <div className="p-2.5 rounded-full bg-[var(--m3-primary)] text-[var(--m3-on-primary)] shadow-md">
                                 <Play className="w-4 h-4 fill-current ml-0.5" />
                               </div>
                             )}
@@ -427,7 +429,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
 
                       <div className="flex items-start justify-between min-w-0 gap-1">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5]">
+                          <p className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)]">
                             {pl.title}
                           </p>
                           <p className="text-[10px] text-[var(--text-muted)] truncate">
@@ -446,7 +448,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                           }}
                           className={`p-1 rounded-lg border transition flex-shrink-0 cursor-pointer ${
                             isSaved
-                              ? 'bg-purple-600/30 text-purple-600 dark:text-[#dbe7b5] border-purple-500/50'
+                              ? 'bg-[var(--m3-primary-24)] text-[var(--m3-primary)] border-[var(--m3-primary-40)]'
                               : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                           }`}
                           title={isSaved ? 'Saved in Library' : 'Save to Library'}
@@ -466,7 +468,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-display font-bold text-base sm:text-lg text-[var(--text-primary)] flex items-center gap-2">
-                  <Music2 className="w-4 h-4 text-purple-500 dark:text-[#dbe7b5]" />
+                  <Music2 className="w-4 h-4 text-[var(--m3-primary)]" />
                   <span>{selectedGenre ? `${selectedGenre} Songs` : 'Songs'}</span>
                 </h2>
                 <span className="text-[11px] font-mono text-[var(--text-muted)]">
@@ -486,7 +488,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                       onClick={() => playTrack(track, songs)}
                       className={`group flex items-center justify-between gap-2.5 sm:gap-4 px-3 py-2 sm:px-4 sm:py-2.5 transition cursor-pointer ${
                         isCurrent
-                          ? 'bg-purple-500/10 dark:bg-[#dbe7b5]/10 text-purple-600 dark:text-[#dbe7b5]'
+                          ? 'bg-[var(--m3-secondary-container)] text-[var(--m3-on-secondary-container)]'
                           : 'hover:bg-[var(--bg-surface-hover)]'
                       }`}
                     >
@@ -528,8 +530,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                           <p
                             className={`text-xs sm:text-sm font-bold truncate ${
                               isCurrent
-                                ? 'text-purple-600 dark:text-[#dbe7b5]'
-                                : 'text-[var(--text-primary)] group-hover:text-purple-500 dark:group-hover:text-[#dbe7b5] transition'
+                                ? 'text-[var(--m3-primary)]'
+                                : 'text-[var(--text-primary)] group-hover:text-[var(--m3-primary)] transition'
                             }`}
                           >
                             {track.title}
@@ -547,10 +549,22 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                       </div>
 
                       {/* Right: Duration & Actions */}
-                      <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
+                      <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
                         <span className="text-[11px] font-mono text-[var(--text-muted)] pr-1 sm:pr-2">
                           {formatDuration(track.duration)}
                         </span>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addToQueue(track);
+                          }}
+                          className="p-1.5 rounded-full hover:bg-[var(--bg-surface-elevated)] transition text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                          title="Add to queue"
+                          aria-label="Add to queue"
+                        >
+                          <ListEnd className="w-3.5 h-3.5" />
+                        </button>
 
                         <AddToPlaylistButton
                           track={track}
@@ -564,6 +578,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                           }}
                           className="p-1.5 rounded-full hover:bg-[var(--bg-surface-elevated)] transition text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                           title={favorite ? 'Remove from Liked' : 'Add to Liked'}
+                          aria-label={favorite ? 'Remove from Liked' : 'Add to Liked'}
                         >
                           <Heart
                             className={`w-3.5 h-3.5 ${
@@ -577,6 +592,23 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                 })}
               </div>
             </section>
+          )}
+
+          {/* Category-specific empty state if user selects a tab with 0 matches */}
+          {activeCategory === 'artists' && artists.length === 0 && (
+            <div className="py-12 text-center text-xs text-[var(--text-muted)]">
+              No artist matches found for “{lastQuery}”.
+            </div>
+          )}
+          {activeCategory === 'songs' && songs.length === 0 && (
+            <div className="py-12 text-center text-xs text-[var(--text-muted)]">
+              No song matches found for “{lastQuery}”.
+            </div>
+          )}
+          {(activeCategory === 'albums' || activeCategory === 'playlists') && playlists.length === 0 && (
+            <div className="py-12 text-center text-xs text-[var(--text-muted)]">
+              No album or playlist matches found for “{lastQuery}”.
+            </div>
           )}
         </div>
       )}

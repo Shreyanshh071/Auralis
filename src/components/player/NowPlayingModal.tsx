@@ -57,7 +57,6 @@ export const NowPlayingModal: React.FC = () => {
     toggleMute,
     playbackRate,
     setPlaybackRate,
-    dominantColor,
     sleepTimerRemaining,
     setSleepTimer,
   } = usePlayer();
@@ -68,9 +67,11 @@ export const NowPlayingModal: React.FC = () => {
   const [scrubTime, setScrubTime] = useState(0);
   const [mobileTab, setMobileTab] = useState<'player' | 'lyrics' | 'queue' | 'visualizer'>('player');
 
-  // Synchronize mobileTab whenever activeModalTab is set externally (e.g. from MiniPlayer Lyrics / Queue buttons)
+  // Synchronize mobileTab whenever activeModalTab is set externally (e.g. from MiniPlayer body / Lyrics / Queue buttons)
   React.useEffect(() => {
-    if (activeModalTab === 'lyrics' || activeModalTab === 'queue' || activeModalTab === 'visualizer') {
+    if (activeModalTab === 'player') {
+      setMobileTab('player');
+    } else if (activeModalTab === 'lyrics' || activeModalTab === 'queue' || activeModalTab === 'visualizer') {
       setMobileTab(activeModalTab);
     }
   }, [activeModalTab, isNowPlayingOpen]);
@@ -108,7 +109,8 @@ export const NowPlayingModal: React.FC = () => {
    * desktop tab selection applies.
    */
   const panelTab: 'lyrics' | 'queue' | 'visualizer' | 'info' =
-    mobileTab !== 'player' ? mobileTab : activeModalTab;
+    mobileTab !== 'player' ? mobileTab :
+    (activeModalTab !== 'player' ? activeModalTab : 'lyrics');
 
   const handleSelectMobileTab = (tab: 'player' | 'lyrics' | 'queue' | 'visualizer') => {
     setMobileTab(tab);
@@ -119,16 +121,36 @@ export const NowPlayingModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col h-[100dvh] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)] bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden select-none animate-in fade-in duration-200">
-      {/* Dynamic Ambient Background Glow */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-20 transition-all duration-1000"
-        style={{
-          background: `radial-gradient(circle at 50% 30%, ${dominantColor} 0%, rgba(14, 17, 12, 0.98) 70%)`,
-        }}
-      />
+      {/* Music-Reactive Atmospheric Background from Track Artwork */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-0">
+        {/* Heavily blurred & saturated artwork background layer — crossfades on track change */}
+        <div className="absolute inset-[-25%] opacity-30 dark:opacity-35 transition-opacity duration-1000 ease-out">
+          <img
+            key={currentTrack.thumbnail || currentTrack.id}
+            src={currentTrack.thumbnail}
+            alt=""
+            className="w-full h-full object-cover scale-150 filter blur-[80px] saturate-[1.6] animate-in fade-in duration-1000"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (!target.src.includes('hqdefault')) {
+                target.src = `https://i.ytimg.com/vi/${currentTrack.id}/hqdefault.jpg`;
+              }
+            }}
+          />
+        </div>
+
+        {/* Material 3 tonal surface scrim — subtle accent wash from artwork-derived palette */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-b from-[var(--m3-surface-tint)] via-transparent to-[var(--m3-surface-tint)] transition-colors duration-700 ease-out"
+        />
+
+        {/* Dual gradient scrim for WCAG AA readability in both dark and light modes */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[var(--bg-base)]/75 via-[var(--bg-base)]/80 to-[var(--bg-base)]/92 backdrop-blur-2xl transition-colors duration-300" />
+      </div>
 
       {/* Top Header Bar */}
-      <div className="relative z-10 flex items-center justify-between px-3 sm:px-8 py-2.5 sm:py-4 border-b border-[var(--border-subtle)]">
+      <div className="relative z-10 flex items-center justify-between gap-1.5 sm:gap-3 px-3 sm:px-8 py-2.5 sm:py-4 border-b border-[var(--border-subtle)]">
         <button
           onClick={() => setIsNowPlayingOpen(false)}
           className="p-1.5 sm:p-2 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer flex-shrink-0"
@@ -137,13 +159,15 @@ export const NowPlayingModal: React.FC = () => {
           <ChevronDown className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
 
-        {/* Mobile Tab Switcher */}
-        <div className="flex lg:hidden items-center p-0.5 sm:p-1 bg-[var(--bg-surface-elevated)] rounded-full border border-[var(--border-subtle)]">
+        {/* Mobile Tab Switcher. Paddings tighten below `sm` so this bar's three
+            groups still fit inside 360px without the right-hand tools being
+            pushed off-screen. */}
+        <div className="flex lg:hidden items-center p-0.5 sm:p-1 bg-[var(--bg-surface-elevated)] rounded-full border border-[var(--border-subtle)] flex-shrink-0">
           <button
             onClick={() => handleSelectMobileTab('player')}
-            className={`px-2.5 sm:px-4 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+            className={`px-2 sm:px-4 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'player'
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow-sm'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -151,9 +175,9 @@ export const NowPlayingModal: React.FC = () => {
           </button>
           <button
             onClick={() => handleSelectMobileTab('lyrics')}
-            className={`flex items-center gap-1 px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1 px-2 sm:px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'lyrics'
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow-sm'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -162,9 +186,9 @@ export const NowPlayingModal: React.FC = () => {
           </button>
           <button
             onClick={() => handleSelectMobileTab('queue')}
-            className={`px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+            className={`px-2 sm:px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
               mobileTab === 'queue'
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow-sm'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow-sm'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -178,7 +202,7 @@ export const NowPlayingModal: React.FC = () => {
             onClick={() => setActiveModalTab('lyrics')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
               activeModalTab === 'lyrics'
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -189,7 +213,7 @@ export const NowPlayingModal: React.FC = () => {
             onClick={() => setActiveModalTab('queue')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
               activeModalTab === 'queue'
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -200,7 +224,7 @@ export const NowPlayingModal: React.FC = () => {
             onClick={() => setActiveModalTab('visualizer')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
               activeModalTab === 'visualizer'
-                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#191f0f] font-bold shadow'
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-bold shadow'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -210,12 +234,12 @@ export const NowPlayingModal: React.FC = () => {
         </div>
 
         {/* Sleep Timer Tool */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
           <button
             onClick={cyclePlaybackRate}
-            className={`px-2.5 py-1.5 rounded-full text-xs font-bold tabular-nums text-center min-w-[2.9rem] transition cursor-pointer ${
+            className={`px-2 sm:px-2.5 py-1.5 rounded-full text-xs font-bold tabular-nums text-center min-w-[2.5rem] sm:min-w-[2.9rem] transition cursor-pointer ${
               playbackRate !== 1
-                ? 'bg-[var(--bg-surface-elevated)] text-purple-600 dark:text-[#dbe7b5] border border-[var(--border-subtle)]'
+                ? 'bg-[var(--bg-surface-elevated)] text-[var(--m3-primary)] border border-[var(--border-subtle)]'
                 : 'hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
             title="Playback speed"
@@ -225,9 +249,9 @@ export const NowPlayingModal: React.FC = () => {
           </button>
           <button
             onClick={() => setShowSleepModal(!showSleepModal)}
-            className={`p-2 rounded-full transition relative cursor-pointer ${
+            className={`p-1.5 sm:p-2 rounded-full transition relative cursor-pointer ${
               sleepTimerRemaining !== null
-                ? 'bg-[var(--bg-surface-elevated)] text-purple-600 dark:text-[#dbe7b5] border border-[var(--border-subtle)]'
+                ? 'bg-[var(--bg-surface-elevated)] text-[var(--m3-primary)] border border-[var(--border-subtle)]'
                 : 'hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
             title="Sleep Timer"
@@ -236,9 +260,9 @@ export const NowPlayingModal: React.FC = () => {
           </button>
           <button
             onClick={() => openListenTogether(true)}
-            className={`p-2 rounded-full transition relative cursor-pointer ${
+            className={`p-1.5 sm:p-2 rounded-full transition relative cursor-pointer ${
               isInRoom
-                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-sm'
+                ? 'bg-[var(--m3-secondary-container)] text-[var(--m3-on-secondary-container)] border border-[var(--m3-outline-variant)] shadow-sm'
                 : 'hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
             title={isInRoom ? `Listen Together Room ${roomCode} (${members.length} members)` : 'Listen Together'}
@@ -252,7 +276,7 @@ export const NowPlayingModal: React.FC = () => {
       {showSleepModal && (
         <div className="absolute top-16 right-5 sm:right-8 z-30 w-60 p-4 rounded-2xl bg-[var(--bg-popover)] border border-[var(--border-medium)] shadow-2xl space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-[var(--border-subtle)]">
-            <span className="text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-[#dbe7b5]">
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--m3-primary)]">
               Sleep Timer
             </span>
             {sleepTimerRemaining !== null && (
@@ -291,11 +315,11 @@ export const NowPlayingModal: React.FC = () => {
         >
           {/* Centered Large Square Artwork */}
           <div className="flex-1 flex items-center justify-center my-auto py-2">
-            <div className="relative group w-72 h-72 sm:w-80 sm:h-80 max-w-[82vw] aspect-square rounded-3xl overflow-hidden shadow-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] flex-shrink-0">
+            <div className="relative group w-72 h-72 sm:w-80 sm:h-80 max-w-[82vw] aspect-square rounded-3xl overflow-hidden shadow-[0_8px_48px_rgba(0,0,0,0.35)] border border-white/10 bg-[var(--bg-surface-elevated)] flex-shrink-0 ring-1 ring-black/5">
               <img
                 src={currentTrack.thumbnail}
                 alt={currentTrack.title}
-                className="w-full h-full object-cover aspect-square scale-[1.04]"
+                className="w-full h-full object-cover aspect-square scale-[1.04] transition-transform duration-700"
                 onError={(e) => {
                   const target = e.currentTarget;
                   if (!target.src.includes('hqdefault')) {
@@ -377,8 +401,8 @@ export const NowPlayingModal: React.FC = () => {
             <div className="flex items-center justify-between px-2 pt-1">
               <button
                 onClick={toggleShuffle}
-                className={`p-2.5 rounded-full transition cursor-pointer ${
-                  isShuffle ? 'text-purple-600 dark:text-[#dbe7b5]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                className={`m3-btn-tactile p-2.5 rounded-full transition cursor-pointer ${
+                  isShuffle ? 'text-[var(--m3-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
                 title="Shuffle"
               >
@@ -387,7 +411,7 @@ export const NowPlayingModal: React.FC = () => {
 
               <button
                 onClick={prevTrack}
-                className="p-2.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition active:scale-95 cursor-pointer"
+                className="m3-btn-tactile p-2.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
                 title="Previous"
               >
                 <SkipBack className="w-6 h-6 fill-current" />
@@ -395,19 +419,19 @@ export const NowPlayingModal: React.FC = () => {
 
               <button
                 onClick={togglePlay}
-                className="p-4 rounded-full bg-[var(--text-primary)] text-[var(--text-inverse)] dark:bg-[#dbe7b5] dark:text-[#171e0d] hover:scale-105 active:scale-95 transition flex items-center justify-center shadow-xl cursor-pointer"
+                className="m3-btn-primary-tactile p-4 sm:p-5 rounded-full bg-[var(--m3-primary)] text-[var(--m3-on-primary)] hover:bg-[var(--m3-primary-hover)] hover:scale-105 transition flex items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.3)] cursor-pointer"
                 title={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (
-                  <Pause className="w-7 h-7 fill-current" />
+                  <Pause className="w-7 h-7 sm:w-8 sm:h-8 fill-current" />
                 ) : (
-                  <Play className="w-7 h-7 fill-current ml-0.5" />
+                  <Play className="w-7 h-7 sm:w-8 sm:h-8 fill-current ml-0.5" />
                 )}
               </button>
 
               <button
                 onClick={nextTrack}
-                className="p-2.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition active:scale-95 cursor-pointer"
+                className="m3-btn-tactile p-2.5 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
                 title="Next"
               >
                 <SkipForward className="w-6 h-6 fill-current" />
@@ -415,8 +439,8 @@ export const NowPlayingModal: React.FC = () => {
 
               <button
                 onClick={toggleRepeat}
-                className={`p-2.5 rounded-full transition cursor-pointer ${
-                  repeatMode !== 'off' ? 'text-purple-600 dark:text-[#dbe7b5]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                className={`m3-btn-tactile p-2.5 rounded-full transition cursor-pointer ${
+                  repeatMode !== 'off' ? 'text-[var(--m3-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
                 title={`Repeat: ${repeatMode}`}
               >
@@ -455,11 +479,13 @@ export const NowPlayingModal: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Side: Tab Panel (Lyrics, Queue, Visualizer) */}
+        {/* Right Side: Tab Panel (Lyrics, Queue, Visualizer).
+            Translucent + blurred so the artwork-derived backdrop behind the
+            modal reads through the panel instead of being boxed out. */}
         <div
           className={`${
             mobileTab !== 'player' ? 'flex' : 'hidden lg:flex'
-          } lg:col-span-7 h-full flex-col rounded-3xl bg-[var(--bg-card)]/90 border border-[var(--border-subtle)] overflow-hidden shadow-sm`}
+          } lg:col-span-7 h-full flex-col rounded-3xl bg-[var(--bg-card)]/75 backdrop-blur-xl border border-[var(--border-subtle)] overflow-hidden shadow-sm`}
         >
           {panelTab === 'lyrics' && <SyncedLyrics />}
 
@@ -489,7 +515,7 @@ export const NowPlayingModal: React.FC = () => {
                       key={`${track.id}-${idx}`}
                       onClick={() => playTrack(track)}
                       className={`flex items-center justify-between p-2.5 rounded-2xl cursor-pointer transition ${
-                        isCurrent ? 'bg-purple-500/15 dark:bg-[#27311d]' : 'hover:bg-[var(--bg-surface-hover)]'
+                        isCurrent ? 'bg-[var(--m3-secondary-container)]' : 'hover:bg-[var(--bg-surface-hover)]'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -504,7 +530,7 @@ export const NowPlayingModal: React.FC = () => {
                         <div className="min-w-0 flex-1">
                           <p
                             className={`text-xs sm:text-sm font-semibold truncate ${
-                              isCurrent ? 'text-purple-600 dark:text-[#dbe7b5]' : 'text-[var(--text-primary)]'
+                              isCurrent ? 'text-[var(--m3-primary)]' : 'text-[var(--text-primary)]'
                             }`}
                           >
                             {track.title}
