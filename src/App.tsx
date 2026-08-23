@@ -66,7 +66,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="relative flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden font-sans transition-colors duration-200">
+    <div className="relative flex h-[100dvh] w-screen bg-[var(--bg-base)] text-[var(--text-primary)] overflow-hidden font-sans transition-colors duration-200">
       {/* Background Ambient Glow Tint based on current album artwork */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-10 dark:opacity-15 transition-all duration-1000">
         <div

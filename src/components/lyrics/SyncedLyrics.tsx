@@ -129,25 +129,70 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
     setShowLangMenu(false);
   };
 
-  // Auto-scroll to active lyric line smoothly
+  // User vs programmatic scroll detection
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef<any>(null);
+  const isInitialScrollRef = useRef(true);
+
+  // Center active lyric line mathematically within the container viewport
+  const scrollToActiveLine = useCallback((smooth = true) => {
+    const container = containerRef.current;
+    const activeEl = activeLineRef.current;
+    if (!container || !activeEl) return;
+
+    const lineOffsetTop = activeEl.offsetTop;
+    const lineHeight = activeEl.offsetHeight;
+    const containerHeight = container.clientHeight;
+
+    // Center active line at 50% of container viewport height
+    const targetScrollTop = lineOffsetTop - (containerHeight / 2) + (lineHeight / 2);
+    const maxScrollTop = container.scrollHeight - containerHeight;
+    const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
+
+    isProgrammaticScrollRef.current = true;
+    if (programmaticScrollTimerRef.current) {
+      clearTimeout(programmaticScrollTimerRef.current);
+    }
+    programmaticScrollTimerRef.current = setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, smooth ? 650 : 50);
+
+    container.scrollTo({
+      top: clampedScrollTop,
+      behavior: smooth ? 'smooth' : 'auto',
+    });
+  }, []);
+
+  // Track changes / initial load reset
+  useEffect(() => {
+    isInitialScrollRef.current = true;
+    setAutoScroll(true);
+  }, [currentTrack?.id]);
+
+  // Auto-scroll to active lyric line on line changes or resume
   useEffect(() => {
     if (!autoScroll || activeLyricIndex < 0 || !activeLineRef.current || !containerRef.current) return;
 
-    activeLineRef.current.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    });
-  }, [activeLyricIndex, autoScroll]);
+    const isFirst = isInitialScrollRef.current;
+    scrollToActiveLine(!isFirst);
+    if (isFirst) {
+      isInitialScrollRef.current = false;
+    }
+  }, [activeLyricIndex, autoScroll, scrollToActiveLine]);
 
-  // Handle user manual scroll — pause auto-scroll for 4s
-  const handleUserScroll = () => {
+  // Handle user manual scroll — pause auto-scroll without fighting
+  const handleUserInteraction = useCallback(() => {
+    if (isProgrammaticScrollRef.current) return;
     if (!autoScroll) return;
     setAutoScroll(false);
+  }, [autoScroll]);
 
-    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
-    userScrollTimeoutRef.current = setTimeout(() => {
-      setAutoScroll(true);
-    }, 4000);
+  // Resume auto-scroll button handler: immediately re-enable and center active line
+  const handleResumeAutoScroll = () => {
+    setAutoScroll(true);
+    requestAnimationFrame(() => {
+      scrollToActiveLine(true);
+    });
   };
 
   const handleCopyLyrics = () => {
@@ -364,23 +409,23 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
       </div>
 
       {/* Control Header Bar */}
-      <div className="relative flex items-center justify-between px-4 sm:px-6 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-header)] backdrop-blur-2xl z-20 text-[var(--text-primary)]">
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+      <div className="relative flex items-center justify-between gap-1.5 sm:gap-3 px-3 sm:px-6 py-2.5 sm:py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-header)] backdrop-blur-2xl z-20 text-[var(--text-primary)]">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1 flex-wrap">
           {/* Sync type badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] shadow-sm">
+          <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] shadow-sm flex-shrink-0">
             {isTimeSynced && (
               <span className="w-2 h-2 rounded-full bg-purple-500 dark:bg-[#dbe7b5] animate-pulse" />
             )}
-            <span className="text-xs font-black text-purple-600 dark:text-[#dbe7b5] tracking-wide">
+            <span className="text-[11px] sm:text-xs font-black text-purple-600 dark:text-[#dbe7b5] tracking-wide">
               {syncBadgeLabel}
             </span>
           </div>
 
           {/* Translation Toggle & Language Selector */}
-          <div className="relative flex items-center">
+          <div className="relative flex items-center flex-shrink-0">
             <button
               onClick={handleToggleTranslation}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-l-full text-xs font-bold transition border cursor-pointer ${
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-l-full text-[11px] sm:text-xs font-bold transition border cursor-pointer ${
                 isTranslationActive
                   ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d] border-purple-600 dark:border-[#dbe7b5] shadow-md'
                   : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
@@ -431,7 +476,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
           {/* Sync Offset Controls — only for timed lyrics */}
           {isTimeSynced && (
-            <div className="hidden md:flex items-center gap-1 bg-[var(--bg-surface-elevated)] px-2.5 py-1 rounded-full text-xs text-[var(--text-secondary)] border border-[var(--border-subtle)] shadow-sm">
+            <div className="hidden md:flex items-center gap-1 bg-[var(--bg-surface-elevated)] px-2.5 py-1 rounded-full text-xs text-[var(--text-secondary)] border border-[var(--border-subtle)] shadow-sm flex-shrink-0">
               <Clock className="w-3 h-3" />
               <span className="text-[11px]">Sync:</span>
               <button
@@ -465,15 +510,16 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
         </div>
 
         {/* Settings + Copy */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           <button
             onClick={() => setShowSettingsPanel(!showSettingsPanel)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition border cursor-pointer ${
+            className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-full text-xs font-bold transition border cursor-pointer ${
               showSettingsPanel
                 ? 'bg-purple-600 text-white dark:bg-[#dbe7b5] dark:text-[#161c0d] border-purple-600 dark:border-[#dbe7b5] shadow-lg'
                 : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
             }`}
             title="Lyrics Settings"
+            aria-label="Lyrics Settings"
           >
             <Sliders className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Settings</span>
@@ -481,18 +527,19 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
           <button
             onClick={handleCopyLyrics}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition cursor-pointer"
+            className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition cursor-pointer flex-shrink-0"
             title="Copy all lyrics"
+            aria-label="Copy all lyrics"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
+            <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
       </div>
 
       {/* Settings Popover */}
       {showSettingsPanel && (
-        <div className="absolute top-14 right-6 z-40 w-72 p-4 rounded-3xl bg-[var(--bg-popover)] backdrop-blur-2xl border border-[var(--border-medium)] shadow-2xl space-y-4 text-[var(--text-primary)]">
+        <div className="absolute top-12 sm:top-14 right-2 sm:right-6 z-40 w-72 max-w-[calc(100vw-1rem)] p-4 rounded-3xl bg-[var(--bg-popover)] backdrop-blur-2xl border border-[var(--border-medium)] shadow-2xl space-y-4 text-[var(--text-primary)]">
           <div className="flex items-center justify-between pb-2 border-b border-[var(--border-subtle)]">
             <span className="text-xs font-black text-purple-600 dark:text-[#dbe7b5] tracking-wide">Lyrics Settings</span>
             <button
@@ -607,8 +654,19 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
       {/* Main Lyrics Viewport */}
       <div
         ref={containerRef}
-        onScroll={handleUserScroll}
-        className={`flex-1 overflow-y-auto px-6 sm:px-14 py-20 scroll-smooth space-y-8 ${
+        onWheel={handleUserInteraction}
+        onTouchMove={handleUserInteraction}
+        onPointerDown={(e) => {
+          if (e.target === containerRef.current) {
+            handleUserInteraction();
+          }
+        }}
+        onScroll={() => {
+          if (!isProgrammaticScrollRef.current) {
+            handleUserInteraction();
+          }
+        }}
+        className={`flex-1 overflow-y-auto px-6 sm:px-14 pt-[35vh] pb-[45vh] space-y-8 ${
           settings.lyricsAlignment === 'center' ? 'text-center' : 'text-left'
         }`}
       >
@@ -825,8 +883,8 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
       {/* Auto-scroll resume floating button */}
       {!autoScroll && isTimeSynced && (
         <button
-          onClick={() => setAutoScroll(true)}
-          className="absolute bottom-6 right-8 px-5 py-2.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#dbe7b5] dark:text-[#14190c] dark:hover:bg-[#c9d79e] text-xs font-black shadow-2xl border border-purple-500/50 dark:border-[#dbe7b5]/50 transition active:scale-95 z-30 flex items-center gap-2 cursor-pointer"
+          onClick={handleResumeAutoScroll}
+          className="absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] sm:bottom-6 right-[max(1rem,calc(env(safe-area-inset-right,0px)+0.75rem))] sm:right-8 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white dark:bg-[#dbe7b5] dark:text-[#14190c] dark:hover:bg-[#c9d79e] text-xs font-black shadow-2xl border border-purple-500/50 dark:border-[#dbe7b5]/50 transition active:scale-95 z-30 flex items-center gap-2 cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>Resume Auto-Scroll</span>

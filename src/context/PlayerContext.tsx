@@ -585,10 +585,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // ---- Toast helper ----
   const showToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    setToasts((prev) => [...prev, { id, text, type }]);
+    // If a toast with identical text already exists, replace it rather than stacking duplicate banners
+    setToasts((prev) => [...prev.filter((t) => t.text !== text), { id, text, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+    }, 2800);
   }, []);
 
   // Keep the ref in sync so earlier effects can call it.
@@ -1084,16 +1085,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isFavorite = (trackId: string) => favorites.some((t) => t.id === trackId);
 
   const toggleFavorite = (track: Track) => {
-    setFavorites((prev) => {
-      const exists = prev.some((t) => t.id === track.id);
-      if (exists) {
-        showToast('Removed from Liked Songs', 'info');
-        return prev.filter((t) => t.id !== track.id);
-      } else {
-        showToast('Added to Liked Songs', 'success');
-        return [track, ...prev];
-      }
-    });
+    const exists = favorites.some((t) => t.id === track.id);
+    if (exists) {
+      setFavorites((prev) => prev.filter((t) => t.id !== track.id));
+      showToast('Removed from Liked Songs', 'info');
+    } else {
+      setFavorites((prev) => [track, ...prev]);
+      showToast('Added to Liked Songs', 'success');
+    }
   };
 
   const createPlaylist = (title: string, description?: string, initialTracks?: Track[]): Playlist => {

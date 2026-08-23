@@ -87,7 +87,7 @@ export const MiniPlayer: React.FC = () => {
   return (
     <div
       onClick={() => setIsNowPlayingOpen(true)}
-      className="fixed bottom-[64px] md:bottom-0 left-3 right-3 md:left-0 md:right-0 z-40 bg-[var(--bg-player-bar)] backdrop-blur-2xl border border-[var(--border-medium)] md:border-t md:border-x-0 md:border-b-0 md:border-[var(--border-subtle)] rounded-full md:rounded-none px-3 md:px-6 py-2 md:py-2.5 shadow-2xl transition-all cursor-pointer select-none text-[var(--text-primary)]"
+      className="fixed bottom-[calc(68px+env(safe-area-inset-bottom,0px))] sm:bottom-[calc(74px+env(safe-area-inset-bottom,0px))] md:bottom-0 left-[max(0.75rem,env(safe-area-inset-left,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] md:left-0 md:right-0 z-40 bg-[var(--bg-player-pill)] md:bg-[var(--bg-player-bar)] backdrop-blur-2xl border border-[var(--border-medium)]/80 dark:border-white/10 md:border-t md:border-x-0 md:border-b-0 md:border-[var(--border-subtle)] rounded-full md:rounded-none px-3.5 sm:px-4 md:px-6 py-2 md:py-2.5 shadow-[0_12px_36px_rgba(0,0,0,0.35)] md:shadow-2xl transition-all duration-200 cursor-pointer select-none text-[var(--text-primary)] ring-1 ring-white/10 dark:ring-white/5 md:ring-0"
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         {/* Left: Circular Artwork with Circular Progress Ring */}
