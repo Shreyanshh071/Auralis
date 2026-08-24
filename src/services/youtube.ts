@@ -248,11 +248,25 @@ function parseProviderItem(item: any): Track | null {
   let title = rawTitle;
   if (rawTitle.includes(' - ')) {
     const parts = rawTitle.split(' - ');
-    artist = cleanArtistName(parts[0].trim());
-    title = parts.slice(1).join(' - ').trim();
-  }
+    const p0 = parts[0].trim();
+    const p1 = parts.slice(1).join(' - ').trim();
 
-  title = cleanTrackTitle(title);
+    const isP1Descriptor =
+      /^(?:full\s*(?:video|audio|song|track)?|official\s*(?:video|music\s*video|audio|lyrics?|lyric\s*video)?|lyrical|audio\s*song|video\s*song)/i.test(p1) ||
+      p1.includes('|');
+
+    if (isP1Descriptor) {
+      title = cleanTrackTitle(p0);
+      const segs = p1.split(/\s*[-–—:|~•]+\s*/).map((s: string) => s.trim()).filter((s: string) => s && !/^(?:full|official|video|audio|song|lyrical|4k|8k|hd|hq)/i.test(s));
+      const foundArtist = segs.find((s: string) => !/tseries|sonymusic|zeemusic|saregama|yrf|tipsofficial|spinninrecords|monstercat|vevo|channel|records|music/i.test(s.toLowerCase().replace(/\s+/g, '')));
+      artist = foundArtist ? cleanArtistName(foundArtist) : cleanArtistName(uploader);
+    } else {
+      artist = cleanArtistName(p0);
+      title = cleanTrackTitle(p1);
+    }
+  } else {
+    title = cleanTrackTitle(title);
+  }
 
   const rawDuration = item.duration ?? (item.lengthSeconds ? Number(item.lengthSeconds) : undefined);
   const duration = typeof rawDuration === 'number' && rawDuration > 0 ? rawDuration : 0;
