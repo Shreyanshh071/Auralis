@@ -23,6 +23,14 @@ import {
 import type { StoredQueue, StoredPlaybackPosition } from '../lib/queueStorage';
 import { moveItem, removeAt, reorderQueue as reorderQueueTracks } from '../lib/queueOps';
 import { applyMaterialPalette, FALLBACK_SEED } from '../lib/materialPalette';
+import {
+  loadHistory,
+  saveHistory,
+  addToHistory,
+  removeFromHistory as removeHistoryEntry,
+  historyTracks,
+} from '../lib/historyStorage';
+import type { HistoryEntry } from '../lib/historyStorage';
 
 /**
  * How often the playback position is checkpointed while a track is playing.
@@ -135,6 +143,51 @@ function computeTopArtists(map: PlayCountMap, limit: number): { name: string; im
 }
 
 // ---------------------------------------------------------------------------
+// Silent keepalive audio ("background audio anchor")
+//
+// Builds a short, valid, zero-amplitude WAV as an object URL. Played on loop, it
+// keeps the WebView page's audio session — and with it the OS MediaSession /
+// lock-screen binding — alive while music is playing, so the controls do not
+// detach when Android backgrounds the app. It emits no sound: the audible audio
+// is always the YouTube IFrame. Returns null where the APIs are unavailable
+// (SSR / very old WebView), in which case the anchor is simply skipped.
+// ---------------------------------------------------------------------------
+function createSilentLoopUrl(): string | null {
+  try {
+    if (typeof Blob === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) {
+      return null;
+    }
+    const sampleRate = 8000;
+    const seconds = 0.5;
+    const numSamples = sampleRate * seconds;
+    const bytesPerSample = 2; // 16-bit PCM, mono
+    const dataSize = numSamples * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    const writeStr = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true); // PCM chunk size
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * bytesPerSample, true); // byte rate
+    view.setUint16(32, bytesPerSample, true); // block align
+    view.setUint16(34, 16, true); // bits per sample
+    writeStr(36, 'data');
+    view.setUint32(40, dataSize, true);
+    // Sample data is left as zeros — i.e. pure silence.
+    return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Queue persistence
 //
 // The queue used to live only in memory, so closing the app or reloading the
@@ -179,6 +232,8 @@ interface PlayerContextType {
   // Queue & History
   queue: Track[];
   history: Track[];
+  clearHistory: () => void;
+  removeFromHistory: (trackId: string) => void;
   queueIndex: number;
 
   // Lyrics
@@ -312,15 +367,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [queue, setQueue] = useState<Track[]>(restoredQueue.tracks);
   const [queueIndex, setQueueIndex] = useState<number>(restoredQueue.index);
 
-  // History persisted to localStorage
-  const [history, setHistory] = useState<Track[]>(() => {
-    try {
-      const saved = localStorage.getItem('auralis_history');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Listening history — the last HISTORY_LIMIT (100) tracks played, each stamped
+  // with when it was added. It is held as rich entries so a timestamp is
+  // available, but the public `history` below is projected down to a plain
+  // Track[] because every consumer (LibraryView's Recently Played, HomeView's
+  // recommendations) works on tracks, not entries.
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>(() => loadHistory());
+  const history = useMemo(() => historyTracks(historyEntries), [historyEntries]);
 
   // Lyrics
   const [lyrics, setLyrics] = useState<LyricsData | null>(null);
@@ -635,8 +688,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [settings]);
 
   useEffect(() => {
-    localStorage.setItem('auralis_history', JSON.stringify(history.slice(0, 50)));
-  }, [history]);
+    saveHistory(historyEntries);
+  }, [historyEntries]);
 
   // ---- Persist the queue so it survives a reload ----
   useEffect(() => {
@@ -677,6 +730,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const getTopArtists = useCallback(
     (limit: number) => computeTopArtists(playCounts, limit),
     [playCounts]
+  );
+
+  // ---- Listening history mutations ----
+  const clearHistory = useCallback(() => setHistoryEntries([]), []);
+  const removeFromHistory = useCallback(
+    (trackId: string) => setHistoryEntries((entries) => removeHistoryEntry(entries, trackId)),
+    []
   );
 
   // ---- YouTube IFrame Player ----
@@ -988,6 +1048,185 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [currentTrack?.id]);
 
+  /* -------------------------------------------------------------------------
+   * OS media controls (MediaSession) + background audio keepalive
+   *
+   * navigator.mediaSession is what puts the track title / artist / artwork and
+   * the transport buttons on the Android lock screen and notification shade (and
+   * drives the media keys on desktop web). It is a top-document API, so it works
+   * even though the audio itself comes from the cross-origin YouTube IFrame.
+   *
+   * The action handlers delegate to the very same controls the in-app UI uses,
+   * through a ref, so the handlers — registered once — always drive the current
+   * player rather than a stale closure captured at mount.
+   * ----------------------------------------------------------------------- */
+
+  // Latest player controls, populated after the control functions are defined
+  // (further down), so the mount-time handler registration can call through to
+  // them without re-binding on every render.
+  const mediaControlsRef = useRef<{
+    play: () => void;
+    pause: () => void;
+    next: () => void;
+    prev: () => void;
+    seekTo: (seconds: number) => void;
+    stop: () => void;
+  } | null>(null);
+
+  // Silent keepalive element. Created lazily on first play so it is tied to a
+  // user gesture (autoplay policy) and never allocated for a session that never
+  // plays anything.
+  const audioAnchorRef = useRef<HTMLAudioElement | null>(null);
+
+  /**
+   * Publish position / duration / rate to the OS scrubber. The OS interpolates
+   * position from playbackRate between calls, so this only needs to run on the
+   * transitions that change the shape of playback (new track, duration known,
+   * rate change, play/pause) and on explicit seeks — not on every time tick.
+   * Reads live values from refs so it can be a stable callback.
+   */
+  const publishMediaPositionState = useCallback((positionOverride?: number) => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    if (typeof ms.setPositionState !== 'function') return;
+    const snap = positionSnapshotRef.current;
+    const dur = snap.duration;
+    const pos = positionOverride ?? snap.position;
+    try {
+      if (Number.isFinite(dur) && dur > 0) {
+        ms.setPositionState({
+          duration: dur,
+          playbackRate: playbackRateRef.current || 1,
+          position: Math.min(Math.max(0, pos), dur),
+        });
+      } else {
+        // Clears any stale state when the duration is not yet known.
+        ms.setPositionState();
+      }
+    } catch {}
+  }, []);
+
+  // Metadata — refreshed whenever the track or its resolved (hi-res) artwork
+  // changes. The artwork effect above upgrades currentTrack.thumbnail once a
+  // better cover resolves, which re-fires this and hands the OS the sharp image.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    if (!currentTrack) {
+      try { ms.metadata = null; } catch {}
+      return;
+    }
+    try {
+      const art = currentTrack.thumbnail;
+      const type = art && art.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const artwork = art
+        ? ['96x96', '128x128', '192x192', '256x256', '384x384', '512x512'].map((sizes) => ({
+            src: art,
+            sizes,
+            type,
+          }))
+        : [];
+      ms.metadata = new MediaMetadata({
+        title: currentTrack.title || 'Unknown title',
+        artist: currentTrack.artist || 'Unknown artist',
+        album: currentTrack.album || '',
+        artwork,
+      });
+    } catch {}
+  }, [
+    currentTrack?.id,
+    currentTrack?.title,
+    currentTrack?.artist,
+    currentTrack?.album,
+    currentTrack?.thumbnail,
+  ]);
+
+  // Transport buttons — registered once; each delegates to the live controls.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    const set = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try {
+        ms.setActionHandler(action, handler);
+      } catch {
+        // Some actions are unsupported on some platforms; ignore those.
+      }
+    };
+
+    set('play', () => mediaControlsRef.current?.play());
+    set('pause', () => mediaControlsRef.current?.pause());
+    set('previoustrack', () => mediaControlsRef.current?.prev());
+    set('nexttrack', () => mediaControlsRef.current?.next());
+    set('stop', () => mediaControlsRef.current?.stop());
+    set('seekto', (details) => {
+      if (typeof details.seekTime === 'number') mediaControlsRef.current?.seekTo(details.seekTime);
+    });
+    set('seekbackward', (details) => {
+      const offset = details.seekOffset || 10;
+      mediaControlsRef.current?.seekTo(Math.max(0, positionSnapshotRef.current.position - offset));
+    });
+    set('seekforward', (details) => {
+      const offset = details.seekOffset || 10;
+      const snap = positionSnapshotRef.current;
+      const target = snap.position + offset;
+      mediaControlsRef.current?.seekTo(snap.duration > 0 ? Math.min(target, snap.duration) : target);
+    });
+
+    return () => {
+      const actions: MediaSessionAction[] = [
+        'play',
+        'pause',
+        'previoustrack',
+        'nexttrack',
+        'stop',
+        'seekto',
+        'seekbackward',
+        'seekforward',
+      ];
+      for (const action of actions) set(action, null);
+    };
+  }, []);
+
+  // Playing / paused indicator for the OS UI.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : currentTrack ? 'paused' : 'none';
+    } catch {}
+  }, [isPlaying, currentTrack]);
+
+  // Position state for the OS scrubber. Intentionally NOT keyed on currentTime:
+  // the OS interpolates between updates from playbackRate, so re-publishing every
+  // 100ms tick would be pointless churn. Seeks call publishMediaPositionState
+  // directly (see seekTo) so a scrub still lands exactly.
+  useEffect(() => {
+    publishMediaPositionState();
+  }, [currentTrack?.id, duration, playbackRate, isPlaying, publishMediaPositionState]);
+
+  // Background audio anchor — start the silent keepalive while playing, pause it
+  // otherwise. See createSilentLoopUrl: it emits no sound; it only keeps the
+  // page's audio session (and the MediaSession binding) alive in the background.
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof Audio === 'undefined') return;
+    let anchor = audioAnchorRef.current;
+    if (!anchor) {
+      const url = createSilentLoopUrl();
+      if (!url) return;
+      anchor = new Audio(url);
+      anchor.loop = true;
+      anchor.volume = 0.0001; // inaudible, but > 0 so it is not treated as muted
+      anchor.setAttribute('playsinline', 'true');
+      audioAnchorRef.current = anchor;
+    }
+    if (isPlaying) {
+      // Rejection is fine: the autoplay policy may block it until a gesture, and
+      // the anchor is a nice-to-have, not required for playback itself.
+      void anchor.play().catch(() => {});
+    } else {
+      try { anchor.pause(); } catch {}
+    }
+  }, [isPlaying]);
+
   // Sleep timer countdown — driven by the absolute deadline, so it stays correct
   // across background throttling and reloads. It also re-checks the moment the tab
   // becomes visible again, catching the common case where the WebView froze the
@@ -1124,7 +1363,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const playTrack = (track: Track, newQueue?: Track[]) => {
     const prev = currentTrackRef.current;
     if (prev) {
-      setHistory((h) => [prev, ...h.filter((t) => t.id !== prev.id)].slice(0, 50));
+      setHistoryEntries((entries) => addToHistory(entries, prev, Date.now()));
     }
 
     setCurrentTrack(track);
@@ -1268,6 +1507,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         playerRef.current.seekTo(seconds, true);
         setCurrentTime(seconds);
         globalPlaybackClock.seekTo(seconds);
+        publishMediaPositionState(seconds);
         if (lyrics && lyrics.syncType !== 'plain' && lyrics.lines.length > 0) {
           const newIdx = findActiveLyricIndex(lyrics.lines, seconds, lyricsOffset);
           prevLyricIndexRef.current = newIdx;
@@ -1572,6 +1812,18 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showToast(`Theme set to ${theme.charAt(0).toUpperCase() + theme.slice(1)}`, 'info');
   };
 
+  // Keep the MediaSession handlers pointed at the current controls. Assigned on
+  // every render (like the other mirror refs above) so the once-registered
+  // lock-screen buttons always invoke the live functions, never a stale closure.
+  mediaControlsRef.current = {
+    play: resume,
+    pause,
+    next: nextTrack,
+    prev: prevTrack,
+    seekTo,
+    stop: pause,
+  };
+
   return (
     <PlayerContext.Provider
       value={{
@@ -1587,6 +1839,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isLoadingAudio,
         queue,
         history,
+        clearHistory,
+        removeFromHistory,
         queueIndex,
         lyrics,
         isLoadingLyrics,
