@@ -4,17 +4,47 @@
 const artworkCache = new Map<string, string>();
 
 /**
+ * Detects if an image URL is a YouTube 4:3 letterboxed thumbnail (hqdefault / sddefault / default).
+ * These images contain baked-in black bars on top and bottom and must be zoomed (scale-[1.35]) to fill a 1:1 square container.
+ */
+export function isLetterboxedThumbnail(url?: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  // If it's Apple Music / iTunes or modern clean 16:9 (maxresdefault / hq720 / mqdefault), it has no letterbox bars
+  if (
+    url.includes('mzstatic.com') ||
+    url.includes('maxresdefault') ||
+    url.includes('hq720') ||
+    url.includes('mqdefault')
+  ) {
+    return false;
+  }
+  // Standard YouTube hqdefault, sddefault, default are 4:3 with top/bottom black bars
+  return (
+    url.includes('i.ytimg.com') ||
+    url.includes('img.youtube.com') ||
+    url.includes('hqdefault') ||
+    url.includes('sddefault') ||
+    url.includes('ytimg')
+  );
+}
+
+/**
  * Clean search query to find the purest album cover match
  */
 function cleanQuery(title: string, artist: string): string {
   const cleanTitle = title
     .replace(/\[.*?\]|\(.*?\)/g, '')
-    .replace(/official\s*video|official\s*audio|lyrics|hd|4k|remastered/gi, '')
-    .replace(/ft\.?|feat\.?/gi, '')
+    .replace(/official\s*video|official\s*audio|official\s*music\s*video|lyrics|lyric\s*video|hd|4k|remastered|visualizer|audio/gi, '')
+    .replace(/ft\.?|feat\.?|prod\.?\s*by|featuring/gi, '')
+    .replace(/[|\-_/\\].*$/, '')
     .trim();
   
-  const cleanArtist = artist.replace(/vevo|official/gi, '').trim();
-  return `${cleanArtist} ${cleanTitle}`.trim();
+  const cleanArtist = artist
+    .replace(/vevo|official|channel|topic/gi, '')
+    .replace(/[|\-_/\\].*$/, '')
+    .trim();
+
+  return `${cleanArtist} ${cleanTitle}`.trim() || title;
 }
 
 /**
@@ -36,7 +66,7 @@ export async function getAlbumArtwork(title: string, artist: string, fallbackThu
   try {
     const res = await fetch(
       `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=5`,
-      { signal: AbortSignal.timeout(2000) }
+      { signal: AbortSignal.timeout(2500) }
     );
 
     if (res.ok) {

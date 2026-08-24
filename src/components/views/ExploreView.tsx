@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { GENRES, searchAll, SearchUnavailableError } from '../../services/youtube';
 import { importYouTubePlaylist } from '../../services/youtubeImporter';
+import { getSearchHistory, addToSearchHistory, removeFromSearchHistory, clearSearchHistory } from '../../services/searchHistory';
+import { isLetterboxedThumbnail } from '../../services/artwork';
 import type { Artist, PlaylistResult, SearchResults, Track } from '../../types/music';
 import {
   Play,
   Search,
   Heart,
-  Compass,
   Music2,
   AlertTriangle,
   RefreshCw,
@@ -18,10 +19,11 @@ import {
   Loader2,
   Bookmark,
   X,
+  Clock,
 } from 'lucide-react';
 import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
-const DEFAULT_QUERY = 'trending music 2025 top hits';
+// No default query — the search page shows history until the user submits.
 
 const EMPTY_RESULTS: SearchResults = { songs: [], artists: [], playlists: [] };
 
@@ -38,7 +40,6 @@ interface ExploreViewProps {
 }
 
 export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', queryNonce = 0 }) => {
-  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
@@ -52,6 +53,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const [openingPlaylistId, setOpeningPlaylistId] = useState<string | null>(null);
   /** Non-null when opening a playlist failed — shown inline, never faked. */
   const [playlistError, setPlaylistError] = useState<string | null>(null);
+  /** Search history for the empty state. */
+  const [searchHistoryItems, setSearchHistoryItems] = useState<string[]>(() => getSearchHistory());
 
   const {
     playTrack,
@@ -68,14 +71,18 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
     removeAlbum,
   } = usePlayer();
 
-  // Run the incoming query, or fall back to trending on a plain visit.
+  // Run the incoming query when it arrives from the header.
+  // If initialQuery is empty, stay on the clean history view.
   useEffect(() => {
     if (initialQuery) {
-      setQuery(initialQuery);
       setSelectedGenre(null);
       performSearch(initialQuery);
     } else {
-      performSearch(DEFAULT_QUERY);
+      // Cleared / empty — return to history-only state
+      setResults(EMPTY_RESULTS);
+      setHasSearched(false);
+      setError(null);
+      setSearchHistoryItems(getSearchHistory());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery, queryNonce]);
@@ -88,6 +95,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
     setError(null);
     setPlaylistError(null);
     setLastQuery(q);
+    // Record in search history
+    addToSearchHistory(q);
+    setSearchHistoryItems(getSearchHistory());
     try {
       const res = await searchAll(q);
       setResults(res);
@@ -107,13 +117,11 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
 
   const handleGenreClick = (genreQuery: string, genreName: string) => {
     setSelectedGenre(genreName);
-    setQuery(genreQuery);
     performSearch(genreQuery);
   };
 
   const handleArtistClick = (artist: Artist) => {
     setSelectedGenre(null);
-    setQuery(artist.name);
     performSearch(artist.query);
   };
 
@@ -150,57 +158,93 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const showArtists = (activeCategory === 'all' || activeCategory === 'artists') && artists.length > 0;
   const showPlaylists = (activeCategory === 'all' || activeCategory === 'playlists' || activeCategory === 'albums') && playlists.length > 0;
 
+  // Whether results (or a search attempt) exist — drives whether to show the
+  // history-only empty state or the results view.
+  const isEmptyState = !hasSearched && !isLoading;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300 text-[var(--text-primary)] max-w-5xl mx-auto">
-      {/* Header & Search Bar */}
-      <div className="space-y-3 pt-1">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-[var(--m3-primary-08)] border border-[var(--m3-outline-variant)] text-[var(--m3-primary)]">
-            <Compass className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="font-display font-black text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
-              Search &amp; Explore
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              Discover songs, artists, and playlists with synchronized lyrics
-            </p>
-          </div>
+      {/* Page Header — no duplicate search bar, just the title */}
+      <div className="flex items-center gap-3 pt-1">
+        <div className="p-2.5 rounded-2xl bg-[var(--m3-primary-08)] border border-[var(--m3-outline-variant)] text-[var(--m3-primary)]">
+          <Search className="w-5 h-5" />
         </div>
-
-        {/* Search Input Bar */}
-        <div className="relative w-full max-w-2xl">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && performSearch(query)}
-            placeholder="Search songs, artists, albums, or vibes..."
-            className="w-full pl-10 pr-24 py-2.5 sm:py-3 bg-[var(--bg-input)] hover:bg-[var(--bg-card-hover)] focus:bg-[var(--bg-input-focus)] text-xs sm:text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-2xl border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--m3-primary-16)] transition shadow-sm"
-          />
-          {query && (
-            <button
-              onClick={() => {
-                setQuery('');
-                setResults(EMPTY_RESULTS);
-                setHasSearched(false);
-              }}
-              className="absolute right-16 top-1/2 -translate-y-1/2 p-1 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-          <button
-            onClick={() => performSearch(query)}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-[var(--text-primary)] text-[var(--text-inverse)] text-xs font-bold transition shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
-          >
+        <div>
+          <h1 className="font-display font-black text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
             Search
-          </button>
+          </h1>
+          <p className="text-xs text-[var(--text-muted)]">
+            {hasSearched ? `Results for \u201c${lastQuery}\u201d` : 'Use the search bar above to find music'}
+          </p>
         </div>
       </div>
 
-      {/* Category Filter Pills (Music-First: All, Songs, Artists, Albums, Playlists) */}
+      {/* ── Empty State: Search History ── */}
+      {isEmptyState ? (
+        <div className="space-y-4">
+          {searchHistoryItems.length > 0 ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-1 pb-2">
+                <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[var(--text-muted)]" />
+                  Recent searches
+                </h2>
+                <button
+                  onClick={() => {
+                    clearSearchHistory();
+                    setSearchHistoryItems([]);
+                  }}
+                  className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-rose-500 transition cursor-pointer"
+                >
+                  Clear all
+                </button>
+              </div>
+              {searchHistoryItems.map((historyQuery) => (
+                <div
+                  key={historyQuery}
+                  className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-2xl hover:bg-[var(--bg-card-hover)] transition cursor-pointer group"
+                  onClick={() => performSearch(historyQuery)}
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Clock className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />
+                    <span className="text-sm text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)] transition">
+                      {historyQuery}
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFromSearchHistory(historyQuery);
+                      setSearchHistoryItems(getSearchHistory());
+                    }}
+                    className="p-1.5 rounded-full text-[var(--text-muted)] hover:text-rose-500 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100 cursor-pointer flex-shrink-0"
+                    title="Remove from history"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Clean minimal empty state — no fake content */
+            <div className="flex flex-col items-center justify-center py-20 text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center">
+                <Search className="w-7 h-7 text-[var(--text-muted)]" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Search for music</h3>
+                <p className="text-xs text-[var(--text-muted)] mt-1 max-w-xs">
+                  Find songs, artists, albums, and playlists. Your recent searches will appear here.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+      /* ── Results View (with category pills and genre tags) ── */
+      <>
+
+      {/* Category Filter Pills — only visible when results exist */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none flex-nowrap">
         {(
           [
@@ -228,23 +272,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
         })}
       </div>
 
-      {/* Genre Tags (Quick discovery presets) */}
+      {/* Genre Tags */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        <button
-          onClick={() => {
-            setSelectedGenre(null);
-            setQuery('');
-            performSearch(DEFAULT_QUERY);
-          }}
-          className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
-            selectedGenre === null && query === DEFAULT_QUERY
-              ? 'bg-[var(--m3-primary-16)] text-[var(--m3-primary)] border border-[var(--m3-primary-40)]'
-              : 'bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
-          }`}
-        >
-          Top Hits
-        </button>
-
         {GENRES.map((g) => (
           <button
             key={g.id}
@@ -283,7 +312,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
           <h3 className="text-sm font-bold text-[var(--text-primary)]">Search unavailable</h3>
           <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md">{error}</p>
           <button
-            onClick={() => performSearch(lastQuery || DEFAULT_QUERY)}
+            onClick={() => lastQuery && performSearch(lastQuery)}
             className="mt-4 px-4 py-2 rounded-xl bg-[var(--m3-primary)] hover:bg-[var(--m3-primary-hover)] text-xs font-bold text-[var(--m3-on-primary)] transition shadow-sm flex items-center gap-2 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -403,7 +432,11 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                             <img
                               src={pl.thumbnail}
                               alt={pl.title}
-                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                              className={`w-full h-full object-cover ${
+                                isLetterboxedThumbnail(pl.thumbnail)
+                                  ? 'scale-[1.35] group-hover:scale-[1.40]'
+                                  : 'group-hover:scale-105'
+                              } transition duration-300`}
                               onError={(e) => {
                                 e.currentTarget.style.display = 'none';
                               }}
@@ -500,7 +533,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                             src={track.thumbnail}
                             alt={track.title}
                             loading="lazy"
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                            className={`w-full h-full object-cover ${
+                              isLetterboxedThumbnail(track.thumbnail) ? 'scale-[1.35]' : 'scale-100'
+                            } group-hover:scale-105 transition duration-200`}
                             onError={(e) => {
                               const target = e.currentTarget;
                               if (!target.src.includes('hqdefault')) {
@@ -611,6 +646,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             </div>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -58,6 +58,17 @@ export interface MaterialPalette {
   primary40: string;
   surfaceTint: string;
   playerTint: string;
+  /**
+   * Now Playing atmospheric background, top gradient stop. A dark, heavily
+   * tinted wash from the artwork's hue, much stronger than `surfaceTint` so
+   * the background clearly relates to the album cover.
+   */
+  nowPlayingTintA: string;
+  /**
+   * Now Playing atmospheric background, bottom gradient stop. Same hue
+   * shifted slightly warmer and darker to create depth.
+   */
+  nowPlayingTintB: string;
 }
 
 /**
@@ -378,10 +389,13 @@ export function buildMaterialPalette(
     // system is that the background stays neutral and the accent supplies the
     // personality, not the other way round.
     surfaceTint: rgba(primary, mode === 'dark' ? 0.07 : 0.05),
-    // Tonal glaze painted over the blurred artwork inside the MiniPlayer. Much
-    // stronger than the ambient wash because it is also what keeps the player
-    // text readable over an arbitrary album cover.
-    playerTint: rgba(primaryContainer, mode === 'dark' ? 0.52 : 0.34),
+    // Tonal glaze painted over the blurred artwork inside the MiniPlayer.
+    // Kept translucent so the backdrop blur and vibrant cover art shine through cleanly.
+    playerTint: rgba(primaryContainer, mode === 'dark' ? 0.22 : 0.16),
+    // Now Playing atmospheric background — vibrant tonal washes that enrich
+    // the dynamic blurred album art glow in sync with the cover's color.
+    nowPlayingTintA: rgba(primary, mode === 'dark' ? 0.50 : 0.35),
+    nowPlayingTintB: rgba(primaryContainer, mode === 'dark' ? 0.40 : 0.25),
   };
 }
 
@@ -404,6 +418,8 @@ export const MATERIAL_CSS_VARIABLES: Record<keyof MaterialPalette, string> = {
   primary40: '--m3-primary-40',
   surfaceTint: '--m3-surface-tint',
   playerTint: '--m3-player-tint',
+  nowPlayingTintA: '--m3-np-tint-a',
+  nowPlayingTintB: '--m3-np-tint-b',
 };
 
 /** Flatten a palette into `{ '--m3-primary': '#...' }` form. */

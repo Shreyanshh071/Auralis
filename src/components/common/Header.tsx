@@ -16,6 +16,7 @@ import {
   Check,
   Radio,
   User,
+  MonitorPlay,
 } from 'lucide-react';
 import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import { getSearchSuggestions } from '../../services/searchSuggestions';
@@ -24,6 +25,8 @@ import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
 import { useListenTogether } from '../../context/ListenTogetherContext';
 import { isSignInCancellation } from '../../services/googleSignIn';
+import { isLetterboxedThumbnail } from '../../services/artwork';
+import { YouTubeSyncModal } from '../modals/YouTubeSyncModal';
 
 interface HeaderProps {
   onSearchSelect?: (track: Track) => void;
@@ -61,6 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { user, isSyncing, isAuthAvailable, authError, lastSyncedAt, signInWithGoogle, logout } =
     useAuth();
   const { isInRoom, isHost, roomCode, members, setIsModalOpen } = useListenTogether();
+  const [isYouTubeSyncOpen, setIsYouTubeSyncOpen] = useState(false);
   
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -115,14 +119,17 @@ export const Header: React.FC<HeaderProps> = ({
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
+    const capturedQuery = query;
+
     const timer = setTimeout(async () => {
       setIsSearching(true);
       setSearchError(null);
       try {
         // Fetch suggestions and track preview concurrently
         const [suggs, tracks] = await Promise.allSettled([
-          getSearchSuggestions(query),
-          searchYouTube(query),
+          getSearchSuggestions(capturedQuery, abortController.signal),
+          searchYouTube(capturedQuery),
         ]);
 
         if (cancelled) return;
@@ -146,10 +153,11 @@ export const Header: React.FC<HeaderProps> = ({
       } finally {
         if (!cancelled) setIsSearching(false);
       }
-    }, 180);
+    }, 250);
 
     return () => {
       cancelled = true;
+      abortController.abort();
       clearTimeout(timer);
     };
   }, [query]);
@@ -242,6 +250,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
+    <>
     <header className="sticky top-0 z-30 flex items-center justify-between px-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] sm:px-6 md:px-8 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-3 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200 gap-2 sm:gap-3 md:gap-4">
       {/* Navigation history arrows + Flexible Search */}
       <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0" ref={searchContainerRef}>
@@ -296,6 +305,9 @@ export const Header: React.FC<HeaderProps> = ({
                   setSuggestions([]);
                   setResults([]);
                   setSearchError(null);
+                  setIsOpenDropdown(false);
+                  // Reset the Explore view to its clean history-only state.
+                  if (onSubmitSearch) onSubmitSearch('');
                 }}
                 className="absolute right-3 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
               >
@@ -362,19 +374,25 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={() => handleSelectTrack(track)}
                       className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-[var(--bg-surface-hover)] cursor-pointer transition group"
                     >
-                      <img
-                        src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
-                        alt=""
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        className="w-8 h-8 rounded-lg object-cover bg-neutral-800 flex-shrink-0 shadow-sm"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          if (!target.src.includes('hqdefault') && track.id) {
-                            target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
-                          }
-                        }}
-                      />
+                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-neutral-800 flex-shrink-0 shadow-sm">
+                        <img
+                          src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          className={`w-full h-full object-cover aspect-square ${
+                            isLetterboxedThumbnail(track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`)
+                              ? 'scale-[1.35]'
+                              : 'scale-100'
+                          }`}
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (!target.src.includes('hqdefault') && track.id) {
+                              target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
+                            }
+                          }}
+                        />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)] transition">
                           {track.title}
@@ -586,6 +604,17 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
 
                   <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setIsYouTubeSyncOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] rounded-xl transition cursor-pointer"
+                  >
+                    <MonitorPlay className="w-3.5 h-3.5 text-red-500" />
+                    <span>YouTube Sync</span>
+                  </button>
+
+                  <button
                     onClick={handleLogout}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition cursor-pointer"
                   >
@@ -644,6 +673,12 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
     </header>
+
+    <YouTubeSyncModal
+      isOpen={isYouTubeSyncOpen}
+      onClose={() => setIsYouTubeSyncOpen(false)}
+    />
+    </>
   );
 };
 

@@ -19,6 +19,7 @@ interface SidebarProps {
   openCreatePlaylistModal: () => void;
   /** Opens one specific playlist in the Library. */
   openPlaylist: (playlistId: string) => void;
+  onOpenLegal?: (tab: 'privacy' | 'terms') => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -26,6 +27,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveView,
   openCreatePlaylistModal,
   openPlaylist,
+  onOpenLegal,
 }) => {
   const { favorites, playlists, sleepTimerRemaining } = usePlayer();
   const { user, isAuthAvailable, isSyncing, authError, lastSyncedAt } = useAuth();
@@ -175,10 +177,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* User Account & Cloud Sync footer */}
-      <div className="p-3 border-t border-[var(--border-subtle)]">
+      <div className="p-3 border-t border-[var(--border-subtle)] space-y-2">
         {/* Sleep Timer Indicator if active */}
         {sleepTimerRemaining !== null && (
-          <div className="mb-2 flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)]">
+          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)]">
             <div className="flex items-center gap-1.5">
               <Moon className="w-3 h-3 text-[var(--text-muted)]" />
               <span className="text-[11px]">Sleep Timer</span>
@@ -199,6 +201,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="text-[10px] text-[var(--text-muted)] font-medium truncate">
             {syncStatus.label}
           </span>
+        </div>
+
+        {/* Legal Links (Privacy Policy & Terms of Service) */}
+        <div className="flex items-center gap-2 px-1 text-[10px] text-[var(--text-muted)] font-medium">
+          <button
+            onClick={() => onOpenLegal?.('privacy')}
+            className="hover:text-[var(--text-primary)] hover:underline cursor-pointer transition"
+          >
+            Privacy Policy
+          </button>
+          <span>•</span>
+          <button
+            onClick={() => onOpenLegal?.('terms')}
+            className="hover:text-[var(--text-primary)] hover:underline cursor-pointer transition"
+          >
+            Terms of Service
+          </button>
         </div>
       </div>
     </aside>
