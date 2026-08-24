@@ -321,16 +321,44 @@ const DISCOVERY_CATEGORIES = [
   { id: 'hiphop-rap', title: 'Hip-Hop & Rap Essentials', query: 'hip hop rap best songs hits', icon: 'flame' as const },
 ];
 
+const FALLBACK_DISCOVERY_MAP: Record<string, Track[]> = {
+  trending: [
+    { id: '4NRXx6U8ABQ', title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', duration: 200, thumbnail: 'https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg', color: '#ef4444' },
+    { id: 'H5v3kku4y6Q', title: 'As It Was', artist: 'Harry Styles', album: "Harry's House", duration: 167, thumbnail: 'https://i.ytimg.com/vi/H5v3kku4y6Q/hqdefault.jpg', color: '#ec4899' },
+    { id: '34Na4j8AVgA', title: 'Starboy', artist: 'The Weeknd ft. Daft Punk', album: 'Starboy', duration: 230, thumbnail: 'https://i.ytimg.com/vi/34Na4j8AVgA/hqdefault.jpg', color: '#3b82f6' },
+    { id: 'JGwWNGJdvx8', title: 'Shape of You', artist: 'Ed Sheeran', album: '÷ (Divide)', duration: 233, thumbnail: 'https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg', color: '#06b6d4' },
+    { id: 'kTJczUoc26U', title: 'Stay', artist: 'The Kid LAROI, Justin Bieber', album: 'Stay', duration: 141, thumbnail: 'https://i.ytimg.com/vi/kTJczUoc26U/hqdefault.jpg', color: '#8b5cf6' },
+    { id: 'mRD0-GxqHVo', title: 'Heat Waves', artist: 'Glass Animals', album: 'Dreamland', duration: 238, thumbnail: 'https://i.ytimg.com/vi/mRD0-GxqHVo/hqdefault.jpg', color: '#10b981' },
+    { id: 'TUVcZfQe-Kw', title: 'Levitating', artist: 'Dua Lipa', album: 'Future Nostalgia', duration: 203, thumbnail: 'https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg', color: '#ec4899' },
+    { id: 'XXYlFuWEuKI', title: 'Save Your Tears', artist: 'The Weeknd', album: 'After Hours', duration: 215, thumbnail: 'https://i.ytimg.com/vi/XXYlFuWEuKI/hqdefault.jpg', color: '#ef4444' },
+  ],
+  'lofi-chill': [
+    { id: 'jfKfPfyJRdk', title: 'Lofi Chill Beats', artist: 'Lofi Girl', album: 'Lofi Records', duration: 180, thumbnail: 'https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg', color: '#3b82f6' },
+    { id: 'GCdwKhTtNNw', title: 'Sweater Weather', artist: 'The Neighbourhood', album: 'I Love You.', duration: 240, thumbnail: 'https://i.ytimg.com/vi/GCdwKhTtNNw/hqdefault.jpg', color: '#6366f1' },
+    { id: 'sBzrzS1Ag_g', title: 'The Less I Know The Better', artist: 'Tame Impala', album: 'Currents', duration: 216, thumbnail: 'https://i.ytimg.com/vi/sBzrzS1Ag_g/hqdefault.jpg', color: '#9333ea' },
+    { id: '5qap5aO4i9A', title: 'Lofi Study Chillhop', artist: 'Chillhop Music', album: 'Chillhop Essentials', duration: 195, thumbnail: 'https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg', color: '#10b981' },
+  ],
+  'indie-alt': [
+    { id: 'sBzrzS1Ag_g', title: 'The Less I Know The Better', artist: 'Tame Impala', album: 'Currents', duration: 216, thumbnail: 'https://i.ytimg.com/vi/sBzrzS1Ag_g/hqdefault.jpg', color: '#9333ea' },
+    { id: 'bpOSxM0rNPM', title: 'Do I Wanna Know?', artist: 'Arctic Monkeys', album: 'AM', duration: 272, thumbnail: 'https://i.ytimg.com/vi/bpOSxM0rNPM/hqdefault.jpg', color: '#f59e0b' },
+    { id: 'GCdwKhTtNNw', title: 'Sweater Weather', artist: 'The Neighbourhood', album: 'I Love You.', duration: 240, thumbnail: 'https://i.ytimg.com/vi/GCdwKhTtNNw/hqdefault.jpg', color: '#6366f1' },
+    { id: 'hTWKbfoikeg', title: 'Smells Like Teen Spirit', artist: 'Nirvana', album: 'Nevermind', duration: 301, thumbnail: 'https://i.ytimg.com/vi/hTWKbfoikeg/hqdefault.jpg', color: '#06b6d4' },
+    { id: 'DyDfgMOUjCI', title: 'bad guy', artist: 'Billie Eilish', album: 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?', duration: 194, thumbnail: 'https://i.ytimg.com/vi/DyDfgMOUjCI/hqdefault.jpg', color: '#84cc16' },
+  ],
+  'rock-classics': [
+    { id: 'fJ9rUzIMcZQ', title: 'Bohemian Rhapsody', artist: 'Queen', album: 'A Night at the Opera', duration: 354, thumbnail: 'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg', color: '#e11d48' },
+    { id: '09839DpTctU', title: 'Hotel California', artist: 'Eagles', album: 'Hotel California', duration: 390, thumbnail: 'https://i.ytimg.com/vi/09839DpTctU/hqdefault.jpg', color: '#f59e0b' },
+    { id: '1w7OgIMMRc4', title: "Sweet Child O' Mine", artist: "Guns N' Roses", album: "Appetite for Destruction", duration: 356, thumbnail: 'https://i.ytimg.com/vi/1w7OgIMMRc4/hqdefault.jpg', color: '#eab308' },
+    { id: 'djV11Xbc914', title: 'Take On Me', artist: 'a-ha', album: 'Hunting High and Low', duration: 227, thumbnail: 'https://i.ytimg.com/vi/djV11Xbc914/hqdefault.jpg', color: '#f97316' },
+  ],
+};
+
 export async function fetchColdStartDiscovery(
   existingIds: Set<string>,
 ): Promise<RecommendationSection[]> {
   const sections: RecommendationSection[] = [];
 
-  // Pick 3 random categories for variety on each load
-  const shuffled = [...DISCOVERY_CATEGORIES].sort(() => Math.random() - 0.5);
-  const selected = shuffled.slice(0, 3);
-
-  for (const cat of selected) {
+  for (const cat of DISCOVERY_CATEGORIES) {
     const section: RecommendationSection = {
       id: `discover-${cat.id}`,
       title: cat.title,
@@ -343,12 +371,34 @@ export async function fetchColdStartDiscovery(
       results.forEach((t) => existingIds.add(t.id));
       section.tracks = results;
     } catch {
-      // Leave the section empty; it is dropped below rather than shown broken.
+      // Fall through to fallback
+    }
+
+    if (section.tracks.length === 0 && FALLBACK_DISCOVERY_MAP[cat.id]) {
+      section.tracks = FALLBACK_DISCOVERY_MAP[cat.id].filter((t) => !existingIds.has(t.id));
+      section.tracks.forEach((t) => existingIds.add(t.id));
     }
 
     if (section.tracks.length > 0) {
       sections.push(section);
     }
+  }
+
+  // Ensure at least two discovery sections always exist
+  if (sections.length === 0) {
+    const defaultTrending: RecommendationSection = {
+      id: 'discover-trending',
+      title: 'Trending & Popular Hits',
+      icon: 'flame',
+      tracks: FALLBACK_DISCOVERY_MAP.trending || [],
+    };
+    const defaultChill: RecommendationSection = {
+      id: 'discover-chill',
+      title: 'Midnight Lofi & Chill',
+      icon: 'music',
+      tracks: FALLBACK_DISCOVERY_MAP['lofi-chill'] || [],
+    };
+    sections.push(defaultTrending, defaultChill);
   }
 
   return sections;
@@ -361,14 +411,6 @@ export interface RecommendationResult {
   sections: RecommendationSection[];
 }
 
-/**
- * Generate all recommendation sections for the Home feed.
- *
- * @param profile - Taste profile built from local listening data
- * @param currentTrack - Currently playing track (for dedup)
- * @param history - Recent listening history
- * @param onSectionReady - Callback fired each time a section finishes loading (for progressive rendering)
- */
 export async function generateRecommendations(
   profile: TasteProfile,
   currentTrack: Track | null | undefined,
@@ -390,16 +432,19 @@ export async function generateRecommendations(
   if (!profile.hasListeningData) {
     // ── Cold Start ──
     try {
-      // Add a general discovery for quick picks
-      const discoveryPicks = await cachedSearch('best new music 2024 playlist', existingIds, 8);
+      const discoveryPicks = await cachedSearch('best new music hits playlist', existingIds, 8);
       discoveryPicks.forEach((t) => {
         if (!quickPicks.some((q) => q.id === t.id)) {
           quickPicks.push(t);
           existingIds.add(t.id);
         }
       });
-    } catch {
-      // Silent fail for quick picks; cold start sections below will show
+    } catch {}
+
+    if (quickPicks.length < 4 && FALLBACK_DISCOVERY_MAP.trending) {
+      FALLBACK_DISCOVERY_MAP.trending.forEach((t) => {
+        if (!quickPicks.some((q) => q.id === t.id)) quickPicks.push(t);
+      });
     }
 
     const coldSections = await fetchColdStartDiscovery(existingIds);
@@ -423,7 +468,6 @@ export async function generateRecommendations(
         .then((section) => {
           if (section.tracks.length > 0) {
             onSectionReady?.(section);
-            // Also augment quick picks from top artist
             section.tracks.slice(0, 3).forEach((t) => {
               if (!quickPicks.some((q) => q.id === t.id)) quickPicks.push(t);
             });
@@ -466,7 +510,7 @@ export async function generateRecommendations(
     );
   }
 
-  // 4. Add one discovery section even for warm users (for diversity)
+  // 4. Discovery section
   sectionPromises.push(
     fetchColdStartDiscovery(existingIds)
       .then((discoverySections) => {
@@ -482,7 +526,6 @@ export async function generateRecommendations(
       .catch(() => null),
   );
 
-  // Wait for all sections independently — one failure doesn't block the rest.
   const settled = await Promise.allSettled(sectionPromises);
   for (const result of settled) {
     if (result.status === 'fulfilled' && result.value) {
@@ -490,36 +533,23 @@ export async function generateRecommendations(
     }
   }
 
-  // Resilience net: if every personalised query came back empty (offline burst,
-  // provider hiccup, or an artist name that resolves poorly), fall back to the
-  // popular/trending discovery genres so the Home feed is never blank. These are
-  // real search results, not placeholders — they simply aren't personalised.
+  // Guaranteed fallback: If all sections returned empty, fill from curated discovery
   if (allSections.length === 0) {
-    try {
-      const fallback = await fetchColdStartDiscovery(existingIds);
-      fallback.forEach((s) => {
-        allSections.push(s);
-        onSectionReady?.(s);
-      });
-    } catch {
-      // Nothing more we can do; HomeView still shows quick picks / its own retry.
-    }
+    const fallback = await fetchColdStartDiscovery(existingIds);
+    fallback.forEach((s) => {
+      allSections.push(s);
+      onSectionReady?.(s);
+    });
   }
 
-  // Backfill quick picks with a trending mix if local data left them thin, so
-  // the top shelf always has something to play.
-  if (quickPicks.length < 4) {
-    try {
-      const trending = await cachedSearch('top hits this week', existingIds, 8);
-      trending.forEach((t) => {
-        if (!quickPicks.some((q) => q.id === t.id)) {
-          quickPicks.push(t);
-          existingIds.add(t.id);
-        }
-      });
-    } catch {
-      // Quick picks stay as-is; not fatal.
-    }
+  // Guaranteed quick picks
+  if (quickPicks.length < 4 && FALLBACK_DISCOVERY_MAP.trending) {
+    FALLBACK_DISCOVERY_MAP.trending.forEach((t) => {
+      if (!quickPicks.some((q) => q.id === t.id)) {
+        quickPicks.push(t);
+        existingIds.add(t.id);
+      }
+    });
   }
 
   return { quickPicks: quickPicks.slice(0, 8), sections: allSections };
