@@ -111,5 +111,12 @@ export interface PlayerSettings {
   lyricsMode: 'spicy' | 'cinema' | 'classic';
   lyricsAlignment: 'left' | 'center';
   lyricsDepthBlur: boolean;
+  /**
+   * When true (default), the signed-in user's favorites and playlists are
+   * auto-synced up to Firestore. Toggled from the Account modal. Gating the
+   * cloud WRITES on this — rather than pretending — is what makes the toggle
+   * honest: turning it off genuinely stops pushing local changes to the cloud.
+   */
+  cloudSyncEnabled: boolean;
 }
 

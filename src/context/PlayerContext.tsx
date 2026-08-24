@@ -460,6 +460,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       lyricsMode: 'spicy',
       lyricsAlignment: 'left',
       lyricsDepthBlur: true,
+      cloudSyncEnabled: true,
     };
     try {
       const saved = localStorage.getItem('auralis_settings');
@@ -558,6 +559,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // the stale snapshot captured when the player was first created.
   const currentTrackRef = useRef<Track | null>(currentTrack);
   currentTrackRef.current = currentTrack;
+  // Mirrors `isPlaying` for the background-resume listeners, which run outside
+  // React's render cycle and must read the *current* intent, not a stale
+  // closure captured when the listener was attached.
+  const isPlayingRef = useRef<boolean>(false);
+  isPlayingRef.current = isPlaying;
   const repeatModeRef = useRef<RepeatMode>('off');
   repeatModeRef.current = repeatMode;
   const isShuffleRef = useRef<boolean>(false);
@@ -659,15 +665,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [playlists]);
 
   // ---- Persist to Firestore (only after successful hydration) ----
+  // Gated on settings.cloudSyncEnabled so the Account modal's toggle is real:
+  // turning sync off genuinely stops pushing local changes to the cloud, and
+  // turning it back on re-runs these effects (it is in the deps) to push the
+  // current state up.
   useEffect(() => {
-    if (!user || hydratedUid !== user.uid) return;
+    if (!user || hydratedUid !== user.uid || !settings.cloudSyncEnabled) return;
     saveFavoritesToCloud(favorites);
-  }, [favorites, user, hydratedUid]);
+  }, [favorites, user, hydratedUid, settings.cloudSyncEnabled]);
 
   useEffect(() => {
-    if (!user || hydratedUid !== user.uid) return;
+    if (!user || hydratedUid !== user.uid || !settings.cloudSyncEnabled) return;
     savePlaylistsToCloud(playlists);
-  }, [playlists, user, hydratedUid]);
+  }, [playlists, user, hydratedUid, settings.cloudSyncEnabled]);
 
   useEffect(() => {
     localStorage.setItem('auralis_volume', volume.toString());
@@ -1291,6 +1301,68 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       window.removeEventListener('focus', handleTabVisibility);
     };
   }, [isPlaying]);
+
+  // Background-resume listener (item 6).
+  //
+  // When the app is minimised / the tab is hidden / the window loses focus, the
+  // cross-origin YouTube IFrame commonly auto-pauses its own playback. We cannot
+  // *prevent* that from outside the iframe (it is the embed's own behaviour, and
+  // YouTube's ToS constrain background playback of the embed). What we CAN do is:
+  //   1. keep the silent audio anchor playing so the OS audio session / focus and
+  //      the MediaSession binding survive the transition, and
+  //   2. best-effort re-issue playVideo() a few times right after the transition,
+  //      since the pause and our resume race and an early call is often ignored.
+  //
+  // HONESTY: this is a best-effort nudge, not a guarantee. On some devices/OS
+  // versions the embed stays paused; there is no cross-origin API that forces it.
+  // We never report success from here — MediaSession/player state remains the
+  // source of truth for what the UI shows.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    let timers: ReturnType<typeof setTimeout>[] = [];
+
+    const clearPending = () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers = [];
+    };
+
+    const nudgeResume = () => {
+      // Only fight the auto-pause when the user actually intends to be playing.
+      if (!isPlayingRef.current) return;
+
+      // Keep the OS audio session alive across the backgrounding.
+      const anchor = audioAnchorRef.current;
+      if (anchor) void anchor.play().catch(() => {});
+
+      const replay = () => {
+        if (!isPlayingRef.current) return;
+        const player = playerRef.current;
+        if (player && typeof player.playVideo === 'function') {
+          try { player.playVideo(); } catch {}
+        }
+      };
+
+      // The embed's auto-pause and our resume race; a single immediate call is
+      // often swallowed, so re-issue on a short ladder. All are best-effort.
+      clearPending();
+      replay();
+      timers.push(setTimeout(replay, 300));
+      timers.push(setTimeout(replay, 1000));
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') nudgeResume();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', nudgeResume);
+    return () => {
+      clearPending();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', nudgeResume);
+    };
+  }, []);
 
   const handleTrackEnded = () => {
     const mode = repeatModeRef.current;

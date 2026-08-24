@@ -55,6 +55,12 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const [playlistError, setPlaylistError] = useState<string | null>(null);
   /** Search history for the empty state. */
   const [searchHistoryItems, setSearchHistoryItems] = useState<string[]>(() => getSearchHistory());
+  /**
+   * Text of the mobile-only search field. On desktop the header owns search, so
+   * this box is `md:hidden`; on the docked mobile layout the header shows only
+   * the view title and this is the sole entry point for the Search tab.
+   */
+  const [mobileQuery, setMobileQuery] = useState(initialQuery);
 
   const {
     playTrack,
@@ -76,6 +82,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   useEffect(() => {
     if (initialQuery) {
       setSelectedGenre(null);
+      setMobileQuery(initialQuery);
       performSearch(initialQuery);
     } else {
       // Cleared / empty — return to history-only state
@@ -174,10 +181,49 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
             Search
           </h1>
           <p className="text-xs text-[var(--text-muted)]">
-            {hasSearched ? `Results for \u201c${lastQuery}\u201d` : 'Use the search bar above to find music'}
+            {hasSearched ? `Results for \u201c${lastQuery}\u201d` : 'Find songs, artists, albums, and playlists'}
           </p>
         </div>
       </div>
+
+      {/* Mobile-only search field \u2014 the docked header shows only the view title,
+          so the Search tab needs its own input here. Hidden from `md` up, where
+          the header's search box takes over. */}
+      <form
+        className="md:hidden relative"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const q = mobileQuery.trim();
+          if (q) performSearch(q);
+        }}
+      >
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
+        <input
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
+          value={mobileQuery}
+          onChange={(e) => setMobileQuery(e.target.value)}
+          placeholder="Songs, artists, albums\u2026"
+          className="w-full pl-10 pr-10 py-2.5 bg-[var(--bg-input)] focus:bg-[var(--bg-input-focus)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-full border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-subtle)] transition"
+        />
+        {mobileQuery && (
+          <button
+            type="button"
+            onClick={() => {
+              setMobileQuery('');
+              setResults(EMPTY_RESULTS);
+              setHasSearched(false);
+              setError(null);
+              setSearchHistoryItems(getSearchHistory());
+            }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
+            aria-label="Clear search"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </form>
 
       {/* ── Empty State: Search History ── */}
       {isEmptyState ? (

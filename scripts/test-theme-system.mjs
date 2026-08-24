@@ -291,12 +291,17 @@ test('src/context/PlayerContext.tsx exposes theme, effectiveTheme, setTheme with
   assert.ok(content.includes('auralis_theme'), 'PlayerContext must persist theme to auralis_theme in localStorage');
 });
 
-test('Header component includes accessible Theme Selector menu', () => {
-  const headerPath = path.join(repoRoot, 'src', 'components', 'common', 'Header.tsx');
-  const content = fs.readFileSync(headerPath, 'utf8');
+test('Account modal includes accessible Theme Selector', () => {
+  // The theme selector moved out of the header (which now shows only the view
+  // title + Listen Together + a single profile button) into the Account modal,
+  // where all settings live. Verify it in its new home.
+  const modalPath = path.join(repoRoot, 'src', 'components', 'modals', 'AccountModal.tsx');
+  const content = fs.readFileSync(modalPath, 'utf8');
 
-  assert.ok(content.includes('theme'), 'Header must consume theme from PlayerContext');
-  assert.ok(content.includes('setTheme'), 'Header must consume setTheme from PlayerContext');
-  assert.ok(content.includes('isThemeMenuOpen'), 'Header must contain theme menu toggle state');
-  assert.ok(content.includes('Sun') && content.includes('Moon') && content.includes('Monitor'), 'Header must display Moon, Sun, and Monitor icons');
+  assert.ok(content.includes('theme'), 'AccountModal must consume theme from PlayerContext');
+  assert.ok(content.includes('setTheme'), 'AccountModal must consume setTheme from PlayerContext');
+  assert.ok(
+    content.includes('Sun') && content.includes('Moon') && content.includes('Monitor'),
+    'AccountModal must offer Moon, Sun, and Monitor theme options',
+  );
 });
