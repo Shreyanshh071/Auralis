@@ -3,6 +3,7 @@ import { usePlayer } from '../../context/PlayerContext';
 import { GENRES, searchAll, SearchUnavailableError } from '../../services/youtube';
 import { importYouTubePlaylist } from '../../services/youtubeImporter';
 import { getSearchHistory, addToSearchHistory, removeFromSearchHistory, clearSearchHistory } from '../../services/searchHistory';
+import { getSearchSuggestions } from '../../services/searchSuggestions';
 import { isLetterboxedThumbnail } from '../../services/artwork';
 import type { Artist, PlaylistResult, SearchResults, Track } from '../../types/music';
 import {
@@ -20,6 +21,11 @@ import {
   Bookmark,
   X,
   Clock,
+  Sparkles,
+  Compass,
+  Flame,
+  Radio,
+  ArrowUpRight,
 } from 'lucide-react';
 import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
@@ -28,6 +34,21 @@ import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 const EMPTY_RESULTS: SearchResults = { songs: [], artists: [], playlists: [] };
 
 type SearchCategory = 'all' | 'songs' | 'artists' | 'albums' | 'playlists';
+
+const BROWSE_GENRES = [
+  { name: 'Pop Hits', query: 'pop music hits top songs', gradient: 'from-pink-600 to-rose-500' },
+  { name: 'Hip-Hop & Rap', query: 'hip hop rap top tracks', gradient: 'from-amber-600 to-orange-500' },
+  { name: 'Indie & Alt', query: 'indie alternative rock essentials', gradient: 'from-emerald-600 to-teal-500' },
+  { name: 'Bollywood & Desi', query: 'bollywood hits hindi top songs', gradient: 'from-violet-600 to-indigo-500' },
+  { name: 'Lofi & Study', query: 'lofi hip hop chill study beats', gradient: 'from-blue-600 to-cyan-500' },
+  { name: 'Rock Classics', query: 'classic rock rock essentials', gradient: 'from-red-600 to-stone-700' },
+  { name: 'Electronic / EDM', query: 'electronic dance music edm club hits', gradient: 'from-fuchsia-600 to-indigo-600' },
+  { name: 'Punjabi Hits', query: 'punjabi top tracks hits', gradient: 'from-yellow-600 to-amber-500' },
+  { name: 'R&B & Soul', query: 'r&b soul smooth tracks', gradient: 'from-indigo-700 to-pink-600' },
+  { name: 'Acoustic & Folk', query: 'acoustic folk relaxing guitar', gradient: 'from-lime-600 to-emerald-700' },
+  { name: 'Romantic & Love', query: 'romantic love songs playlist', gradient: 'from-rose-600 to-red-500' },
+  { name: 'Chill & Relax', query: 'chill relaxing ambient beats', gradient: 'from-teal-600 to-blue-700' },
+];
 
 interface ExploreViewProps {
   initialQuery?: string;
@@ -55,6 +76,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const [playlistError, setPlaylistError] = useState<string | null>(null);
   /** Search history for the empty state. */
   const [searchHistoryItems, setSearchHistoryItems] = useState<string[]>(() => getSearchHistory());
+  /** Live autocomplete suggestions. */
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   /**
    * Text of the mobile-only search field. On desktop the header owns search, so
    * this box is `md:hidden`; on the docked mobile layout the header shows only
@@ -160,77 +184,114 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
   const { songs, artists, playlists } = results;
   const hasAnyResult = songs.length > 0 || artists.length > 0 || playlists.length > 0;
 
+  const handleSelectGenre = (genreQuery: string) => {
+    setSelectedGenre(genreQuery);
+    setMobileQuery(genreQuery);
+    performSearch(genreQuery);
+  };
+
   // Filter categories
   const showSongs = (activeCategory === 'all' || activeCategory === 'songs') && songs.length > 0;
   const showArtists = (activeCategory === 'all' || activeCategory === 'artists') && artists.length > 0;
   const showPlaylists = (activeCategory === 'all' || activeCategory === 'playlists' || activeCategory === 'albums') && playlists.length > 0;
 
-  // Whether results (or a search attempt) exist — drives whether to show the
-  // history-only empty state or the results view.
-  const isEmptyState = !hasSearched && !isLoading;
+  const isEmptyState = !hasSearched && !isLoading && !error;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 text-[var(--text-primary)] max-w-5xl mx-auto">
-      {/* Page Header — no duplicate search bar, just the title */}
-      <div className="flex items-center gap-3 pt-1">
-        <div className="p-2.5 rounded-2xl bg-[var(--m3-primary-08)] border border-[var(--m3-outline-variant)] text-[var(--m3-primary)]">
-          <Search className="w-5 h-5" />
-        </div>
-        <div>
-          <h1 className="font-display font-black text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
-            Search
-          </h1>
-          <p className="text-xs text-[var(--text-muted)]">
-            {hasSearched ? `Results for \u201c${lastQuery}\u201d` : 'Find songs, artists, albums, and playlists'}
-          </p>
+    <div className="space-y-6 pb-28 animate-in fade-in duration-300 max-w-5xl mx-auto">
+      {/* ── Page Header (matching Home / Library / Liked) ── */}
+      <div className="flex items-center justify-between gap-4 pt-1">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-[var(--m3-primary-08)] border border-[var(--m3-outline-variant)] text-[var(--m3-primary)]">
+            <Search className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="font-display font-black text-2xl sm:text-3xl text-[var(--text-primary)] tracking-tight">
+              Search
+            </h1>
+            <p className="text-xs text-[var(--text-muted)]">
+              {hasSearched ? `Results for “${lastQuery}”` : 'Find songs, artists, albums, and playlists'}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Mobile-only search field \u2014 the docked header shows only the view title,
-          so the Search tab needs its own input here. Hidden from `md` up, where
-          the header's search box takes over. */}
-      <form
-        className="md:hidden relative"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const q = mobileQuery.trim();
-          if (q) performSearch(q);
-        }}
-      >
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
-        <input
-          type="text"
-          inputMode="search"
-          enterKeyHint="search"
-          value={mobileQuery}
-          onChange={(e) => setMobileQuery(e.target.value)}
-          placeholder="Songs, artists, albums\u2026"
-          className="w-full pl-10 pr-10 py-2.5 bg-[var(--bg-input)] focus:bg-[var(--bg-input-focus)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-full border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-subtle)] transition"
-        />
-        {mobileQuery && (
-          <button
-            type="button"
-            onClick={() => {
-              setMobileQuery('');
-              setResults(EMPTY_RESULTS);
-              setHasSearched(false);
-              setError(null);
-              setSearchHistoryItems(getSearchHistory());
+      {/* Mobile-only search field with Autocomplete Suggestions */}
+      <div className="md:hidden relative">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = mobileQuery.trim();
+            if (q) performSearch(q);
+          }}
+          className="relative"
+        >
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
+          <input
+            type="text"
+            inputMode="search"
+            enterKeyHint="search"
+            value={mobileQuery}
+            onChange={(e) => {
+              setMobileQuery(e.target.value);
+              setShowSuggestions(true);
             }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
-            aria-label="Clear search"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </form>
+            onFocus={() => {
+              if (suggestions.length > 0) setShowSuggestions(true);
+            }}
+            placeholder="Songs, artists, albums…"
+            className="w-full pl-10 pr-10 py-2.5 bg-[var(--bg-input)] focus:bg-[var(--bg-input-focus)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-full border border-[var(--border-subtle)] focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-subtle)] transition"
+          />
+          {mobileQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileQuery('');
+                setSuggestions([]);
+                setShowSuggestions(false);
+                setResults(EMPTY_RESULTS);
+                setHasSearched(false);
+                setError(null);
+                setSearchHistoryItems(getSearchHistory());
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition cursor-pointer"
+              aria-label="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </form>
 
-      {/* ── Empty State: Search History ── */}
+        {/* Live Suggestions Dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl shadow-xl overflow-hidden py-1">
+            {suggestions.map((item, idx) => (
+              <button
+                key={`${item}-${idx}`}
+                type="button"
+                className="w-full px-4 py-2.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-card-hover)] flex items-center justify-between gap-3 transition"
+                onClick={() => {
+                  setMobileQuery(item);
+                  performSearch(item);
+                }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Search className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" />
+                  <span className="truncate">{item}</span>
+                </div>
+                <ArrowUpRight className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Empty State: Search History & Browse All ── */}
       {isEmptyState ? (
-        <div className="space-y-4">
-          {searchHistoryItems.length > 0 ? (
+        <div className="space-y-6">
+          {searchHistoryItems.length > 0 && (
             <div className="space-y-1">
-              <div className="flex items-center justify-between px-1 pb-2">
+              <div className="flex items-center justify-between px-1 pb-1">
                 <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                   <Clock className="w-4 h-4 text-[var(--text-muted)]" />
                   Recent searches
@@ -249,7 +310,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                 <div
                   key={historyQuery}
                   className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-2xl hover:bg-[var(--bg-card-hover)] transition cursor-pointer group"
-                  onClick={() => performSearch(historyQuery)}
+                  onClick={() => {
+                    setMobileQuery(historyQuery);
+                    performSearch(historyQuery);
+                  }}
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <Clock className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />
@@ -271,20 +335,32 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
                 </div>
               ))}
             </div>
-          ) : (
-            /* Clean minimal empty state — no fake content */
-            <div className="flex flex-col items-center justify-center py-20 text-center space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center">
-                <Search className="w-7 h-7 text-[var(--text-muted)]" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-[var(--text-primary)]">Search for music</h3>
-                <p className="text-xs text-[var(--text-muted)] mt-1 max-w-xs">
-                  Find songs, artists, albums, and playlists. Your recent searches will appear here.
-                </p>
-              </div>
-            </div>
           )}
+
+          {/* ── Browse All Categories / Genres ── */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2 px-1">
+              <Sparkles className="w-4 h-4 text-[var(--m3-primary)]" />
+              Browse categories
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+              {BROWSE_GENRES.map((genre) => (
+                <button
+                  key={genre.name}
+                  type="button"
+                  onClick={() => handleSelectGenre(genre.query)}
+                  className={`relative h-20 p-3 rounded-2xl bg-gradient-to-br ${genre.gradient} text-white font-bold text-left overflow-hidden shadow-sm hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer flex items-end`}
+                >
+                  <span className="text-xs sm:text-sm font-extrabold leading-tight text-white drop-shadow-sm">
+                    {genre.name}
+                  </span>
+                  <div className="absolute top-2 right-2 p-1 rounded-full bg-black/20 backdrop-blur-sm">
+                    <Compass className="w-3.5 h-3.5 text-white/80" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
       /* ── Results View (with category pills and genre tags) ── */
