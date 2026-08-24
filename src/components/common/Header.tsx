@@ -104,13 +104,16 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Debounced search suggestions and typeahead tracks
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+
+  // Debounced search suggestions and typeahead tracks (120ms fast debounce)
   useEffect(() => {
     if (!query.trim()) {
       setSuggestions([]);
       setResults([]);
       setSearchError(null);
       setIsOpenDropdown(false);
+      setSelectedIndex(-1);
       return;
     }
 
@@ -122,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
       setIsSearching(true);
       setSearchError(null);
       try {
-        // Fetch suggestions and track preview concurrently
+        // Fetch suggestions and pre-fetch track preview concurrently
         const [suggs, tracks] = await Promise.allSettled([
           getSearchSuggestions(capturedQuery, abortController.signal),
           searchYouTube(capturedQuery),
@@ -149,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
       } finally {
         if (!cancelled) setIsSearching(false);
       }
-    }, 250);
+    }, 120);
 
     return () => {
       cancelled = true;
@@ -166,6 +169,7 @@ export const Header: React.FC<HeaderProps> = ({
         !searchContainerRef.current.contains(event.target as Node)
       ) {
         setIsOpenDropdown(false);
+        setSelectedIndex(-1);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -182,6 +186,7 @@ export const Header: React.FC<HeaderProps> = ({
   const handleSelectSuggestion = (suggestionText: string) => {
     setQuery(suggestionText);
     setIsOpenDropdown(false);
+    setSelectedIndex(-1);
     if (onSubmitSearch) {
       onSubmitSearch(suggestionText);
     } else {
@@ -190,7 +195,32 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    const displayedSuggestions = suggestions.slice(0, 3);
+    const displayedSongs = results.slice(0, 5);
+    const totalItems = displayedSuggestions.length + displayedSongs.length;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isOpenDropdown) setIsOpenDropdown(true);
+      setSelectedIndex((prev) => (prev + 1 < totalItems ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 >= 0 ? prev - 1 : totalItems - 1));
+    } else if (e.key === 'Escape') {
+      setIsOpenDropdown(false);
+      setSelectedIndex(-1);
+    } else if (e.key === 'Enter') {
+      if (selectedIndex >= 0 && selectedIndex < displayedSuggestions.length) {
+        handleSelectSuggestion(displayedSuggestions[selectedIndex]);
+        return;
+      } else if (selectedIndex >= displayedSuggestions.length && selectedIndex < totalItems) {
+        const trackIdx = selectedIndex - displayedSuggestions.length;
+        if (displayedSongs[trackIdx]) {
+          handleSelectTrack(displayedSongs[trackIdx]);
+          return;
+        }
+      }
+
       const submitted = query.trim();
       if (!submitted) return;
       if (onSubmitSearch) {
@@ -199,6 +229,7 @@ export const Header: React.FC<HeaderProps> = ({
         setActiveView('explore');
       }
       setIsOpenDropdown(false);
+      setSelectedIndex(-1);
     }
   };
 
@@ -305,17 +336,29 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
 
-              {/* Music Search Suggestions */}
+              {/* Music Search Suggestions (Top 3 Recommendations) */}
               {suggestions.length > 0 && (
                 <div className="py-1">
-                  {suggestions.map((s, idx) => (
+                  {suggestions.slice(0, 3).map((s, idx) => (
                     <button
                       key={idx}
                       onClick={() => handleSelectSuggestion(s)}
-                      className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-[var(--bg-surface-hover)] text-left cursor-pointer transition group"
+                      className={`w-full flex items-center gap-3 px-3.5 py-2 text-left cursor-pointer transition group ${
+                        selectedIndex === idx
+                          ? 'bg-[var(--bg-surface-hover)]'
+                          : 'hover:bg-[var(--bg-surface-hover)]'
+                      }`}
                     >
-                      <Search className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--m3-primary)] transition flex-shrink-0" />
-                      <span className="text-xs font-medium text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)] transition">
+                      <Search className={`w-3.5 h-3.5 flex-shrink-0 transition ${
+                        selectedIndex === idx
+                          ? 'text-[var(--m3-primary)]'
+                          : 'text-[var(--text-muted)] group-hover:text-[var(--m3-primary)]'
+                      }`} />
+                      <span className={`text-xs font-medium truncate transition ${
+                        selectedIndex === idx
+                          ? 'text-[var(--m3-primary)] font-semibold'
+                          : 'text-[var(--text-primary)] group-hover:text-[var(--m3-primary)]'
+                      }`}>
                         {s}
                       </span>
                     </button>
@@ -323,47 +366,53 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
 
-              {/* Top Track Matches */}
+              {/* Top Track Matches (Directly after suggestions) */}
               {results.length > 0 && (
                 <div className={`${suggestions.length > 0 ? 'border-t border-[var(--border-subtle)] mt-1 pt-1.5' : ''} p-1 space-y-0.5`}>
                   <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
                     <span>Songs</span>
                     <span className="font-mono text-[9px]">{results.length} found</span>
                   </div>
-                  {results.slice(0, 4).map((track) => (
-                    <div
-                      key={track.id}
-                      onClick={() => handleSelectTrack(track)}
-                      className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-[var(--bg-surface-hover)] cursor-pointer transition group"
-                    >
-                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-neutral-800 flex-shrink-0 shadow-sm">
-                        <img
-                          src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
-                          alt=""
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          className={`w-full h-full object-cover aspect-square ${
-                            isLetterboxedThumbnail(track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`)
-                              ? 'scale-[1.35]'
-                              : 'scale-100'
-                          }`}
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            if (!target.src.includes('hqdefault') && track.id) {
-                              target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)] transition">
-                          {track.title}
-                        </p>
-                        <p className="text-[10px] text-[var(--text-muted)] truncate">{track.artist}</p>
-                      </div>
-                      <Music2 className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition flex-shrink-0" />
-                    </div>
-                  ))}
+                  {results.slice(0, 5).map((track, idx) => {
+                    const displayedSuggestionsCount = Math.min(suggestions.length, 3);
+                    const isTrackSelected = selectedIndex === displayedSuggestionsCount + idx;
+                    return (
+                      <button
+                        key={track.id}
+                        onClick={() => handleSelectTrack(track)}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left cursor-pointer transition group ${
+                          isTrackSelected
+                            ? 'bg-[var(--bg-surface-hover)]'
+                            : 'hover:bg-[var(--bg-surface-hover)]'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-neutral-800 flex-shrink-0 shadow-sm relative">
+                          <img
+                            src={track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`}
+                            alt=""
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            className={`w-full h-full object-cover aspect-square ${
+                              isLetterboxedThumbnail(track.thumbnail || `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`)
+                                ? 'scale-[1.35]'
+                                : 'scale-100'
+                            }`}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-semibold truncate transition ${
+                            isTrackSelected
+                              ? 'text-[var(--m3-primary)]'
+                              : 'text-[var(--text-primary)] group-hover:text-[var(--m3-primary)]'
+                          }`}>
+                            {track.title}
+                          </p>
+                          <p className="text-[10px] text-[var(--text-muted)] truncate">{track.artist}</p>
+                        </div>
+                        <Music2 className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition flex-shrink-0" />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
