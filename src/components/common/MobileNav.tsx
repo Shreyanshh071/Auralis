@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Search, Heart, Library } from 'lucide-react';
+import { Home, Search, Library } from 'lucide-react';
 
 interface MobileNavProps {
   activeView: string;
@@ -7,13 +7,10 @@ interface MobileNavProps {
 }
 
 export const MobileNav: React.FC<MobileNavProps> = ({ activeView, setActiveView }) => {
-  // Liked is a real view (FavoritesView) that the desktop sidebar links to, but
-  // this bar omitted it, so on a phone there was no way to reach saved songs.
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'explore', label: 'Search', icon: Search },
     { id: 'library', label: 'Library', icon: Library },
-    { id: 'favorites', label: 'Liked', icon: Heart },
   ];
 
   return (

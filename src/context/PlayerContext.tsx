@@ -500,6 +500,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // (which close over stale state) so the rate can be re-applied on every load.
   const playbackRateRef = useRef<number>(playbackRate);
   playbackRateRef.current = playbackRate;
+  // Mirror refs for track / repeat / shuffle / queue state — kept in sync below so the
+  // once-mounted onStateChange and onError handlers always read current values instead of
+  // the stale snapshot captured when the player was first created.
+  const currentTrackRef = useRef<Track | null>(currentTrack);
+  currentTrackRef.current = currentTrack;
+  const repeatModeRef = useRef<RepeatMode>('off');
+  repeatModeRef.current = repeatMode;
+  const isShuffleRef = useRef<boolean>(false);
+  isShuffleRef.current = isShuffle;
+  const queueRef = useRef<Track[]>([]);
+  queueRef.current = queue;
+  const queueIndexRef = useRef<number>(0);
+  queueIndexRef.current = queueIndex;
+  const handleTrackEndedRef = useRef<() => void>(() => {});
   // Video id currently loaded into the YouTube player, or null if it has never
   // been given one. A restored session has a currentTrack but no loaded video,
   // and play/seek must not pretend to work in that state.
@@ -735,16 +749,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             } else if (event.data === 3) {
               setIsLoadingAudio(true);
             } else if (event.data === 0) {
-              handleTrackEnded();
+              handleTrackEndedRef.current();
             }
           },
           onError: async (e: any) => {
             console.warn('YouTube Player Error:', e);
             setIsLoadingAudio(false);
-            if (currentTrack) {
+            const cur = currentTrackRef.current;
+            if (cur) {
               try {
-                const alt = await searchYouTube(`${currentTrack.title} ${currentTrack.artist} audio`);
-                if (alt.length > 1 && alt[1].id !== currentTrack.id) {
+                const alt = await searchYouTube(`${cur.title} ${cur.artist} audio`);
+                if (alt.length > 1 && alt[1].id !== cur.id) {
                   playTrack(alt[1]);
                 }
               } catch {}
@@ -1039,15 +1054,43 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [isPlaying]);
 
   const handleTrackEnded = () => {
-    if (repeatMode === 'one') {
-      seekTo(0);
-      resume();
-    } else if (repeatMode === 'all' || queueIndex < queue.length - 1) {
-      nextTrack();
+    const mode = repeatModeRef.current;
+    const cur = currentTrackRef.current;
+
+    if (mode === 'one' && cur) {
+      // Loop single track: seek to beginning and continue playing
+      if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+        try {
+          playerRef.current.seekTo(0, true);
+          if (typeof playerRef.current.playVideo === 'function') {
+            playerRef.current.playVideo();
+          }
+        } catch {
+          loadAndPlay(cur, 0);
+        }
+      } else {
+        loadAndPlay(cur, 0);
+      }
+      setCurrentTime(0);
+      globalPlaybackClock.reset();
+      globalPlaybackClock.setPlaying(true);
+      setIsPlaying(true);
+      if (lyrics && lyrics.syncType !== 'plain' && lyrics.lines.length > 0) {
+        prevLyricIndexRef.current = 0;
+        setActiveLyricIndex(0);
+      }
     } else {
-      setIsPlaying(false);
+      const q = queueRef.current;
+      const qi = queueIndexRef.current;
+      if (mode === 'all' || qi < q.length - 1) {
+        nextTrack();
+      } else {
+        setIsPlaying(false);
+        globalPlaybackClock.setPlaying(false);
+      }
     }
   };
+  handleTrackEndedRef.current = handleTrackEnded;
 
   // ---- Playback Controls ----
 
@@ -1079,12 +1122,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playTrack = (track: Track, newQueue?: Track[]) => {
-    // Add current track to history
-    if (currentTrack) {
-      setHistory((prev) => [currentTrack, ...prev.filter((t) => t.id !== currentTrack.id)].slice(0, 50));
+    const prev = currentTrackRef.current;
+    if (prev) {
+      setHistory((h) => [prev, ...h.filter((t) => t.id !== prev.id)].slice(0, 50));
     }
 
     setCurrentTrack(track);
+    currentTrackRef.current = track;
     setCurrentTime(0);
     setLyricsOffset(0);
     // An explicit play starts at the beginning, so any pending resume offset from
@@ -1095,19 +1139,27 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsLoadingAudio(true);
 
     // Record play count
-    setPlayCounts((prev) => recordPlay(prev, track));
+    setPlayCounts((counts) => recordPlay(counts, track));
 
-    if (newQueue) {
+    if (newQueue && newQueue.length > 0) {
       setQueue(newQueue);
+      queueRef.current = newQueue;
       const idx = newQueue.findIndex((t) => t.id === track.id);
-      setQueueIndex(idx !== -1 ? idx : 0);
+      const chosenIdx = idx !== -1 ? idx : 0;
+      setQueueIndex(chosenIdx);
+      queueIndexRef.current = chosenIdx;
     } else {
-      const idx = queue.findIndex((t) => t.id === track.id);
+      const q = queueRef.current;
+      const idx = q.findIndex((t) => t.id === track.id);
       if (idx !== -1) {
         setQueueIndex(idx);
+        queueIndexRef.current = idx;
       } else {
-        setQueue((prev) => [...prev, track]);
-        setQueueIndex(queue.length);
+        const nextQ = [...q, track];
+        setQueue(nextQ);
+        queueRef.current = nextQ;
+        setQueueIndex(q.length);
+        queueIndexRef.current = q.length;
       }
     }
 
@@ -1145,24 +1197,32 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const togglePlay = () => {
-    if (!currentTrack) return;
+    const cur = currentTrackRef.current;
+    if (!cur) return;
 
-    if (!isPlaying && loadedVideoIdRef.current !== currentTrack.id) {
-      startFromCold(currentTrack);
+    if (!isPlaying && loadedVideoIdRef.current !== cur.id) {
+      startFromCold(cur);
       return;
     }
 
     if (!playerRef.current) {
-      playTrack(currentTrack);
+      playTrack(cur);
       return;
     }
     try {
       if (isPlaying) {
         if (typeof playerRef.current.pauseVideo === 'function') playerRef.current.pauseVideo();
         setIsPlaying(false);
+        globalPlaybackClock.setPlaying(false);
       } else {
+        try {
+          if (typeof playerRef.current.getPlayerState === 'function' && playerRef.current.getPlayerState() === 0) {
+            playerRef.current.seekTo(0, true);
+          }
+        } catch {}
         if (typeof playerRef.current.playVideo === 'function') playerRef.current.playVideo();
         setIsPlaying(true);
+        globalPlaybackClock.setPlaying(true);
       }
     } catch (err) {
       console.error('togglePlay error:', err);
@@ -1174,26 +1234,35 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try { playerRef.current.pauseVideo(); } catch {}
     }
     setIsPlaying(false);
+    globalPlaybackClock.setPlaying(false);
   };
 
   const resume = () => {
-    if (!currentTrack) return;
+    const cur = currentTrackRef.current;
+    if (!cur) return;
     // Same cold-start rule as togglePlay: with nothing loaded, reporting
     // playback would be a lie, so load the track instead.
-    if (loadedVideoIdRef.current !== currentTrack.id) {
-      startFromCold(currentTrack);
+    if (loadedVideoIdRef.current !== cur.id) {
+      startFromCold(cur);
       return;
     }
-    if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-      try { playerRef.current.playVideo(); } catch {}
+    if (playerRef.current) {
+      try {
+        if (typeof playerRef.current.getPlayerState === 'function' && playerRef.current.getPlayerState() === 0) {
+          playerRef.current.seekTo(0, true);
+        }
+        if (typeof playerRef.current.playVideo === 'function') {
+          playerRef.current.playVideo();
+        }
+      } catch {}
     }
     setIsPlaying(true);
+    globalPlaybackClock.setPlaying(true);
   };
 
   const seekTo = (seconds: number) => {
-    // Nothing is loaded straight after a reload, so a seek would move the
-    // progress bar while the audio stayed where it was. Refuse instead.
-    if (!currentTrack || loadedVideoIdRef.current !== currentTrack.id) return;
+    const cur = currentTrackRef.current;
+    if (!cur || loadedVideoIdRef.current !== cur.id) return;
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
       try {
         playerRef.current.seekTo(seconds, true);
@@ -1209,25 +1278,44 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const nextTrack = () => {
-    if (queue.length === 0) return;
-    let nextIdx = queueIndex + 1;
-    if (isShuffle) {
-      nextIdx = Math.floor(Math.random() * queue.length);
-    } else if (nextIdx >= queue.length) {
-      if (repeatMode === 'all') { nextIdx = 0; } else { return; }
+    const q = queueRef.current;
+    const qi = queueIndexRef.current;
+    if (q.length === 0) return;
+    let nextIdx = qi + 1;
+    if (isShuffleRef.current) {
+      if (q.length > 1) {
+        do {
+          nextIdx = Math.floor(Math.random() * q.length);
+        } while (nextIdx === qi && q.length > 1);
+      } else {
+        nextIdx = 0;
+      }
+    } else if (nextIdx >= q.length) {
+      if (repeatModeRef.current === 'all') { nextIdx = 0; } else { return; }
     }
-    const nxt = queue[nextIdx];
-    if (nxt) { setQueueIndex(nextIdx); playTrack(nxt); }
+    const nxt = q[nextIdx];
+    if (nxt) {
+      setQueueIndex(nextIdx);
+      queueIndexRef.current = nextIdx;
+      playTrack(nxt);
+    }
   };
 
   const prevTrack = () => {
     if (currentTime > 4) { seekTo(0); return; }
-    let prevIdx = queueIndex - 1;
+    const q = queueRef.current;
+    const qi = queueIndexRef.current;
+    if (q.length === 0) return;
+    let prevIdx = qi - 1;
     if (prevIdx < 0) {
-      if (repeatMode === 'all') { prevIdx = queue.length - 1; } else { seekTo(0); return; }
+      if (repeatModeRef.current === 'all') { prevIdx = q.length - 1; } else { seekTo(0); return; }
     }
-    const prv = queue[prevIdx];
-    if (prv) { setQueueIndex(prevIdx); playTrack(prv); }
+    const prv = q[prevIdx];
+    if (prv) {
+      setQueueIndex(prevIdx);
+      queueIndexRef.current = prevIdx;
+      playTrack(prv);
+    }
   };
 
   const setVolume = (val: number) => {

@@ -311,3 +311,102 @@ test('isRelatedMatch matches candidate when wantTrack embeds both title and arti
     true
   );
 });
+
+// ---------------------------------------------------------------------------
+// cleanTitle: trailing descriptor-run stripping (YouTube upload noise)
+// ---------------------------------------------------------------------------
+
+test('cleanTitle strips a trailing descriptor run without a separator', () => {
+  // The real regression: "8K Full Video Song" appended with no "-"/"|".
+  assert.equal(cleanTitle('Aasan Nahin Yahan 8K Full Video Song'), 'Aasan Nahin Yahan');
+  assert.equal(cleanTitle('Aasan Nahin Yahan Full Video'), 'Aasan Nahin Yahan');
+  assert.equal(cleanTitle('Kesariya Full Video Song'), 'Kesariya');
+  assert.equal(cleanTitle('Some Track Official Video'), 'Some Track');
+  assert.equal(cleanTitle('Track 4K Video'), 'Track');
+});
+
+test('cleanTitle keeps a real title that merely ends in one common word', () => {
+  // A single WEAK trailing word must NOT be stripped.
+  assert.equal(cleanTitle('Love Song'), 'Love Song');
+  assert.equal(cleanTitle('Swan Song'), 'Swan Song');
+  assert.equal(cleanTitle('Video Games'), 'Video Games');
+  assert.equal(cleanTitle('Chandelier'), 'Chandelier');
+  // Never reduce a title that is ALL descriptors to empty.
+  assert.equal(cleanTitle('Official Video'), 'Official Video');
+});
+
+// ---------------------------------------------------------------------------
+// extractTrackAndArtistPairs: pipe-jukebox + duplicated-artist recovery
+// ---------------------------------------------------------------------------
+
+test('extractTrackAndArtistPairs recovers the song from a multi-pipe title', () => {
+  const { extractTrackAndArtistPairs } = mod;
+  const pairs = extractTrackAndArtistPairs('Raat ki Rani || Shakti || dl91', 'Seedhe Maut');
+  assert.ok(
+    pairs.some((p) => p.track === 'Raat ki Rani' && p.artist === 'Seedhe Maut'),
+    `expected a (Raat ki Rani, Seedhe Maut) pair, got ${JSON.stringify(pairs)}`
+  );
+});
+
+test('extractTrackAndArtistPairs strips a duplicated artist appended to the title', () => {
+  const { extractTrackAndArtistPairs } = mod;
+  const pairs = extractTrackAndArtistPairs('BAARISHEIN (Studio) Anuv Jain', 'Anuv Jain');
+  assert.ok(
+    pairs.some((p) => p.track === 'BAARISHEIN' && p.artist === 'Anuv Jain'),
+    `expected a (BAARISHEIN, Anuv Jain) pair, got ${JSON.stringify(pairs)}`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// extractSegmentPairs: recover (title, artist) from heavily-tagged film titles
+// ---------------------------------------------------------------------------
+
+test('extractSegmentPairs pairs a mid-title song with an artist from another segment', () => {
+  const { extractSegmentPairs } = mod;
+  // Owner is a LABEL, and the real artist lives in a later segment.
+  const pairs = extractSegmentPairs(
+    'Aashiqui 2: Aasan Nahin Yahan 8K Full Video Song | Arijit Singh, Palak Muchhal',
+    'Sony Music India'
+  );
+  assert.ok(
+    pairs.some((p) => p.track === 'Aasan Nahin Yahan' && /Arijit Singh/i.test(p.artist)),
+    `expected a (Aasan Nahin Yahan, Arijit Singh) pair, got ${JSON.stringify(pairs)}`
+  );
+});
+
+test('extractSegmentPairs drops numeric/code segments and never pairs a title with itself', () => {
+  const { extractSegmentPairs } = mod;
+  const pairs = extractSegmentPairs('Raat ki Rani || Shakti || dl91', 'Seedhe Maut');
+  // "dl91" is a code, not a title; no pair should use it as the track.
+  assert.ok(!pairs.some((p) => /dl91/i.test(p.track)), `dl91 leaked as a title: ${JSON.stringify(pairs)}`);
+  assert.ok(!pairs.some((p) => p.track.toLowerCase() === p.artist.toLowerCase()), 'title == artist pair leaked');
+  assert.ok(pairs.some((p) => p.track === 'Raat ki Rani'), `expected Raat ki Rani as a title segment: ${JSON.stringify(pairs)}`);
+});
+
+test('extractSegmentPairs returns nothing for a plain unsegmented title', () => {
+  const { extractSegmentPairs } = mod;
+  assert.deepEqual(extractSegmentPairs('Blinding Lights', 'The Weeknd'), []);
+});
+
+// ---------------------------------------------------------------------------
+// isProbablyNotASong: skip doomed lookups for compilations / mixes
+// ---------------------------------------------------------------------------
+
+test('isProbablyNotASong flags compilations, jukeboxes and long mixes', () => {
+  const { isProbablyNotASong } = mod;
+  assert.equal(isProbablyNotASong('Arijit Singh Hits Songs | Arijit Singh Jukebox', 3652), true);
+  assert.equal(isProbablyNotASong('50 Nonstop Superhit Songs', 12677), true);
+  assert.equal(isProbablyNotASong('1 hour to relax, drive, study', 6110), true);
+  assert.equal(isProbablyNotASong('Best Of Bollywood Dance Songs', 4203), true);
+  // Very long runtime alone is enough.
+  assert.equal(isProbablyNotASong('Anything At All', 2000), true);
+});
+
+test('isProbablyNotASong leaves normal single songs alone', () => {
+  const { isProbablyNotASong } = mod;
+  assert.equal(isProbablyNotASong('Blinding Lights', 262), false);
+  assert.equal(isProbablyNotASong('Kesariya', 268), false);
+  assert.equal(isProbablyNotASong('Bohemian Rhapsody', 367), false);
+  // A short clip that happens to say "best of" is not conclusive.
+  assert.equal(isProbablyNotASong('Best Of Me', 210), false);
+});

@@ -2,6 +2,7 @@ import React from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { Play, Heart, Shuffle } from 'lucide-react';
 import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
+import { isLetterboxedThumbnail } from '../../services/artwork';
 
 export const FavoritesView: React.FC = () => {
   const {
@@ -100,18 +101,22 @@ export const FavoritesView: React.FC = () => {
                     {idx + 1}
                   </span>
 
-                  <img
-                    src={track.thumbnail}
-                    alt=""
-                    loading="lazy"
-                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover bg-[var(--bg-surface-elevated)] shadow-sm flex-shrink-0"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (!target.src.includes('hqdefault')) {
-                        target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
-                      }
-                    }}
-                  />
+                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden bg-[var(--bg-surface-elevated)] shadow-sm flex-shrink-0">
+                    <img
+                      src={track.thumbnail}
+                      alt=""
+                      loading="lazy"
+                      className={`w-full h-full object-cover aspect-square ${
+                        isLetterboxedThumbnail(track.thumbnail) ? 'scale-[1.35]' : 'scale-100'
+                      }`}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (!target.src.includes('hqdefault')) {
+                          target.src = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
+                        }
+                      }}
+                    />
+                  </div>
 
                   <div className="min-w-0 flex-1">
                     <p

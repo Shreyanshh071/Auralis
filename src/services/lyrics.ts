@@ -34,10 +34,51 @@ export function cleanTitle(text: string): string {
     s = s.replace(trailing, '');
   }
 
+  // Strip a TRAILING run of production/upload descriptor words even when there
+  // is no "-"/"|" separator in front of them. YouTube titles very often append
+  // things like "8K Full Video Song", "Full Video", "Lyrical Video" directly.
+  // To stay safe on real titles that merely END in one common word ("Love
+  // Song", "Swan Song"), a run is only removed when it is either ≥2 descriptor
+  // words long OR contains a "strong" descriptor (a resolution / clearly
+  // non-lexical marker). A single weak trailing word is left alone.
+  s = stripTrailingDescriptorRun(s);
+
   s = s.replace(/\s{2,}/g, ' ').trim();
   // Drop dangling separator at either end
   s = s.replace(/\s*[-|–—:]\s*$/, '').replace(/^\s*[-|–—:]\s*/, '').trim();
   return s;
+}
+
+// Weak descriptors: common enough to appear inside real titles, so only removed
+// as part of a longer descriptor run, never on their own.
+const WEAK_DESCRIPTOR =
+  /^(?:full|complete|music|video|videos|audio|song|songs|version|studio|hd|hq)$/i;
+// Strong descriptors: resolution tags and markers that are essentially never
+// part of a song's real name, so a single one is enough to strip the run.
+const STRONG_DESCRIPTOR =
+  /^(?:official|lyrical|lyric|lyrics|visuali[sz]er|visuals?|jukebox|remaster(?:ed)?|4k|8k|2k|uhd|fhd|hdr|1080p?|720p?|480p|60fps|reprise|teaser|trailer|promo|mv)$/i;
+
+/** Remove a qualifying trailing run of descriptor tokens (see cleanTitle). */
+function stripTrailingDescriptorRun(input: string): string {
+  const tokens = input.split(/\s+/);
+  let cut = tokens.length;
+  let removed = 0;
+  let sawStrong = false;
+  while (cut > 0) {
+    const tok = tokens[cut - 1].replace(/[.,!]+$/, '');
+    if (STRONG_DESCRIPTOR.test(tok)) {
+      sawStrong = true;
+    } else if (!WEAK_DESCRIPTOR.test(tok)) {
+      break;
+    }
+    cut--;
+    removed++;
+  }
+  // Keep at least one token, and only cut when the run is clearly noise.
+  if (cut >= 1 && (removed >= 2 || sawStrong)) {
+    return tokens.slice(0, cut).join(' ');
+  }
+  return input;
 }
 
 /** Clean YouTube channel noise / suffixes from artist name. */
@@ -91,9 +132,43 @@ export interface TrackArtistPair {
 }
 
 /**
+ * YouTube "tag" tokens that are boilerplate, not part of a song's identity:
+ * upload descriptors and market/genre labels that appear across thousands of
+ * unrelated uploads ("Latest Punjabi Songs 2025", "Official Video"). Two
+ * DIFFERENT songs often share only these tokens, which would otherwise inflate
+ * title similarity into a false match. Deliberately excludes ordinary words
+ * that can be real one-word titles ("new", "stay", "believer", "numb").
+ */
+const TITLE_BOILERPLATE = new Set([
+  'official', 'video', 'audio', 'music', 'lyrical', 'lyric', 'lyrics', 'visualizer',
+  'visualiser', 'visuals', 'visual', 'full', 'hd', 'hq', '4k', '8k', '2k', 'uhd', 'fhd',
+  'teaser', 'trailer', 'promo', 'mv', 'feat', 'ft', 'prod', 'remaster', 'remastered',
+  'jukebox', 'latest', 'punjabi', 'hindi', 'tamil', 'telugu', 'bhojpuri', 'bollywood',
+  'song', 'songs', 'records', 'record', 'entertainment', 'presents', 'ost', 'soundtrack',
+]);
+
+/** Distinctive title tokens: normalized words minus boilerplate, years, and the artist's own name. */
+function distinctiveTitleTokens(title: string, ...artists: string[]): string[] {
+  const artistTokens = new Set(
+    artists.flatMap((a) => normalizeForMatch(a).split(' ')).filter(Boolean)
+  );
+  return normalizeForMatch(title)
+    .split(' ')
+    .filter(
+      (t) => t && !TITLE_BOILERPLATE.has(t) && !/^\d{2,4}$/.test(t) && !artistTokens.has(t)
+    );
+}
+
+/** Whether a raw segment carries any real (non-boilerplate) title content. */
+function segmentHasRealTitle(segment: string): boolean {
+  return distinctiveTitleTokens(segment).length > 0;
+}
+
+/**
  * Extract plausible (track, artist) candidate pairs from messy YouTube / streaming metadata.
  * Handles:
  * - Direct: "Loving Machine", "TV Girl"
+ * - Multi-artist: "Karun x Arpit Bala x ReVo LEKHAK" -> individual pairs
  * - Embedded separator: "Tv Girl -Loving Machine" -> ("Loving Machine", "Tv Girl") and ("Tv Girl", "Loving Machine")
  * - Enclosed: "Loving Machine |TV Girl|" -> ("Loving Machine", "TV Girl")
  * - Inverted: "TV Girl", "Loving Machine" -> ("Loving Machine", "TV Girl")
@@ -116,7 +191,18 @@ export function extractTrackAndArtistPairs(rawTrack: string, rawArtist: string):
   // 1. Direct cleaned inputs
   addPair(rawTrack, rawArtist);
 
-  // 2. Check for separators in rawTrack ("Artist - Title" or "Title - Artist" or "Artist : Title")
+  // 2. Multi-artist decomposition in rawArtist (e.g. "Karun, Arpit Bala, Lambo Drive" or "Arpit Bala x Karun")
+  if (rawArtist) {
+    const subArtists = rawArtist
+      .split(/\s*(?:,|&|\bx\b|\bX\b|\bfeat\.?\b|\bft\.?\b|\band\b|\/|•)\s*/i)
+      .map(cleanArtistName)
+      .filter(Boolean);
+    for (const sub of subArtists) {
+      addPair(rawTrack, sub);
+    }
+  }
+
+  // 3. Check for separators in rawTrack ("Artist - Title" or "Title - Artist" or "Title | Artist" or "Artist : Title")
   const sepMatch = rawTrack.match(/^(.*?)\s*[-–—:|~•]\s*(.*)$/);
   if (sepMatch) {
     const p1 = sepMatch[1].trim();
@@ -124,27 +210,162 @@ export function extractTrackAndArtistPairs(rawTrack: string, rawArtist: string):
     if (p1 && p2) {
       addPair(p2, p1); // Artist - Title
       addPair(p1, p2); // Title - Artist
+
+      const sub1 = p1
+        .split(/\s*(?:,|&|\bx\b|\bX\b|\bfeat\.?\b|\bft\.?\b|\band\b|\/|•)\s*/i)
+        .map(cleanArtistName)
+        .filter(Boolean);
+      for (const s of sub1) {
+        addPair(p2, s);
+      }
+      const sub2 = p2
+        .split(/\s*(?:,|&|\bx\b|\bX\b|\bfeat\.?\b|\bft\.?\b|\band\b|\/|•)\s*/i)
+        .map(cleanArtistName)
+        .filter(Boolean);
+      for (const s of sub2) {
+        addPair(p1, s);
+      }
     }
   }
 
-  // 3. Check for pipe enclosure: "Title |Artist|"
+  // 4. Check for pipe enclosure: "Title |Artist|"
   const pipeMatch = rawTrack.match(/^(.*?)\s*\|([^|]+)\|\s*$/);
   if (pipeMatch) {
     addPair(pipeMatch[1], pipeMatch[2]);
   }
 
-  // 4. Inverted candidate (when source swapped title & artist)
+  // 5. Inverted candidate (when source swapped title & artist)
   if (rawArtist) {
     addPair(rawArtist, rawTrack);
+  }
+
+  // 6. Multi-pipe / double-pipe jukebox titles: "Song || Extra || tag" or
+  //    "Song | descriptor | descriptor". The real song is almost always the
+  //    first segment, so add it against the given artist.
+  if (/[|｜]/.test(rawTrack)) {
+    const segments = rawTrack
+      .split(/\s*[|｜]+\s*/)
+      .map((seg) => seg.trim())
+      .filter(Boolean);
+    if (segments.length > 1) {
+      addPair(segments[0], rawArtist);
+      // Also try each early segment as a title (some uploaders put the artist
+      // first: "Artist | Song | tag") — but ONLY segments that carry real title
+      // content. Pure tag segments ("Latest Punjabi Songs 2025") must never
+      // become search queries: they fuzzy-match any unrelated song sharing that
+      // boilerplate, producing wrong lyrics.
+      for (const seg of segments.slice(0, 3)) {
+        if (segmentHasRealTitle(seg)) {
+          addPair(seg, rawArtist);
+        }
+      }
+    }
+  }
+
+  // 7. Artist name duplicated inside the title. YouTube uploaders often append
+  //    (or prepend) the artist to the track title: "BAARISHEIN Anuv Jain" with
+  //    artist "Anuv Jain". Add a candidate with that duplicate removed.
+  if (rawArtist) {
+    const stripped = stripArtistFromTitle(cleanTitle(rawTrack), cleanArtistName(rawArtist));
+    if (stripped) {
+      addPair(stripped, rawArtist);
+    }
   }
 
   return pairs;
 }
 
 /**
+ * If a cleaned title still contains the artist name as a leading or trailing
+ * run of words, remove that run and return the remaining title. Returns null
+ * when nothing was removed or removal would empty the title.
+ */
+function stripArtistFromTitle(title: string, artist: string): string | null {
+  if (!title || !artist) return null;
+  const titleTokens = title.split(/\s+/);
+  const artistTokens = normalizeForMatch(artist).split(' ').filter(Boolean);
+  if (artistTokens.length === 0 || titleTokens.length <= artistTokens.length) return null;
+
+  const normTitle = titleTokens.map((t) => normalizeForMatch(t));
+  const artistStr = artistTokens.join(' ');
+
+  // Trailing artist run
+  if (normTitle.slice(-artistTokens.length).join(' ') === artistStr) {
+    const remaining = titleTokens.slice(0, titleTokens.length - artistTokens.length).join(' ').trim();
+    return remaining || null;
+  }
+  // Leading artist run
+  if (normTitle.slice(0, artistTokens.length).join(' ') === artistStr) {
+    const remaining = titleTokens.slice(artistTokens.length).join(' ').trim();
+    return remaining || null;
+  }
+  return null;
+}
+
+/**
+ * For heavily-segmented titles ("Movie: Song 8K Full Video | Artist, Artist" or
+ * "Song || collab || tag"), the real song title and the real artist are often
+ * DIFFERENT segments, and the channel owner is frequently a label — so neither
+ * the direct pair nor the owner is reliable. This enumerates (segment-as-title,
+ * segment-or-owner-as-artist) candidates.
+ *
+ * These are intentionally kept OUT of the fuzzy /search tier (a junk segment
+ * like a producer credit can fuzzy-match a wrong same-artist song). They are
+ * only ever consumed by the EXACT-DURATION get path, which is self-guarding:
+ * a wrong-duration song can't be returned, and isRelatedMatch still gates.
+ */
+export function extractSegmentPairs(rawTrack: string, rawArtist: string): TrackArtistPair[] {
+  if (!/[|｜:：/／~•]/.test(rawTrack)) return [];
+
+  const rawSegs = rawTrack
+    .split(/\s*[|｜:：/／~•]+\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (rawSegs.length < 2) return [];
+
+  // Clean each segment as a potential title; drop empties, pure numbers and
+  // codes ("dl91", "2024"), which are never song titles.
+  const titleSegs = rawSegs
+    .map((s) => cleanTitle(s))
+    .filter((s) => s && s.length >= 3 && !/^\d+$/.test(s) && !/^[a-z]{1,2}\d+$/i.test(s));
+
+  // Candidate artists: the channel owner, plus every segment decomposed into
+  // individual performers ("Arijit Singh, Palak Muchhal" -> two artists).
+  const splitArtists = (s: string) =>
+    s
+      .split(/\s*(?:,|&|\bx\b|\bX\b|\bfeat\.?\b|\bft\.?\b|\band\b|\/|•)\s*/i)
+      .map(cleanArtistName)
+      .filter(Boolean);
+  const artistCandidates = [
+    ...(rawArtist ? [cleanArtistName(rawArtist)] : []),
+    ...rawSegs.flatMap(splitArtists),
+  ].filter(Boolean);
+
+  const pairs: TrackArtistPair[] = [];
+  const seen = new Set<string>();
+  const push = (track: string, artist: string) => {
+    if (!track || !artist) return;
+    const key = `${track.toLowerCase()}:::${artist.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ track, artist });
+  };
+
+  // Pair each plausible title segment with each candidate artist. Bounded so a
+  // pathological 8-segment title can't explode into dozens of network probes;
+  // the exact-duration path short-circuits on the first real hit anyway.
+  for (const t of titleSegs.slice(0, 4)) {
+    for (const a of artistCandidates.slice(0, 4)) {
+      if (normalizeForMatch(t) === normalizeForMatch(a)) continue; // title == artist: useless
+      push(t, a);
+    }
+  }
+  return pairs.slice(0, 10);
+}
+
+/**
  * Whether a lyrics candidate plausibly IS the requested song, so unrelated
- * matches are rejected instead of shown. Handles title variants, feat credits,
- * and artist delimiters (&, /, +, comma).
+ * matches (e.g. wrong artists with same title) are rejected instead of shown.
  */
 export function isRelatedMatch(
   candidateTrack: string,
@@ -159,62 +380,119 @@ export function isRelatedMatch(
   const cleanCandTrack = cleanTitle(candidateTrack);
   const cleanCandArtist = cleanArtistName(candidateArtist);
 
+  const normWantTrack = normalizeForMatch(cleanWantTrack);
+  const normWantArtist = normalizeForMatch(cleanWantArtist);
+  const normCandTrack = normalizeForMatch(cleanCandTrack);
+  const normCandArtist = normalizeForMatch(cleanCandArtist);
+
+  // Precision gate: a song's identity is its FIRST title segment (before any
+  // "|"/":"), not the trailing pipes of collaborators, labels and upload tags.
+  // If the two first-segment "cores" (distinctive tokens, minus boilerplate and
+  // either artist's name) are BOTH non-empty yet share nothing, these are
+  // different songs that merely carry the same YouTube boilerplate — reject
+  // before the fuzzy branches below can be fooled by that shared noise.
+  const firstSeg = (s: string) => s.split(/\s*[|｜:：]+\s*/)[0] || s;
+  const wantCore = distinctiveTitleTokens(cleanTitle(firstSeg(wantTrack)), cleanWantArtist, cleanCandArtist);
+  const candCore = distinctiveTitleTokens(cleanTitle(firstSeg(candidateTrack)), cleanWantArtist, cleanCandArtist);
+  if (wantCore.length > 0 && candCore.length > 0) {
+    const wantSet = new Set(wantCore);
+    if (!candCore.some((t) => wantSet.has(t))) {
+      // Allow transliteration/concatenation differences ("raatkirani") before
+      // rejecting; only a truly disjoint core means a different song.
+      const wj = wantCore.join('');
+      const cj = candCore.join('');
+      if (!wj.includes(cj) && !cj.includes(wj)) return false;
+    }
+  }
+
   let titleSim = tokenSimilarity(cleanCandTrack, cleanWantTrack);
   let artistSim = tokenSimilarity(cleanCandArtist, cleanWantArtist);
 
-  // 1. Direct high title match (>= 0.85) or good title + reasonable artist
-  if (titleSim >= 0.85) return true;
-  if (titleSim >= 0.7 && (artistSim >= 0.3 || !cleanWantArtist || cleanWantArtist === 'Various Artists')) {
-    return true;
-  }
-  if (titleSim >= 0.5 && artistSim >= 0.5) return true;
-
-  // 2. Inverted candidate comparison (when source metadata swapped title & artist)
-  const invertedTitleSim = tokenSimilarity(cleanCandTrack, cleanWantArtist);
-  const invertedArtistSim = tokenSimilarity(cleanCandArtist, cleanWantTrack);
-  if (invertedTitleSim >= 0.8 && invertedArtistSim >= 0.4) {
-    return true;
+  // Check if candidate track has segments ("Artist - Title" or "Title - Artist")
+  if (candidateTrack.includes(' - ') || candidateTrack.includes(' | ') || candidateTrack.includes('-')) {
+    const candSegments = candidateTrack.split(/\s*[-–—:|]\s*/);
+    for (const seg of candSegments) {
+      const segTitleSim = tokenSimilarity(cleanTitle(seg), cleanWantTrack);
+      if (segTitleSim > titleSim) titleSim = segTitleSim;
+      const segArtistSim = tokenSimilarity(cleanTitle(seg), cleanWantArtist);
+      if (segArtistSim > artistSim) artistSim = segArtistSim;
+    }
   }
 
-  // 3. Embedded Artist - Title in wantTrack:
-  // e.g. wantTrack: "Tv Girl -Loving Machine" and candidate is track="Loving Machine", artist="TV Girl"
-  const normWant = normalizeForMatch(wantTrack);
-  const normCandTrack = normalizeForMatch(candidateTrack);
-  const normCandArtist = normalizeForMatch(candidateArtist);
-
-  if (normCandTrack && normCandArtist) {
-    const hasBoth = normWant.includes(normCandTrack) && normWant.includes(normCandArtist);
-    if (hasBoth) return true;
-  }
-
-  // 4. Segment checks if wantTrack contains separators
+  // Check if want track has segments
   if (wantTrack.includes(' - ') || wantTrack.includes(' | ') || wantTrack.includes('-')) {
-    const segments = wantTrack.split(/\s*[-–—:|]\s*/);
-    for (const seg of segments) {
-      const segSim = tokenSimilarity(cleanTitle(seg), cleanCandTrack);
-      if (segSim > titleSim) titleSim = segSim;
+    const wantSegments = wantTrack.split(/\s*[-–—:|]\s*/);
+    for (const seg of wantSegments) {
+      const segTitleSim = tokenSimilarity(cleanTitle(seg), cleanCandTrack);
+      if (segTitleSim > titleSim) titleSim = segTitleSim;
       const segArtistSim = tokenSimilarity(cleanTitle(seg), cleanCandArtist);
       if (segArtistSim > artistSim) artistSim = segArtistSim;
     }
   }
 
-  // 5. Check candidate track if it contains embedded artist
-  if (candidateTrack.includes(' - ') || candidateTrack.includes(' | ')) {
-    const segments = candidateTrack.split(/\s*[-–—:|]\s*/);
-    for (const seg of segments) {
-      const segSim = tokenSimilarity(cleanTitle(seg), cleanWantTrack);
-      if (segSim > titleSim) titleSim = segSim;
+  // Sub-artist token check: check if any word/artist in wantArtist is in candidateArtist or vice-versa
+  const hasArtistOverlap =
+    artistSim >= 0.25 ||
+    (normWantArtist && normCandArtist && (normCandArtist.includes(normWantArtist) || normWantArtist.includes(normCandArtist))) ||
+    (normWantTrack && normCandArtist && normWantTrack.includes(normCandArtist)) ||
+    (normCandTrack && normWantArtist && normCandTrack.includes(normWantArtist));
+
+  const isGenericOrTopicArtist =
+    !cleanCandArtist ||
+    !cleanWantArtist ||
+    cleanWantArtist === 'Various Artists' ||
+    cleanWantArtist.toLowerCase() === 'unknown artist' ||
+    /topic|channel|vevo|official/i.test(cleanCandArtist) ||
+    /topic|channel|vevo|official/i.test(cleanWantArtist);
+
+  // 1. High Title Match (>= 0.8)
+  if (titleSim >= 0.8) {
+    if (isGenericOrTopicArtist || hasArtistOverlap) {
+      return true;
+    }
+    // Check if inverted match (e.g. candidate artist is wantTrack)
+    const invertedArtistSim = tokenSimilarity(cleanCandArtist, cleanWantTrack);
+    if (invertedArtistSim >= 0.5) return true;
+    // If title match is high and candidate artist is not a known collision
+    if (titleSim >= 0.85 && cleanWantTrack.length >= 8 && artistSim >= 0.15) {
+      return true;
+    }
+    if (titleSim >= 0.95 && isGenericOrTopicArtist) {
+      return true;
+    }
+    return false;
+  }
+
+  // 2. Good Title Match (>= 0.6) with solid artist match or topic channel
+  if (titleSim >= 0.6 && (hasArtistOverlap || isGenericOrTopicArtist)) {
+    return true;
+  }
+
+  // 3. Moderate Title Match (>= 0.45) with strong artist match
+  if (titleSim >= 0.45 && (artistSim >= 0.4 || (normWantArtist && normCandArtist && normCandArtist === normWantArtist))) {
+    return true;
+  }
+
+  // 4. Inverted candidate comparison (when source metadata swapped title & artist)
+  const invertedTitleSim = tokenSimilarity(cleanCandTrack, cleanWantArtist);
+  const invertedArtistSim = tokenSimilarity(cleanCandArtist, cleanWantTrack);
+  if (invertedTitleSim >= 0.75 && (invertedArtistSim >= 0.3 || isGenericOrTopicArtist)) {
+    return true;
+  }
+
+  // 5. Embedded Artist - Title in wantTrack or candidateTrack:
+  if (normCandTrack && normCandArtist && normWantTrack) {
+    if (normWantTrack.includes(normCandTrack) && (normWantTrack.includes(normCandArtist) || hasArtistOverlap || isGenericOrTopicArtist)) {
+      return true;
+    }
+  }
+  if (normWantTrack && normWantArtist && normCandTrack) {
+    if (normCandTrack.includes(normWantTrack) && (normCandTrack.includes(normWantArtist) || hasArtistOverlap || isGenericOrTopicArtist)) {
+      return true;
     }
   }
 
-  // Raw title similarity fallback
-  const rawTitleSim = tokenSimilarity(candidateTrack, wantTrack);
-  if (rawTitleSim > titleSim) titleSim = rawTitleSim;
-  const rawArtistSim = tokenSimilarity(candidateArtist, wantArtist);
-  if (rawArtistSim > artistSim) artistSim = rawArtistSim;
-
-  if (titleSim >= 0.8) return true;
-  return titleSim >= 0.5 && artistSim >= 0.34;
+  return false;
 }
 
 export interface RenditionInfo {
@@ -239,6 +517,27 @@ export function detectRendition(rawTitle: string): RenditionInfo {
   if (tempo) label = 'tempo-altered';
   else if (alt) label = 'alternate-version';
   return { tempoAltered: tempo, alternateVersion: alt, label };
+}
+
+/**
+ * Whether a track is almost certainly NOT a single song — a jukebox, mashup,
+ * "nonstop"/"best of" compilation, full album, or multi-hour lofi/study mix.
+ * These never have matching synced lyrics, so we skip the network and return
+ * an immediate honest "no lyrics" instead of hanging on doomed lookups.
+ */
+export function isProbablyNotASong(rawTitle: string, duration?: number): boolean {
+  // Longer than 25 minutes: no single song, definitely a mix/album/podcast.
+  if (duration && duration > 1500) return true;
+
+  const t = ` ${(rawTitle || '').toLowerCase()} `;
+  const compilationRx =
+    /\b(jukebox|nonstop|non[-\s]?stop|mashup|mega\s?mix|dj\s?mix|compilation|playlist|full\s+album|all\s+songs|top\s+\d+\s+songs?|best\s+of|superhit\s+songs?|hit\s+songs?\s+(?:collection|jukebox)|video\s+jukebox|audio\s+jukebox|\d+\s+(?:songs?|hits)\b|hours?\s+of|lofi\s+(?:mix|playlist)|study\s+(?:mix|music)|relax(?:ing)?\s+(?:mix|music|songs))\b/;
+  if (compilationRx.test(t)) {
+    // A compilation keyword plus a long-ish runtime is conclusive. Short clips
+    // that merely mention "best of" in the title are left to normal lookup.
+    if (!duration || duration > 420) return true;
+  }
+  return false;
 }
 
 /** Flatten parsed synced lines into plain text. */
@@ -356,7 +655,7 @@ async function fetchYouTubeCaptions(videoId: string): Promise<LyricLine[] | null
     const res = await fetchWithTimeout(
       `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&fmt=json3`)}`,
       {},
-      3500
+      2500
     );
     if (!res.ok) return null;
 
@@ -424,10 +723,11 @@ export async function fetchAmllLyrics(
     const searchQuery = `${pair.track} ${pair.artist}`.trim();
     if (!searchQuery) continue;
 
+    // lrclib.net and api.amll.dev both serve `Access-Control-Allow-Origin: *`,
+    // so the browser can call them directly. The old corsproxy.io / allorigins
+    // fallbacks are dead (403 paywall / >3.5s timeout) and only added latency.
     const searchUrls = [
       `https://api.amll.dev/v1/lyrics/search?q=${encodeURIComponent(searchQuery)}`,
-      `https://corsproxy.io/?url=${encodeURIComponent(`https://api.amll.dev/v1/lyrics/search?q=${encodeURIComponent(searchQuery)}`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.amll.dev/v1/lyrics/search?q=${encodeURIComponent(searchQuery)}`)}`,
     ];
 
     for (const url of searchUrls) {
@@ -498,7 +798,7 @@ export async function fetchAmllLyrics(
         // Validate duration if available from TTML metadata
         if (duration && duration > 0 && parsed.duration && parsed.duration > 0) {
           const durDiff = Math.abs(parsed.duration - duration);
-          if (durDiff > 25) {
+          if (durDiff > 35) {
             continue;
           }
         }
@@ -544,6 +844,11 @@ export async function fetchAmllLyrics(
   return null;
 }
 
+const MAX_SYNC_DURATION_DIFF = 24; // Max seconds duration gap allowed for timed lyrics.
+// YouTube music videos add intro/outro padding vs the album track, so a modest
+// gap is expected and the sung timing still lines up (the user can nudge the
+// offset). Only a large gap means a genuinely different edit → downgrade.
+
 /**
  * Fetch lyrics from LRCLIB with Exact, Canonical, and Search fallback tiers.
  */
@@ -557,14 +862,23 @@ export async function fetchLrclibLyrics(
   const candidatePairs = extractTrackAndArtistPairs(trackName, artistName);
   if (candidatePairs.length === 0) return null;
 
-  // Tier 1: Exact lookup from LRCLIB if duration is known
+  // Segment-derived pairs for heavily-tagged titles. Only used in the
+  // exact-duration path below (self-guarding), never in the fuzzy search tier.
+  const segmentPairs = duration && duration > 0 ? extractSegmentPairs(trackName, artistName) : [];
+
+  // Tier 1: Exact lookup from LRCLIB if duration is known. Segment pairs are
+  // appended here: a wrong segment can only match if a real song by that
+  // (title, artist) exists at this EXACT duration, so precision stays high.
   if (duration && duration > 0) {
-    for (const pair of candidatePairs.slice(0, 2)) {
+    const exactPairs = [...candidatePairs.slice(0, 3), ...segmentPairs];
+    const exactSeen = new Set<string>();
+    for (const pair of exactPairs) {
       if (!pair.track || !pair.artist) continue;
+      const dedupeKey = `${pair.track.toLowerCase()}:::${pair.artist.toLowerCase()}`;
+      if (exactSeen.has(dedupeKey)) continue;
+      exactSeen.add(dedupeKey);
       const getUrls = [
         `https://lrclib.net/api/get?track_name=${encodeURIComponent(pair.track)}&artist_name=${encodeURIComponent(pair.artist)}&duration=${Math.round(duration)}`,
-        `https://corsproxy.io/?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(pair.track)}&artist_name=${encodeURIComponent(pair.artist)}&duration=${Math.round(duration)}`)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(pair.track)}&artist_name=${encodeURIComponent(pair.artist)}&duration=${Math.round(duration)}`)}`,
       ];
 
       for (const url of getUrls) {
@@ -575,7 +889,8 @@ export async function fetchLrclibLyrics(
             const data = await res.json();
             if (data && (data.syncedLyrics || data.plainLyrics)) {
               if (isRelatedMatch(data.trackName || '', data.artistName || '', pair.track, pair.artist)) {
-                if (data.syncedLyrics && !mustDowngradeSync) {
+                const durDiff = duration && data.duration ? Math.abs(data.duration - duration) : 0;
+                if (data.syncedLyrics && !mustDowngradeSync && durDiff <= MAX_SYNC_DURATION_DIFF) {
                   const parsed = parseLrc(data.syncedLyrics);
                   const syncType = parsed.hasWordTiming ? 'richsync' : 'line-sync';
                   console.info('[Lyrics:ExactGet]', {
@@ -622,12 +937,10 @@ export async function fetchLrclibLyrics(
   }
 
   // Tier 2: Canonical GET lookup (track_name + artist_name)
-  for (const pair of candidatePairs.slice(0, 2)) {
+  for (const pair of candidatePairs.slice(0, 3)) {
     if (!pair.track || !pair.artist) continue;
     const canonicalUrls = [
       `https://lrclib.net/api/get?track_name=${encodeURIComponent(pair.track)}&artist_name=${encodeURIComponent(pair.artist)}`,
-      `https://corsproxy.io/?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(pair.track)}&artist_name=${encodeURIComponent(pair.artist)}`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://lrclib.net/api/get?track_name=${encodeURIComponent(pair.track)}&artist_name=${encodeURIComponent(pair.artist)}`)}`,
     ];
 
     for (const url of canonicalUrls) {
@@ -639,44 +952,42 @@ export async function fetchLrclibLyrics(
           if (data && (data.syncedLyrics || data.plainLyrics)) {
             if (isRelatedMatch(data.trackName || '', data.artistName || '', pair.track, pair.artist)) {
               const durDiff = duration && data.duration ? Math.abs(data.duration - duration) : 0;
-              if (durDiff <= 35) {
-                if (data.syncedLyrics && !mustDowngradeSync) {
-                  const parsed = parseLrc(data.syncedLyrics);
-                  const syncType = parsed.hasWordTiming ? 'richsync' : 'line-sync';
-                  console.info('[Lyrics:CanonicalGet]', {
-                    videoId,
-                    track: trackName,
-                    artist: artistName,
-                    provider: 'lrclib',
-                    syncType,
-                    lineCount: parsed.lines.length,
-                    hasWordTiming: parsed.hasWordTiming,
-                    matchedTrack: data.trackName,
-                    matchedArtist: data.artistName,
-                    matchedDuration: data.duration,
-                    requestedDuration: duration,
-                  });
-                  return {
-                    syncType,
-                    lines: parsed.lines,
-                    plainLyrics: data.plainLyrics || undefined,
-                    provider: 'lrclib',
-                    trackName: data.trackName,
-                    artistName: data.artistName,
-                  };
-                }
+              if (data.syncedLyrics && !mustDowngradeSync && durDiff <= MAX_SYNC_DURATION_DIFF) {
+                const parsed = parseLrc(data.syncedLyrics);
+                const syncType = parsed.hasWordTiming ? 'richsync' : 'line-sync';
+                console.info('[Lyrics:CanonicalGet]', {
+                  videoId,
+                  track: trackName,
+                  artist: artistName,
+                  provider: 'lrclib',
+                  syncType,
+                  lineCount: parsed.lines.length,
+                  hasWordTiming: parsed.hasWordTiming,
+                  matchedTrack: data.trackName,
+                  matchedArtist: data.artistName,
+                  matchedDuration: data.duration,
+                  requestedDuration: duration,
+                });
+                return {
+                  syncType,
+                  lines: parsed.lines,
+                  plainLyrics: data.plainLyrics || undefined,
+                  provider: 'lrclib',
+                  trackName: data.trackName,
+                  artistName: data.artistName,
+                };
+              }
 
-                const plain = data.plainLyrics || (data.syncedLyrics ? linesToPlainText(parseLrc(data.syncedLyrics).lines) : '');
-                if (plain) {
-                  return {
-                    syncType: 'plain',
-                    lines: [],
-                    plainLyrics: plain,
-                    provider: 'lrclib',
-                    trackName: data.trackName,
-                    artistName: data.artistName,
-                  };
-                }
+              const plain = data.plainLyrics || (data.syncedLyrics ? linesToPlainText(parseLrc(data.syncedLyrics).lines) : '');
+              if (plain) {
+                return {
+                  syncType: 'plain',
+                  lines: [],
+                  plainLyrics: plain,
+                  provider: 'lrclib',
+                  trackName: data.trackName,
+                  artistName: data.artistName,
+                };
               }
             }
           }
@@ -697,13 +1008,11 @@ export async function fetchLrclibLyrics(
     }
   }
 
-  const uniqueQueries = [...new Set(searchQueries)].slice(0, 3);
+  const uniqueQueries = [...new Set(searchQueries)].slice(0, 4);
 
   for (const q of uniqueQueries) {
     const searchUrls = [
       `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`,
-      `https://corsproxy.io/?url=${encodeURIComponent(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`)}`,
     ];
 
     for (const url of searchUrls) {
@@ -734,9 +1043,26 @@ export async function fetchLrclibLyrics(
 
             if (duration && duration > 0) {
               const withDur = candidates.filter(
-                (m: any) => m.duration && Math.abs(m.duration - duration) <= 25
+                (m: any) => m.duration && Math.abs(m.duration - duration) <= MAX_SYNC_DURATION_DIFF
               );
-              if (withDur.length > 0) candidates = withDur;
+              if (withDur.length > 0) {
+                candidates = withDur;
+              } else {
+                // If duration difference is large (e.g. 389s vs 210s), do not serve desynchronized timestamps.
+                // Downgrade to plain lyrics so the user sees the words without broken timing.
+                const bestCand = candidates[0];
+                const plain = bestCand.plainLyrics || (bestCand.syncedLyrics ? linesToPlainText(parseLrc(bestCand.syncedLyrics).lines) : '');
+                if (plain) {
+                  return {
+                    syncType: 'plain',
+                    lines: [],
+                    plainLyrics: plain,
+                    provider: 'lrclib',
+                    trackName: bestCand.trackName,
+                    artistName: bestCand.artistName,
+                  };
+                }
+              }
             }
 
             const best = candidates.find((m: any) => m.syncedLyrics) || candidates[0];
@@ -805,6 +1131,22 @@ export async function fetchLyrics(
   const normKey = `${cleanTitle(trackName).toLowerCase()}:::${cleanArtistName(artistName).toLowerCase()}:::${duration ? Math.round(duration) : 0}`;
   const cached = getCachedLyrics(normKey);
   if (cached !== undefined) return cached;
+
+  // Fast path: compilations / jukeboxes / hour-long mixes never have matching
+  // lyrics. Return immediately so the UI shows an honest "No Lyrics Found"
+  // instead of hanging on lookups that are guaranteed to miss.
+  if (isProbablyNotASong(trackName, duration)) {
+    console.info('[Lyrics]', {
+      videoId,
+      track: trackName,
+      artist: artistName,
+      provider: 'none',
+      syncType: 'none',
+      note: 'Skipped — detected compilation / mix, not a single song',
+    });
+    setCachedLyrics(normKey, null);
+    return null;
+  }
 
   const rendition = detectRendition(trackName);
   const mustDowngradeSync = rendition.tempoAltered || rendition.alternateVersion;

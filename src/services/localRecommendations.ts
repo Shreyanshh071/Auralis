@@ -156,7 +156,9 @@ export function buildTasteProfile(
 
 // ─── Query Helpers ───────────────────────────────────────────────────────────
 
-/** Search with cache + dedup against existing track IDs */
+/** Search with cache + dedup against existing track IDs.
+ *  Never throws — returns an empty array on failure so a single broken search
+ *  does not take down other recommendation sections. */
 async function cachedSearch(
   query: string,
   existingIds: Set<string>,
@@ -166,8 +168,14 @@ async function cachedSearch(
 
   let results = getCached(cacheKey);
   if (!results) {
-    results = await searchYouTube(query);
-    setCache(cacheKey, results);
+    try {
+      results = await searchYouTube(query);
+      setCache(cacheKey, results);
+    } catch {
+      // Network failure, provider unreachable, etc. — return empty rather
+      // than propagating the error so other sections keep working.
+      return [];
+    }
   }
 
   return results
@@ -199,8 +207,8 @@ export async function fetchBecauseYouListenTo(
 
   try {
     const queries = [
-      `${artistName} songs`,
-      `${artistName} similar artists music`,
+      `${artistName}`,
+      `${artistName} best songs`,
     ];
     const allTracks: Track[] = [];
     for (const q of queries) {
@@ -214,6 +222,9 @@ export async function fetchBecauseYouListenTo(
       if (allTracks.length >= 8) break;
     }
     section.tracks = allTracks.slice(0, 8);
+    if (section.tracks.length === 0) {
+      section.error = 'No tracks found for this section';
+    }
   } catch (err) {
     section.error = err instanceof SearchUnavailableError
       ? 'Search unavailable right now'
@@ -239,7 +250,7 @@ export async function fetchMoreLikeThis(
   try {
     const allTracks: Track[] = [];
     for (const artist of artistNames.slice(0, 3)) {
-      const results = await cachedSearch(`${artist} type songs music`, existingIds, 4);
+      const results = await cachedSearch(`${artist} music`, existingIds, 4);
       results.forEach((t) => {
         if (!allTracks.some((e) => e.id === t.id)) {
           allTracks.push(t);
@@ -248,6 +259,9 @@ export async function fetchMoreLikeThis(
       });
     }
     section.tracks = allTracks.slice(0, 8);
+    if (section.tracks.length === 0) {
+      section.error = 'No tracks found for this section';
+    }
   } catch (err) {
     section.error = err instanceof SearchUnavailableError
       ? 'Search unavailable right now'
@@ -273,7 +287,7 @@ export async function fetchRecentTaste(
   try {
     const allTracks: Track[] = [];
     for (const artist of recentArtists.slice(0, 4)) {
-      const results = await cachedSearch(`${artist} top songs hits`, existingIds, 3);
+      const results = await cachedSearch(`${artist} songs`, existingIds, 3);
       results.forEach((t) => {
         if (!allTracks.some((e) => e.id === t.id)) {
           allTracks.push(t);
@@ -282,6 +296,9 @@ export async function fetchRecentTaste(
       });
     }
     section.tracks = allTracks.slice(0, 8);
+    if (section.tracks.length === 0) {
+      section.error = 'No tracks found for this section';
+    }
   } catch (err) {
     section.error = err instanceof SearchUnavailableError
       ? 'Search unavailable right now'
@@ -394,66 +411,83 @@ export async function generateRecommendations(
     return { quickPicks: quickPicks.slice(0, 8), sections: allSections };
   }
 
-  // ── Warm Start: Personalized Sections ──
+  // ── Warm Start: Personalized Sections (loaded in parallel) ──
+
+  const sectionPromises: Promise<RecommendationSection | null>[] = [];
 
   // 1. "Because you listen to {Top Artist}"
   if (profile.topArtists.length > 0) {
     const topArtist = profile.topArtists[0].name;
-    try {
-      const section = await fetchBecauseYouListenTo(topArtist, existingIds);
-      if (section.tracks.length > 0 || section.error) {
-        allSections.push(section);
-        onSectionReady?.(section);
-      }
-
-      // Also augment quick picks from top artist
-      section.tracks.slice(0, 3).forEach((t) => {
-        if (!quickPicks.some((q) => q.id === t.id)) quickPicks.push(t);
-      });
-    } catch {
-      // Section simply won't appear
-    }
+    sectionPromises.push(
+      fetchBecauseYouListenTo(topArtist, existingIds)
+        .then((section) => {
+          if (section.tracks.length > 0 || section.error) {
+            onSectionReady?.(section);
+            // Also augment quick picks from top artist
+            section.tracks.slice(0, 3).forEach((t) => {
+              if (!quickPicks.some((q) => q.id === t.id)) quickPicks.push(t);
+            });
+            return section;
+          }
+          return null;
+        })
+        .catch(() => null),
+    );
   }
 
   // 2. "More like this" from secondary artists
   if (profile.topArtists.length > 1) {
     const secondaryArtists = profile.topArtists.slice(1, 4).map((a) => a.name);
-    try {
-      const section = await fetchMoreLikeThis(secondaryArtists, existingIds);
-      if (section.tracks.length > 0 || section.error) {
-        allSections.push(section);
-        onSectionReady?.(section);
-      }
-    } catch {
-      // Section simply won't appear
-    }
+    sectionPromises.push(
+      fetchMoreLikeThis(secondaryArtists, existingIds)
+        .then((section) => {
+          if (section.tracks.length > 0 || section.error) {
+            onSectionReady?.(section);
+            return section;
+          }
+          return null;
+        })
+        .catch(() => null),
+    );
   }
 
   // 3. "Your recent taste" from recently played artists
   if (profile.recentArtists.length > 0) {
-    try {
-      const section = await fetchRecentTaste(profile.recentArtists, existingIds);
-      if (section.tracks.length > 0 || section.error) {
-        allSections.push(section);
-        onSectionReady?.(section);
-      }
-    } catch {
-      // Section simply won't appear
-    }
+    sectionPromises.push(
+      fetchRecentTaste(profile.recentArtists, existingIds)
+        .then((section) => {
+          if (section.tracks.length > 0 || section.error) {
+            onSectionReady?.(section);
+            return section;
+          }
+          return null;
+        })
+        .catch(() => null),
+    );
   }
 
   // 4. Add one discovery section even for warm users (for diversity)
-  try {
-    const discoverySections = await fetchColdStartDiscovery(existingIds);
-    if (discoverySections.length > 0) {
-      const discovery = discoverySections[0];
-      discovery.title = 'Explore your sound';
-      discovery.subtitle = 'Something different for you';
-      allSections.push(discovery);
-      onSectionReady?.(discovery);
+  sectionPromises.push(
+    fetchColdStartDiscovery(existingIds)
+      .then((discoverySections) => {
+        if (discoverySections.length > 0) {
+          const discovery = discoverySections[0];
+          discovery.title = 'Explore your sound';
+          discovery.subtitle = 'Something different for you';
+          onSectionReady?.(discovery);
+          return discovery;
+        }
+        return null;
+      })
+      .catch(() => null),
+  );
+
+  // Wait for all sections independently — one failure doesn't block the rest.
+  const settled = await Promise.allSettled(sectionPromises);
+  for (const result of settled) {
+    if (result.status === 'fulfilled' && result.value) {
+      allSections.push(result.value);
     }
-  } catch {
-    // Not critical
   }
 
   return { quickPicks: quickPicks.slice(0, 8), sections: allSections };
