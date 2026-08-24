@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { GENRES, searchAll, SearchUnavailableError } from '../../services/youtube';
+import { searchCache } from '../../services/searchCache.ts';
 import { importYouTubePlaylist } from '../../services/youtubeImporter';
 import { getSearchHistory, addToSearchHistory, removeFromSearchHistory, clearSearchHistory } from '../../services/searchHistory';
 import { getSearchSuggestions } from '../../services/searchSuggestions';
@@ -118,17 +119,55 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery, queryNonce]);
 
+  // Mobile query live autocomplete suggestions (120ms fast debounce)
+  useEffect(() => {
+    const q = mobileQuery.trim();
+    if (!q || q.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    let cancelled = false;
+    const abortController = new AbortController();
+
+    const timer = setTimeout(async () => {
+      try {
+        const list = await getSearchSuggestions(q, abortController.signal);
+        if (!cancelled) {
+          setSuggestions(list);
+        }
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      clearTimeout(timer);
+    };
+  }, [mobileQuery]);
+
   const performSearch = async (searchQuery: string) => {
     const q = searchQuery.trim();
     if (!q) return;
-    setIsLoading(true);
+
     setHasSearched(true);
     setError(null);
     setPlaylistError(null);
     setLastQuery(q);
-    // Record in search history
     addToSearchHistory(q);
     setSearchHistoryItems(getSearchHistory());
+
+    // 1. Instant 0ms synchronous cache hit check:
+    const cached = searchCache.get(q);
+    if (cached) {
+      setResults(cached);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
     try {
       const res = await searchAll(q);
       setResults(res);
@@ -265,7 +304,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ initialQuery = '', que
         {/* Live Suggestions Dropdown */}
         {showSuggestions && suggestions.length > 0 && (
           <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl shadow-xl overflow-hidden py-1">
-            {suggestions.map((item, idx) => (
+            {suggestions.slice(0, 3).map((item, idx) => (
               <button
                 key={`${item}-${idx}`}
                 type="button"
