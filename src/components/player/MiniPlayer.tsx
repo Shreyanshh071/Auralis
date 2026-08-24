@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
+import { isLetterboxedThumbnail } from '../../services/artwork';
 import {
   Play,
   Pause,
@@ -87,36 +88,30 @@ export const MiniPlayer: React.FC = () => {
         setActiveModalTab('player');
         setIsNowPlayingOpen(true);
       }}
-      className="fixed bottom-[var(--player-bottom)] left-[max(0.75rem,env(safe-area-inset-left,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] md:left-0 md:right-0 z-40 overflow-hidden rounded-full md:rounded-none border border-[var(--m3-outline-variant)] md:border-t md:border-x-0 md:border-b-0 backdrop-blur-2xl px-3.5 sm:px-4 md:px-6 py-2 md:py-2.5 shadow-[var(--shadow-player)] transition-colors duration-300 cursor-pointer select-none text-[var(--text-primary)]"
+      className="player-glass fixed bottom-[var(--player-bottom)] left-[max(0.75rem,env(safe-area-inset-left,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] md:left-0 md:right-0 z-40 overflow-hidden rounded-full md:rounded-none border border-white/15 dark:border-white/10 md:border-t md:border-x-0 md:border-b-0 md:border-[var(--border-subtle)] px-3.5 sm:px-4 md:px-6 py-2 md:py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.4)] md:shadow-[var(--shadow-player)] transition-all duration-300 cursor-pointer select-none text-[var(--text-primary)] ring-1 ring-black/10 dark:ring-white/5"
     >
-      {/*
-        Glass stack, painted bottom-up: the page shows through the backdrop
-        blur, then the artwork provides the ambient colour, then a tonal glaze
-        and a translucent Material 3 surface sit over it so the controls stay
-        readable against any album cover, then a static specular sheen.
-
-        Every layer is a still image or a flat colour — nothing here animates a
-        filter, so the whole surface costs one composite rather than per-frame
-        work.
-      */}
-      <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+      {/* 1. Rich Atmospheric Album Art Bloom (blurry, saturated, luminous) */}
+      <div aria-hidden="true" className="absolute inset-0 pointer-events-none overflow-hidden select-none">
         <img
+          key={currentTrack.thumbnail || currentTrack.id}
           src={currentTrack.thumbnail}
           alt=""
-          className="w-full h-full object-cover scale-125 blur-xl opacity-70 dark:opacity-60 transition-opacity duration-500"
+          className="w-full h-full object-cover scale-150 filter blur-[40px] opacity-45 dark:opacity-40 saturate-[2.2] animate-in fade-in duration-700"
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (!target.src.includes('hqdefault') && currentTrack.id) {
+              target.src = `https://i.ytimg.com/vi/${currentTrack.id}/hqdefault.jpg`;
+            }
+          }}
         />
+        {/* Dark contrast scrim to keep text crisp & rich dark */}
+        <div className="absolute inset-0 bg-black/30 dark:bg-black/50" />
       </div>
+
+      {/* 2. Subtle specular gloss highlight */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 pointer-events-none bg-[var(--m3-player-tint)] transition-colors duration-500"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 pointer-events-none bg-[var(--bg-player-pill)] md:bg-[var(--bg-player-bar)]"
-      />
-      <div
-        aria-hidden="true"
-        className="m3-gloss absolute inset-0 pointer-events-none rounded-full md:rounded-none"
+        className="m3-gloss absolute inset-0 pointer-events-none rounded-full md:rounded-none opacity-35"
       />
 
       <div className="relative max-w-7xl mx-auto flex items-center justify-between gap-3">
@@ -149,7 +144,9 @@ export const MiniPlayer: React.FC = () => {
               <img
                 src={currentTrack.thumbnail}
                 alt={currentTrack.title}
-                className="w-full h-full object-cover aspect-square"
+                className={`w-full h-full object-cover aspect-square ${
+                  isLetterboxedThumbnail(currentTrack.thumbnail) ? 'scale-[1.35]' : 'scale-100'
+                }`}
                 onError={(e) => {
                   const target = e.currentTarget;
                   if (!target.src.includes('hqdefault')) {

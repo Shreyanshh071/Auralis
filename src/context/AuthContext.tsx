@@ -12,6 +12,14 @@ import {
   signOutEverywhere,
   isSignInCancellation,
 } from '../services/googleSignIn';
+import {
+  getYouTubeConnectionState,
+  setYouTubeConnectionState,
+  clearYouTubeConnectionState,
+  fetchYouTubeChannelInfo,
+  requestYouTubeAccessToken,
+  type YouTubeConnectionState,
+} from '../services/youtubeSync';
 import type { Track, Playlist } from '../types/music';
 
 /** Current shape of the `users/{uid}` document. Bump when the shape changes. */
@@ -67,6 +75,13 @@ interface AuthContextType {
   fetchCloudData: () => Promise<UserCloudData | null>;
   saveFavoritesToCloud: (favorites: Track[]) => Promise<void>;
   savePlaylistsToCloud: (playlists: Playlist[]) => Promise<void>;
+  // YouTube sync
+  youtubeState: YouTubeConnectionState;
+  youtubeConnecting: boolean;
+  /** The access token for the YouTube Data API, if available (in-memory only). */
+  youtubeAccessToken: string | null;
+  connectYouTube: () => Promise<string>;
+  disconnectYouTube: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -78,6 +93,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(firebaseConfigError);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  // YouTube sync state
+  const [youtubeState, setYoutubeState] = useState<YouTubeConnectionState>(() => getYouTubeConnectionState());
+  const [youtubeConnecting, setYoutubeConnecting] = useState(false);
+  const [youtubeAccessToken, setYoutubeAccessToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth) return;
@@ -112,10 +131,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await signOutEverywhere(auth);
       setLastSyncedAt(null);
+      // Also clear YouTube state on logout
+      setYoutubeAccessToken(null);
+      clearYouTubeConnectionState();
+      setYoutubeState({ connected: false });
     } catch (error) {
       console.error('Sign-out Error:', error);
       throw error;
     }
+  }, []);
+
+  /**
+   * Connect YouTube account by re-authenticating with the youtube.readonly scope.
+   * Returns the access token for the YouTube Data API.
+   */
+  const connectYouTube = useCallback(async (): Promise<string> => {
+    if (!auth) throw new Error('Firebase is not configured.');
+    setYoutubeConnecting(true);
+    try {
+      const accessToken = await requestYouTubeAccessToken(auth);
+      setYoutubeAccessToken(accessToken);
+
+      // Fetch channel info to confirm the connection and show the channel name
+      try {
+        const channelInfo = await fetchYouTubeChannelInfo(accessToken);
+        const newState: YouTubeConnectionState = {
+          connected: true,
+          channelName: channelInfo.name,
+        };
+        setYoutubeState(newState);
+        setYouTubeConnectionState(newState);
+      } catch {
+        // Channel info fetch failed — still connected but without channel name
+        const newState: YouTubeConnectionState = { connected: true };
+        setYoutubeState(newState);
+        setYouTubeConnectionState(newState);
+      }
+
+      return accessToken;
+    } catch (error) {
+      if (!isSignInCancellation(error)) {
+        console.error('YouTube connect error:', error);
+      }
+      throw error;
+    } finally {
+      setYoutubeConnecting(false);
+    }
+  }, []);
+
+  const disconnectYouTube = useCallback(() => {
+    setYoutubeAccessToken(null);
+    clearYouTubeConnectionState();
+    setYoutubeState({ connected: false });
   }, []);
 
   const fetchCloudData = useCallback(async (): Promise<UserCloudData | null> => {
@@ -197,6 +264,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetchCloudData,
         saveFavoritesToCloud,
         savePlaylistsToCloud,
+        youtubeState,
+        youtubeConnecting,
+        youtubeAccessToken,
+        connectYouTube,
+        disconnectYouTube,
       }}
     >
       {children}

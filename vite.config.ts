@@ -64,18 +64,20 @@ function youtubeSearchPlugin() {
             if (vr && vr.videoId && songs.length < 25) {
               const rawTitle = vr.title?.runs?.[0]?.text || 'Untitled Track';
               const owner = vr.ownerText?.runs?.[0]?.text || 'YouTube Artist';
-              let artist = owner.replace(/\s*-\s*Topic$/i, '').replace(/VEVO$/i, '').trim() || owner;
+              const cleanArtist = (s: string) =>
+                s.replace(/\s*-\s*Topic$/i, '').replace(/VEVO$/i, '').trim();
+              let artist = cleanArtist(owner) || owner;
               let title = rawTitle;
-              const sepMatch = rawTitle.match(/^(.*?)\s*[-–—:|]\s*(.*)$/);
-              if (sepMatch) {
-                artist = sepMatch[1].trim();
-                title = sepMatch[2].trim();
-              } else {
-                const pipeMatch = rawTitle.match(/^(.*?)\s*\|([^|]+)\|\s*$/);
-                if (pipeMatch) {
-                  title = pipeMatch[1].trim();
-                  artist = pipeMatch[2].trim();
-                }
+              // Only split on a spaced " - " ("Artist - Title"). A bare "|"/":"
+              // is usually jukebox/tag noise ("Song || tag || tag" or
+              // "Song | Latest Punjabi Songs 2024"), and the channel owner is a
+              // far more reliable artist than a guessed pipe segment. This
+              // mirrors the production parser in src/services/youtube.ts; the
+              // lyrics layer (extractTrackAndArtistPairs) recovers the rest.
+              if (rawTitle.includes(' - ')) {
+                const parts = rawTitle.split(' - ');
+                artist = cleanArtist(parts[0].trim()) || artist;
+                title = parts.slice(1).join(' - ').trim() || rawTitle;
               }
               const lengthText = vr.lengthText?.simpleText || '3:30';
               const parts = lengthText.split(':').map(Number);

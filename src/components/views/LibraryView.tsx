@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { importYouTubePlaylist } from '../../services/youtubeImporter';
+import { isLetterboxedThumbnail } from '../../services/artwork';
 import { AddToPlaylistButton } from '../modals/AddToPlaylistButton';
 
 interface LibraryViewProps {
@@ -338,23 +339,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   {coverImages.length >= 4 ? (
                     <div className="w-full h-full grid grid-cols-2 gap-0.5">
                       {coverImages.map((src, i) => (
-                        <img
-                          key={i}
-                          src={src}
-                          alt=""
-                          className="w-full h-full object-cover aspect-square"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            if (validTracks[i]?.id) target.src = `https://i.ytimg.com/vi/${validTracks[i].id}/hqdefault.jpg`;
-                          }}
-                        />
+                        <div key={i} className="w-full h-full overflow-hidden">
+                          <img
+                            src={src}
+                            alt=""
+                            className={`w-full h-full object-cover aspect-square ${
+                              isLetterboxedThumbnail(src) ? 'scale-[1.35]' : 'scale-100'
+                            }`}
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (validTracks[i]?.id) target.src = `https://i.ytimg.com/vi/${validTracks[i].id}/hqdefault.jpg`;
+                            }}
+                          />
+                        </div>
                       ))}
                     </div>
                   ) : coverImages.length > 0 ? (
                     <img
                       src={coverImages[0]}
                       alt=""
-                      className="w-full h-full object-cover aspect-square"
+                      className={`w-full h-full object-cover aspect-square ${
+                        isLetterboxedThumbnail(coverImages[0]) ? 'scale-[1.35]' : 'scale-100'
+                      }`}
                       onError={(e) => {
                         const target = e.currentTarget;
                         if (validTracks[0]?.id) target.src = `https://i.ytimg.com/vi/${validTracks[0].id}/hqdefault.jpg`;
@@ -682,15 +688,19 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <span className="text-xs font-mono text-[var(--text-muted)] w-4 text-center">{i + 1}</span>
-                      <img
-                        src={t.thumbnail}
-                        alt=""
-                        className="w-10 h-10 rounded-lg object-cover bg-neutral-800 flex-shrink-0"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          target.src = `https://i.ytimg.com/vi/${t.id}/hqdefault.jpg`;
-                        }}
-                      />
+                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-neutral-800 flex-shrink-0">
+                        <img
+                          src={t.thumbnail}
+                          alt=""
+                          className={`w-full h-full object-cover ${
+                            isLetterboxedThumbnail(t.thumbnail) ? 'scale-[1.35]' : 'scale-100'
+                          }`}
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.src = `https://i.ytimg.com/vi/${t.id}/hqdefault.jpg`;
+                          }}
+                        />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--m3-primary)]">
                           {t.title}

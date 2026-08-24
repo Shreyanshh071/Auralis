@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
+import { isLetterboxedThumbnail } from '../../services/artwork';
 import {
   buildTasteProfile,
   generateRecommendations,
@@ -267,7 +268,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
             <img
               src={track.thumbnail}
               alt=""
-              className="w-full h-full object-cover aspect-square scale-[1.04]"
+              className={`w-full h-full object-cover aspect-square ${
+                isLetterboxedThumbnail(track.thumbnail) ? 'scale-[1.35]' : 'scale-100'
+              }`}
               onError={(e) => {
                 const target = e.currentTarget;
                 if (!target.src.includes('hqdefault')) {
@@ -454,7 +457,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
                           <img
                             src={item.image}
                             alt=""
-                            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition duration-300"
+                            className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none';
                             }}
@@ -484,7 +487,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
                     <img
                       src={item.image}
                       alt=""
-                      className="w-full h-full object-cover scale-[1.04] group-hover:scale-105 transition duration-300"
+                      className={`w-full h-full object-cover ${
+                        isLetterboxedThumbnail(item.image)
+                          ? 'scale-[1.35] group-hover:scale-[1.40]'
+                          : 'scale-100 group-hover:scale-105'
+                      } transition duration-300`}
                       onError={(e) => {
                         const target = e.currentTarget;
                         if (item.track?.id && !target.src.includes('hqdefault')) {
@@ -618,6 +625,16 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
             <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-300">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
               <p className="text-xs leading-relaxed flex-1">{section.error}</p>
+              <button
+                onClick={() => {
+                  // Trigger a fresh recommendation load to retry failed sections
+                  setRecsAttempt((n) => n + 1);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-[11px] font-semibold whitespace-nowrap transition cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Retry
+              </button>
             </div>
           ) : section.tracks.length > 0 ? (
             <div className="space-y-1.5">
@@ -630,7 +647,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
       ))}
 
       {/* Loading skeletons for sections still being fetched */}
-      {sectionsLoading && recSections.length === 0 && !isLoadingRecs && (
+      {(sectionsLoading || isLoadingRecs) && recSections.length < 2 && (
         <div className="space-y-8 pt-2">
           <SkeletonSection />
           <SkeletonSection />

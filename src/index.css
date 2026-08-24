@@ -23,8 +23,8 @@
     --bg-header: rgba(246, 247, 245, 0.82);
     --bg-sidebar: rgba(255, 255, 255, 0.95);
     --bg-nav: rgba(255, 255, 255, 0.94);
-    --bg-player-bar: rgba(255, 255, 255, 0.82);
-    --bg-player-pill: rgba(255, 255, 255, 0.84);
+    --bg-player-bar: rgba(255, 255, 255, 0.78);
+    --bg-player-pill: rgba(255, 255, 255, 0.74);
     --bg-modal: #ffffff;
     --bg-modal-panel: #f8faf7;
     --bg-popover: #ffffff;
@@ -171,8 +171,8 @@
     --bg-header: rgba(11, 13, 10, 0.82);
     --bg-sidebar: rgba(18, 19, 17, 0.95);
     --bg-nav: rgba(18, 19, 17, 0.94);
-    --bg-player-bar: rgba(22, 24, 21, 0.8);
-    --bg-player-pill: rgba(27, 28, 25, 0.82);
+    --bg-player-bar: rgba(14, 15, 13, 0.72);
+    --bg-player-pill: rgba(16, 17, 15, 0.72);
     --bg-modal: #10110e;
     --bg-modal-panel: #181a17;
     --bg-popover: #1f211e;
@@ -328,6 +328,18 @@ input[type="range"]:hover::-webkit-slider-thumb {
   backdrop-filter: blur(28px) saturate(190%);
   -webkit-backdrop-filter: blur(28px) saturate(190%);
   border: 1px solid var(--border-glass);
+}
+
+.player-glass {
+  background: var(--bg-player-pill);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+}
+
+@media (min-width: 768px) {
+  .player-glass {
+    background: var(--bg-player-bar);
+  }
 }
 
 .glass-card {

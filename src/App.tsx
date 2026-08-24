@@ -13,6 +13,7 @@ import { NowPlayingModal } from './components/player/NowPlayingModal';
 import { MobileNav } from './components/common/MobileNav';
 import { CreatePlaylistModal } from './components/modals/CreatePlaylistModal';
 import { ListenTogetherModal } from './components/modals/ListenTogetherModal';
+import { LegalModal, type LegalTab } from './components/modals/LegalModal';
 import { ToastContainer } from './components/common/Toast';
 import { extractRoomCodeFromUrl } from './lib/listenTogether';
 import type { Track } from './types/music';
@@ -26,6 +27,8 @@ const AppContent: React.FC = () => {
     nonce: 0,
   });
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
+  const [isLegalOpen, setIsLegalOpen] = useState<boolean>(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('privacy');
   // A playlist the Library should open as soon as it mounts, set when one is
   // clicked in the sidebar. Cleared by the Library once consumed, so switching
   // away and back does not reopen it.
@@ -33,8 +36,17 @@ const AppContent: React.FC = () => {
   const { currentTrack } = usePlayer();
   const { setInviteCodeToOpen, setIsModalOpen } = useListenTogether();
 
-  // Check URL on startup for ?room=CODE invite links
+  // Check URL on startup for /privacy or /terms direct routes & ?room=CODE invite links
   useEffect(() => {
+    const path = window.location.pathname.toLowerCase();
+    if (path === '/privacy' || path === '/privacy-policy') {
+      setLegalTab('privacy');
+      setIsLegalOpen(true);
+    } else if (path === '/terms' || path === '/terms-of-service') {
+      setLegalTab('terms');
+      setIsLegalOpen(true);
+    }
+
     const code = extractRoomCodeFromUrl(window.location.href);
     if (code) {
       setInviteCodeToOpen(code);
@@ -48,10 +60,16 @@ const AppContent: React.FC = () => {
     }
   }, [setInviteCodeToOpen, setIsModalOpen]);
 
-  /** Send a query to Explore and switch to it. Used by genre tiles and header search. */
+  /** Send a query to Explore and switch to it. Used by genre tiles and header search.
+   *  An empty query signals "clear" and resets the Explore view to its history state. */
   const handleSelectGenre = (genreQuery: string) => {
     setExploreRequest((prev) => ({ query: genreQuery, nonce: prev.nonce + 1 }));
-    setActiveView('explore');
+    if (genreQuery) {
+      setActiveView('explore');
+    }
+    // When the query is empty (search cleared), we update the request so
+    // ExploreView returns to its history-only empty state, but we don't
+    // force-navigate — the user may not even be on the explore page.
   };
 
   /** Open a specific playlist. The sidebar previously just switched to the
@@ -95,6 +113,10 @@ const AppContent: React.FC = () => {
         setActiveView={setActiveView}
         openCreatePlaylistModal={() => setIsCreatePlaylistOpen(true)}
         openPlaylist={handleOpenPlaylist}
+        onOpenLegal={(tab) => {
+          setLegalTab(tab);
+          setIsLegalOpen(true);
+        }}
       />
 
       {/* Main Content Area */}
@@ -148,6 +170,13 @@ const AppContent: React.FC = () => {
 
       {/* Listen Together Modal */}
       <ListenTogetherModal />
+
+      {/* Privacy Policy & Terms of Service Modal */}
+      <LegalModal
+        isOpen={isLegalOpen}
+        initialTab={legalTab}
+        onClose={() => setIsLegalOpen(false)}
+      />
 
       {/* Toast Notifications */}
       <ToastContainer />
