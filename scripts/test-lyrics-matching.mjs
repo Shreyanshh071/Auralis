@@ -37,6 +37,8 @@ const {
   isRelatedMatch,
   detectRendition,
   parseLrc,
+  isRecordLabelOrUploader,
+  resolveCanonicalMetadata,
 } = mod;
 
 // ---------------------------------------------------------------------------
@@ -410,3 +412,42 @@ test('isProbablyNotASong leaves normal single songs alone', () => {
   // A short clip that happens to say "best of" is not conclusive.
   assert.equal(isProbablyNotASong('Best Of Me', 210), false);
 });
+
+// ---------------------------------------------------------------------------
+// isRecordLabelOrUploader & resolveCanonicalMetadata
+// ---------------------------------------------------------------------------
+
+test('isRecordLabelOrUploader identifies major YouTube label and aggregator channels', () => {
+  assert.equal(isRecordLabelOrUploader('T-Series'), true);
+  assert.equal(isRecordLabelOrUploader('Sony Music India'), true);
+  assert.equal(isRecordLabelOrUploader('Zee Music Company'), true);
+  assert.equal(isRecordLabelOrUploader('Saregama Music'), true);
+  assert.equal(isRecordLabelOrUploader('Spinnin\' Records'), true);
+  assert.equal(isRecordLabelOrUploader('TaylorSwiftVEVO'), true);
+  assert.equal(isRecordLabelOrUploader('Coldplay Official'), true);
+  
+  // Real artist names are NOT labels
+  assert.equal(isRecordLabelOrUploader('The Weeknd'), false);
+  assert.equal(isRecordLabelOrUploader('Arijit Singh'), false);
+  assert.equal(isRecordLabelOrUploader('Taylor Swift'), false);
+  assert.equal(isRecordLabelOrUploader('Queen'), false);
+});
+
+test('isRelatedMatch allows label/channel uploaders when title match is strong', () => {
+  // Video on T-Series channel matching canonical song metadata
+  assert.equal(
+    isRelatedMatch(
+      'Kesariya',
+      'Pritam, Arijit Singh & Amitabh Bhattacharya',
+      'Kesariya - Brahmāstra | Ranbir Kapoor | Alia Bhatt',
+      'Sony Music India'
+    ),
+    true
+  );
+});
+
+test('resolveCanonicalMetadata returns null gracefully on empty inputs', async () => {
+  assert.equal(await resolveCanonicalMetadata('', ''), null);
+  assert.equal(await resolveCanonicalMetadata(undefined, undefined), null);
+});
+

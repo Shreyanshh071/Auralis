@@ -138,7 +138,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectGenre, setActiveView
     return () => {
       cancelled = true;
     };
-  }, [currentTrack?.id, recsAttempt]);
+  }, [currentTrack?.id, recsAttempt, history.length, favorites.length, savedArtists.length]);
 
   // ---- Speed Dial: driven by real play counts ----
   const topTracks = getTopTracks(24);
