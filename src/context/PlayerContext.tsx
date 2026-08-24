@@ -813,6 +813,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 );
               } catch {}
             } else if (event.data === 2) {
+              // If the iframe paused itself due to backgrounding/visibility loss, fight the auto-pause
+              if (typeof document !== 'undefined' && document.hidden && isPlayingRef.current) {
+                try {
+                  event.target.playVideo();
+                } catch {}
+                return;
+              }
               setIsPlaying(false);
               setIsLoadingAudio(false);
               globalPlaybackClock.setPlaying(false);
