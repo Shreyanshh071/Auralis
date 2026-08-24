@@ -1008,8 +1008,8 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ fullscreen = false }
 
         /* ====== PLAIN LYRICS ====== */
         ) : (
-          <div className="space-y-6 max-w-xl mx-auto py-8">
-            <div className="whitespace-pre-line text-xl text-[var(--text-primary)] font-semibold leading-loose">
+          <div className="space-y-6 max-w-xl mx-auto py-8 px-2">
+            <div className="whitespace-pre-line text-xl sm:text-2xl text-white font-semibold leading-relaxed sm:leading-loose drop-shadow-sm opacity-95">
               {lyrics.plainLyrics}
             </div>
             {isTranslationActive && translatedPlain && (
