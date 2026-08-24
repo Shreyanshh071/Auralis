@@ -143,17 +143,17 @@ export const NowPlayingModal: React.FC = () => {
         {/* Layer 2: Dynamic tonal radiance gradient matching the album's extracted palette */}
         <div
           aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-b from-[var(--m3-np-tint-a)] via-[var(--m3-np-tint-b)] to-transparent opacity-85 transition-colors duration-700 ease-out"
+          className="absolute inset-0 bg-gradient-to-b from-[var(--m3-np-tint-a)]/80 via-[var(--m3-np-tint-b)]/50 to-transparent transition-colors duration-700 ease-out"
         />
 
-        {/* Layer 3: Dynamic radial glow centered on the upper artwork area */}
+        {/* Layer 3: Dynamic radial glow centered on the artwork area (full-bleed, completely seamless) */}
         <div
           aria-hidden="true"
-          className="absolute top-0 left-0 right-0 h-[65%] bg-[radial-gradient(circle_at_50%_35%,var(--m3-np-tint-a)_0%,transparent_75%)] opacity-70 transition-colors duration-700 ease-out"
+          className="absolute inset-0 bg-[radial-gradient(ellipse_at_35%_30%,var(--m3-np-tint-a)_0%,transparent_70%)] opacity-60 transition-colors duration-700 ease-out pointer-events-none"
         />
 
-        {/* Layer 4: Vignette scrim — transparent/light at top/center so colors radiate boldly, smooth dark gradient at bottom for controls contrast */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/30 via-45% to-black/85 transition-colors duration-500" />
+        {/* Layer 4: Smooth, continuous vignette scrim across the entire canvas without hard stops */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/40 to-black/80 transition-colors duration-500 pointer-events-none" />
       </div>
 
       {/* Top Header Bar (Clean, Centered, Minimalist like Photo 1) */}

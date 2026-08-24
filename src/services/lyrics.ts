@@ -739,16 +739,27 @@ function setCachedLyrics(key: string, data: LyricsData | null): void {
 const canonicalMetadataCache = new Map<string, { data: CanonicalMetadata | null; timestamp: number }>();
 const CANONICAL_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
 
+const DESCRIPTOR_SEGMENT = /^(?:full\s*(?:video|audio|song|track)?|official\s*(?:video|music\s*video|audio|lyrics?|lyric\s*video)?|lyrical\s*(?:video|audio)?|audio\s*song|video\s*song|visuali[sz]er|m\/?v|4k|8k|hd|hq|jukebox|promo|teaser)$/i;
+const TRIBUTE_PATTERN = /\b(?:tribute|performs|lullaby|piano dreamers|karaoke|cover|acoustic version|instrumental version|string quartet|orchestra performs)\b/i;
+
+function filterRealSegments(raw: string): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/\s*[-–—:|~•]+\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s && !DESCRIPTOR_SEGMENT.test(s));
+}
+
 /**
  * Resolve canonical track and artist metadata using iTunes / Apple Music search API.
- * Standardizes noisy YouTube video titles and record label channels into clean
- * track title, official artist, and studio duration tags.
+ * Standardizes noisy YouTube video titles, movie tags, and record label channels
+ * into clean track title, official artist, and studio duration tags.
  */
 export async function resolveCanonicalMetadata(
   rawTrack: string,
   rawArtist: string
 ): Promise<CanonicalMetadata | null> {
-  if (!rawTrack || typeof rawTrack !== 'string') return null;
+  if (!rawTrack && !rawArtist) return null;
 
   const cacheKey = `${(rawTrack || '').toLowerCase()}:::${(rawArtist || '').toLowerCase()}`;
   const cached = canonicalMetadataCache.get(cacheKey);
@@ -758,22 +769,15 @@ export async function resolveCanonicalMetadata(
 
   const cleanT = cleanTitle(rawTrack);
   const cleanA = cleanArtistName(rawArtist);
-  if (!cleanT) return null;
-
-  const queries: string[] = [];
   const isLabel = isRecordLabelOrUploader(rawArtist);
 
-  // If title is segmented ("Song - Movie | Singer 1 | Singer 2"), extract candidate search queries
-  const segs = rawTrack.split(/\s*[-–—:|~•]+\s*/).map((s) => s.trim()).filter(Boolean);
+  const segs = filterRealSegments(rawTrack);
   const firstSegClean = cleanTitle(segs[0] || cleanT);
+  const remainingSegs = segs.slice(1).map(cleanTitle).filter((s) => s && !isRecordLabelOrUploader(s));
 
-  if (firstSegClean && segs.length > 1) {
-    const remainingSegs = segs.slice(1).map(cleanTitle).filter((s) => s && !isRecordLabelOrUploader(s));
-    if (remainingSegs.length > 0) {
-      queries.push(`${firstSegClean} ${remainingSegs[0]}`);
-    }
-  }
+  const queries: string[] = [];
 
+  // Direct queries
   if (!isLabel && cleanA && cleanA.toLowerCase() !== 'unknown artist') {
     queries.push(`${cleanT} ${cleanA}`);
     if (firstSegClean && firstSegClean !== cleanT) {
@@ -786,12 +790,24 @@ export async function resolveCanonicalMetadata(
     }
   }
 
-  const uniqueQueries = [...new Set(queries.filter(Boolean))].slice(0, 3);
+  if (firstSegClean && remainingSegs.length > 0) {
+    queries.push(`${firstSegClean} ${remainingSegs[0]}`);
+  }
+
+  // Inverted queries (when rawArtist is the real song title and rawTrack has movie/singer segments)
+  if (cleanA && cleanA.toLowerCase() !== 'unknown artist' && !isLabel) {
+    for (const seg of [firstSegClean, ...remainingSegs].slice(0, 3)) {
+      if (seg) queries.push(`${cleanA} ${seg}`);
+    }
+    queries.push(cleanA);
+  }
+
+  const uniqueQueries = [...new Set(queries.filter(Boolean))].slice(0, 5);
 
   for (const q of uniqueQueries) {
     try {
       const res = await fetchWithTimeout(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=5`,
+        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=10`,
         {},
         3000
       );
@@ -801,23 +817,64 @@ export async function resolveCanonicalMetadata(
       const results: any[] = body?.results || [];
       if (!results || results.length === 0) continue;
 
-      // Find the best match among iTunes results
-      const match = results.find((item: any) => {
-        if (!item.trackName) return false;
-        const itemTrack = cleanTitle(item.trackName);
-        const itemArtist = cleanArtistName(item.artistName || '');
+      // Score and rank candidates from iTunes
+      const candidates = results
+        .map((item: any) => {
+          if (!item || !item.trackName || !item.artistName) return null;
+          const itemTrack = cleanTitle(item.trackName);
+          const itemArtist = cleanArtistName(item.artistName);
+          const itemAlbum = item.collectionName ? cleanTitle(item.collectionName) : '';
 
-        const titleSim = Math.max(
-          tokenSimilarity(itemTrack, cleanT),
-          tokenSimilarity(itemTrack, firstSegClean)
-        );
-        if (titleSim >= 0.7) return true;
+          const isTribute = TRIBUTE_PATTERN.test(`${itemArtist} ${itemAlbum}`);
 
-        if (isRelatedMatch(itemTrack, itemArtist, rawTrack, rawArtist)) return true;
-        return false;
-      }) || results[0];
+          const titleSimDirect = Math.max(
+            tokenSimilarity(itemTrack, cleanT),
+            tokenSimilarity(itemTrack, firstSegClean)
+          );
+          const artistSimDirect = tokenSimilarity(itemArtist, cleanA);
+          const albumSimDirect = itemAlbum && cleanA ? tokenSimilarity(itemAlbum, cleanA) : 0;
 
-      if (match && match.trackName && match.artistName) {
+          const titleSimInverted = tokenSimilarity(itemTrack, cleanA);
+          let artistSimInverted = 0;
+          for (const seg of [firstSegClean, ...remainingSegs]) {
+            const sim = tokenSimilarity(itemArtist, seg);
+            if (sim > artistSimInverted) artistSimInverted = sim;
+          }
+
+          let score = 0;
+          let isDirect = true;
+
+          if (titleSimDirect >= 0.6) {
+            score = titleSimDirect * 3;
+            if (!isLabel && cleanA && cleanA.toLowerCase() !== 'unknown artist') {
+              if (artistSimDirect >= 0.35) {
+                score += artistSimDirect * 6;
+              } else if (albumSimDirect >= 0.5 && !isTribute) {
+                score += albumSimDirect * 2.5;
+              } else if (!isRecordLabelOrUploader(itemArtist)) {
+                score -= 4;
+              }
+            }
+            if (isRelatedMatch(itemTrack, itemArtist, rawTrack, rawArtist)) {
+              score += 2;
+            }
+          } else if (titleSimInverted >= 0.65) {
+            score = titleSimInverted * 3 + artistSimInverted * 3;
+            isDirect = false;
+          }
+
+          if (isTribute && !TRIBUTE_PATTERN.test(`${cleanA} ${cleanT}`)) {
+            score -= 5;
+          }
+
+          return { item, score, titleSim: isDirect ? titleSimDirect : titleSimInverted };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null && c.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      const best = candidates[0];
+      if (best && (best.score >= 2.5 || (isLabel && best.titleSim >= 0.75))) {
+        const match = best.item;
         const canonical: CanonicalMetadata = {
           trackName: match.trackName,
           artistName: match.artistName,
@@ -866,7 +923,7 @@ export async function fetchAmllLyrics(
       try {
         const res = await fetchWithTimeout(
           url,
-          { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } },
+          {},
           3500
         );
         if (!res.ok) continue;
@@ -899,7 +956,7 @@ export async function fetchAmllLyrics(
           try {
             const getRes = await fetchWithTimeout(
               `https://api.amll.dev/v1/lyrics/get?id=${best.id}`,
-              { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } },
+              {},
               3500
             );
             if (getRes.ok) {
@@ -1015,7 +1072,7 @@ export async function fetchLrclibLyrics(
 
       for (const url of getUrls) {
         try {
-          const res = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } }, 3500);
+          const res = await fetchWithTimeout(url, {}, 3500);
           if (res.status === 404) break;
           if (res.ok) {
             const data = await res.json();
@@ -1077,7 +1134,7 @@ export async function fetchLrclibLyrics(
 
     for (const url of canonicalUrls) {
       try {
-        const res = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } }, 3500);
+        const res = await fetchWithTimeout(url, {}, 3500);
         if (res.status === 404) break;
         if (res.ok) {
           const data = await res.json();
@@ -1149,7 +1206,7 @@ export async function fetchLrclibLyrics(
 
     for (const url of searchUrls) {
       try {
-        const res = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Auralis-Music-Player/2.0' } }, 3500);
+        const res = await fetchWithTimeout(url, {}, 3500);
         if (res.ok) {
           const results = await res.json();
           const matches = Array.isArray(results) ? results : results.results;
