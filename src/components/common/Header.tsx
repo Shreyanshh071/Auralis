@@ -6,27 +6,18 @@ import {
   Command,
   ChevronLeft,
   ChevronRight,
-  LogOut,
-  Cloud,
   Loader2,
   AlertTriangle,
-  Sun,
-  Moon,
-  Monitor,
-  Check,
   Radio,
   User,
-  MonitorPlay,
 } from 'lucide-react';
 import { searchYouTube, SearchUnavailableError } from '../../services/youtube';
 import { getSearchSuggestions } from '../../services/searchSuggestions';
-import type { Track, ThemeMode } from '../../types/music';
+import type { Track } from '../../types/music';
 import { usePlayer } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
 import { useListenTogether } from '../../context/ListenTogetherContext';
-import { isSignInCancellation } from '../../services/googleSignIn';
 import { isLetterboxedThumbnail } from '../../services/artwork';
-import { YouTubeSyncModal } from '../modals/YouTubeSyncModal';
 
 interface HeaderProps {
   onSearchSelect?: (track: Track) => void;
@@ -37,7 +28,18 @@ interface HeaderProps {
    * query so it actually reaches the Explore view instead of being dropped.
    */
   onSubmitSearch?: (query: string) => void;
+  /** Opens the Account / Profile modal (from the top-right profile icon). */
+  onOpenAccount: () => void;
 }
+
+/** Human-readable title shown on the mobile header for each docked tab. */
+const VIEW_TITLES: Record<string, string> = {
+  home: 'Home',
+  explore: 'Search',
+  search: 'Search',
+  library: 'Your Library',
+  favorites: 'Liked Songs',
+};
 
 // Simple view history stack for real back/forward navigation
 const viewHistory: string[] = ['home'];
@@ -48,27 +50,21 @@ export const Header: React.FC<HeaderProps> = ({
   activeView,
   setActiveView,
   onSubmitSearch,
+  onOpenAccount,
 }) => {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [results, setResults] = useState<Track[]>([]);
   const [isOpenDropdown, setIsOpenDropdown] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
   /** Non-null when the typeahead search could not reach any provider. */
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const { playTrack, showToast, theme, effectiveTheme, setTheme } = usePlayer();
-  const { user, isSyncing, isAuthAvailable, authError, lastSyncedAt, signInWithGoogle, logout } =
-    useAuth();
+  const { playTrack } = usePlayer();
+  const { user } = useAuth();
   const { isInRoom, isHost, roomCode, members, setIsModalOpen } = useListenTogether();
-  const [isYouTubeSyncOpen, setIsYouTubeSyncOpen] = useState(false);
-  
+
   const searchContainerRef = useRef<HTMLDivElement>(null);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-  const themeMenuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Track view changes in history
@@ -162,7 +158,7 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, [query]);
 
-  // Click outside search, user menu, and theme menu
+  // Click outside search closes the dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -170,18 +166,6 @@ export const Header: React.FC<HeaderProps> = ({
         !searchContainerRef.current.contains(event.target as Node)
       ) {
         setIsOpenDropdown(false);
-      }
-      if (
-        userMenuRef.current &&
-        !userMenuRef.current.contains(event.target as Node)
-      ) {
-        setIsUserMenuOpen(false);
-      }
-      if (
-        themeMenuRef.current &&
-        !themeMenuRef.current.contains(event.target as Node)
-      ) {
-        setIsThemeMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -218,42 +202,20 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  const handleLogin = async () => {
-    if (!isAuthAvailable) {
-      // Do not show a success state for something that cannot happen.
-      showToast(authError ?? 'Sign-in is not configured for this build.', 'error');
-      return;
-    }
-    try {
-      setIsLoggingIn(true);
-      await signInWithGoogle();
-      showToast('Signed in with Google', 'success');
-    } catch (err: any) {
-      // A user-cancelled sign-in (web popup closed, or native sheet dismissed)
-      // is not an error — stay silent. Surface everything else.
-      if (!isSignInCancellation(err)) {
-        showToast(err?.message || 'Sign-in failed.', 'error');
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      setIsUserMenuOpen(false);
-      showToast('Signed out', 'info');
-    } catch (err) {
-      showToast('Error signing out', 'error');
-    }
-  };
-
   return (
-    <>
     <header className="sticky top-0 z-30 flex items-center justify-between px-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] sm:px-6 md:px-8 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-3 backdrop-blur-2xl bg-[var(--bg-header)] border-b border-[var(--border-subtle)] text-[var(--text-primary)] transition-colors duration-200 gap-2 sm:gap-3 md:gap-4">
-      {/* Navigation history arrows + Flexible Search */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0" ref={searchContainerRef}>
+      {/* Mobile: the docked-tab view title. The search box is intentionally
+          absent here — the bottom dock has a dedicated Search tab, so a second
+          search field in the header would be redundant. */}
+      <div className="flex md:hidden items-center min-w-0 flex-1">
+        <h1 className="text-lg font-black font-display truncate text-[var(--text-primary)]">
+          {VIEW_TITLES[activeView] ?? 'Auralis'}
+        </h1>
+      </div>
+
+      {/* Desktop: navigation history arrows + flexible search. Kept on desktop
+          because the desktop sidebar has no search field of its own. */}
+      <div className="hidden md:flex items-center gap-2 sm:gap-3 flex-1 min-w-0" ref={searchContainerRef}>
         <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
           <button
             onClick={goBack}
@@ -457,228 +419,36 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
 
-        {/* Theme Toggle Menu */}
-        <div className="relative flex-shrink-0" ref={themeMenuRef}>
-          <button
-            onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
-            className="p-2 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer"
-            title={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)} (${effectiveTheme})`}
-            aria-label="Toggle theme mode"
-          >
-            {theme === 'system' ? (
-              <Monitor className="w-4 h-4" />
-            ) : effectiveTheme === 'dark' ? (
-              <Moon className="w-4 h-4" />
+        {/* Profile / Account — opens the full Account modal (item 5). The theme
+            selector, cloud-sync toggle, YouTube sync, importer, sleep timer and
+            legal links all live inside that modal now, so the header stays to a
+            single tap target here. */}
+        <button
+          onClick={onOpenAccount}
+          className="p-0.5 rounded-full hover:ring-2 hover:ring-[var(--m3-primary-40)] transition flex items-center justify-center cursor-pointer focus:outline-none flex-shrink-0"
+          title={user ? (user.displayName || user.email || 'Account') : 'Account & Sign In'}
+          aria-label="Account"
+        >
+          {user ? (
+            user.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt={user.displayName || 'User'}
+                className="w-8 h-8 rounded-full object-cover ring-1 ring-emerald-500/50"
+              />
             ) : (
-              <Sun className="w-4 h-4 text-amber-500" />
-            )}
-          </button>
-
-          {/* Theme Dropdown */}
-          {isThemeMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-40 p-1.5 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)] mb-1">
-                Theme
+              <div className="w-8 h-8 rounded-full bg-[var(--m3-primary)] flex items-center justify-center text-xs font-bold text-[var(--m3-on-primary)] shadow-sm">
+                {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
               </div>
-              {(
-                [
-                  { id: 'dark', label: 'Dark', icon: Moon },
-                  { id: 'light', label: 'Light', icon: Sun },
-                  { id: 'system', label: 'System', icon: Monitor },
-                ] as const
-              ).map((opt) => {
-                const IconComponent = opt.icon;
-                const isSelected = theme === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    onClick={() => {
-                      setTheme(opt.id);
-                      setIsThemeMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
-                      isSelected
-                        ? 'bg-[var(--bg-surface-hover)] text-[var(--text-primary)] font-bold'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <IconComponent className="w-3.5 h-3.5" />
-                      <span>{opt.label}</span>
-                    </div>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-[var(--m3-primary)]" />}
-                  </button>
-                );
-              })}
+            )
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition">
+              <User className="w-4 h-4" />
             </div>
           )}
-        </div>
-
-        {/* Google Sign In Button (when signed out). Hidden below `lg` for the
-            same width reason as the label above — the profile circle's dropdown
-            carries the identical "Sign In with Google" action there. */}
-        {!user && (
-          <button
-            onClick={handleLogin}
-            disabled={isLoggingIn || !isAuthAvailable}
-            className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] transition cursor-pointer shadow-sm active:scale-95 flex-shrink-0"
-            title="Sign In with Google"
-          >
-            {isLoggingIn ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--m3-primary)]" />
-            ) : (
-              <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z" />
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z" />
-                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
-              </svg>
-            )}
-            <span>Sign In</span>
-          </button>
-        )}
-
-        {/* User / Google Profile Circle Button at FAR TOP-RIGHT */}
-        <div className="relative flex-shrink-0" ref={userMenuRef}>
-          <button
-            onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-            className="p-0.5 rounded-full hover:ring-2 hover:ring-[var(--m3-primary-40)] transition flex items-center justify-center cursor-pointer focus:outline-none flex-shrink-0"
-            title={user ? (user.displayName || user.email || 'Account') : 'Account & Sign In'}
-            aria-label="User Account"
-          >
-            {user ? (
-              user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || 'User'}
-                  className="w-8 h-8 rounded-full object-cover ring-1 ring-emerald-500/50"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-[var(--m3-primary)] flex items-center justify-center text-xs font-bold text-[var(--m3-on-primary)] shadow-sm">
-                  {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                </div>
-              )
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition">
-                <User className="w-4 h-4" />
-              </div>
-            )}
-          </button>
-
-          {/* User Dropdown Menu (Account / Sign-in) */}
-          {isUserMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-64 p-2 bg-[var(--bg-popover)] border border-[var(--border-medium)] rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              {user ? (
-                <>
-                  <div className="px-3 py-2.5 border-b border-[var(--border-subtle)] mb-1">
-                    <p className="text-xs font-bold text-[var(--text-primary)] truncate">
-                      {user.displayName || 'Auralis User'}
-                    </p>
-                    <p className="text-[11px] text-[var(--text-muted)] truncate">{user.email}</p>
-                    <div className="mt-2 space-y-1">
-                      {authError ? (
-                        <div className="flex items-start gap-1.5 text-[10px] text-amber-400">
-                          <AlertTriangle className="w-3 h-3 mt-px flex-shrink-0" />
-                          <span className="leading-snug">{authError}</span>
-                        </div>
-                      ) : isSyncing ? (
-                        <div className="flex items-center gap-1.5 text-[10px] text-sky-400">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          <span>Syncing…</span>
-                        </div>
-                      ) : lastSyncedAt ? (
-                        <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-                          <Cloud className="w-3 h-3" />
-                          <span>Favorites &amp; playlists synced</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
-                          <Cloud className="w-3 h-3" />
-                          <span>Not yet synced</span>
-                        </div>
-                      )}
-                      <p className="text-[10px] text-[var(--text-muted)] leading-snug">
-                        Auralis favorites &amp; playlists synced via cloud.
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      setIsYouTubeSyncOpen(true);
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] rounded-xl transition cursor-pointer"
-                  >
-                    <MonitorPlay className="w-3.5 h-3.5 text-red-500" />
-                    <span>YouTube Sync</span>
-                  </button>
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
-                </>
-              ) : (
-                <div className="p-3 text-center space-y-3">
-                  <div className="w-10 h-10 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center mx-auto text-[var(--text-secondary)]">
-                    <User className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-[var(--text-primary)]">Sync your Music</h4>
-                    <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                      Sign in with Google to sync your playlists and liked songs across devices.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleLogin}
-                    disabled={isLoggingIn || !isAuthAvailable}
-                    className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl font-bold text-xs transition shadow-sm cursor-pointer ${
-                      isAuthAvailable
-                        ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 active:scale-95'
-                        : 'bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)] cursor-not-allowed'
-                    }`}
-                  >
-                    {isLoggingIn ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path
-                          fill="#4285F4"
-                          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                        />
-                        <path
-                          fill="#EA4335"
-                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                        />
-                      </svg>
-                    )}
-                    <span>{isAuthAvailable ? 'Sign In with Google' : 'Sign-in unavailable'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        </button>
       </div>
     </header>
-
-    <YouTubeSyncModal
-      isOpen={isYouTubeSyncOpen}
-      onClose={() => setIsYouTubeSyncOpen(false)}
-    />
-    </>
   );
 };
 

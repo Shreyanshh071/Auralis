@@ -13,7 +13,7 @@
  */
 
 import type { Track, SavedArtist, SavedAlbum } from '../types/music';
-import { searchYouTube, SearchUnavailableError } from '../services/youtube';
+import { searchYouTube } from '../services/youtube';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -206,9 +206,14 @@ export async function fetchBecauseYouListenTo(
   };
 
   try {
+    // Several phrasings, tried in order until we have enough. A bare artist
+    // name sometimes returns their channel/topic rather than songs, so the
+    // "songs"/"hits" variants act as resilient fallbacks.
     const queries = [
-      `${artistName}`,
+      `${artistName} songs`,
       `${artistName} best songs`,
+      `${artistName} greatest hits`,
+      `${artistName}`,
     ];
     const allTracks: Track[] = [];
     for (const q of queries) {
@@ -222,13 +227,10 @@ export async function fetchBecauseYouListenTo(
       if (allTracks.length >= 8) break;
     }
     section.tracks = allTracks.slice(0, 8);
-    if (section.tracks.length === 0) {
-      section.error = 'No tracks found for this section';
-    }
-  } catch (err) {
-    section.error = err instanceof SearchUnavailableError
-      ? 'Search unavailable right now'
-      : 'Could not load recommendations';
+    // No "No tracks found" error here: an empty personalised section is simply
+    // dropped by the caller so the Home feed never shows a broken yellow card.
+  } catch {
+    // Swallow — an empty section is filtered out upstream, never surfaced.
   }
 
   return section;
@@ -250,7 +252,12 @@ export async function fetchMoreLikeThis(
   try {
     const allTracks: Track[] = [];
     for (const artist of artistNames.slice(0, 3)) {
-      const results = await cachedSearch(`${artist} music`, existingIds, 4);
+      // "<artist> songs" resolves to actual tracks more reliably than the bare
+      // "<artist> music" phrasing, which sometimes surfaces topic channels.
+      let results = await cachedSearch(`${artist} songs`, existingIds, 4);
+      if (results.length === 0) {
+        results = await cachedSearch(`${artist} popular songs`, existingIds, 4);
+      }
       results.forEach((t) => {
         if (!allTracks.some((e) => e.id === t.id)) {
           allTracks.push(t);
@@ -259,13 +266,9 @@ export async function fetchMoreLikeThis(
       });
     }
     section.tracks = allTracks.slice(0, 8);
-    if (section.tracks.length === 0) {
-      section.error = 'No tracks found for this section';
-    }
-  } catch (err) {
-    section.error = err instanceof SearchUnavailableError
-      ? 'Search unavailable right now'
-      : 'Could not load recommendations';
+    // No error on empty — the caller drops empty sections silently.
+  } catch {
+    // Swallow; an empty section is filtered out upstream.
   }
 
   return section;
@@ -287,7 +290,10 @@ export async function fetchRecentTaste(
   try {
     const allTracks: Track[] = [];
     for (const artist of recentArtists.slice(0, 4)) {
-      const results = await cachedSearch(`${artist} songs`, existingIds, 3);
+      let results = await cachedSearch(`${artist} songs`, existingIds, 3);
+      if (results.length === 0) {
+        results = await cachedSearch(`${artist} best songs`, existingIds, 3);
+      }
       results.forEach((t) => {
         if (!allTracks.some((e) => e.id === t.id)) {
           allTracks.push(t);
@@ -296,13 +302,9 @@ export async function fetchRecentTaste(
       });
     }
     section.tracks = allTracks.slice(0, 8);
-    if (section.tracks.length === 0) {
-      section.error = 'No tracks found for this section';
-    }
-  } catch (err) {
-    section.error = err instanceof SearchUnavailableError
-      ? 'Search unavailable right now'
-      : 'Could not load recommendations';
+    // No error on empty — the caller drops empty sections silently.
+  } catch {
+    // Swallow; an empty section is filtered out upstream.
   }
 
   return section;
@@ -340,13 +342,11 @@ export async function fetchColdStartDiscovery(
       const results = await cachedSearch(cat.query, existingIds, 6);
       results.forEach((t) => existingIds.add(t.id));
       section.tracks = results;
-    } catch (err) {
-      section.error = err instanceof SearchUnavailableError
-        ? 'Search unavailable right now'
-        : 'Could not load this section';
+    } catch {
+      // Leave the section empty; it is dropped below rather than shown broken.
     }
 
-    if (section.tracks.length > 0 || section.error) {
+    if (section.tracks.length > 0) {
       sections.push(section);
     }
   }
@@ -421,7 +421,7 @@ export async function generateRecommendations(
     sectionPromises.push(
       fetchBecauseYouListenTo(topArtist, existingIds)
         .then((section) => {
-          if (section.tracks.length > 0 || section.error) {
+          if (section.tracks.length > 0) {
             onSectionReady?.(section);
             // Also augment quick picks from top artist
             section.tracks.slice(0, 3).forEach((t) => {
@@ -441,7 +441,7 @@ export async function generateRecommendations(
     sectionPromises.push(
       fetchMoreLikeThis(secondaryArtists, existingIds)
         .then((section) => {
-          if (section.tracks.length > 0 || section.error) {
+          if (section.tracks.length > 0) {
             onSectionReady?.(section);
             return section;
           }
@@ -456,7 +456,7 @@ export async function generateRecommendations(
     sectionPromises.push(
       fetchRecentTaste(profile.recentArtists, existingIds)
         .then((section) => {
-          if (section.tracks.length > 0 || section.error) {
+          if (section.tracks.length > 0) {
             onSectionReady?.(section);
             return section;
           }
@@ -487,6 +487,38 @@ export async function generateRecommendations(
   for (const result of settled) {
     if (result.status === 'fulfilled' && result.value) {
       allSections.push(result.value);
+    }
+  }
+
+  // Resilience net: if every personalised query came back empty (offline burst,
+  // provider hiccup, or an artist name that resolves poorly), fall back to the
+  // popular/trending discovery genres so the Home feed is never blank. These are
+  // real search results, not placeholders — they simply aren't personalised.
+  if (allSections.length === 0) {
+    try {
+      const fallback = await fetchColdStartDiscovery(existingIds);
+      fallback.forEach((s) => {
+        allSections.push(s);
+        onSectionReady?.(s);
+      });
+    } catch {
+      // Nothing more we can do; HomeView still shows quick picks / its own retry.
+    }
+  }
+
+  // Backfill quick picks with a trending mix if local data left them thin, so
+  // the top shelf always has something to play.
+  if (quickPicks.length < 4) {
+    try {
+      const trending = await cachedSearch('top hits this week', existingIds, 8);
+      trending.forEach((t) => {
+        if (!quickPicks.some((q) => q.id === t.id)) {
+          quickPicks.push(t);
+          existingIds.add(t.id);
+        }
+      });
+    } catch {
+      // Quick picks stay as-is; not fatal.
     }
   }
 
