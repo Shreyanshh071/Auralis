@@ -14,6 +14,7 @@ import { MobileNav } from './components/common/MobileNav';
 import { CreatePlaylistModal } from './components/modals/CreatePlaylistModal';
 import { ListenTogetherModal } from './components/modals/ListenTogetherModal';
 import { LegalModal, type LegalTab } from './components/modals/LegalModal';
+import { AccountModal } from './components/modals/AccountModal';
 import { ToastContainer } from './components/common/Toast';
 import { extractRoomCodeFromUrl } from './lib/listenTogether';
 import type { Track } from './types/music';
@@ -29,6 +30,7 @@ const AppContent: React.FC = () => {
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
   const [isLegalOpen, setIsLegalOpen] = useState<boolean>(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('privacy');
+  const [isAccountOpen, setIsAccountOpen] = useState<boolean>(false);
   // A playlist the Library should open as soon as it mounts, set when one is
   // clicked in the sidebar. Cleared by the Library once consumed, so switching
   // away and back does not reopen it.
@@ -126,6 +128,7 @@ const AppContent: React.FC = () => {
           setActiveView={setActiveView}
           onSearchSelect={handleSearchSelect}
           onSubmitSearch={handleSelectGenre}
+          onOpenAccount={() => setIsAccountOpen(true)}
         />
 
         <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 pb-[var(--content-bottom)]">
@@ -176,6 +179,16 @@ const AppContent: React.FC = () => {
         isOpen={isLegalOpen}
         initialTab={legalTab}
         onClose={() => setIsLegalOpen(false)}
+      />
+
+      {/* Account / Profile Modal — sign-in, cloud sync, playlist import, settings */}
+      <AccountModal
+        isOpen={isAccountOpen}
+        onClose={() => setIsAccountOpen(false)}
+        onOpenLegal={(tab) => {
+          setLegalTab(tab);
+          setIsLegalOpen(true);
+        }}
       />
 
       {/* Toast Notifications */}
