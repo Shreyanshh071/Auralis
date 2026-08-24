@@ -524,13 +524,19 @@ export interface ProviderEndpoint {
 }
 
 export const PUBLIC_SEARCH_PROVIDERS: ProviderEndpoint[] = [
+  { url: (q) => `https://pipedapi.adminforge.de/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.r4fo.com/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://api-piped.mha.fi/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.ducks.party/search?q=${q}&filter=all`, provider: 'piped' },
+  { url: (q) => `https://invidious.asir.dev/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://invidious.drgns.space/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://invidious.nerdvpn.de/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://yt.artemislena.eu/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://invidious.jing.rocks/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://inv.nadeko.net/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
   { url: (q) => `https://pipedapi.kavin.rocks/search?q=${q}&filter=all`, provider: 'piped' },
   { url: (q) => `https://pipedapi.leptons.xyz/search?q=${q}&filter=all`, provider: 'piped' },
   { url: (q) => `https://api.piped.privacydev.net/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://pipedapi.tokhmi.xyz/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://invidious.jing.rocks/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://inv.nadeko.net/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://invidious.nerdvpn.de/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
   { url: (q) => `https://iv.ggtyler.dev/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
   { url: (q) => `https://invidious.private.coffee/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
 ];

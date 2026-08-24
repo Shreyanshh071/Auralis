@@ -126,9 +126,36 @@ export function tokenSimilarity(a: string, b: string): number {
   return (2 * overlap) / (ta.length + tb.length);
 }
 
+export interface CanonicalMetadata {
+  trackName: string;
+  artistName: string;
+  duration?: number;
+  album?: string;
+  artworkUrl?: string;
+}
+
 export interface TrackArtistPair {
   track: string;
   artist: string;
+}
+
+const RECORD_LABELS = new Set([
+  't-series', 'tseries', 'zee music company', 'zeemusiccompany', 'sony music india',
+  'sonymusicindia', 'sony music', 'sonymusic', 'speed records', 'saregama',
+  'saregama music', 'tips official', 'tips music', 'yrf', 'yash raj films',
+  'aditya music', 'lahari music', 'lyrical lemonade', 'spinnin records',
+  'spinnin\' records', 'monstercat', 'warner music', 'universal music',
+  'universal music group', 'universal music india', 'atlantic records',
+  'def jam', 'eros now', 'times music', 'white hill music', 'geet mp3',
+  'desi music factory', 'dm - desi music factory', 'vyrl originals', 'svf',
+]);
+
+/** Check if an artist name represents a YouTube record label or publisher channel rather than the actual musician. */
+export function isRecordLabelOrUploader(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+  const norm = normalizeForMatch(name).replace(/\s+/g, '');
+  if (RECORD_LABELS.has(normalizeForMatch(name)) || RECORD_LABELS.has(norm)) return true;
+  return /(tseries|sonymusic|zeemusic|saregama|yrf|tipsofficial|spinninrecords|monstercat|vevo|officialchannel|records|musiccompany|official$)/i.test(norm);
 }
 
 /**
@@ -442,6 +469,8 @@ export function isRelatedMatch(
     !cleanWantArtist ||
     cleanWantArtist === 'Various Artists' ||
     cleanWantArtist.toLowerCase() === 'unknown artist' ||
+    isRecordLabelOrUploader(cleanCandArtist) ||
+    isRecordLabelOrUploader(cleanWantArtist) ||
     /topic|channel|vevo|official/i.test(cleanCandArtist) ||
     /topic|channel|vevo|official/i.test(cleanWantArtist);
 
@@ -704,6 +733,109 @@ function setCachedLyrics(key: string, data: LyricsData | null): void {
     if (oldestKey) lyricsCache.delete(oldestKey);
   }
   lyricsCache.set(key, { data, timestamp: Date.now() });
+}
+
+// In-memory cache for canonical metadata lookups
+const canonicalMetadataCache = new Map<string, { data: CanonicalMetadata | null; timestamp: number }>();
+const CANONICAL_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
+
+/**
+ * Resolve canonical track and artist metadata using iTunes / Apple Music search API.
+ * Standardizes noisy YouTube video titles and record label channels into clean
+ * track title, official artist, and studio duration tags.
+ */
+export async function resolveCanonicalMetadata(
+  rawTrack: string,
+  rawArtist: string
+): Promise<CanonicalMetadata | null> {
+  if (!rawTrack || typeof rawTrack !== 'string') return null;
+
+  const cacheKey = `${(rawTrack || '').toLowerCase()}:::${(rawArtist || '').toLowerCase()}`;
+  const cached = canonicalMetadataCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CANONICAL_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  const cleanT = cleanTitle(rawTrack);
+  const cleanA = cleanArtistName(rawArtist);
+  if (!cleanT) return null;
+
+  const queries: string[] = [];
+  const isLabel = isRecordLabelOrUploader(rawArtist);
+
+  // If title is segmented ("Song - Movie | Singer 1 | Singer 2"), extract candidate search queries
+  const segs = rawTrack.split(/\s*[-–—:|~•]+\s*/).map((s) => s.trim()).filter(Boolean);
+  const firstSegClean = cleanTitle(segs[0] || cleanT);
+
+  if (firstSegClean && segs.length > 1) {
+    const remainingSegs = segs.slice(1).map(cleanTitle).filter((s) => s && !isRecordLabelOrUploader(s));
+    if (remainingSegs.length > 0) {
+      queries.push(`${firstSegClean} ${remainingSegs[0]}`);
+    }
+  }
+
+  if (!isLabel && cleanA && cleanA.toLowerCase() !== 'unknown artist') {
+    queries.push(`${cleanT} ${cleanA}`);
+    if (firstSegClean && firstSegClean !== cleanT) {
+      queries.push(`${firstSegClean} ${cleanA}`);
+    }
+  } else {
+    queries.push(cleanT);
+    if (firstSegClean && firstSegClean !== cleanT) {
+      queries.push(firstSegClean);
+    }
+  }
+
+  const uniqueQueries = [...new Set(queries.filter(Boolean))].slice(0, 3);
+
+  for (const q of uniqueQueries) {
+    try {
+      const res = await fetchWithTimeout(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=5`,
+        {},
+        3000
+      );
+      if (!res.ok) continue;
+
+      const body = await res.json();
+      const results: any[] = body?.results || [];
+      if (!results || results.length === 0) continue;
+
+      // Find the best match among iTunes results
+      const match = results.find((item: any) => {
+        if (!item.trackName) return false;
+        const itemTrack = cleanTitle(item.trackName);
+        const itemArtist = cleanArtistName(item.artistName || '');
+
+        const titleSim = Math.max(
+          tokenSimilarity(itemTrack, cleanT),
+          tokenSimilarity(itemTrack, firstSegClean)
+        );
+        if (titleSim >= 0.7) return true;
+
+        if (isRelatedMatch(itemTrack, itemArtist, rawTrack, rawArtist)) return true;
+        return false;
+      }) || results[0];
+
+      if (match && match.trackName && match.artistName) {
+        const canonical: CanonicalMetadata = {
+          trackName: match.trackName,
+          artistName: match.artistName,
+          duration: match.trackTimeMillis ? Math.round(match.trackTimeMillis / 1000) : undefined,
+          album: match.collectionName,
+          artworkUrl: match.artworkUrl100 ? match.artworkUrl100.replace('100x100bb', '600x600bb') : undefined,
+        };
+
+        canonicalMetadataCache.set(cacheKey, { data: canonical, timestamp: Date.now() });
+        return canonical;
+      }
+    } catch {
+      // Continue to next query if network or parse error
+    }
+  }
+
+  canonicalMetadataCache.set(cacheKey, { data: null, timestamp: Date.now() });
+  return null;
 }
 
 /**
@@ -1151,7 +1283,41 @@ export async function fetchLyrics(
   const rendition = detectRendition(trackName);
   const mustDowngradeSync = rendition.tempoAltered || rendition.alternateVersion;
 
+  // 0. Resolve canonical metadata from iTunes to normalize YouTube noise
+  let canonical: CanonicalMetadata | null = null;
+  try {
+    canonical = await resolveCanonicalMetadata(trackName, artistName);
+    if (canonical) {
+      console.info('[Lyrics:CanonicalMeta]', {
+        videoId,
+        originalTrack: trackName,
+        originalArtist: artistName,
+        canonicalTrack: canonical.trackName,
+        canonicalArtist: canonical.artistName,
+        canonicalDuration: canonical.duration,
+      });
+    }
+  } catch {}
+
   // 1. Check AMLL TTML Database for authentic word-level richsync
+  // Tier 1a: With Canonical Metadata (exact studio track tags)
+  if (canonical) {
+    try {
+      const amllResult = await fetchAmllLyrics(
+        canonical.trackName,
+        canonical.artistName,
+        canonical.duration || duration,
+        mustDowngradeSync,
+        videoId
+      );
+      if (amllResult && (amllResult.lines.length > 0 || amllResult.plainLyrics)) {
+        setCachedLyrics(normKey, amllResult);
+        return amllResult;
+      }
+    } catch {}
+  }
+
+  // Tier 1b: With Raw Input Metadata
   try {
     const amllResult = await fetchAmllLyrics(
       trackName,
@@ -1169,6 +1335,24 @@ export async function fetchLyrics(
   }
 
   // 2. Multi-tier LRCLIB lookup
+  // Tier 2a: With Canonical Metadata
+  if (canonical) {
+    try {
+      const lrclibResult = await fetchLrclibLyrics(
+        canonical.trackName,
+        canonical.artistName,
+        canonical.duration || duration,
+        mustDowngradeSync,
+        videoId
+      );
+      if (lrclibResult && (lrclibResult.lines.length > 0 || lrclibResult.plainLyrics)) {
+        setCachedLyrics(normKey, lrclibResult);
+        return lrclibResult;
+      }
+    } catch {}
+  }
+
+  // Tier 2b: With Raw Input Metadata
   try {
     const lrclibResult = await fetchLrclibLyrics(
       trackName,
