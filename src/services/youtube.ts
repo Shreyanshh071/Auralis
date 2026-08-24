@@ -1,4 +1,6 @@
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import type { Artist, PlaylistResult, SearchResults, Track } from '../types/music';
+import { searchCache, normalizeSearchKey, getInFlightSearch, setInFlightSearch } from './searchCache.ts';
 
 /**
  * OPTIONAL DEMO CONTENT — not search results, not recommendations.
@@ -180,9 +182,7 @@ export const GENRES = [
   { id: 'rnb', name: 'R&B / Soul', query: 'r&b soul smooth hits', gradient: 'from-purple-500/20 to-indigo-600/20' },
 ];
 
-// Memory cache for search responses. Only non-empty result sets are cached, so a
-// zero-result or failed query is always retried rather than remembered.
-const resultsCache = new Map<string, SearchResults>();
+
 
 /**
  * Thrown when every search provider was unreachable or errored.
@@ -538,22 +538,187 @@ export interface ProviderEndpoint {
 }
 
 export const PUBLIC_SEARCH_PROVIDERS: ProviderEndpoint[] = [
-  { url: (q) => `https://pipedapi.adminforge.de/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://pipedapi.r4fo.com/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://api-piped.mha.fi/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://pipedapi.ducks.party/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://invidious.asir.dev/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://invidious.drgns.space/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://invidious.nerdvpn.de/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://yt.artemislena.eu/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://invidious.jing.rocks/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://inv.nadeko.net/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://pipedapi.kavin.rocks/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://pipedapi.leptons.xyz/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://api.piped.privacydev.net/search?q=${q}&filter=all`, provider: 'piped' },
-  { url: (q) => `https://iv.ggtyler.dev/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
-  { url: (q) => `https://invidious.private.coffee/api/v1/search?q=${q}&type=all`, provider: 'invidious' },
+  { url: (q) => `https://pipedapi.adminforge.de/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.r4fo.com/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://api-piped.mha.fi/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.ducks.party/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://invidious.asir.dev/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://invidious.drgns.space/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://invidious.nerdvpn.de/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://yt.artemislena.eu/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://invidious.jing.rocks/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://inv.nadeko.net/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://pipedapi.kavin.rocks/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://pipedapi.leptons.xyz/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://api.piped.privacydev.net/search?q=${q}&filter=music_songs`, provider: 'piped' },
+  { url: (q) => `https://iv.ggtyler.dev/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
+  { url: (q) => `https://invidious.private.coffee/api/v1/search?q=${q}&type=video`, provider: 'invidious' },
 ];
+
+export interface UniversalRequestOptions {
+  method?: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  data?: any;
+  params?: Record<string, string>;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+export interface UniversalResponse<T = any> {
+  ok: boolean;
+  status: number;
+  data: T;
+}
+
+/**
+ * Universal network transport adapter.
+ * On Native Android (Capacitor), uses CapacitorHttp to run requests through
+ * native OkHttp sockets, bypassing WebView CORS boundaries and connection overhead.
+ * On Web/Node, uses standard fetch with AbortSignal timeouts.
+ */
+export async function universalFetch<T = any>(
+  url: string,
+  options: UniversalRequestOptions = {}
+): Promise<UniversalResponse<T>> {
+  const { method = 'GET', headers = {}, data, params, signal, timeoutMs = 3000 } = options;
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const capRes = await CapacitorHttp.request({
+        url,
+        method,
+        headers: {
+          Accept: 'application/json',
+          ...headers,
+        },
+        data,
+        params,
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs,
+      });
+
+      const ok = capRes.status >= 200 && capRes.status < 300;
+      let parsedData = capRes.data;
+      if (typeof parsedData === 'string') {
+        try {
+          parsedData = JSON.parse(parsedData);
+        } catch {
+          // Keep as string if not JSON
+        }
+      }
+
+      return {
+        ok,
+        status: capRes.status,
+        data: parsedData as T,
+      };
+    } catch {
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted', 'AbortError');
+      }
+      return {
+        ok: false,
+        status: 0,
+        data: null as any,
+      };
+    }
+  }
+
+  // Web / Dev / Node fallback:
+  let fullUrl = url;
+  if (params && Object.keys(params).length > 0) {
+    const u = new URL(url, typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost');
+    for (const [k, v] of Object.entries(params)) {
+      u.searchParams.set(k, v);
+    }
+    fullUrl = u.toString();
+  }
+
+  const timeoutSignal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined;
+  const mergedSignal = signal && timeoutSignal
+    ? (typeof AbortSignal !== 'undefined' && AbortSignal.any ? AbortSignal.any([signal, timeoutSignal]) : signal)
+    : signal || timeoutSignal;
+
+  const res = await fetch(fullUrl, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      ...(data ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    },
+    body: data ? (typeof data === 'string' ? data : JSON.stringify(data)) : undefined,
+    signal: mergedSignal,
+  });
+
+  let parsed: any = null;
+  if (res.ok) {
+    try {
+      parsed = await res.json();
+    } catch {
+      parsed = null;
+    }
+  }
+
+  return {
+    ok: res.ok,
+    status: res.status,
+    data: parsed as T,
+  };
+}
+
+interface ProviderStats {
+  successCount: number;
+  failureCount: number;
+  totalLatencyMs: number;
+  lastUsed: number;
+  quarantinedUntil: number;
+}
+
+export const providerStatsMap = new Map<string, ProviderStats>();
+
+export function recordProviderResult(url: string, success: boolean, latencyMs: number): void {
+  const baseHost = url.split('?')[0];
+  const stats = providerStatsMap.get(baseHost) || {
+    successCount: 0,
+    failureCount: 0,
+    totalLatencyMs: 0,
+    lastUsed: 0,
+    quarantinedUntil: 0,
+  };
+
+  stats.lastUsed = Date.now();
+  if (success) {
+    stats.successCount++;
+    stats.totalLatencyMs += latencyMs;
+    stats.quarantinedUntil = 0;
+  } else {
+    stats.failureCount++;
+    // Quarantine failing provider for 45 seconds
+    stats.quarantinedUntil = Date.now() + 45_000;
+  }
+  providerStatsMap.set(baseHost, stats);
+}
+
+export function getRankedProviders(providers: ProviderEndpoint[] = PUBLIC_SEARCH_PROVIDERS): ProviderEndpoint[] {
+  const now = Date.now();
+  return [...providers].sort((a, b) => {
+    const hostA = a.url('').split('?')[0];
+    const hostB = b.url('').split('?')[0];
+    const sA = providerStatsMap.get(hostA);
+    const sB = providerStatsMap.get(hostB);
+
+    const isQuarantinedA = sA && sA.quarantinedUntil > now;
+    const isQuarantinedB = sB && sB.quarantinedUntil > now;
+
+    if (isQuarantinedA && !isQuarantinedB) return 1;
+    if (!isQuarantinedA && isQuarantinedB) return -1;
+
+    const avgA = sA && sA.successCount > 0 ? sA.totalLatencyMs / sA.successCount : 1000;
+    const avgB = sB && sB.successCount > 0 ? sB.totalLatencyMs / sB.successCount : 1000;
+
+    return avgA - avgB;
+  });
+}
 
 export interface ProviderResponse {
   url: string;
@@ -561,29 +726,35 @@ export interface ProviderResponse {
   responded: boolean;
 }
 
-/** Query a single provider instance with an individual timeout and honest error handling. */
+/** Query a single provider instance with an individual timeout and dynamic health tracking. */
 export async function queryProvider(
   endpoint: ProviderEndpoint,
   cleanQ: string,
-  timeoutMs = 4500
+  timeoutMs = 1500
 ): Promise<ProviderResponse> {
   const url = endpoint.url(encodeURIComponent(cleanQ));
+  const startTime = Date.now();
   try {
-    const res = await fetch(url, {
+    const res = await universalFetch<any>(url, {
+      method: 'GET',
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(timeoutMs),
+      timeoutMs,
     });
-    if (!res.ok) {
+    if (!res.ok || !res.data) {
+      recordProviderResult(url, false, Date.now() - startTime);
       return { url, results: { songs: [], artists: [], playlists: [] }, responded: false };
     }
-    const data = await res.json();
+    const data = res.data;
     const items = data.items || data || [];
     if (!Array.isArray(items)) {
+      recordProviderResult(url, false, Date.now() - startTime);
       return { url, results: { songs: [], artists: [], playlists: [] }, responded: false };
     }
     const bucketed = bucketItems(items, endpoint.provider);
+    recordProviderResult(url, true, Date.now() - startTime);
     return { url, results: bucketed, responded: true };
   } catch {
+    recordProviderResult(url, false, Date.now() - startTime);
     return { url, results: { songs: [], artists: [], playlists: [] }, responded: false };
   }
 }
@@ -595,7 +766,7 @@ export async function queryProvider(
 export async function raceProviderBatch(
   providers: ProviderEndpoint[],
   cleanQ: string,
-  timeoutMs = 4500
+  timeoutMs = 1500
 ): Promise<{ winner: SearchResults | null; attempted: string[]; anyResponded: boolean }> {
   const attempted: string[] = [];
   let anyResponded = false;
@@ -656,63 +827,287 @@ export async function raceProviderBatch(
  *   - Every provider failed / timed out   → throws `SearchUnavailableError`
  *
  * Resilience strategy:
- *   1. Primary: local dev middleware (/api/youtube-search) when running under `vite dev` (timeout 2500ms).
- *   2. Fallback pool: concurrent batch racing across trusted Piped / Invidious instances with per-instance
- *      timeouts, resolving as soon as the fastest working instance responds.
+ *   1. Primary: local dev middleware (/api/youtube-search) when running under `vite dev` (timeout 2200ms).
+ *   2. Fallback pool: concurrent batch racing across health-ranked Piped / Invidious instances with fast 1500ms
+ *      per-instance timeouts, resolving as soon as the fastest working instance responds.
  */
 export async function searchAll(query: string): Promise<SearchResults> {
   const cleanQ = query.trim();
   const empty: SearchResults = { songs: [], artists: [], playlists: [] };
   if (!cleanQ) return empty;
 
-  const cacheKey = cleanQ.toLowerCase();
-  const cached = resultsCache.get(cacheKey);
+  const cached = searchCache.get(cleanQ);
   if (cached) return cached;
 
-  const attempted: string[] = [];
-  let anyProviderResponded = false;
+  const inFlight = getInFlightSearch(cleanQ);
+  if (inFlight) return inFlight;
 
-  // 1. Primary: local dev-server middleware (dev only — see note above). It returns
-  //    typed buckets; an empty response is not authoritative (the middleware answers
-  //    200 + empty on its own internal errors), so we fall through when it is empty.
-  const localEndpoint = `/api/youtube-search?q=${encodeURIComponent(cleanQ)}`;
-  attempted.push(localEndpoint);
-  try {
-    const res = await fetch(localEndpoint, { signal: AbortSignal.timeout(2500) });
-    if (res.ok) {
-      const local = normalizeLocalResponse(await res.json());
-      if (hasAnyResult(local)) {
-        resultsCache.set(cacheKey, local);
-        return local;
+  const searchPromise = (async () => {
+    const attempted: string[] = [];
+    let anyProviderResponded = false;
+
+    // 1. Primary (Native Android): Direct YouTube Music InnerTube via CapacitorHttp (bypasses CORS)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const [generalRes, songsRes] = await Promise.allSettled([
+          universalFetch<any>('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              'Referer': 'https://music.youtube.com/',
+              'Origin': 'https://music.youtube.com',
+            },
+            data: {
+              context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20240101.01.00', hl: 'en', gl: 'US' } },
+              query: cleanQ,
+            },
+            timeoutMs: 2500,
+          }),
+          universalFetch<any>('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              'Referer': 'https://music.youtube.com/',
+              'Origin': 'https://music.youtube.com',
+            },
+            data: {
+              context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20240101.01.00', hl: 'en', gl: 'US' } },
+              query: cleanQ,
+              params: 'Eg-KAQwIARAAGAAgACgAMABqChAMEAUSAhACEAU%3D',
+            },
+            timeoutMs: 2500,
+          }),
+        ]);
+
+        const songs: Track[] = [];
+        const artists: Artist[] = [];
+        const playlists: PlaylistResult[] = [];
+        const seenSongIds = new Set<string>();
+        const seenArtistIds = new Set<string>();
+        const seenPlaylistIds = new Set<string>();
+
+        const parseFlexItem = (flex: any) => {
+          if (!flex) return;
+          const col0Runs = flex.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+          const col1Runs = flex.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+          const title = col0Runs[0]?.text || '';
+          const subText = col1Runs.map((r: any) => r.text).join('');
+          const subParts = subText.split('•').map((s: string) => s.trim());
+          const itemType = subParts[0]?.toLowerCase() || '';
+
+          const nav = flex.navigationEndpoint;
+          const browseId = nav?.browseEndpoint?.browseId || col0Runs[0]?.navigationEndpoint?.browseEndpoint?.browseId;
+          const videoId =
+            flex.playlistItemData?.videoId ||
+            flex.doubleTapCommand?.watchEndpoint?.videoId ||
+            flex.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint?.videoId ||
+            col0Runs[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
+            nav?.watchEndpoint?.videoId;
+
+          const thumbs = flex.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+          const thumbUrl = (thumbs.length > 0 ? thumbs[thumbs.length - 1]?.url : '') || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
+
+          if (itemType.includes('artist') || (browseId && browseId.startsWith('UC') && !videoId)) {
+            if (title && !seenArtistIds.has(title.toLowerCase()) && artists.length < 12) {
+              seenArtistIds.add(title.toLowerCase());
+              artists.push({
+                id: browseId || `yt:${title}`,
+                name: title,
+                thumbnail: thumbUrl || undefined,
+                subscribers: subParts.find((s: string) => /subscribers|audience/i.test(s)),
+                query: `${title} top songs`,
+              });
+            }
+            return;
+          }
+
+          if (
+            itemType.includes('album') ||
+            itemType.includes('ep') ||
+            itemType.includes('single') ||
+            itemType.includes('playlist') ||
+            (browseId && (browseId.startsWith('MPRE') || browseId.startsWith('VL') || browseId.startsWith('PL')))
+          ) {
+            if (title && !seenPlaylistIds.has(title.toLowerCase()) && playlists.length < 12) {
+              seenPlaylistIds.add(title.toLowerCase());
+              const author = subParts.length > 1 && !/^\d{4}$/.test(subParts[1]) ? subParts[1] : undefined;
+              playlists.push({
+                id: browseId || `pl:${title}`,
+                title,
+                thumbnail: thumbUrl || undefined,
+                author,
+                trackCount: undefined,
+              });
+            }
+            return;
+          }
+
+          if (videoId && title && !seenSongIds.has(videoId) && songs.length < 30) {
+            seenSongIds.add(videoId);
+            let artist = 'YouTube Artist';
+            if (subParts.length >= 2) {
+              artist = subParts[1];
+            } else if (col1Runs.length > 0) {
+              const artistRun = col1Runs.find((r: any) => r.navigationEndpoint?.browseEndpoint?.browseId?.startsWith('UC'));
+              if (artistRun) artist = artistRun.text;
+            }
+            let duration = 200;
+            const durStr = subParts.find((s: string) => /^\d+:\d+$/.test(s));
+            if (durStr) {
+              const [m, s] = durStr.split(':').map(Number);
+              duration = m * 60 + s;
+            }
+            songs.push({
+              id: videoId,
+              title: cleanTrackTitle(title),
+              artist: cleanArtistName(artist),
+              duration,
+              thumbnail: thumbUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              source: 'youtube',
+            });
+          }
+        };
+
+        if (generalRes.status === 'fulfilled' && generalRes.value.ok && generalRes.value.data) {
+          const generalData = generalRes.value.data;
+          const sections = generalData.contents?.tabbedSearchResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+          for (const sec of sections) {
+            if (sec.musicCardShelfRenderer) {
+              const card = sec.musicCardShelfRenderer;
+              const title = card.title?.runs?.[0]?.text;
+              const subText = card.subtitle?.runs?.map((r: any) => r.text).join('') || '';
+              const subParts = subText.split('•').map((s: string) => s.trim());
+              const cardType = subParts[0]?.toLowerCase() || '';
+              const thumbs = card.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+              const thumbUrl = thumbs.length > 0 ? thumbs[thumbs.length - 1]?.url : '';
+
+              if (cardType.includes('artist')) {
+                if (title && !seenArtistIds.has(title.toLowerCase())) {
+                  seenArtistIds.add(title.toLowerCase());
+                  artists.unshift({
+                    id: card.onTap?.browseEndpoint?.browseId || `yt:${title}`,
+                    name: title,
+                    thumbnail: thumbUrl || undefined,
+                    subscribers: subParts.find((s: string) => /subscribers|audience/i.test(s)),
+                    query: `${title} top songs`,
+                  });
+                }
+              } else if (cardType.includes('album') || cardType.includes('playlist')) {
+                if (title && !seenPlaylistIds.has(title.toLowerCase())) {
+                  seenPlaylistIds.add(title.toLowerCase());
+                  playlists.unshift({
+                    id: card.onTap?.browseEndpoint?.browseId || `pl:${title}`,
+                    title,
+                    thumbnail: thumbUrl || undefined,
+                    author: subParts[1],
+                    trackCount: undefined,
+                  });
+                }
+              } else {
+                const videoId =
+                  card.onTap?.watchEndpoint?.videoId ||
+                  card.buttons?.[0]?.buttonRenderer?.command?.watchEndpoint?.videoId ||
+                  card.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.[0]?.url?.match(/\/vi\/([^\/]+)/)?.[1];
+                if (videoId && title && !seenSongIds.has(videoId)) {
+                  seenSongIds.add(videoId);
+                  let artist = subParts[1] || 'YouTube Artist';
+                  let duration = 200;
+                  const durStr = subParts.find((s: string) => /^\d+:\d+$/.test(s));
+                  if (durStr) {
+                    const [m, s] = durStr.split(':').map(Number);
+                    duration = m * 60 + s;
+                  }
+                  songs.unshift({
+                    id: videoId,
+                    title: cleanTrackTitle(title),
+                    artist: cleanArtistName(artist),
+                    duration,
+                    thumbnail: thumbUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    source: 'youtube',
+                  });
+                }
+              }
+            }
+            if (sec.musicShelfRenderer) {
+              for (const item of sec.musicShelfRenderer.contents || []) {
+                parseFlexItem(item.musicResponsiveListItemRenderer);
+              }
+            }
+            if (sec.itemSectionRenderer) {
+              for (const item of sec.itemSectionRenderer.contents || []) {
+                parseFlexItem(item.musicResponsiveListItemRenderer);
+              }
+            }
+          }
+        }
+
+        if (songsRes.status === 'fulfilled' && songsRes.value.ok && songsRes.value.data) {
+          const songsData = songsRes.value.data;
+          const sections = songsData.contents?.tabbedSearchResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+          for (const sec of sections) {
+            const shelf = sec.musicShelfRenderer;
+            if (shelf) {
+              for (const item of shelf.contents || []) {
+                parseFlexItem(item.musicResponsiveListItemRenderer);
+              }
+            }
+          }
+        }
+
+        const nativeResults: SearchResults = { songs, artists, playlists };
+        if (hasAnyResult(nativeResults)) {
+          searchCache.set(cleanQ, nativeResults);
+          return nativeResults;
+        }
+      } catch {}
+    }
+
+    // 2. Primary (Dev / Web): local dev-server middleware (dev only).
+    const localEndpoint = `/api/youtube-search?q=${encodeURIComponent(cleanQ)}`;
+    attempted.push(localEndpoint);
+    try {
+      const res = await fetch(localEndpoint, { signal: AbortSignal.timeout(2200) });
+      if (res.ok) {
+        const local = normalizeLocalResponse(await res.json());
+        if (hasAnyResult(local)) {
+          searchCache.set(cleanQ, local);
+          return local;
+        }
+      }
+    } catch {
+      // Unreachable (expected outside `vite dev`) — try the public providers.
+    }
+
+    // 3. Fallback: race health-ranked public Piped / Invidious instances in concurrent batches of 3.
+    const rankedProviders = getRankedProviders();
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < rankedProviders.length; i += BATCH_SIZE) {
+      const batch = rankedProviders.slice(i, i + BATCH_SIZE);
+      const { winner, attempted: batchAttempted, anyResponded } = await raceProviderBatch(batch, cleanQ, 1500);
+      for (const url of batchAttempted) {
+        if (!attempted.includes(url)) attempted.push(url);
+      }
+      if (anyResponded) {
+        anyProviderResponded = true;
+      }
+      if (winner && hasAnyResult(winner)) {
+        searchCache.set(cleanQ, winner);
+        return winner;
       }
     }
-  } catch {
-    // Unreachable (expected outside `vite dev`) — try the public providers.
-  }
 
-  // 2. Fallback: race public Piped / Invidious instances in concurrent batches of 3.
-  const BATCH_SIZE = 3;
-  for (let i = 0; i < PUBLIC_SEARCH_PROVIDERS.length; i += BATCH_SIZE) {
-    const batch = PUBLIC_SEARCH_PROVIDERS.slice(i, i + BATCH_SIZE);
-    const { winner, attempted: batchAttempted, anyResponded } = await raceProviderBatch(batch, cleanQ, 4500);
-    for (const url of batchAttempted) {
-      if (!attempted.includes(url)) attempted.push(url);
+    if (anyProviderResponded) {
+      // At least one provider answered and none had matches: a real empty result.
+      return empty;
     }
-    if (anyResponded) {
-      anyProviderResponded = true;
-    }
-    if (winner && hasAnyResult(winner)) {
-      resultsCache.set(cacheKey, winner);
-      return winner;
-    }
-  }
 
-  if (anyProviderResponded) {
-    // At least one provider answered and none had matches: a real empty result.
-    return empty;
-  }
+    throw new SearchUnavailableError(attempted);
+  })();
 
-  throw new SearchUnavailableError(attempted);
+  setInFlightSearch(cleanQ, searchPromise);
+  return searchPromise;
 }
 
 /**
