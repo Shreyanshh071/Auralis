@@ -211,15 +211,19 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     private val currentSessionId = java.util.concurrent.atomic.AtomicLong(0L)
 
-    fun play(track: Track, requestId: Long = currentSessionId.incrementAndGet()) {
+    fun play(
+        track: Track,
+        initialSeekMs: Long = 0L,
+        requestId: Long = currentSessionId.incrementAndGet()
+    ) {
         currentSessionId.set(requestId)
         _currentTrack.value = track
         _playbackError.value = null
         _durationMs.value = track.duration * 1000L
-        _playbackPositionMs.value = 0L
+        _playbackPositionMs.value = initialSeekMs
         _isBuffering.value = true
 
-        Log.d("AuralisPlayback", "[Play Request #$requestId] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s")
+        Log.d("AuralisPlayback", "[Play Request #$requestId] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s, initialSeek=${initialSeekMs}ms")
 
         // Start MediaSessionService in foreground for uninterrupted background audio
         try {
@@ -240,8 +244,8 @@ class AuralisAudioPlayer private constructor(context: Context) {
         } catch (_: Exception) {}
 
         isUsingExoPlayer = false
-        Log.d("AuralisPlayback", "[Audio Engine] Direct routing to YouTube Web Engine for '${track.title}' (${track.id}) [reqId=$requestId]")
-        youTubeEngine.loadVideo(track.id, requestId)
+        Log.d("AuralisPlayback", "[Audio Engine] Direct routing to YouTube Web Engine for '${track.title}' (${track.id}) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
+        youTubeEngine.loadVideo(track.id, initialSeekMs, requestId)
     }
 
     fun resume() {

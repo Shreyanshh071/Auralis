@@ -1,5 +1,6 @@
 package com.auralis.music.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.auralis.music.data.sync.ListenTogetherManager
@@ -33,9 +34,17 @@ class ListenTogetherViewModel(
     private var roomJob: Job? = null
     private var membersJob: Job? = null
 
-    var onSyncTrackChange: ((Track, List<Track>) -> Unit)? = null
-    var onSyncPlayPause: ((Boolean) -> Unit)? = null
-    var onSyncSeek: ((Long) -> Unit)? = null
+    private var lastSyncedTrackId: String? = null
+    private var lastSyncedIsPlaying: Boolean? = null
+    private var lastSeekTimestampMs: Long = 0L
+
+    var onSyncTrackChange: ((track: Track, queue: List<Track>, initialPositionMs: Long) -> Unit)? = null
+    var onSyncResume: (() -> Unit)? = null
+    var onSyncPause: (() -> Unit)? = null
+    var onSyncSeek: ((positionMs: Long) -> Unit)? = null
+    var onGetLocalPosition: (() -> Long)? = null
+    var onGetLocalIsPlaying: (() -> Boolean)? = null
+    var onGetLocalTrackId: (() -> String?)? = null
 
     fun setDisplayName(name: String) {
         _uiState.update { it.copy(myDisplayName = name) }
@@ -57,9 +66,12 @@ class ListenTogetherViewModel(
                     isPlaying = isPlaying,
                     playbackPositionMs = positionMs
                 )
+                lastSyncedTrackId = initialTrack?.id
+                lastSyncedIsPlaying = isPlaying
                 _uiState.update { it.copy(isHost = true, isConnecting = false) }
                 startObservingRoom(roomCode)
             } catch (e: Exception) {
+                Log.e("ListenTogether", "[Create Room Failed]: ${e.message}", e)
                 _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: "Failed to create room") }
             }
         }
@@ -71,6 +83,8 @@ class ListenTogetherViewModel(
         viewModelScope.launch {
             try {
                 val initialRoomState = manager.joinRoom(roomCode, _uiState.value.myDisplayName)
+                lastSyncedTrackId = null
+                lastSyncedIsPlaying = null
                 _uiState.update {
                     it.copy(
                         activeRoom = initialRoomState,
@@ -78,8 +92,11 @@ class ListenTogetherViewModel(
                         isConnecting = false
                     )
                 }
+                // Perform immediate initial playback sync on join
+                syncGuestWithRoomState(initialRoomState, isInitialJoin = true)
                 startObservingRoom(roomCode)
             } catch (e: Exception) {
+                Log.e("ListenTogether", "[Join Room Failed]: ${e.message}", e)
                 _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: "Failed to join room") }
             }
         }
@@ -97,7 +114,9 @@ class ListenTogetherViewModel(
         viewModelScope.launch {
             try {
                 manager.updateHostPlayback(roomCode, currentTrack, isPlaying, playbackPositionMs, queue)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "[Broadcast Host Error]: ${e.message}", e)
+            }
         }
     }
 
@@ -111,6 +130,8 @@ class ListenTogetherViewModel(
         }
         roomJob?.cancel()
         membersJob?.cancel()
+        lastSyncedTrackId = null
+        lastSyncedIsPlaying = null
         _uiState.update { it.copy(activeRoom = null, members = emptyList(), isHost = false) }
     }
 
@@ -121,14 +142,22 @@ class ListenTogetherViewModel(
         roomJob = viewModelScope.launch {
             manager.observeRoomState(roomCode).collect { state ->
                 if (state == null || state.status == "closed") {
-                    _uiState.update { it.copy(activeRoom = null, members = emptyList(), isHost = false, errorMessage = if (state?.status == "closed") "Room was closed by host" else null) }
+                    lastSyncedTrackId = null
+                    lastSyncedIsPlaying = null
+                    _uiState.update {
+                        it.copy(
+                            activeRoom = null,
+                            members = emptyList(),
+                            isHost = false,
+                            errorMessage = if (state?.status == "closed") "Room was closed by host" else null
+                        )
+                    }
                 } else {
-                    val prevRoom = _uiState.value.activeRoom
                     _uiState.update { it.copy(activeRoom = state) }
 
                     // If Guest, perform playback synchronization with drift correction
                     if (!_uiState.value.isHost) {
-                        handleGuestSync(prevRoom, state)
+                        syncGuestWithRoomState(state, isInitialJoin = false)
                     }
                 }
             }
@@ -141,23 +170,58 @@ class ListenTogetherViewModel(
         }
     }
 
-    private fun handleGuestSync(prev: NativeRoomState?, curr: NativeRoomState) {
-        val currTrack = curr.currentTrack ?: return
-        if (prev?.currentTrack?.id != currTrack.id) {
-            onSyncTrackChange?.invoke(currTrack, curr.queue)
-        }
-
-        if (prev?.isPlaying != curr.isPlaying) {
-            onSyncPlayPause?.invoke(curr.isPlaying)
-        }
-
+    private fun syncGuestWithRoomState(state: NativeRoomState, isInitialJoin: Boolean) {
+        val hostTrack = state.currentTrack ?: return
         val estimatedHostPos = ListenTogetherSyncMath.calculateEstimatedHostPosition(
-            broadcastPositionMs = curr.playbackPosition,
-            broadcastTimestampMs = curr.updatedAt,
-            isPlaying = curr.isPlaying,
-            playbackRate = curr.playbackRate
+            broadcastPositionMs = state.playbackPosition,
+            broadcastTimestampMs = state.updatedAt,
+            isPlaying = state.isPlaying,
+            playbackRate = state.playbackRate
         )
 
-        onSyncSeek?.invoke(estimatedHostPos)
+        val localTrackId = onGetLocalTrackId?.invoke()
+        val localIsPlaying = onGetLocalIsPlaying?.invoke()
+        val localPos = onGetLocalPosition?.invoke() ?: 0L
+
+        val trackChanged = isInitialJoin || hostTrack.id != lastSyncedTrackId || hostTrack.id != localTrackId
+
+        if (trackChanged) {
+            lastSyncedTrackId = hostTrack.id
+            lastSyncedIsPlaying = state.isPlaying
+            lastSeekTimestampMs = System.currentTimeMillis()
+            Log.d("ListenTogether", "[Guest Sync] Track change -> ${hostTrack.title} (${hostTrack.id}) at ${estimatedHostPos}ms, isPlaying=${state.isPlaying}")
+            onSyncTrackChange?.invoke(hostTrack, state.queue, estimatedHostPos)
+            if (!state.isPlaying) {
+                onSyncPause?.invoke()
+            }
+            return
+        }
+
+        // Play / Pause state sync
+        if (state.isPlaying != localIsPlaying || state.isPlaying != lastSyncedIsPlaying) {
+            lastSyncedIsPlaying = state.isPlaying
+            if (state.isPlaying) {
+                Log.d("ListenTogether", "[Guest Sync] Host playing -> resuming guest playback")
+                onSyncResume?.invoke()
+            } else {
+                Log.d("ListenTogether", "[Guest Sync] Host paused -> pausing guest playback")
+                onSyncPause?.invoke()
+            }
+        } else if (!state.isPlaying && localIsPlaying == true) {
+            Log.d("ListenTogether", "[Guest Sync] Host is paused but guest is active -> force pausing guest")
+            onSyncPause?.invoke()
+        }
+
+        // Drift check and seek resync (only when playing, debounced to 5s to prevent audio stutter)
+        if (state.isPlaying) {
+            val now = System.currentTimeMillis()
+            if (now - lastSeekTimestampMs > 5000L &&
+                ListenTogetherSyncMath.shouldResync(clientPositionMs = localPos, estimatedHostPositionMs = estimatedHostPos)
+            ) {
+                lastSeekTimestampMs = now
+                Log.d("ListenTogether", "[Guest Sync] Drift detected (local=${localPos}ms, host=${estimatedHostPos}ms) -> seekTo $estimatedHostPos")
+                onSyncSeek?.invoke(estimatedHostPos)
+            }
+        }
     }
 }

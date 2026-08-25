@@ -44,19 +44,19 @@ class ListenTogetherSyncTest {
     }
 
     @Test
-    fun `shouldResync triggers only when client drift exceeds 1500ms threshold`() {
+    fun `shouldResync triggers only when client drift exceeds 2500ms threshold`() {
         val hostPos = 50_000L
 
         // Client at 49_000ms (1000ms drift) -> within tolerance
         assertFalse(ListenTogetherSyncMath.shouldResync(clientPositionMs = 49_000L, estimatedHostPositionMs = hostPos))
 
-        // Client at 51_000ms (1000ms drift) -> within tolerance
-        assertFalse(ListenTogetherSyncMath.shouldResync(clientPositionMs = 51_000L, estimatedHostPositionMs = hostPos))
+        // Client at 51_500ms (1500ms drift) -> within tolerance
+        assertFalse(ListenTogetherSyncMath.shouldResync(clientPositionMs = 51_500L, estimatedHostPositionMs = hostPos))
 
-        // Client at 48_000ms (2000ms drift) -> resync needed!
-        assertTrue(ListenTogetherSyncMath.shouldResync(clientPositionMs = 48_000L, estimatedHostPositionMs = hostPos))
+        // Client at 47_000ms (3000ms drift) -> resync needed!
+        assertTrue(ListenTogetherSyncMath.shouldResync(clientPositionMs = 47_000L, estimatedHostPositionMs = hostPos))
 
-        // Client at 52_000ms (2000ms drift) -> resync needed!
-        assertTrue(ListenTogetherSyncMath.shouldResync(clientPositionMs = 52_000L, estimatedHostPositionMs = hostPos))
+        // Client at 53_000ms (3000ms drift) -> resync needed!
+        assertTrue(ListenTogetherSyncMath.shouldResync(clientPositionMs = 53_000L, estimatedHostPositionMs = hostPos))
     }
 }
