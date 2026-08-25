@@ -91,12 +91,13 @@ fun MiniPlayer(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // ================================================================
-            // 1. LEFT CIRCULAR ARTWORK WITH PROGRESS RING & CENTER PLAY/PAUSE
+            // 1. LEFT CIRCULAR ARTWORK WITH INSET PROGRESS RING & CENTER PLAY/PAUSE
             // ================================================================
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(50.dp)
                     .clip(CircleShape)
+                    .background(Color(0xFF282920))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -104,10 +105,11 @@ fun MiniPlayer(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                // Outer Circular Progress Track and Sweep Arc
+                // Inset Circular Progress Track and Sweep Arc
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val strokeWidth = 2.2.dp.toPx()
-                    val radius = (size.minDimension - strokeWidth) / 2
+                    val strokeWidth = 2.5.dp.toPx()
+                    val insetPadding = 3.5.dp.toPx()
+                    val radius = (size.minDimension / 2) - strokeWidth / 2 - insetPadding
                     val center = Offset(size.width / 2, size.height / 2)
 
                     // Background ring track
@@ -127,25 +129,13 @@ fun MiniPlayer(
                             useCenter = false,
                             style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                         )
-
-                        // Glowing dot at the progress head
-                        val angleRad = Math.toRadians((-90.0 + 360.0 * animatedProgress)).toFloat()
-                        val dotCenter = Offset(
-                            x = center.x + radius * cos(angleRad),
-                            y = center.y + radius * sin(angleRad)
-                        )
-                        drawCircle(
-                            color = Color(0xFFE8F28A),
-                            radius = 3.2.dp.toPx(),
-                            center = dotCenter
-                        )
                     }
                 }
 
                 // Inner Circular Artwork Disc
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .clip(CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
@@ -167,7 +157,7 @@ fun MiniPlayer(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = Color.White,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
