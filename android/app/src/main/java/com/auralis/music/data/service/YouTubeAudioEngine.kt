@@ -214,6 +214,11 @@ class YouTubeAudioEngine(private val context: Context) {
                     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                         val url = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
                         
+                        // CRITICAL: NEVER block actual song audio/video streams
+                        if (url.contains("googlevideo.com/videoplayback")) {
+                            return super.shouldInterceptRequest(view, request)
+                        }
+
                         val isAd = url.contains("doubleclick.net") ||
                                 url.contains("googleads") ||
                                 url.contains("adservice.google") ||
@@ -223,11 +228,6 @@ class YouTubeAudioEngine(private val context: Context) {
                                 url.contains("youtube.com/pagead/") ||
                                 url.contains("youtube.com/ptracking") ||
                                 url.contains("googlesyndication.com") ||
-                                url.contains("&adformat=") ||
-                                url.contains("&ad_type=") ||
-                                url.contains("ad_flags=") ||
-                                url.contains("/get_midroll_info") ||
-                                url.contains("/get_ad_break") ||
                                 url.contains("pubads.g.doubleclick.net")
 
                         if (isAd) {
