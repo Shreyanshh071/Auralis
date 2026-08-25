@@ -3,6 +3,8 @@ package com.auralis.music.ui.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.auralis.music.domain.model.Artist
+import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.recognition.AudioRecognitionManager
@@ -23,7 +25,9 @@ data class SearchUiState(
     val searchResults: SearchResults = SearchResults(),
     val recentQueries: List<String> = emptyList(),
     val isSearching: Boolean = false,
-    val isRecognitionOpen: Boolean = false
+    val isRecognitionOpen: Boolean = false,
+    val selectedArtistPage: ArtistPage? = null,
+    val isLoadingArtist: Boolean = false
 )
 
 class SearchViewModel(
@@ -127,9 +131,24 @@ class SearchViewModel(
         }
     }
 
-    fun clearRecentQueries() {
-        viewModelScope.launch {
-            searchRepository.clearSearchHistory()
+    fun openArtist(artist: Artist) {
+        _uiState.update {
+            it.copy(
+                isLoadingArtist = true,
+                selectedArtistPage = ArtistPage(artist = artist, bannerUrl = artist.thumbnail)
+            )
         }
+        viewModelScope.launch {
+            val page = searchRepository.getArtistPage(artist)
+            if (page != null) {
+                _uiState.update { it.copy(selectedArtistPage = page, isLoadingArtist = false) }
+            } else {
+                _uiState.update { it.copy(isLoadingArtist = false) }
+            }
+        }
+    }
+
+    fun closeArtist() {
+        _uiState.update { it.copy(selectedArtistPage = null, isLoadingArtist = false) }
     }
 }

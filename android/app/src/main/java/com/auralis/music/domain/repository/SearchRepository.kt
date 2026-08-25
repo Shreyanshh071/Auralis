@@ -1,6 +1,7 @@
 package com.auralis.music.domain.repository
 
 import com.auralis.music.domain.model.Artist
+import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.PlaylistResult
 import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.model.Track
@@ -12,6 +13,7 @@ interface SearchRepository {
     suspend fun searchArtists(query: String): List<Artist>
     suspend fun searchPlaylists(query: String): List<PlaylistResult>
     suspend fun getSuggestions(query: String): List<String>
+    suspend fun getArtistPage(artist: Artist): ArtistPage?
     fun getRecentSearchQueries(): Flow<List<String>>
     suspend fun recordSearchQuery(query: String)
     suspend fun removeSearchQuery(query: String)

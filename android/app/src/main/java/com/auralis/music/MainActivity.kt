@@ -11,6 +11,7 @@ import com.auralis.music.data.local.AuralisDatabase
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.data.network.SearchSuggestionsClient
+import com.auralis.music.data.network.SpotifyPlaylistImporter
 import com.auralis.music.data.network.YouTubePlaylistImporter
 import com.auralis.music.data.repository.*
 import com.auralis.music.data.service.AuralisAudioPlayer
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity() {
         val suggestionsClient = SearchSuggestionsClient()
         val lyricsClient = LyricsClient()
         val youtubeImporter = YouTubePlaylistImporter()
+        val spotifyImporter = SpotifyPlaylistImporter()
 
         val libraryRepository = LibraryRepositoryImpl(trackDao, playlistDao, libraryDao)
         val historyRepository = HistoryRepositoryImpl(trackDao, historyDao, playCountDao)
@@ -77,7 +79,7 @@ class MainActivity : ComponentActivity() {
                     SearchViewModel(searchRepository, applicationContext)
                 }
                 val libraryViewModel: LibraryViewModel = viewModel {
-                    LibraryViewModel(libraryRepository, youtubeImporter)
+                    LibraryViewModel(libraryRepository, youtubeImporter, spotifyImporter)
                 }
                 val playerViewModel: PlayerViewModel = viewModel {
                     PlayerViewModel(
