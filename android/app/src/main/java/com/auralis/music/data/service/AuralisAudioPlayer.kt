@@ -105,6 +105,7 @@ class AuralisAudioPlayer private constructor(context: Context) {
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        if (!isUsingExoPlayer) return
                         val cause = error.cause
                         val httpCode = if (cause is HttpDataSource.InvalidResponseCodeException) cause.responseCode else null
                         val failedUri = if (cause is HttpDataSource.HttpDataSourceException) cause.dataSpec.uri.toString() else null
@@ -233,27 +234,9 @@ class AuralisAudioPlayer private constructor(context: Context) {
             Log.w("AuralisPlayback", "[MediaSession Service] startForegroundService notice: ${e.message}")
         }
 
-        // 2. Prepare ExoPlayer with MediaMetadata & audio keepalive for native Android 13/14 Quick Settings & Lock Screen System Media Player
         try {
-            val highResThumb = com.auralis.music.ui.components.getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
-            val mediaMetadata = MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
-                .setAlbumTitle(track.artist)
-                .setArtworkUri(if (highResThumb.isNotBlank()) Uri.parse(highResThumb) else null)
-                .build()
-
-            val mediaItem = MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(Uri.parse("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"))
-                .setMediaMetadata(mediaMetadata)
-                .build()
-
-            exoPlayer.setMediaItem(mediaItem)
-            exoPlayer.repeatMode = Player.REPEAT_MODE_ALL
-            exoPlayer.volume = 0.0f
-            exoPlayer.prepare()
-            exoPlayer.play()
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
         } catch (_: Exception) {}
 
         isUsingExoPlayer = false
@@ -262,13 +245,11 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun resume() {
-        try { exoPlayer.play() } catch (_: Exception) {}
         youTubeEngine.play()
         _isPlaying.value = true
     }
 
     fun pause() {
-        try { exoPlayer.pause() } catch (_: Exception) {}
         youTubeEngine.pause()
         _isPlaying.value = false
     }
@@ -283,7 +264,6 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     fun seekTo(positionMs: Long) {
         _playbackPositionMs.value = positionMs
-        try { exoPlayer.seekTo(positionMs) } catch (_: Exception) {}
         youTubeEngine.seekTo(positionMs)
     }
 
