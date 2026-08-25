@@ -314,11 +314,25 @@ class YouTubeAudioEngine(private val context: Context) {
         return webView!!
     }
 
+    private var pendingInitialSeekMs: Long = 0L
+    private var loadStartedTimestampMs: Long = 0L
+
     private fun injectPlaybackScript(reqId: Long) {
+        val baseSeekMs = pendingInitialSeekMs
+        val loadStartTime = loadStartedTimestampMs
         val js = """
             (function() {
                 var reqId = $reqId;
+                var baseSeekMs = $baseSeekMs;
+                var loadStartTime = $loadStartTime;
                 window._auralisRequestId = reqId;
+
+                function calculateTargetSeekSec() {
+                    if (baseSeekMs <= 0) return 0;
+                    var elapsed = (loadStartTime > 0) ? Math.max(0, Date.now() - loadStartTime) : 0;
+                    var totalMs = baseSeekMs + (elapsed < 60000 ? elapsed : 0);
+                    return Math.max(0, totalMs / 1000.0);
+                }
 
                 // 1. Spoof visibility state & Pre-seed YouTube volume state to 100% unmuted
                 try {
@@ -431,6 +445,7 @@ class YouTubeAudioEngine(private val context: Context) {
                 var attempts = 0;
                 var maxAttempts = 35; // 35 * 150ms = 5.25s
                 var mediaStarted = false;
+                var initialSynced = false;
 
                 function tryStartMedia() {
                     if (mediaStarted || window._auralisRequestId !== reqId) return;
@@ -454,9 +469,20 @@ class YouTubeAudioEngine(private val context: Context) {
                     }
 
                     // Video element found and active for this request
-                    mediaStarted = true;
+                    mediaStarted = true
                     v.muted = false;
                     v.volume = 1.0;
+
+                    // Apply dynamic initial seek exactly ONCE before starting playback
+                    if (!initialSynced) {
+                        initialSynced = true;
+                        var targetSeek = calculateTargetSeekSec();
+                        if (targetSeek > 0) {
+                            try {
+                                v.currentTime = targetSeek;
+                            } catch(e) {}
+                        }
+                    }
 
                     // Attach event listeners exactly once
                     if (!v._auralisAttached) {
@@ -554,22 +580,28 @@ class YouTubeAudioEngine(private val context: Context) {
     }
 
     /**
-     * Loads a video with a monotonically increasing session request ID.
+     * Loads a video with an initial seek offset and monotonically increasing session request ID.
      */
-    fun loadVideo(videoId: String, requestId: Long = currentRequestId.incrementAndGet()) {
+    fun loadVideo(
+        videoId: String,
+        initialSeekMs: Long = 0L,
+        requestId: Long = currentRequestId.incrementAndGet()
+    ) {
         currentRequestId.set(requestId)
         currentVideoId = videoId
+        pendingInitialSeekMs = initialSeekMs
+        loadStartedTimestampMs = System.currentTimeMillis()
         lastEmittedState = -1
 
         mainHandler.post {
             requestAudioFocus()
             acquireWakeLock("LoadVideo_#$requestId")
-            _playbackPositionMs.value = 0L
+            _playbackPositionMs.value = initialSeekMs
             _isBuffering.value = true
             _isPlaying.value = false // Strictly false until native onplay verified
 
             val web = getOrCreateWebView(context) as WebView
-            Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId (Caller: loadVideo)")
+            Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId (initialSeek=${initialSeekMs}ms)")
 
             // Immediately mute and stop previous audio before loading next video
             web.evaluateJavascript("try { var v = document.querySelector('video'); if (v) { v.muted = true; v.pause(); } } catch(e){}", null)
@@ -599,6 +631,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
     fun seekTo(positionMs: Long) {
         val activeReq = currentRequestId.get()
+        pendingInitialSeekMs = positionMs
         val seconds = positionMs / 1000.0
         Log.d("AuralisPlayback", "[Seek Command #$activeReq] position=${positionMs}ms (${seconds}s)")
         mainHandler.post {
