@@ -1,6 +1,5 @@
 package com.auralis.music.data.service
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -8,6 +7,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -18,19 +18,25 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
 /**
- * Universal Mobile YouTube Audio Engine for Auralis.
+ * 100% Unrestricted Mobile Web Audio Engine with Background Playback Support.
  * 
- * Bypasses embed restrictions (UMG, Sony Music, Vevo) by streaming directly from
- * m.youtube.com with continuous unmuted playback assertion and native audio focus.
+ * Features:
+ * - Direct routing via first-party mobile web client (m.youtube.com).
+ * - Full Background Playback: Uses Partial WakeLock and spoofed visibility state to prevent OS throttling.
+ * - Hardware WebLayer integration at 0-alpha base.
+ * - Live bidirectional JS bridge for time, duration, and state synchronisation.
  */
-@SuppressLint("SetJavaScriptEnabled")
 class YouTubeAudioEngine(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
-    private var currentVideoId: String? = null
     private var isPolling = false
+    private var currentVideoId: String? = null
+    private var onTrackCompletedCallback: (() -> Unit)? = null
+
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -44,54 +50,50 @@ class YouTubeAudioEngine(private val context: Context) {
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
-    private var onTrackCompletedCallback: (() -> Unit)? = null
-
     private val pollRunnable = object : Runnable {
         override fun run() {
-            if (isPolling && webView != null) {
+            if (isPolling) {
                 pollMediaState()
-                mainHandler.postDelayed(this, 250)
+                mainHandler.postDelayed(this, 500)
             }
         }
     }
 
-    inner class WebAppInterface {
+    private inner class WebAppInterface {
         @JavascriptInterface
         fun onStateChange(state: Int) {
             mainHandler.post {
-                // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING, 0 = ENDED
                 when (state) {
-                    1 -> {
+                    0 -> { // Ended
+                        _isPlaying.value = false
+                        _isBuffering.value = false
+                        onTrackCompletedCallback?.invoke()
+                    }
+                    1 -> { // Playing
                         _isPlaying.value = true
                         _isBuffering.value = false
-                        Log.d("AuralisPlayback", "[YouTube Engine State] PLAYING")
-                        startPolling()
+                        acquireWakeLock()
                     }
-                    2 -> {
+                    2 -> { // Paused
                         _isPlaying.value = false
                         _isBuffering.value = false
-                        Log.d("AuralisPlayback", "[YouTube Engine State] PAUSED")
+                        releaseWakeLock()
                     }
-                    3 -> {
+                    3 -> { // Buffering
                         _isBuffering.value = true
-                        Log.d("AuralisPlayback", "[YouTube Engine State] BUFFERING")
-                    }
-                    0 -> {
-                        _isPlaying.value = false
-                        _isBuffering.value = false
-                        Log.d("AuralisPlayback", "[YouTube Engine State] ENDED")
-                        onTrackCompletedCallback?.invoke()
                     }
                 }
             }
         }
 
         @JavascriptInterface
-        fun updateTime(current: Double, total: Double) {
+        fun updateTime(currentSec: Double, durationSec: Double) {
             mainHandler.post {
-                _playbackPositionMs.value = (current * 1000).toLong()
-                if (total > 0 && !total.isNaN()) {
-                    _durationMs.value = (total * 1000).toLong()
+                if (currentSec >= 0) {
+                    _playbackPositionMs.value = (currentSec * 1000).toLong()
+                }
+                if (durationSec > 0 && !durationSec.isNaN()) {
+                    _durationMs.value = (durationSec * 1000).toLong()
                 }
             }
         }
@@ -101,6 +103,25 @@ class YouTubeAudioEngine(private val context: Context) {
         mainHandler.post {
             getOrCreateWebView(context)
         }
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Auralis:BackgroundPlayback")
+            }
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours timeout
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (_: Exception) {}
     }
 
     private fun requestAudioFocus() {
@@ -166,23 +187,45 @@ class YouTubeAudioEngine(private val context: Context) {
                         super.onPageFinished(view, url)
                         Log.d("AuralisPlayback", "[YouTube Engine Page Finished] $url")
 
-                        // Injected media hook for full mobile playback
+                        // Injected media hook for background-capable mobile playback
                         view?.evaluateJavascript("""
                             (function() {
+                                // 1. Spoof visibility state so YouTube never pauses when backgrounded
+                                try {
+                                    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
+                                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
+                                    Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; } });
+                                } catch(e) {}
+
+                                // 2. Block background visibility change events
+                                window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                                document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                                window.addEventListener('pagehide', function(e) { e.stopImmediatePropagation(); }, true);
+                                window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
+
+                                // 3. Intercept pause calls to prevent YouTube auto-pausing in background
+                                var originalPause = HTMLMediaElement.prototype.pause;
+                                HTMLMediaElement.prototype.pause = function() {
+                                    if (window._auralisUserPaused) {
+                                        return originalPause.apply(this, arguments);
+                                    }
+                                    // Block automatic background pause
+                                };
+
                                 function autoPlay() {
-                                    // Dismiss cookies / app prompts
+                                    // Dismiss cookies / consent prompts
                                     var consent = document.querySelector('button[aria-label*="Agree"], button[aria-label*="Accept"], .yt-spec-button-shape-next--call-to-action');
                                     if (consent) consent.click();
 
                                     var v = document.querySelector('video');
                                     var playBtn = document.querySelector('.player-control-play-pause-icon, button.ytp-play-button, button[aria-label="Play"]');
-                                    if (playBtn && v && v.paused) {
+                                    if (playBtn && v && v.paused && !window._auralisUserPaused) {
                                         playBtn.click();
                                     }
                                     if (v) {
                                         v.muted = false;
                                         v.volume = 1.0;
-                                        if (v.paused) {
+                                        if (v.paused && !window._auralisUserPaused) {
                                             v.play().catch(function(e) {});
                                         }
 
@@ -296,6 +339,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
                     if (ended) {
                         _isPlaying.value = false
+                        releaseWakeLock()
                         onTrackCompletedCallback?.invoke()
                     }
                 } catch (_: Exception) {}
@@ -311,6 +355,7 @@ class YouTubeAudioEngine(private val context: Context) {
         currentVideoId = videoId
         mainHandler.post {
             requestAudioFocus()
+            acquireWakeLock()
             _playbackPositionMs.value = 0L
             _isBuffering.value = true
             _isPlaying.value = true
@@ -328,13 +373,15 @@ class YouTubeAudioEngine(private val context: Context) {
     fun play() {
         mainHandler.post {
             requestAudioFocus()
+            acquireWakeLock()
             webView?.evaluateJavascript("""
                 (function() {
+                    window._auralisUserPaused = false;
                     var v = document.querySelector('video');
                     if (v) {
                         v.muted = false;
                         v.volume = 1.0;
-                        if (v.paused) v.play().catch(function(e) {});
+                        v.play().catch(function(e) {});
                     }
                 })();
             """.trimIndent(), null)
@@ -344,10 +391,14 @@ class YouTubeAudioEngine(private val context: Context) {
 
     fun pause() {
         mainHandler.post {
+            releaseWakeLock()
             webView?.evaluateJavascript("""
                 (function() {
+                    window._auralisUserPaused = true;
                     var v = document.querySelector('video');
-                    if (v && !v.paused) v.pause();
+                    if (v) {
+                        HTMLMediaElement.prototype.pause.call(v);
+                    }
                 })();
             """.trimIndent(), null)
             _isPlaying.value = false
@@ -382,6 +433,7 @@ class YouTubeAudioEngine(private val context: Context) {
     fun release() {
         mainHandler.post {
             stopPolling()
+            releaseWakeLock()
             pause()
             webView?.destroy()
             webView = null

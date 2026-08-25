@@ -217,13 +217,17 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
         Log.d("AuralisPlayback", "[Play Request] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s")
 
-        // Start MediaSessionService safely without foreground watchdog crash
+        // Start MediaSessionService in foreground for uninterrupted background audio
         try {
             val intent = Intent(appContext, AuralisMediaService::class.java)
-            appContext.startService(intent)
-            Log.d("AuralisPlayback", "[MediaSession Service] Service started safely")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                androidx.core.content.ContextCompat.startForegroundService(appContext, intent)
+            } else {
+                appContext.startService(intent)
+            }
+            Log.d("AuralisPlayback", "[MediaSession Service] Foreground service active for background audio")
         } catch (e: Exception) {
-            Log.w("AuralisPlayback", "[MediaSession Service] startService notice: ${e.message}")
+            Log.w("AuralisPlayback", "[MediaSession Service] startForegroundService notice: ${e.message}")
         }
 
         // Direct Ultra-Reliable High-Speed Audio Playback
