@@ -245,7 +245,6 @@ class YouTubeAudioEngine(private val context: Context) {
                 if (!v) return null;
                 if (v.muted) v.muted = false;
                 if (v.volume < 1.0) v.volume = 1.0;
-                if (v.paused) v.play().catch(function(e) {});
                 
                 if (!v._auralisAttached) {
                     v._auralisAttached = true;
