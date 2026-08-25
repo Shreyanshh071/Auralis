@@ -13,8 +13,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -23,6 +21,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -172,6 +176,32 @@ fun NowPlayingModal(
     // Intercept Android Back Gesture & Hardware Back Button to dismiss the Fullscreen Player
     androidx.activity.compose.BackHandler(enabled = true) {
         onDismiss()
+    }
+
+    val coroutineScope = rememberCoroutineScope()
+    val queue = uiState.queue
+    val currentTrackIndex = remember(uiState.currentIndex, queue, track.id) {
+        if (uiState.currentIndex >= 0 && uiState.currentIndex < queue.size) {
+            uiState.currentIndex
+        } else {
+            queue.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
+        }
+    }
+    val pageCount = if (queue.isNotEmpty()) queue.size else 1
+    val pagerState = rememberPagerState(
+        initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
+    ) { pageCount }
+
+    LaunchedEffect(currentTrackIndex) {
+        if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
+            pagerState.animateScrollToPage(currentTrackIndex)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != currentTrackIndex && queue.isNotEmpty()) {
+            onSelectQueueTrack(pagerState.currentPage)
+        }
     }
 
     var currentTab by remember { mutableStateOf(NowPlayingTab.PLAYER) }
@@ -651,8 +681,9 @@ fun NowPlayingModal(
                                     )
                             )
 
-                            // Main Album Artwork Card (Silky Smooth Fade/Scale Transition)
-                            Box(
+                            // Main Album Artwork Carousel (Native Jetpack Compose Horizontal Pager)
+                            HorizontalPager(
+                                state = pagerState,
                                 modifier = Modifier
                                     .fillMaxWidth(0.88f)
                                     .aspectRatio(1f)
@@ -663,22 +694,14 @@ fun NowPlayingModal(
                                         spotColor = animatedPrimaryColor
                                     )
                                     .clip(RoundedCornerShape(26.dp))
-                            ) {
-                                androidx.compose.animation.AnimatedContent(
-                                    targetState = track.thumbnail,
-                                    transitionSpec = {
-                                        androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) togetherWith
-                                                androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(150))
-                                    },
-                                    label = "ArtworkCrossfade"
-                                ) { thumbUrl ->
-                                    ArtworkCard(
-                                        url = thumbUrl,
-                                        modifier = Modifier.fillMaxSize(),
-                                        cornerRadius = 26.dp,
-                                        contentDescription = track.title
-                                    )
-                                }
+                            ) { page ->
+                                val pageTrack = if (queue.isNotEmpty() && page in queue.indices) queue[page] else track
+                                ArtworkCard(
+                                    url = pageTrack.thumbnail,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cornerRadius = 26.dp,
+                                    contentDescription = pageTrack.title
+                                )
                             }
                         }
 
@@ -846,7 +869,15 @@ fun NowPlayingModal(
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.12f))
                                     .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                    .tactileBounce(scaleDown = 0.84f, onClick = onPreviousClick),
+                                    .tactileBounce(scaleDown = 0.84f, onClick = {
+                                        coroutineScope.launch {
+                                            if (pagerState.currentPage > 0) {
+                                                pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                            } else {
+                                                onPreviousClick()
+                                            }
+                                        }
+                                    }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -909,7 +940,15 @@ fun NowPlayingModal(
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.12f))
                                     .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                    .tactileBounce(scaleDown = 0.84f, onClick = onNextClick),
+                                    .tactileBounce(scaleDown = 0.84f, onClick = {
+                                        coroutineScope.launch {
+                                            if (pagerState.currentPage < pageCount - 1) {
+                                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                            } else {
+                                                onNextClick()
+                                            }
+                                        }
+                                    }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1177,12 +1216,14 @@ private fun SleepTimerDialog(
                                 }
                             }
                             .pointerInput(Unit) {
-                                detectHorizontalDragGestures { change, _ ->
-                                    val newFraction = (change.position.x / widthPx).coerceIn(0f, 1f)
-                                    val rawMin = (minMinutes + newFraction * (maxMinutes - minMinutes)).toInt()
-                                    selectedMinutes = ((rawMin + 2) / 5 * 5).coerceIn(5, 120)
-                                    isEndOfSong = false
-                                }
+                                detectHorizontalDragGestures(
+                                    onHorizontalDrag = { change, _ ->
+                                        val newFraction = (change.position.x / widthPx).coerceIn(0f, 1f)
+                                        val rawMin = (minMinutes + newFraction * (maxMinutes - minMinutes)).toInt()
+                                        selectedMinutes = ((rawMin + 2) / 5 * 5).coerceIn(5, 120)
+                                        isEndOfSong = false
+                                    }
+                                )
                             }
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {

@@ -114,4 +114,97 @@ class InnerTubeParserTest {
         assertEquals("After Hours", song.album)
         assertEquals(200L, song.duration)
     }
+
+    @Test
+    fun `parseRadioFromNextResponse extracts radio tracks from playlistPanelRenderer JSON correctly`() {
+        val client = InnerTubeClient()
+        val mockNextJson = JSONObject().apply {
+            put("contents", JSONObject().apply {
+                put("singleColumnMusicWatchNextResultsRenderer", JSONObject().apply {
+                    put("playlist", JSONObject().apply {
+                        put("playlistPanelRenderer", JSONObject().apply {
+                            put("contents", JSONArray().apply {
+                                // 1. Seed video
+                                put(JSONObject().apply {
+                                    put("playlistPanelVideoRenderer", JSONObject().apply {
+                                        put("videoId", "seed123")
+                                        put("title", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "Seed Track Title") })
+                                            })
+                                        })
+                                        put("longBylineText", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "Artist 1") })
+                                                put(JSONObject().apply { put("text", " • ") })
+                                                put(JSONObject().apply { put("text", "3:30") })
+                                            })
+                                        })
+                                    })
+                                })
+                                // 2. Radio next track 1
+                                put(JSONObject().apply {
+                                    put("playlistPanelVideoRenderer", JSONObject().apply {
+                                        put("videoId", "radioTrack1")
+                                        put("title", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "Radio Track 1") })
+                                            })
+                                        })
+                                        put("shortBylineText", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "Artist 2") })
+                                            })
+                                        })
+                                        put("lengthText", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "4:15") })
+                                            })
+                                        })
+                                    })
+                                })
+                                // 3. Radio next track 2
+                                put(JSONObject().apply {
+                                    put("playlistPanelVideoRenderer", JSONObject().apply {
+                                        put("videoId", "radioTrack2")
+                                        put("title", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "Radio Track 2") })
+                                            })
+                                        })
+                                        put("longBylineText", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "Artist 3") })
+                                            })
+                                        })
+                                        put("lengthText", JSONObject().apply {
+                                            put("runs", JSONArray().apply {
+                                                put(JSONObject().apply { put("text", "2:45") })
+                                            })
+                                        })
+                                    })
+                                })
+                            })
+                        })
+                    })
+                })
+            })
+        }
+
+        val radioTracks = client.parseRadioFromNextResponse(mockNextJson, seedVideoId = "seed123")
+        assertEquals(2, radioTracks.size)
+
+        val track1 = radioTracks[0]
+        assertEquals("radioTrack1", track1.id)
+        assertEquals("Radio Track 1", track1.title)
+        assertEquals("Artist 2", track1.artist)
+        assertEquals(255L, track1.duration)
+
+        val track2 = radioTracks[1]
+        assertEquals("radioTrack2", track2.id)
+        assertEquals("Radio Track 2", track2.title)
+        assertEquals("Artist 3", track2.artist)
+        assertEquals(165L, track2.duration)
+    }
 }
+

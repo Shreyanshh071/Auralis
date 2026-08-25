@@ -10,7 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
-class InnerTubeClient(
+open class InnerTubeClient(
     private val client: OkHttpClient = NetworkClientProvider.okHttpClient
 ) {
     companion object {
@@ -26,7 +26,7 @@ class InnerTubeClient(
     /**
      * Searches YouTube Music exclusively using the WEB_REMIX InnerTube endpoint.
      */
-    suspend fun search(query: String, params: String? = null): SearchResults = withContext(Dispatchers.IO) {
+    open suspend fun search(query: String, params: String? = null): SearchResults = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext SearchResults()
 
@@ -54,7 +54,7 @@ class InnerTubeClient(
      * Fetches the YouTube Music Home page (FEmusic_home) matching Metrolist.
      * Returns paired HomeChips (Moods & moments) and Carousel HomeSections.
      */
-    suspend fun getHome(params: String? = null, continuation: String? = null): Pair<List<HomeChip>, List<HomeSection>> = withContext(Dispatchers.IO) {
+    open suspend fun getHome(params: String? = null, continuation: String? = null): Pair<List<HomeChip>, List<HomeSection>> = withContext(Dispatchers.IO) {
         try {
             val requestBody = if (continuation != null) {
                 createContinuationContext(continuation)
@@ -89,7 +89,7 @@ class InnerTubeClient(
     /**
      * Calls YouTube Next API for a videoId to extract the Related browse endpoint.
      */
-    suspend fun getNextAndRelatedEndpoint(videoId: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
+    open suspend fun getNextAndRelatedEndpoint(videoId: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {
                 put("videoId", videoId)
@@ -111,28 +111,164 @@ class InnerTubeClient(
             val body = response.body?.string() ?: return@withContext Pair(null, null)
             val json = JSONObject(body)
 
-            val tabs = json.optJSONObject("contents")
-                ?.optJSONObject("singleColumnMusicWatchNextResultsRenderer")
-                ?.optJSONObject("tabbedRenderer")
-                ?.optJSONObject("watchNextTabbedResultsRenderer")
-                ?.optJSONArray("tabs") ?: JSONArray()
-
-            for (i in 0 until tabs.length()) {
-                val tabRenderer = tabs.optJSONObject(i)?.optJSONObject("tabRenderer")
-                val endpoint = tabRenderer?.optJSONObject("endpoint")?.optJSONObject("browseEndpoint")
-                if (endpoint != null) {
-                    val browseId = endpoint.optString("browseId")
-                    val params = endpoint.optString("params")
-                    if (browseId.isNotBlank() || params.isNotBlank()) {
-                        return@withContext Pair(browseId.ifBlank { null }, params.ifBlank { null })
-                    }
-                }
-            }
-            Pair(null, null)
+            extractRelatedEndpointFromNextJson(json)
         } catch (e: Exception) {
             Pair(null, null)
         }
     }
+
+    /**
+     * Fetches radio / autoplay tracks for a given videoId from YouTube Music Next endpoint.
+     * Extracts tracks from the playlist panel, and falls back to Related browse shelf if needed.
+     */
+    open suspend fun getRadioTracks(videoId: String): List<Track> = withContext(Dispatchers.IO) {
+        val tracks = mutableListOf<Track>()
+        try {
+            val requestBody = JSONObject().apply {
+                put("videoId", videoId)
+                put("enablePersistentPlaylistPanel", true)
+                put("isAudioOnly", true)
+                put("context", createClientContext())
+            }
+
+            val request = Request.Builder()
+                .url("$YT_MUSIC_API/next?prettyPrint=false")
+                .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string()
+                if (!body.isNullOrBlank()) {
+                    val json = JSONObject(body)
+                    tracks.addAll(parseRadioFromNextResponse(json, videoId))
+
+                    // If playlist panel yielded fewer than 5 tracks, try related endpoint in the same response
+                    if (tracks.size < 5) {
+                        val (browseId, params) = extractRelatedEndpointFromNextJson(json)
+                        if (browseId != null || params != null) {
+                            val relatedTracks = getRelated(browseId, params)
+                            tracks.addAll(relatedTracks)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Fallback: If still empty, attempt to fetch related using getNextAndRelatedEndpoint
+        if (tracks.isEmpty()) {
+            try {
+                val (bId, p) = getNextAndRelatedEndpoint(videoId)
+                if (bId != null || p != null) {
+                    tracks.addAll(getRelated(bId, p))
+                }
+            } catch (_: Exception) {}
+        }
+
+        tracks.filter { it.id != videoId }.distinctBy { it.id }
+    }
+
+    fun parseRadioFromNextResponse(root: JSONObject, seedVideoId: String? = null): List<Track> {
+        val tracks = mutableListOf<Track>()
+        try {
+            val singleCol = root.optJSONObject("contents")
+                ?.optJSONObject("singleColumnMusicWatchNextResultsRenderer")
+
+            val playlistContents = singleCol?.optJSONObject("playlist")
+                ?.optJSONObject("playlistPanelRenderer")
+                ?.optJSONArray("contents")
+
+            if (playlistContents != null) {
+                for (i in 0 until playlistContents.length()) {
+                    val item = playlistContents.optJSONObject(i) ?: continue
+                    val videoRenderer = item.optJSONObject("playlistPanelVideoRenderer") ?: continue
+                    val track = parsePlaylistPanelVideo(videoRenderer)
+                    if (track != null && (seedVideoId == null || track.id != seedVideoId)) {
+                        tracks.add(track)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return tracks.distinctBy { it.id }
+    }
+
+    private fun extractRelatedEndpointFromNextJson(json: JSONObject): Pair<String?, String?> {
+        val tabs = json.optJSONObject("contents")
+            ?.optJSONObject("singleColumnMusicWatchNextResultsRenderer")
+            ?.optJSONObject("tabbedRenderer")
+            ?.optJSONObject("watchNextTabbedResultsRenderer")
+            ?.optJSONArray("tabs") ?: JSONArray()
+
+        for (i in 0 until tabs.length()) {
+            val tabRenderer = tabs.optJSONObject(i)?.optJSONObject("tabRenderer")
+            val endpoint = tabRenderer?.optJSONObject("endpoint")?.optJSONObject("browseEndpoint")
+            if (endpoint != null) {
+                val browseId = endpoint.optString("browseId")
+                val params = endpoint.optString("params")
+                if (browseId.isNotBlank() || params.isNotBlank()) {
+                    return Pair(browseId.ifBlank { null }, params.ifBlank { null })
+                }
+            }
+        }
+        return Pair(null, null)
+    }
+
+    fun parsePlaylistPanelVideo(renderer: JSONObject): Track? {
+        val videoId = renderer.optString("videoId").ifBlank {
+            renderer.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId") ?: ""
+        }
+        if (videoId.isBlank()) return null
+
+        val titleRuns = renderer.optJSONObject("title")?.optJSONArray("runs")
+        val title = if (titleRuns != null && titleRuns.length() > 0) {
+            titleRuns.optJSONObject(0)?.optString("text") ?: ""
+        } else {
+            renderer.optJSONObject("title")?.optString("simpleText") ?: ""
+        }
+        if (title.isBlank()) return null
+
+        var artistName = "Unknown Artist"
+        var durationSec = 0L
+        val bylineRuns = renderer.optJSONObject("longBylineText")?.optJSONArray("runs")
+            ?: renderer.optJSONObject("shortBylineText")?.optJSONArray("runs")
+
+        if (bylineRuns != null) {
+            for (r in 0 until bylineRuns.length()) {
+                val runObj = bylineRuns.optJSONObject(r) ?: continue
+                val text = runObj.optString("text").trim()
+                if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
+                    durationSec = parseDurationToSeconds(text)
+                } else if (r == 0 && text != "•") {
+                    artistName = text
+                }
+            }
+        }
+
+        val lengthRuns = renderer.optJSONObject("lengthText")?.optJSONArray("runs")
+        val lengthText = if (lengthRuns != null && lengthRuns.length() > 0) {
+            lengthRuns.optJSONObject(0)?.optString("text") ?: ""
+        } else {
+            renderer.optJSONObject("lengthText")?.optString("simpleText") ?: ""
+        }
+        if (lengthText.isNotBlank() && durationSec == 0L) {
+            durationSec = parseDurationToSeconds(lengthText)
+        }
+
+        val thumbnails = renderer.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        val thumbUrl = getBestThumbnailUrl(thumbnails, videoId)
+
+        return Track(
+            id = videoId,
+            title = TitleCleaner.cleanTitle(title),
+            artist = artistName,
+            duration = durationSec,
+            thumbnail = thumbUrl,
+            source = TrackSource.YOUTUBE
+        )
+    }
+
 
     /**
      * Fetches official record-label lyrics from YouTube Music for a videoId.
@@ -231,7 +367,7 @@ class InnerTubeClient(
     /**
      * Fetches related items using a browseId and optional params.
      */
-    suspend fun getRelated(browseId: String?, params: String?): List<Track> = withContext(Dispatchers.IO) {
+    open suspend fun getRelated(browseId: String?, params: String?): List<Track> = withContext(Dispatchers.IO) {
         try {
             val effectiveBrowseId = browseId ?: "FEmusic_shelf_related"
             val requestBody = createBrowseContext(effectiveBrowseId, params)

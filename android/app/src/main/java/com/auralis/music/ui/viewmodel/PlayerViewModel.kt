@@ -4,11 +4,13 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.repository.LyricsRepository
+import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.repository.SettingsRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,7 +42,9 @@ class PlayerViewModel(
     private val historyRepository: HistoryRepository,
     private val lyricsRepository: LyricsRepository,
     private val settingsRepository: SettingsRepository,
-    private val audioPlayer: AuralisAudioPlayer? = null
+    private val audioPlayer: AuralisAudioPlayer? = null,
+    private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
+    private val searchRepository: SearchRepository? = null
 ) : ViewModel() {
 
     private val queueManager = AudioQueueManager()
@@ -52,6 +56,8 @@ class PlayerViewModel(
     private var sleepTimerJob: Job? = null
     private var playJob: Job? = null
     private var lyricsJob: Job? = null
+    private var radioJob: Job? = null
+    private var isAutoRadioMode: Boolean = true
 
     init {
         // Collect current track favorite state reactively
@@ -141,15 +147,23 @@ class PlayerViewModel(
         }
     }
 
-    fun playTrack(track: Track, newQueue: List<Track> = emptyList(), startIndex: Int = 0) {
+    fun playTrack(
+        track: Track,
+        newQueue: List<Track> = emptyList(),
+        startIndex: Int = 0,
+        isUserQueue: Boolean = (newQueue.size > 1)
+    ) {
         val reqId = currentPlaybackRequestId.incrementAndGet()
-        Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}")
+        val isAutoQueue = !isUserQueue || newQueue.size <= 1
+        isAutoRadioMode = isAutoQueue
+
+        Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}, isAutoRadio=$isAutoRadioMode")
         val qState = if (newQueue.isNotEmpty()) {
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               newQueue.map { it.id } == queueManager.state.queue.map { it.id }
-            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = isSameQueue)
+            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = isSameQueue, isUserQueue = !isAutoQueue)
         } else {
-            queueManager.playTrack(track)
+            queueManager.playTrack(track, isUserQueue = !isAutoQueue)
         }
 
         _uiState.update {
@@ -166,6 +180,46 @@ class PlayerViewModel(
         }
 
         triggerPlayback(track, debounceMs = 0L, requestId = reqId)
+
+        if (isAutoRadioMode) {
+            fetchAndAppendRadioTracks(track)
+        }
+    }
+
+    private fun fetchAndAppendRadioTracks(seedTrack: Track) {
+        radioJob?.cancel()
+        radioJob = viewModelScope.launch {
+            try {
+                val radioTracks = innerTubeClient.getRadioTracks(seedTrack.id)
+                if (radioTracks.isNotEmpty()) {
+                    val qState = queueManager.appendTracks(radioTracks)
+                    _uiState.update {
+                        it.copy(queue = qState.queue)
+                    }
+                    Log.d("AuralisPlayback", "[AutoRadio] Appended ${radioTracks.size} radio tracks for '${seedTrack.title}' (total queue: ${qState.queue.size})")
+                } else {
+                    loadFallbackTracks(seedTrack)
+                }
+            } catch (e: Exception) {
+                Log.w("AuralisPlayback", "[AutoRadio] Error fetching radio tracks: ${e.message}")
+                loadFallbackTracks(seedTrack)
+            }
+        }
+    }
+
+    private suspend fun loadFallbackTracks(seedTrack: Track) {
+        try {
+            val heavyRotation = historyRepository.getRecentHeavyRotation()
+            val history = historyRepository.getHistory().firstOrNull()?.map { it.track } ?: emptyList()
+            val liked = historyRepository.getLikedSeeds()
+            val allCandidates = (heavyRotation + history + liked).distinctBy { it.id }
+            val existingIds = queueManager.state.queue.map { it.id }.toSet()
+            val candidates = allCandidates.filter { it.id != seedTrack.id && it.id !in existingIds }
+            if (candidates.isNotEmpty()) {
+                val qState = queueManager.appendTracks(candidates.shuffled().take(10))
+                _uiState.update { it.copy(queue = qState.queue) }
+            }
+        } catch (_: Exception) {}
     }
 
     fun togglePlayPause() {
@@ -202,11 +256,81 @@ class PlayerViewModel(
                 )
             }
             triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
-        } else {
-            if (audioPlayer != null) {
-                audioPlayer.pause()
+
+            if (isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
+                fetchAndAppendRadioTracks(nextTrack)
             }
-            _uiState.update { it.copy(isPlaying = false) }
+        } else {
+            if (isAutoRadioMode) {
+                Log.d("AuralisPlayback", "[AutoRadio] End of queue reached in auto-radio mode -> advancing infinitely")
+                handleInfiniteRadioAdvance(reqId)
+            } else {
+                if (audioPlayer != null) {
+                    audioPlayer.pause()
+                }
+                _uiState.update { it.copy(isPlaying = false) }
+            }
+        }
+    }
+
+    private fun handleInfiniteRadioAdvance(reqId: Long) {
+        val curTrack = _uiState.value.currentTrack
+        viewModelScope.launch {
+            var nextCandidate: Track? = null
+
+            // 1. Fetch radio tracks immediately for current track
+            if (curTrack != null) {
+                try {
+                    val fetched = innerTubeClient.getRadioTracks(curTrack.id)
+                    val existingIds = queueManager.state.queue.map { it.id }.toSet()
+                    nextCandidate = fetched.firstOrNull { it.id !in existingIds && it.id != curTrack.id }
+                        ?: fetched.firstOrNull { it.id != curTrack.id }
+
+                    if (fetched.isNotEmpty()) {
+                        queueManager.appendTracks(fetched)
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 2. Fallback to history / local recommendations
+            if (nextCandidate == null) {
+                try {
+                    val heavyRotation = historyRepository.getRecentHeavyRotation()
+                    val history = historyRepository.getHistory().firstOrNull()?.map { it.track } ?: emptyList()
+                    val liked = historyRepository.getLikedSeeds()
+                    val allCandidates = (heavyRotation + history + liked).distinctBy { it.id }
+                    val existingIds = queueManager.state.queue.map { it.id }.toSet()
+                    nextCandidate = allCandidates.filter { it.id !in existingIds && it.id != curTrack?.id }.shuffled().firstOrNull()
+                        ?: allCandidates.filter { it.id != curTrack?.id }.shuffled().firstOrNull()
+                } catch (_: Exception) {}
+            }
+
+            // 3. Play found candidate seamlessly
+            if (nextCandidate != null) {
+                queueManager.appendTracks(listOf(nextCandidate))
+                val advanced = queueManager.advanceNext() ?: nextCandidate
+                _uiState.update {
+                    it.copy(
+                        currentTrack = advanced,
+                        queue = queueManager.state.queue,
+                        currentIndex = queueManager.state.currentIndex,
+                        isPlaying = true,
+                        playbackPositionMs = 0,
+                        durationMs = advanced.duration * 1000,
+                        errorMessage = null
+                    )
+                }
+                triggerPlayback(advanced, debounceMs = 0L, requestId = reqId)
+                fetchAndAppendRadioTracks(advanced)
+            } else {
+                // Keep playing current if available, or stop if nothing exists
+                if (curTrack != null) {
+                    triggerPlayback(curTrack, debounceMs = 0L, requestId = reqId)
+                } else {
+                    audioPlayer?.pause()
+                    _uiState.update { it.copy(isPlaying = false) }
+                }
+            }
         }
     }
 
@@ -237,11 +361,10 @@ class PlayerViewModel(
 
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        val currentQ = _uiState.value.queue.toMutableList()
-        currentQ.addAll(tracks)
-        _uiState.update { it.copy(queue = currentQ) }
+        val qState = queueManager.appendTracks(tracks)
+        _uiState.update { it.copy(queue = qState.queue) }
         if (_uiState.value.currentTrack == null && tracks.isNotEmpty()) {
-            playTrack(tracks.first(), currentQ, 0)
+            playTrack(tracks.first(), qState.queue, 0, isUserQueue = true)
         }
     }
 

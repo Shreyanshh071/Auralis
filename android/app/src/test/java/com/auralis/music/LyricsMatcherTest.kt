@@ -27,18 +27,18 @@ class LyricsMatcherTest {
     @Test
     fun `isDurationMatching strictly enforces 4-second tolerance window`() {
         // Exactly same duration
-        assertTrue(LyricsMatcher.isDurationMatching(200, 200))
+        assertTrue(LyricsMatcher.isDurationMatching(200, 200, 4))
 
         // Within 4 seconds
-        assertTrue(LyricsMatcher.isDurationMatching(200, 203))
-        assertTrue(LyricsMatcher.isDurationMatching(204, 200))
+        assertTrue(LyricsMatcher.isDurationMatching(200, 203, 4))
+        assertTrue(LyricsMatcher.isDurationMatching(204, 200, 4))
 
         // Exceeds 4 seconds -> rejected
-        assertFalse(LyricsMatcher.isDurationMatching(200, 205))
-        assertFalse(LyricsMatcher.isDurationMatching(190, 200))
+        assertFalse(LyricsMatcher.isDurationMatching(200, 205, 4))
+        assertFalse(LyricsMatcher.isDurationMatching(190, 200, 4))
 
         // Unknown duration (0) -> allowed
-        assertTrue(LyricsMatcher.isDurationMatching(0, 200))
+        assertTrue(LyricsMatcher.isDurationMatching(0, 200, 4))
     }
 
     @Test

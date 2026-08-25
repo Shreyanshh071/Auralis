@@ -57,6 +57,10 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
     fun getAllPlaylistsFlow(): Flow<List<PlaylistEntity>>
 
+    @Transaction
+    @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
+    fun getAllPlaylistsWithTracksFlow(): Flow<List<PlaylistWithTracksTuple>>
+
     @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
     fun getPlaylistEntityFlow(playlistId: String): Flow<PlaylistEntity?>
 
