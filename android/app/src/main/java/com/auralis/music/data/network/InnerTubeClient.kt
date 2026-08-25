@@ -95,7 +95,7 @@ class InnerTubeClient(
                 put("videoId", videoId)
                 put("enablePersistentPlaylistPanel", true)
                 put("isAudioOnly", true)
-                put("context", createClientContextObject())
+                put("context", createClientContext())
             }
 
             val request = Request.Builder()
@@ -132,6 +132,100 @@ class InnerTubeClient(
         } catch (e: Exception) {
             Pair(null, null)
         }
+    }
+
+    /**
+     * Fetches official record-label lyrics from YouTube Music for a videoId.
+     */
+    suspend fun getYouTubeMusicLyrics(videoId: String): LyricsData? = withContext(Dispatchers.IO) {
+        try {
+            val requestBody = JSONObject().apply {
+                put("videoId", videoId)
+                put("enablePersistentPlaylistPanel", true)
+                put("isAudioOnly", true)
+                put("context", createClientContext())
+            }
+
+            val request = Request.Builder()
+                .url("$YT_MUSIC_API/next?prettyPrint=false")
+                .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext null
+
+            val body = response.body?.string() ?: return@withContext null
+            val json = JSONObject(body)
+
+            val tabs = json.optJSONObject("contents")
+                ?.optJSONObject("singleColumnMusicWatchNextResultsRenderer")
+                ?.optJSONObject("tabbedRenderer")
+                ?.optJSONObject("watchNextTabbedResultsRenderer")
+                ?.optJSONArray("tabs") ?: JSONArray()
+
+            var lyricsBrowseId: String? = null
+            for (i in 0 until tabs.length()) {
+                val tabRenderer = tabs.optJSONObject(i)?.optJSONObject("tabRenderer")
+                val title = tabRenderer?.optString("title", "")?.lowercase() ?: ""
+                val endpoint = tabRenderer?.optJSONObject("endpoint")?.optJSONObject("browseEndpoint")
+                val bId = endpoint?.optString("browseId")
+                if (bId != null && (bId.startsWith("MPLY") || title.contains("lyric") || bId.contains("lyrics"))) {
+                    lyricsBrowseId = bId
+                    break
+                }
+            }
+
+            if (lyricsBrowseId != null) {
+                val browseBody = createBrowseContext(lyricsBrowseId)
+                val browseReq = Request.Builder()
+                    .url("$YT_MUSIC_API/browse?prettyPrint=false")
+                    .post(browseBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .header("Referer", "https://music.youtube.com/")
+                    .header("Origin", "https://music.youtube.com")
+                    .build()
+
+                val browseResp = client.newCall(browseReq).execute()
+                if (browseResp.isSuccessful) {
+                    val bHtml = browseResp.body?.string() ?: ""
+                    val bJson = JSONObject(bHtml)
+                    val runs = bJson.optJSONObject("contents")
+                        ?.optJSONObject("sectionListRenderer")
+                        ?.optJSONArray("contents")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("musicDescriptionShelfRenderer")
+                        ?.optJSONObject("description")
+                        ?.optJSONArray("runs")
+
+                    if (runs != null && runs.length() > 0) {
+                        val fullText = StringBuilder()
+                        for (r in 0 until runs.length()) {
+                            fullText.append(runs.optJSONObject(r)?.optString("text") ?: "")
+                        }
+                        val text = fullText.toString().trim()
+                        if (text.isNotBlank()) {
+                            val lines = text.lines()
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                                .mapIndexed { idx: Int, line: String ->
+                                    LyricLine(
+                                        time = idx * 3500L,
+                                        text = line
+                                    )
+                                }
+                            return@withContext LyricsData(
+                                provider = LyricsProvider.YOUTUBE,
+                                syncType = SyncType.PLAIN,
+                                lines = lines,
+                                plainLyrics = text
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
     }
 
     /**
@@ -768,14 +862,14 @@ class InnerTubeClient(
         return JSONObject().apply {
             put("browseId", browseId)
             if (!params.isNullOrBlank()) put("params", params)
-            put("context", createClientContextObject())
+            put("context", createClientContext())
         }
     }
 
     private fun createContinuationContext(continuation: String): JSONObject {
         return JSONObject().apply {
             put("continuation", continuation)
-            put("context", createClientContextObject())
+            put("context", createClientContext())
         }
     }
 
@@ -783,11 +877,11 @@ class InnerTubeClient(
         return JSONObject().apply {
             put("query", query)
             if (!params.isNullOrBlank()) put("params", params)
-            put("context", createClientContextObject())
+            put("context", createClientContext())
         }
     }
 
-    private fun createClientContextObject(): JSONObject {
+    private fun createClientContext(): JSONObject {
         return JSONObject().apply {
             put("client", JSONObject().apply {
                 put("clientName", "WEB_REMIX")

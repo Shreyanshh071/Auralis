@@ -72,6 +72,8 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    private val artistAvatarCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
     init {
         loadHomeData()
     }
@@ -115,6 +117,33 @@ class HomeViewModel(
                                 speedDialPages = speedDial,
                                 tasteProfile = profile
                             )
+                        }
+
+                        // Asynchronously resolve authentic artist avatar photos for Speed Dial
+                        val artistsToResolve = (topTracks + historyTracks)
+                            .map { it.artist }
+                            .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
+                            .distinct()
+
+                        if (artistsToResolve.isNotEmpty()) {
+                            launch(Dispatchers.IO) {
+                                var hasUpdates = false
+                                for (art in artistsToResolve.take(12)) {
+                                    try {
+                                        val searchHits = searchRepository.search(art)
+                                        val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
+                                            ?: searchHits.artists.firstOrNull()
+                                        if (match != null && !match.thumbnail.isNullOrBlank()) {
+                                            artistAvatarCache[art] = Pair(match.id, match.thumbnail)
+                                            hasUpdates = true
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+                                if (hasUpdates) {
+                                    val updatedPages = buildSpeedDialPages(topTracks, historyTracks)
+                                    _uiState.update { it.copy(speedDialPages = updatedPages) }
+                                }
+                            }
                         }
                     } catch (_: Exception) {}
                 }
@@ -472,14 +501,14 @@ class HomeViewModel(
         while (allItems.size < 24 && (trackIdx < uniqueTracks.size || artistIdx < artists.size)) {
             if (artistIdx < artists.size && allItems.size % 3 == 0) {
                 val artistName = artists[artistIdx++]
-                val sampleTrack = uniqueTracks.firstOrNull { it.artist == artistName }
+                val cached = artistAvatarCache[artistName]
                 allItems.add(
                     SpeedDialItem(
-                        id = "artist-$artistName-$artistIdx",
+                        id = cached?.first ?: "artist-$artistName-$artistIdx",
                         name = artistName,
                         type = SpeedDialType.ARTIST,
                         artistQuery = artistName,
-                        image = sampleTrack?.thumbnail
+                        image = cached?.second
                     )
                 )
             } else if (trackIdx < uniqueTracks.size) {

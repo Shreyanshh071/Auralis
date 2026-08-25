@@ -80,7 +80,19 @@ object LrcParser {
         }
 
         val sorted = lines.sortedBy { it.time }
+
+        // Check if timestamps are fake robotic linear steps (e.g. 0.0s, 5.2s, 10.4s, 15.6s)
+        val isAuthentic = if (sorted.size >= 4) {
+            val diffs = sorted.zipWithNext { a, b -> b.time - a.time }
+            val distinctDiffs = diffs.distinct()
+            // If all lines have the exact same robotic interval (e.g., 5200ms everywhere), it's fake
+            !(distinctDiffs.size == 1 && distinctDiffs[0] > 1000L)
+        } else {
+            true
+        }
+
         val syncType = when {
+            !isAuthentic -> SyncType.PLAIN
             hasWordSync -> SyncType.RICHSYNC
             sorted.isNotEmpty() -> SyncType.LINE_SYNC
             else -> SyncType.PLAIN

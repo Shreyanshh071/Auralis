@@ -18,9 +18,10 @@ import com.auralis.music.data.local.entity.*
         SavedAlbumEntity::class,
         HistoryEntity::class,
         PlayCountEntity::class,
-        SearchHistoryEntity::class
+        SearchHistoryEntity::class,
+        LyricsEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)
@@ -31,6 +32,7 @@ abstract class AuralisDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
     abstract fun playCountDao(): PlayCountDao
     abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun lyricsDao(): LyricsDao
 
     companion object {
         private const val DATABASE_NAME = "auralis_music.db"

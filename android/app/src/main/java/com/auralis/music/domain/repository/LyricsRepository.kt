@@ -7,6 +7,7 @@ interface LyricsRepository {
         title: String,
         artist: String,
         durationSec: Long? = null,
+        videoId: String? = null,
         forceRefresh: Boolean = false
     ): LyricsData?
 }

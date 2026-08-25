@@ -117,6 +117,15 @@ class LibraryRepositoryImpl(
         playlistDao.insertCrossRefs(refs)
     }
 
+    override suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>) {
+        playlistDao.clearPlaylistTracks(playlistId)
+        val refs = tracks.mapIndexed { index, track ->
+            trackDao.upsertTrack(track.toEntity())
+            PlaylistTrackCrossRef(playlistId, track.id, index)
+        }
+        playlistDao.insertCrossRefs(refs)
+    }
+
     override fun getSavedArtists(): Flow<List<SavedArtist>> {
         return libraryDao.getSavedArtistsFlow().map { list -> list.map { it.toDomain() } }
     }

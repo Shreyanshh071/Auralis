@@ -3,6 +3,7 @@ package com.auralis.music.domain.model
 enum class LyricsProvider {
     AMLL,
     LRCLIB,
+    KUGOU,
     LOCAL,
     YOUTUBE
 }

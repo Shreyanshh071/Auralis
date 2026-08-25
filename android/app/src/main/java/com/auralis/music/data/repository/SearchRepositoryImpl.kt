@@ -13,6 +13,8 @@ import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
@@ -30,8 +32,59 @@ class SearchRepositoryImpl(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext SearchResults()
 
-        // Pure YouTube Music search
-        innerTubeClient.search(trimmed)
+        coroutineScope {
+            // Fetch official songs with authentic studio album covers in parallel with general search (artists & playlists)
+            val songsDeferred = async {
+                try {
+                    innerTubeClient.search(trimmed, InnerTubeClient.FILTER_SONGS).songs
+                } catch (e: Exception) {
+                    emptyList<Track>()
+                }
+            }
+            val generalDeferred = async {
+                try {
+                    innerTubeClient.search(trimmed)
+                } catch (e: Exception) {
+                    SearchResults()
+                }
+            }
+
+            val officialSongs: List<Track> = songsDeferred.await()
+            val generalResults: SearchResults = generalDeferred.await()
+
+            val finalSongs: List<Track> = if (officialSongs.isNotEmpty()) officialSongs else generalResults.songs
+
+            // Automatically extract the artists of the matched songs and include them in results.artists
+            val songArtists: List<String> = finalSongs
+                .map { it.artist }
+                .flatMap { it.split(",", "&", "feat.", "ft.", "/").map { a -> a.trim() } }
+                .filter { it.isNotBlank() && it.length > 1 && !it.equals("Spotify Artist", ignoreCase = true) && !it.equals("Various Artists", ignoreCase = true) }
+                .distinctBy { it.lowercase() }
+
+            val existingArtistNames: Set<String> = generalResults.artists.map { it.name.lowercase() }.toSet()
+            val missingArtists = mutableListOf<Artist>()
+
+            for (artName in songArtists) {
+                if (!existingArtistNames.contains(artName.lowercase())) {
+                    val matchingSongThumb = finalSongs.firstOrNull { it.artist.contains(artName, ignoreCase = true) }?.thumbnail
+                    missingArtists.add(
+                        Artist(
+                            id = "yt:$artName",
+                            name = artName,
+                            thumbnail = matchingSongThumb,
+                            query = "$artName top songs"
+                        )
+                    )
+                }
+            }
+
+            val enrichedArtists: List<Artist> = (generalResults.artists + missingArtists).distinctBy { it.name.lowercase() }
+            SearchResults(
+                songs = finalSongs,
+                artists = enrichedArtists,
+                playlists = generalResults.playlists
+            )
+        }
     }
 
     override suspend fun searchSongs(query: String): List<Track> = withContext(Dispatchers.IO) {
@@ -54,8 +107,9 @@ class SearchRepositoryImpl(
         val filtered = innerTubeClient.search(trimmed, InnerTubeClient.FILTER_ARTISTS).artists
         if (filtered.isNotEmpty()) return@withContext filtered
 
-        // 2. Fall back to general YouTube Music search artists
-        innerTubeClient.search(trimmed).artists
+        // 2. Fall back to general search artists enriched with song artists
+        val general = search(trimmed)
+        general.artists
     }
 
     override suspend fun searchPlaylists(query: String): List<PlaylistResult> = withContext(Dispatchers.IO) {

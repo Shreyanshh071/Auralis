@@ -15,6 +15,10 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+
 enum class SpotifyItemType {
     PLAYLIST,
     ALBUM,
@@ -28,6 +32,7 @@ data class SpotifyResource(
 )
 
 class SpotifyPlaylistImporter(
+    private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -119,6 +124,39 @@ class SpotifyPlaylistImporter(
     }
 
     /**
+     * Enriches imported Spotify tracks with real YouTube Music official artwork and video IDs.
+     */
+    suspend fun enrichTracksWithYouTubeData(tracks: List<Track>): List<Track> = withContext(Dispatchers.IO) {
+        coroutineScope {
+            tracks.map { track ->
+                async {
+                    try {
+                        val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
+                        val query = "${track.title} $cleanArtist".trim()
+                        val songsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_SONGS).songs
+                        val match = songsResult.firstOrNull() ?: innerTubeClient.search(query).songs.firstOrNull()
+                        if (match != null) {
+                            track.copy(
+                                id = match.id,
+                                thumbnail = match.thumbnail.ifBlank { "https://i.ytimg.com/vi/${match.id}/hq720.jpg" },
+                                duration = if (match.duration > 0) match.duration else track.duration
+                            )
+                        } else {
+                            if (track.thumbnail.contains("mosaic.scdn.co") || track.thumbnail.contains("image-cdn")) {
+                                track.copy(thumbnail = "")
+                            } else {
+                                track
+                            }
+                        }
+                    } catch (e: Exception) {
+                        track
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+
+    /**
      * Imports a Spotify playlist or album by URL or ID and converts it into an Auralis Playlist domain object.
      */
     suspend fun importPlaylist(urlOrId: String): Playlist? = withContext(Dispatchers.IO) {
@@ -168,8 +206,9 @@ class SpotifyPlaylistImporter(
                     }
                     val parsed = parseEmbedHtml(html, id, type)
                     if (parsed != null && parsed.tracks.isNotEmpty()) {
-                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from $url (Title: '${parsed.title}')")
-                        return@withContext parsed
+                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from $url (Title: '${parsed.title}'). Enriching with official artwork...")
+                        val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks)
+                        return@withContext parsed.copy(tracks = enrichedTracks)
                     }
                 }
             } catch (e: Exception) {
@@ -213,8 +252,9 @@ class SpotifyPlaylistImporter(
                             val ifHtml = ifResp.body?.string() ?: ""
                             val parsed = parseEmbedHtml(ifHtml, id, type)
                             if (parsed != null && parsed.tracks.isNotEmpty()) {
-                                Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from oEmbed iframe")
-                                return@withContext parsed
+                                Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from oEmbed iframe. Enriching...")
+                                val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks)
+                                return@withContext parsed.copy(tracks = enrichedTracks)
                             }
                         }
                     } catch (e: Exception) {
@@ -397,7 +437,7 @@ class SpotifyPlaylistImporter(
                 }
 
                 // Track cover artwork
-                var trackArtwork = coverUrl
+                var trackArtwork: String? = null
                 val itemArt = item.optJSONObject("album")?.optJSONObject("coverArt")?.optJSONArray("sources")?.optJSONObject(0)?.optString("url")
                 if (!itemArt.isNullOrBlank()) {
                     trackArtwork = itemArt
@@ -461,7 +501,7 @@ class SpotifyPlaylistImporter(
                             title = TitleCleaner.cleanTitle(trackTitle),
                             artist = trackArtist,
                             album = title,
-                            thumbnail = coverUrl,
+                            thumbnail = "",
                             duration = durationMs / 1000L,
                             source = TrackSource.YOUTUBE
                         )
