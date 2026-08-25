@@ -26,7 +26,7 @@ data class ArtworkPalette(
  * High-performance thread-safe LRU Cache & Async Extractor for album artwork palettes.
  * 
  * - Downsamples images to 128x128 for ultra-fast (<2ms) CPU palette generation.
- * - Robust dual-URL fallback (high-res with raw URL fallback).
+ * - Robust dual-URL fallback (studio HD with raw URL fallback).
  * - Intelligently filters out monochrome backgrounds (white/black) to extract true vibrant album art tones.
  * - Pure JVM/Android compatible LinkedHashMap memory cache for testability and runtime speed.
  */
@@ -70,13 +70,14 @@ object ArtworkPaletteCache {
         getCached(artworkUrl)?.let { return it }
 
         val targetUrl = getHighResArtworkUrl(artworkUrl) ?: artworkUrl
+        val rawFallbackUrl = artworkUrl.replace("hq720.jpg", "hqdefault.jpg")
 
         return withContext(Dispatchers.IO) {
             try {
                 val imageLoader = ImageLoader(context)
                 var drawable: Drawable? = null
 
-                // Try upgraded URL first
+                // Try studio HD URL first
                 try {
                     val req = ImageRequest.Builder(context)
                         .data(targetUrl)
@@ -89,10 +90,10 @@ object ArtworkPaletteCache {
                 } catch (_: Exception) {}
 
                 // Fallback to raw original URL if upgraded URL failed
-                if (drawable == null && targetUrl != artworkUrl) {
+                if (drawable == null) {
                     try {
                         val req = ImageRequest.Builder(context)
-                            .data(artworkUrl)
+                            .data(rawFallbackUrl)
                             .size(128, 128)
                             .scale(Scale.FIT)
                             .allowHardware(false)
