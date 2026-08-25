@@ -28,22 +28,21 @@ fun getHighResArtworkUrl(url: String?): String? {
     var cleaned = url.trim()
     if (cleaned.startsWith("//")) cleaned = "https:$cleaned"
 
-    // YouTube Music & Google User Content (yt3.googleusercontent.com, lh3.googleusercontent.com, ggpht.com):
-    // Upgrade from low-res thumbnail dimensions (=w60, =w120, =w544, =s120) to full studio 1200x1200 uncompressed album art
+    // YouTube Music (lh3.googleusercontent.com / yt3.ggpht.com): upgrade size to 544x544 (guaranteed 100% available on all YouTube Music tracks)
     if (cleaned.contains("googleusercontent.com") || cleaned.contains("ggpht.com")) {
-        cleaned = cleaned.replace(Regex("""=w\d+-h\d+.*"""), "=w1200-h1200-l90-rj")
-            .replace(Regex("""=s\d+.*"""), "=s1200-c")
+        cleaned = cleaned.replace(Regex("""=w\d+-h\d+.*"""), "=w544-h544-l90-rj")
+            .replace(Regex("""=s\d+.*"""), "=s544-c")
     }
-    // YouTube video thumbnail: upgrade 480x360 hqdefault to 1280x720 HD hq720
+    // YouTube video thumbnail: keep hqdefault.jpg (hq720.jpg 404s on most music videos)
     if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com")) {
-        cleaned = cleaned.replace("hqdefault.jpg", "hq720.jpg")
-            .replace("mqdefault.jpg", "hq720.jpg")
-            .replace("sddefault.jpg", "hq720.jpg")
-            .replace("default.jpg", "hq720.jpg")
+        if (cleaned.contains("default.jpg") && !cleaned.contains("hqdefault.jpg") && !cleaned.contains("mqdefault.jpg") && !cleaned.contains("sddefault.jpg") && !cleaned.contains("maxresdefault.jpg")) {
+            cleaned = cleaned.replace("default.jpg", "hqdefault.jpg")
+        }
+        cleaned = cleaned.replace("hq720.jpg", "hqdefault.jpg")
     }
-    // iTunes / Apple Music artwork: 100x100bb -> 1200x1200bb
+    // iTunes / Apple Music artwork:
     if (cleaned.contains("mzstatic.com")) {
-        cleaned = cleaned.replace(Regex("""\d+x\d+bb"""), "1200x1200bb")
+        cleaned = cleaned.replace(Regex("""\d+x\d+bb"""), "600x600bb")
     }
     // Spotify artwork:
     if (cleaned.contains("i.scdn.co/image/ab67616d00004851") || cleaned.contains("i.scdn.co/image/ab67616d00001e02")) {

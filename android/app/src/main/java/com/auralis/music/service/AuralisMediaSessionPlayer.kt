@@ -2,6 +2,7 @@ package com.auralis.music.service
 
 import android.net.Uri
 import android.os.Looper
+import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -39,10 +40,17 @@ class AuralisMediaSessionPlayer(
             audioPlayer.currentTrack.collectLatest { track ->
                 val mediaItem = currentMediaItem
                 val metadata = mediaMetadata
+                val flags = FlagSet.Builder()
+                    .add(Player.EVENT_MEDIA_ITEM_TRANSITION)
+                    .add(Player.EVENT_MEDIA_METADATA_CHANGED)
+                    .add(Player.EVENT_TRACKS_CHANGED)
+                    .build()
+                val events = Player.Events(flags)
                 customListeners.forEach { listener ->
                     try {
                         listener.onMediaItemTransition(mediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
                         listener.onMediaMetadataChanged(metadata)
+                        listener.onEvents(this@AuralisMediaSessionPlayer, events)
                     } catch (_: Exception) {}
                 }
             }
@@ -52,11 +60,18 @@ class AuralisMediaSessionPlayer(
         playerScope.launch {
             audioPlayer.isPlaying.collectLatest { playing ->
                 val state = playbackState
+                val flags = FlagSet.Builder()
+                    .add(Player.EVENT_IS_PLAYING_CHANGED)
+                    .add(Player.EVENT_PLAY_WHEN_READY_CHANGED)
+                    .add(Player.EVENT_PLAYBACK_STATE_CHANGED)
+                    .build()
+                val events = Player.Events(flags)
                 customListeners.forEach { listener ->
                     try {
                         listener.onIsPlayingChanged(playing)
                         listener.onPlayWhenReadyChanged(playing, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                         listener.onPlaybackStateChanged(state)
+                        listener.onEvents(this@AuralisMediaSessionPlayer, events)
                     } catch (_: Exception) {}
                 }
             }
@@ -66,9 +81,14 @@ class AuralisMediaSessionPlayer(
         playerScope.launch {
             audioPlayer.isBuffering.collectLatest { buffering ->
                 val state = playbackState
+                val flags = FlagSet.Builder()
+                    .add(Player.EVENT_PLAYBACK_STATE_CHANGED)
+                    .build()
+                val events = Player.Events(flags)
                 customListeners.forEach { listener ->
                     try {
                         listener.onPlaybackStateChanged(state)
+                        listener.onEvents(this@AuralisMediaSessionPlayer, events)
                     } catch (_: Exception) {}
                 }
             }
