@@ -3,6 +3,7 @@ package com.auralis.music.ui.theme
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import androidx.compose.ui.graphics.Color
 import androidx.palette.graphics.Palette
 import coil.ImageLoader
@@ -25,6 +26,7 @@ data class ArtworkPalette(
  * High-performance thread-safe LRU Cache & Async Extractor for album artwork palettes.
  * 
  * - Downsamples images to 128x128 for ultra-fast (<2ms) CPU palette generation.
+ * - Robust dual-URL fallback (high-res with raw URL fallback).
  * - Intelligently filters out monochrome backgrounds (white/black) to extract true vibrant album art tones.
  * - Pure JVM/Android compatible LinkedHashMap memory cache for testability and runtime speed.
  */
@@ -38,9 +40,9 @@ object ArtworkPaletteCache {
     }
 
     val defaultPalette = ArtworkPalette(
-        primary = Color(0xFF8E24AA),   // Vibrant Electric Violet
-        secondary = Color(0xFFE91E63), // Radiant Magenta
-        tertiary = Color(0xFF3949AB)   // Deep Indigo
+        primary = Color(0xFF0077CC),   // Ocean Azure
+        secondary = Color(0xFFE91E63), // Vibrant Rose
+        tertiary = Color(0xFF673AB7)   // Deep Purple
     )
 
     fun getCached(key: String): ArtworkPalette? {
@@ -63,25 +65,43 @@ object ArtworkPaletteCache {
     suspend fun extractPalette(context: Context, key: String, artworkUrl: String): ArtworkPalette {
         if (artworkUrl.isBlank()) return defaultPalette
 
-        val targetUrl = getHighResArtworkUrl(artworkUrl) ?: artworkUrl
-
         // 1. Check memory cache first
         getCached(key)?.let { return it }
-        getCached(targetUrl)?.let { return it }
         getCached(artworkUrl)?.let { return it }
+
+        val targetUrl = getHighResArtworkUrl(artworkUrl) ?: artworkUrl
 
         return withContext(Dispatchers.IO) {
             try {
                 val imageLoader = ImageLoader(context)
-                val request = ImageRequest.Builder(context)
-                    .data(targetUrl)
-                    .size(128, 128) // Downsample for ultra-fast <2ms extraction
-                    .scale(Scale.FIT)
-                    .allowHardware(false)
-                    .build()
+                var drawable: Drawable? = null
 
-                val result = imageLoader.execute(request)
-                val drawable = result.drawable
+                // Try upgraded URL first
+                try {
+                    val req = ImageRequest.Builder(context)
+                        .data(targetUrl)
+                        .size(128, 128)
+                        .scale(Scale.FIT)
+                        .allowHardware(false)
+                        .build()
+                    val res = imageLoader.execute(req)
+                    drawable = res.drawable
+                } catch (_: Exception) {}
+
+                // Fallback to raw original URL if upgraded URL failed
+                if (drawable == null && targetUrl != artworkUrl) {
+                    try {
+                        val req = ImageRequest.Builder(context)
+                            .data(artworkUrl)
+                            .size(128, 128)
+                            .scale(Scale.FIT)
+                            .allowHardware(false)
+                            .build()
+                        val res = imageLoader.execute(req)
+                        drawable = res.drawable
+                    } catch (_: Exception) {}
+                }
+
                 if (drawable is BitmapDrawable && drawable.bitmap != null && !drawable.bitmap.isRecycled) {
                     val bitmap = drawable.bitmap
                     val palette = withContext(Dispatchers.Default) {
@@ -95,7 +115,7 @@ object ArtworkPaletteCache {
                         val hsl = swatch.hsl
                         val s = hsl[1]
                         val l = hsl[2]
-                        s > 0.18f && l in 0.12f..0.88f
+                        s > 0.15f && l in 0.10f..0.90f
                     }.sortedByDescending { it.population }
 
                     val rawPrimary = palette.vibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
