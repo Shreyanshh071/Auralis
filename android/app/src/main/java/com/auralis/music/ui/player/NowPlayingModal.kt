@@ -622,140 +622,20 @@ fun NowPlayingModal(
                 // 🎤 A. FULL LYRICS VIEW (MATCHING PHOTO 2)
                 // ============================================================
                 NowPlayingTab.LYRICS -> {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                     ) {
-                        // Sub-Header Action Badges (Line Synced, Translate, Tune, Copy)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Line Synced Pill
-                                Row(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.12f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
-                                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFD5E15B))
-                                    )
-                                    Text(
-                                        text = "Line Synced",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                }
-
-                                // Translate Pill
-                                Row(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(if (showTranslation) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.10f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
-                                        .clickable { showTranslation = !showTranslation }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Translate,
-                                        contentDescription = "Translate",
-                                        tint = if (showTranslation) Color(0xFFD5E15B) else Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                            }
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Tune Timing Offset Button
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(if (showOffsetControls) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.12f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
-                                        .clickable { showOffsetControls = !showOffsetControls },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Tune,
-                                        contentDescription = "Sync Offset",
-                                        tint = if (uiState.lyricsOffsetMs != 0L) Color(0xFFD5E15B) else Color.White,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
-
-                                // Copy Lyrics Button
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.12f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
-                                        .clickable {
-                                            val allLyrics = uiState.lyrics?.lines?.joinToString("\n") { it.text } ?: ""
-                                            if (allLyrics.isNotBlank()) {
-                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                                val clip = ClipData.newPlainText("Lyrics", allLyrics)
-                                                clipboard?.setPrimaryClip(clip)
-                                                Toast.makeText(context, "Lyrics copied to clipboard", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Copy Lyrics",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Synced Lyrics Canvas (Full Height, High Contrast Active Line, Blurred Inactive Lines)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                        ) {
-                            SyncedLyricsView(
-                                lyrics = uiState.lyrics,
-                                currentPositionMs = currentPosMs,
-                                onSeekTo = onSeekTo,
-                                isLoading = uiState.isLoadingLyrics,
-                                lyricsMode = com.auralis.music.domain.model.LyricsMode.CINEMA,
-                                offsetMs = uiState.lyricsOffsetMs,
-                                onOffsetChange = onLyricsOffsetChange
-                            )
-                        }
+                        SyncedLyricsView(
+                            lyrics = uiState.lyrics,
+                            currentPositionMs = currentPosMs,
+                            onSeekTo = onSeekTo,
+                            isLoading = uiState.isLoadingLyrics,
+                            lyricsMode = com.auralis.music.domain.model.LyricsMode.CINEMA,
+                            offsetMs = uiState.lyricsOffsetMs,
+                            onOffsetChange = onLyricsOffsetChange
+                        )
                     }
                 }
 
