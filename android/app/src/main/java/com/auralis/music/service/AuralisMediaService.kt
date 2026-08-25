@@ -106,9 +106,6 @@ class AuralisMediaService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Guarantee startForeground is active on every startCommand entry
-        startForegroundSafely()
-
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         when (intent?.action) {
             ACTION_PLAY -> audioPlayer.resume()
