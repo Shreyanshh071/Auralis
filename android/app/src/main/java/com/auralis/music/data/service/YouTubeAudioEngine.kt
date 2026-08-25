@@ -329,6 +329,14 @@ class YouTubeAudioEngine(private val context: Context) {
             (function() {
                 var v = document.querySelector('video');
                 if (!v) return null;
+                if (window._auralisRequestId !== $activeReq || window._auralisUserPaused) {
+                    try {
+                        v.muted = true;
+                        v.volume = 0;
+                        v.pause();
+                    } catch(e) {}
+                    return null;
+                }
                 if (v.muted) v.muted = false;
                 if (v.volume < 1.0) v.volume = 1.0;
                 
@@ -388,8 +396,6 @@ class YouTubeAudioEngine(private val context: Context) {
                     _isBuffering.value = readyState < 3 && !paused && !ended
 
                     if (ended) {
-                        _isPlaying.value = false
-                        releaseWakeLock()
                         onTrackCompletedCallback?.invoke()
                     }
                 } catch (_: Exception) {}
@@ -403,11 +409,13 @@ class YouTubeAudioEngine(private val context: Context) {
 
     /**
      * Loads a video with a monotonically increasing session request ID.
-     * Instantly mutes and clears any old playing video to ensure zero audible flash.
+     * Instantly halts, mutes, pauses, and detaches any previous video decoders before navigation.
      */
     fun loadVideo(videoId: String, requestId: Long = currentRequestId.incrementAndGet()) {
         currentRequestId.set(requestId)
         currentVideoId = videoId
+
+        stopPolling()
 
         mainHandler.post {
             requestAudioFocus()
@@ -416,22 +424,27 @@ class YouTubeAudioEngine(private val context: Context) {
             _isBuffering.value = true
             _isPlaying.value = true
 
-            // Immediately mute, pause, and detach old video before loading new URL
-            webView?.evaluateJavascript("""
-                (function() {
-                    window._auralisRequestId = $requestId;
-                    window._auralisUserPaused = true;
-                    var v = document.querySelector('video');
-                    if (v) {
-                        try {
-                            v.muted = true;
-                            v.pause();
-                            v.removeAttribute('src');
-                            v.load();
-                        } catch(e) {}
-                    }
-                })();
-            """.trimIndent(), null)
+            // Immediately silence and tear down any existing video/audio decoders in WebView
+            try {
+                webView?.stopLoading()
+                webView?.evaluateJavascript("""
+                    (function() {
+                        window._auralisRequestId = $requestId;
+                        window._auralisUserPaused = true;
+                        var allMedia = document.querySelectorAll('video, audio');
+                        allMedia.forEach(function(m) {
+                            try {
+                                m.muted = true;
+                                m.volume = 0;
+                                m.pause();
+                                m.src = "";
+                                m.removeAttribute('src');
+                                m.load();
+                            } catch(e) {}
+                        });
+                    })();
+                """.trimIndent(), null)
+            } catch (_: Exception) {}
 
             getOrCreateWebView(context)
             val url = "https://m.youtube.com/watch?v=$videoId"
@@ -440,7 +453,6 @@ class YouTubeAudioEngine(private val context: Context) {
                 "User-Agent" to "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             )
             webView?.loadUrl(url, extraHeaders)
-            startPolling()
         }
     }
 
