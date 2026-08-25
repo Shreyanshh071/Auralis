@@ -90,16 +90,16 @@ class SearchViewModel(
     }
 
     fun onQueryChange(newQuery: String) {
-        _uiState.update { it.copy(query = newQuery) }
+        _uiState.update { it.copy(query = newQuery, searchResults = SearchResults()) }
 
         debounceJob?.cancel()
         if (newQuery.isBlank()) {
-            _uiState.update { it.copy(suggestions = emptyList()) }
+            _uiState.update { it.copy(suggestions = emptyList(), searchResults = SearchResults()) }
             return
         }
 
         debounceJob = viewModelScope.launch {
-            delay(200) // 200ms debounce
+            delay(150)
             val suggestions = searchRepository.getSuggestions(newQuery)
             _uiState.update { it.copy(suggestions = suggestions) }
         }

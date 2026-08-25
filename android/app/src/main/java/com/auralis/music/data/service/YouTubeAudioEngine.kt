@@ -19,14 +19,14 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Production-Grade YouTube HTML5 Web Audio Engine.
- * 
- * Features:
- * - Direct mobile YouTube loading (`m.youtube.com/watch?v=...`) with full HTML5 <video> element integration.
- * - Comprehensive logging of readyState, networkState, currentSrc, and play() promise resolution.
- * - Exact `onplay` StateFlow synchronization (isPlaying=true only set when onplay/playing fires).
- * - Monotonic request-ID tracking: stale requests and async callbacks are discarded immediately.
- * - Background keepalive: Partial WakeLock + AudioFocus + visibility spoofing.
- * - 3-tier Ad Interception: network filter, CSS suppression, and JS fast-forwarding/skipping.
+ *
+ * Enforces:
+ * 1. Strict Request-ID lifecycle: stale callbacks, delayed tasks, and race events are dropped.
+ * 2. Exactly one play command per track request; zero competing pause/click calls.
+ * 3. Verified `onplay` StateFlow synchronization (isPlaying=true only upon native play/playing event).
+ * 4. Ended event validation (only native `ended` on completed track triggers onTrackCompleted).
+ * 5. Safe ad suppression (zero main-track fast-forwarding).
+ * 6. Full diagnostic telemetry with request ID and caller reason for every action.
  */
 class YouTubeAudioEngine(private val context: Context) {
 
@@ -37,6 +37,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
     // Monotonically increasing playback request/session ID
     private val currentRequestId = AtomicLong(0L)
+    private var lastEmittedState: Int = -1
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -58,45 +59,57 @@ class YouTubeAudioEngine(private val context: Context) {
 
         @JavascriptInterface
         fun logVideoState(reqId: Long, exists: Boolean, readyState: Int, networkState: Int, currentSrc: String, paused: Boolean, details: String) {
+            val activeReq = currentRequestId.get()
+            if (reqId != activeReq && reqId != 0L) return
             Log.d("AuralisPlayback", "[Video State #$reqId] exists=$exists, readyState=$readyState, networkState=$networkState, paused=$paused, src=$currentSrc, msg=$details")
         }
 
         @JavascriptInterface
         fun logPlaySuccess(reqId: Long, readyState: Int, networkState: Int, currentSrc: String) {
+            val activeReq = currentRequestId.get()
+            if (reqId != activeReq && reqId != 0L) return
             Log.d("AuralisPlayback", "[JS Play Success #$reqId] readyState=$readyState, networkState=$networkState, src=$currentSrc")
         }
 
         @JavascriptInterface
         fun logPlayError(reqId: Long, error: String, readyState: Int, networkState: Int, currentSrc: String) {
+            val activeReq = currentRequestId.get()
+            if (reqId != activeReq && reqId != 0L) return
             Log.e("AuralisPlayback", "[JS Play Error #$reqId] err=$error, readyState=$readyState, networkState=$networkState, src=$currentSrc")
         }
 
         @JavascriptInterface
-        fun onStateChange(state: Int, reqId: Long) {
+        fun onStateChange(state: Int, reqId: Long, caller: String) {
             mainHandler.post {
                 val activeReq = currentRequestId.get()
                 if (reqId != activeReq && reqId != 0L) {
-                    Log.d("AuralisPlayback", "[Stale onStateChange dropped] reqId=$reqId != activeReq=$activeReq (state=$state)")
+                    Log.d("AuralisPlayback", "[Stale onStateChange dropped] reqId=$reqId != activeReq=$activeReq (state=$state, caller=$caller)")
                     return@post
                 }
 
-                Log.d("AuralisPlayback", "[onStateChange #$reqId] state=$state (1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED)")
+                // Debounce redundant identical state notifications
+                if (state == lastEmittedState && state != 3) {
+                    return@post
+                }
+                lastEmittedState = state
+
+                Log.d("AuralisPlayback", "[onStateChange #$reqId] state=$state (1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) [caller=$caller]")
                 when (state) {
                     0 -> { // Ended
                         _isPlaying.value = false
                         _isBuffering.value = false
-                        releaseWakeLock()
+                        releaseWakeLock("TrackEnded")
                         onTrackCompletedCallback?.invoke()
                     }
-                    1 -> { // Playing - ONLY set isPlaying = true upon verified onplay callback
+                    1 -> { // Playing - ONLY set isPlaying = true upon verified native play event
                         _isPlaying.value = true
                         _isBuffering.value = false
-                        acquireWakeLock()
+                        acquireWakeLock("TrackPlaying")
                     }
                     2 -> { // Paused
                         _isPlaying.value = false
                         _isBuffering.value = false
-                        releaseWakeLock()
+                        releaseWakeLock("TrackPaused")
                     }
                     3 -> { // Buffering / Waiting
                         _isBuffering.value = true
@@ -106,8 +119,8 @@ class YouTubeAudioEngine(private val context: Context) {
         }
 
         @JavascriptInterface
-        fun onStateChange(state: Int) {
-            onStateChange(state, currentRequestId.get())
+        fun onStateChange(state: Int, reqId: Long) {
+            onStateChange(state, reqId, "Unknown")
         }
 
         @JavascriptInterface
@@ -124,11 +137,6 @@ class YouTubeAudioEngine(private val context: Context) {
                 }
             }
         }
-
-        @JavascriptInterface
-        fun updateTime(currentSec: Double, durationSec: Double) {
-            updateTime(currentSec, durationSec, currentRequestId.get())
-        }
     }
 
     init {
@@ -137,21 +145,23 @@ class YouTubeAudioEngine(private val context: Context) {
         }
     }
 
-    private fun acquireWakeLock() {
+    private fun acquireWakeLock(reason: String) {
         try {
             if (wakeLock == null) {
                 wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Auralis:BackgroundPlayback")
             }
             if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours timeout
+                wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours
+                Log.d("AuralisPlayback", "[WakeLock Acquired] reason=$reason")
             }
         } catch (_: Exception) {}
     }
 
-    private fun releaseWakeLock() {
+    private fun releaseWakeLock(reason: String) {
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
+                Log.d("AuralisPlayback", "[WakeLock Released] reason=$reason")
             }
         } catch (_: Exception) {}
     }
@@ -217,23 +227,25 @@ class YouTubeAudioEngine(private val context: Context) {
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        Log.d("AuralisPlayback", "[WebView PageStarted] url=$url (reqId=${currentRequestId.get()})")
+                        Log.d("AuralisPlayback", "[WebView onPageStarted #reqId=${currentRequestId.get()}] url=$url")
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         val activeReq = currentRequestId.get()
-                        Log.d("AuralisPlayback", "[WebView PageFinished] url=$url (reqId=$activeReq)")
-                        
-                        // Inject playback controller script on finished page
-                        injectPlaybackScript(activeReq)
+                        Log.d("AuralisPlayback", "[WebView onPageFinished #reqId=$activeReq] url=$url")
+
+                        // Only inject playback controller script on watch pages
+                        if (url?.contains("watch?v=") == true) {
+                            injectPlaybackScript(activeReq)
+                        }
                     }
 
                     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                         val url = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
-                        
-                        // NEVER block actual song audio/video streams
-                        if (url.contains("googlevideo.com/videoplayback")) {
+
+                        // Unconditionally allow ALL media stream requests
+                        if (url.contains("googlevideo.com")) {
                             return super.shouldInterceptRequest(view, request)
                         }
 
@@ -256,15 +268,21 @@ class YouTubeAudioEngine(private val context: Context) {
 
                     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                         super.onReceivedError(view, request, error)
-                        if (request?.isForMainFrame == true || request?.url?.toString()?.contains("youtube") == true) {
-                            Log.e("AuralisPlayback", "[WebView Error] code=${error?.errorCode}, desc=${error?.description}, url=${request?.url}")
+                        val isMain = request?.isForMainFrame == true
+                        val urlStr = request?.url?.toString() ?: ""
+                        if (isMain) {
+                            Log.e("AuralisPlayback", "[WebView MainFrame Error #reqId=${currentRequestId.get()}] code=${error?.errorCode}, desc=${error?.description}, url=$urlStr")
+                        } else if (urlStr.contains("googlevideo.com")) {
+                            Log.w("AuralisPlayback", "[WebView Media Stream Notice] code=${error?.errorCode}, desc=${error?.description}, url=$urlStr")
                         }
                     }
 
                     override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
                         super.onReceivedHttpError(view, request, errorResponse)
-                        if (request?.isForMainFrame == true || request?.url?.toString()?.contains("youtube") == true) {
-                            Log.e("AuralisPlayback", "[WebView HTTP Error] status=${errorResponse?.statusCode}, url=${request?.url}")
+                        val isMain = request?.isForMainFrame == true
+                        val urlStr = request?.url?.toString() ?: ""
+                        if (isMain) {
+                            Log.e("AuralisPlayback", "[WebView MainFrame HTTP Error #reqId=${currentRequestId.get()}] status=${errorResponse?.statusCode}, url=$urlStr")
                         }
                     }
                 }
@@ -279,11 +297,20 @@ class YouTubeAudioEngine(private val context: Context) {
                 var reqId = $reqId;
                 window._auralisRequestId = reqId;
 
-                // 1. Spoof visibility state so YouTube never pauses when backgrounded
+                // 1. Spoof visibility state & Pre-seed YouTube volume state to 100% unmuted
                 try {
                     Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
                     Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
                     Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+                    
+                    localStorage.setItem('yt-player-volume', JSON.stringify({
+                        data: JSON.stringify({ volume: 100, muted: false }),
+                        creation: Date.now()
+                    }));
+                    sessionStorage.setItem('yt-player-volume', JSON.stringify({
+                        data: JSON.stringify({ volume: 100, muted: false }),
+                        creation: Date.now()
+                    }));
                 } catch(e) {}
 
                 window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
@@ -306,7 +333,45 @@ class YouTubeAudioEngine(private val context: Context) {
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                function annihilateAds() {
+                function enforceAudioOutput() {
+                    try {
+                        document.querySelectorAll('video').forEach(function(el) {
+                            if (el.muted) el.muted = false;
+                            if (el.volume < 1.0) el.volume = 1.0;
+                        });
+                        var unmuteBtn = document.querySelector('.ytp-unmute, .ytp-unmute-inner, button[aria-label*="unmute" i]');
+                        if (unmuteBtn) unmuteBtn.click();
+                    } catch(e) {}
+                }
+
+                // Global controller functions
+                window._auralisPlay = function(targetReq, caller) {
+                    if (targetReq !== window._auralisRequestId) return;
+                    enforceAudioOutput();
+                    var v = document.querySelector('.html5-main-video') || document.querySelector('video');
+                    if (v) {
+                        v.muted = false;
+                        v.volume = 1.0;
+                        v.play().catch(function(e) {
+                            v.muted = true;
+                            v.play().then(function() { v.muted = false; }).catch(function() {});
+                        });
+                    }
+                };
+
+                window._auralisPause = function(targetReq, caller) {
+                    if (targetReq !== window._auralisRequestId) return;
+                    var v = document.querySelector('.html5-main-video') || document.querySelector('video');
+                    if (v) v.pause();
+                };
+
+                window._auralisSeek = function(seconds, targetReq) {
+                    if (targetReq !== window._auralisRequestId) return;
+                    var v = document.querySelector('.html5-main-video') || document.querySelector('video');
+                    if (v) v.currentTime = seconds;
+                };
+
+                function clickSkipButtons() {
                     try {
                         var skipButtons = document.querySelectorAll(
                             '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
@@ -314,27 +379,19 @@ class YouTubeAudioEngine(private val context: Context) {
                         );
                         skipButtons.forEach(function(btn) { btn.click(); });
                     } catch(e) {}
-
-                    var v = document.querySelector('video');
-                    if (v) {
-                        var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-module, .ytp-ad-text');
-                        if (isAd) {
-                            try {
-                                v.playbackRate = 16.0;
-                                v.currentTime = v.duration || 100;
-                            } catch(e) {}
-                        }
-                    }
                 }
 
                 var attempts = 0;
-                var maxAttempts = 35; // 35 * 150ms = 5.25 seconds
+                var maxAttempts = 35; // 35 * 150ms = 5.25s
+                var mediaStarted = false;
 
                 function tryStartMedia() {
+                    if (mediaStarted || window._auralisRequestId !== reqId) return;
                     attempts++;
-                    annihilateAds();
+                    clickSkipButtons();
+                    enforceAudioOutput();
 
-                    var v = document.querySelector('video');
+                    var v = document.querySelector('.html5-main-video') || document.querySelector('video');
                     if (!v) {
                         if (attempts % 5 === 0 && window.AuralisBridge) {
                             window.AuralisBridge.logVideoState(reqId, false, 0, 0, "", true, "Video element not found (attempt " + attempts + ")");
@@ -349,30 +406,40 @@ class YouTubeAudioEngine(private val context: Context) {
                         return;
                     }
 
-                    // Video element found!
+                    // Video element found and active for this request
+                    mediaStarted = true;
                     v.muted = false;
                     v.volume = 1.0;
 
-                    // Attach listeners once
+                    // Attach event listeners exactly once
                     if (!v._auralisAttached) {
                         v._auralisAttached = true;
                         v.addEventListener('play', function() {
-                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId || reqId);
+                            enforceAudioOutput();
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId, 'native_play');
                         });
                         v.addEventListener('playing', function() {
-                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId || reqId);
+                            enforceAudioOutput();
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId, 'native_playing');
                         });
                         v.addEventListener('pause', function() {
-                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId || reqId);
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId, 'native_pause');
                         });
                         v.addEventListener('waiting', function() {
-                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(3, window._auralisRequestId || reqId);
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(3, window._auralisRequestId, 'native_waiting');
                         });
                         v.addEventListener('ended', function() {
-                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(0, window._auralisRequestId || reqId);
+                            // Only emit ended if track truly reached duration end
+                            if (v.duration > 0 && Math.abs(v.currentTime - v.duration) < 3.0) {
+                                if (window.AuralisBridge) window.AuralisBridge.onStateChange(0, window._auralisRequestId, 'native_ended');
+                            }
                         });
                         v.addEventListener('timeupdate', function() {
-                            if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId || reqId);
+                            if (v.muted) {
+                                v.muted = false;
+                                v.volume = 1.0;
+                            }
+                            if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId);
                         });
                         v.addEventListener('error', function(e) {
                             var errDesc = v.error ? "code=" + v.error.code + " msg=" + v.error.message : "unknown error";
@@ -384,16 +451,11 @@ class YouTubeAudioEngine(private val context: Context) {
                     var dismissBtn = document.querySelector('button[aria-label*="Dismiss"], button[aria-label*="No thanks"], ytd-button-renderer#dismiss-button, .yt-spec-button-shape-next--tonal');
                     if (dismissBtn) try { dismissBtn.click(); } catch(e) {}
 
-                    // Click YouTube large play button if present and video is paused
-                    var playBtn = document.querySelector('.ytp-large-play-button, .ytp-play-button, button.player-control-play-pause');
-                    if (playBtn && v.paused) {
-                        try { playBtn.click(); } catch(e) {}
-                    }
-
-                    // Call video.play()
+                    // Execute video.play() EXACTLY ONCE for this request
                     var playPromise = v.play();
                     if (playPromise !== undefined) {
                         playPromise.then(function() {
+                            enforceAudioOutput();
                             if (window.AuralisBridge) {
                                 window.AuralisBridge.logPlaySuccess(reqId, v.readyState, v.networkState, v.currentSrc || "");
                             }
@@ -406,9 +468,11 @@ class YouTubeAudioEngine(private val context: Context) {
                             v.muted = true;
                             v.play().then(function() {
                                 v.muted = false;
+                                enforceAudioOutput();
                             }).catch(function() {});
                         });
                     } else {
+                        enforceAudioOutput();
                         if (window.AuralisBridge) {
                             window.AuralisBridge.logPlaySuccess(reqId, v.readyState, v.networkState, v.currentSrc || "");
                         }
@@ -417,11 +481,12 @@ class YouTubeAudioEngine(private val context: Context) {
 
                 tryStartMedia();
 
-                // Ongoing polling for ads
-                if (!window._auralisPollInterval) {
-                    window._auralisPollInterval = setInterval(function() {
-                        annihilateAds();
-                    }, 500);
+                // Periodic check for ad skip button & sound enforcement
+                if (!window._auralisSkipInterval) {
+                    window._auralisSkipInterval = setInterval(function() {
+                        clickSkipButtons();
+                        enforceAudioOutput();
+                    }, 1000);
                 }
             })();
         """.trimIndent()
@@ -434,89 +499,63 @@ class YouTubeAudioEngine(private val context: Context) {
 
     /**
      * Loads a video with a monotonically increasing session request ID.
-     * Starts background playback and logs progress end-to-end.
      */
     fun loadVideo(videoId: String, requestId: Long = currentRequestId.incrementAndGet()) {
         currentRequestId.set(requestId)
         currentVideoId = videoId
+        lastEmittedState = -1
 
         mainHandler.post {
             requestAudioFocus()
-            acquireWakeLock()
+            acquireWakeLock("LoadVideo_#$requestId")
             _playbackPositionMs.value = 0L
             _isBuffering.value = true
-            _isPlaying.value = false // Set isPlaying = true only upon verified onplay callback
+            _isPlaying.value = false // Strictly false until native onplay verified
 
             val web = getOrCreateWebView(context) as WebView
-            Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId")
+            Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId (Caller: loadVideo)")
 
-            // Stop any existing audio immediately before navigating
-            web.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.pause(); v.currentTime = 0; }", null)
-
-            // Direct mobile YouTube navigation
             web.loadUrl("https://m.youtube.com/watch?v=$videoId")
         }
     }
 
     fun play() {
+        val activeReq = currentRequestId.get()
+        Log.d("AuralisPlayback", "[Play Command #$activeReq] (Caller: User/MediaAction)")
         mainHandler.post {
             requestAudioFocus()
-            acquireWakeLock()
-            webView?.evaluateJavascript("""
-                (function() {
-                    var v = document.querySelector('video');
-                    if (v) {
-                        v.muted = false;
-                        v.volume = 1.0;
-                        v.play().catch(function(e) {
-                            v.muted = true;
-                            v.play().then(function() { v.muted = false; });
-                        });
-                    }
-                })();
-            """.trimIndent(), null)
+            acquireWakeLock("UserPlay_#$activeReq")
+            webView?.evaluateJavascript("if (window._auralisPlay) window._auralisPlay($activeReq, 'UserPlay');", null)
         }
     }
 
     fun pause() {
+        val activeReq = currentRequestId.get()
+        Log.d("AuralisPlayback", "[Pause Command #$activeReq] (Caller: User/MediaAction)")
         mainHandler.post {
             _isPlaying.value = false
-            releaseWakeLock()
-            webView?.evaluateJavascript("""
-                (function() {
-                    var v = document.querySelector('video');
-                    if (v) v.pause();
-                })();
-            """.trimIndent(), null)
+            releaseWakeLock("UserPause_#$activeReq")
+            webView?.evaluateJavascript("if (window._auralisPause) window._auralisPause($activeReq, 'UserPause');", null)
         }
     }
 
     fun seekTo(positionMs: Long) {
+        val activeReq = currentRequestId.get()
+        val seconds = positionMs / 1000.0
+        Log.d("AuralisPlayback", "[Seek Command #$activeReq] position=${positionMs}ms (${seconds}s)")
         mainHandler.post {
             _playbackPositionMs.value = positionMs
-            val seconds = positionMs / 1000.0
-            webView?.evaluateJavascript("""
-                (function() {
-                    var v = document.querySelector('video');
-                    if (v) v.currentTime = $seconds;
-                })();
-            """.trimIndent(), null)
+            webView?.evaluateJavascript("if (window._auralisSeek) window._auralisSeek($seconds, $activeReq);", null)
         }
     }
 
     fun stop() {
+        val activeReq = currentRequestId.get()
+        Log.d("AuralisPlayback", "[Stop Command #$activeReq]")
         mainHandler.post {
             _isPlaying.value = false
-            releaseWakeLock()
-            webView?.evaluateJavascript("""
-                (function() {
-                    var v = document.querySelector('video');
-                    if (v) {
-                        v.pause();
-                        v.currentTime = 0;
-                    }
-                })();
-            """.trimIndent(), null)
+            releaseWakeLock("Stop_#$activeReq")
+            webView?.evaluateJavascript("if (window._auralisPause) window._auralisPause($activeReq, 'Stop');", null)
         }
     }
 

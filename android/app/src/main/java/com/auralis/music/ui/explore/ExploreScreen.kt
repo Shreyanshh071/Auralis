@@ -115,9 +115,11 @@ fun ExploreScreen(
     var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
-    val hasResults = uiState.searchResults.songs.isNotEmpty() ||
-            uiState.searchResults.artists.isNotEmpty() ||
-            uiState.searchResults.playlists.isNotEmpty()
+    val hasResults = uiState.query.isNotBlank() && (
+        uiState.searchResults.songs.isNotEmpty() ||
+        uiState.searchResults.artists.isNotEmpty() ||
+        uiState.searchResults.playlists.isNotEmpty()
+    )
 
     androidx.activity.compose.BackHandler(
         enabled = uiState.isRecognitionOpen || uiState.query.isNotEmpty() || hasResults
@@ -203,10 +205,12 @@ fun ExploreScreen(
                     )
                 }
 
-                // Dynamic Clear Cross Button (only visible when text is typed)
-                if (uiState.query.isNotEmpty()) {
+                // Dynamic Clear Cross Button (visible when text is typed or search has results)
+                if (uiState.query.isNotEmpty() || hasResults) {
                     IconButton(
-                        onClick = { onQueryChange("") },
+                        onClick = {
+                            onClearSearch()
+                        },
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
