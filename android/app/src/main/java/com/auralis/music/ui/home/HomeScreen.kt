@@ -92,6 +92,7 @@ fun HomeScreen(
     onSurpriseMe: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onArtistClick: (Artist) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -191,6 +192,15 @@ fun HomeScreen(
                                                             when (item.type) {
                                                                 SpeedDialType.TRACK -> {
                                                                     item.track?.let { onTrackClick(it, listOf(it)) }
+                                                                }
+                                                                SpeedDialType.ARTIST -> {
+                                                                    onArtistClick(
+                                                                        Artist(
+                                                                            id = if (item.id.startsWith("UC")) item.id else "",
+                                                                            name = item.name,
+                                                                            thumbnail = item.image
+                                                                        )
+                                                                    )
                                                                 }
                                                                 SpeedDialType.SURPRISE -> {
                                                                     onSurpriseMe()

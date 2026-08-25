@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,6 +86,57 @@ class LibraryViewModel(
             libraryRepository.getSavedAlbums().collect { albums ->
                 _uiState.update { it.copy(savedAlbums = albums) }
             }
+        }
+
+        // Auto-enrich existing Spotify-imported playlist tracks with official YouTube covers
+        viewModelScope.launch {
+            enrichExistingPlaylistsWithArtwork()
+        }
+    }
+
+    fun enrichPlaylist(playlist: Playlist) {
+        viewModelScope.launch {
+            try {
+                val needsEnrich = playlist.tracks.any {
+                    it.thumbnail.contains("mosaic.scdn.co") ||
+                    it.thumbnail.contains("image-cdn") ||
+                    it.id.startsWith("sp_") ||
+                    (!playlist.coverUrl.isNullOrBlank() && it.thumbnail == playlist.coverUrl)
+                }
+                if (needsEnrich && playlist.tracks.isNotEmpty()) {
+                    android.util.Log.i("LibraryViewModel", "Enriching playlist '${playlist.title}' (${playlist.tracks.size} tracks) with official artwork...")
+                    val enriched = spotifyImporter.enrichTracksWithYouTubeData(playlist.tracks)
+                    libraryRepository.replacePlaylistTracks(playlist.id, enriched)
+                    _uiState.update { state ->
+                        if (state.selectedPlaylist?.id == playlist.id) {
+                            state.copy(selectedPlaylist = playlist.copy(tracks = enriched))
+                        } else state
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("LibraryViewModel", "enrichPlaylist failed: ${e.message}")
+            }
+        }
+    }
+
+    private suspend fun enrichExistingPlaylistsWithArtwork() {
+        try {
+            val playlists = libraryRepository.getPlaylists().firstOrNull() ?: return
+            for (pl in playlists) {
+                val needsEnrich = pl.tracks.any {
+                    it.thumbnail.contains("mosaic.scdn.co") ||
+                    it.thumbnail.contains("image-cdn") ||
+                    it.id.startsWith("sp_") ||
+                    (!pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
+                }
+                if (needsEnrich && pl.tracks.isNotEmpty()) {
+                    android.util.Log.i("LibraryViewModel", "Auto-enriching playlist '${pl.title}' with official YouTube song artwork...")
+                    val enriched = spotifyImporter.enrichTracksWithYouTubeData(pl.tracks)
+                    libraryRepository.replacePlaylistTracks(pl.id, enriched)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LibraryViewModel", "Enrich existing playlists notice: ${e.message}")
         }
     }
 
@@ -226,6 +278,17 @@ class LibraryViewModel(
         viewModelScope.launch {
             libraryRepository.getPlaylist(playlistId).collect { pl ->
                 _uiState.update { it.copy(selectedPlaylist = pl, selectedSmartCollection = null) }
+                if (pl != null) {
+                    val needsEnrich = pl.tracks.any {
+                        it.thumbnail.contains("mosaic.scdn.co") ||
+                        it.thumbnail.contains("image-cdn") ||
+                        it.id.startsWith("sp_") ||
+                        (!pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
+                    }
+                    if (needsEnrich) {
+                        enrichPlaylist(pl)
+                    }
+                }
             }
         }
     }

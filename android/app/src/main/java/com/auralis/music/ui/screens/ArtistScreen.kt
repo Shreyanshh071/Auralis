@@ -96,7 +96,7 @@ fun ArtistScreen(
                         .fillMaxWidth()
                         .height(340.dp)
                 ) {
-                    val imageUrl = artistPage.bannerUrl ?: artistPage.artist.thumbnail
+                    val imageUrl = artistPage.bannerUrl ?: (if (artistPage.artist.id.startsWith("UC") && !artistPage.artist.thumbnail.isNullOrBlank() && !artistPage.artist.thumbnail.contains("i.ytimg.com")) artistPage.artist.thumbnail else null)
                     if (!imageUrl.isNullOrBlank()) {
                         AsyncImage(
                             model = imageUrl,

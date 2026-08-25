@@ -302,7 +302,11 @@ fun AuralisApp(
                                         }
                                     },
                                     onOpenProfile = { isProfileOpen = true },
-                                    onOpenHistory = { isHistoryOpen = true }
+                                    onOpenHistory = { isHistoryOpen = true },
+                                    onArtistClick = { artist ->
+                                        searchViewModel.openArtist(artist)
+                                        navigateToDestination(AppDestination.EXPLORE)
+                                    }
                                 )
                             }
                             AppDestination.EXPLORE -> {
@@ -396,6 +400,11 @@ fun AuralisApp(
                 },
                 onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
                 onCreatePlaylistAndAdd = { title, track -> libraryViewModel.createPlaylist(title) },
+                onArtistClick = { artist ->
+                    isNowPlayingOpen = false
+                    searchViewModel.openArtist(artist)
+                    navigateToDestination(AppDestination.EXPLORE)
+                },
                 onDismiss = { isNowPlayingOpen = false }
             )
         }

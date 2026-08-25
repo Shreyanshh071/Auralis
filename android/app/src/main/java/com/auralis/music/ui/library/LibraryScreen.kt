@@ -665,6 +665,17 @@ fun LibraryScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (importMode == 2) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Tip: If your playlist is private, briefly toggle it to Public in Spotify to import. Once imported, you can make it Private again anytime — your songs stay saved in Auralis forever!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.70f),
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
                 }
             },
             confirmButton = {

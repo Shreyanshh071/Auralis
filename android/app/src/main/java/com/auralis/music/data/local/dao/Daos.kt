@@ -221,3 +221,18 @@ interface SearchHistoryDao {
     @Query("DELETE FROM search_history")
     suspend fun clearSearchHistory()
 }
+
+@Dao
+interface LyricsDao {
+    @Query("SELECT * FROM lyrics_cache WHERE trackId = :trackId LIMIT 1")
+    suspend fun getLyrics(trackId: String): com.auralis.music.data.local.entity.LyricsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLyrics(entity: com.auralis.music.data.local.entity.LyricsEntity)
+
+    @Query("DELETE FROM lyrics_cache WHERE trackId = :trackId")
+    suspend fun deleteLyrics(trackId: String)
+
+    @Query("DELETE FROM lyrics_cache")
+    suspend fun clearAllLyrics()
+}

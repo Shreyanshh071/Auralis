@@ -162,6 +162,7 @@ fun NowPlayingModal(
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
+    onArtistClick: ((com.auralis.music.domain.model.Artist) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -222,6 +223,11 @@ fun NowPlayingModal(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF08060C))
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = {} // Intercept all clicks on empty player space to prevent bleed-through to underlying screens
+            )
     ) {
         // ====================================================================
         // 1. STATIC HIGH-VIBRANCY AURORA MESH BACKGROUND (SYNCED WITH COVER)
@@ -714,7 +720,17 @@ fun NowPlayingModal(
                                             fontWeight = FontWeight.Medium,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
-                                            fontSize = 14.sp
+                                            fontSize = 14.sp,
+                                            modifier = Modifier.clickable {
+                                                onArtistClick?.invoke(
+                                                    com.auralis.music.domain.model.Artist(
+                                                        id = "",
+                                                        name = curTrack.artist,
+                                                        thumbnail = curTrack.thumbnail
+                                                    )
+                                                )
+                                                onDismiss()
+                                            }
                                         )
                                     }
                                 }
@@ -1040,6 +1056,7 @@ fun NowPlayingSheet(
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
+    onArtistClick: ((com.auralis.music.domain.model.Artist) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1062,6 +1079,7 @@ fun NowPlayingSheet(
         onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
         onPlayNext = onPlayNext,
         onAddToQueue = onAddToQueue,
+        onArtistClick = onArtistClick,
         onDismiss = onDismiss,
         modifier = modifier
     )

@@ -266,12 +266,28 @@ class AuralisAudioPlayer private constructor(context: Context) {
         youTubeEngine.seekTo(positionMs)
     }
 
+    private val _isFavorite = MutableStateFlow(false)
+    val isFavorite: StateFlow<Boolean> = _isFavorite.asStateFlow()
+
+    fun setIsFavorite(fav: Boolean) {
+        _isFavorite.value = fav
+    }
+
     private var onNextCallback: (() -> Unit)? = null
     private var onPreviousCallback: (() -> Unit)? = null
+    private var onToggleFavoriteCallback: (() -> Unit)? = null
+    private var onToggleRepeatCallback: (() -> Unit)? = null
 
-    fun setNavigationCallbacks(onNext: () -> Unit, onPrevious: () -> Unit) {
+    fun setNavigationCallbacks(
+        onNext: () -> Unit,
+        onPrevious: () -> Unit,
+        onToggleFavorite: (() -> Unit)? = null,
+        onToggleRepeat: (() -> Unit)? = null
+    ) {
         this.onNextCallback = onNext
         this.onPreviousCallback = onPrevious
+        this.onToggleFavoriteCallback = onToggleFavorite
+        this.onToggleRepeatCallback = onToggleRepeat
     }
 
     fun next() {
@@ -280,6 +296,24 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     fun previous() {
         onPreviousCallback?.invoke()
+    }
+
+    fun toggleFavorite() {
+        onToggleFavoriteCallback?.invoke()
+    }
+
+    fun toggleRepeat() {
+        onToggleRepeatCallback?.invoke()
+    }
+
+    fun seekForward(deltaMs: Long = 10000L) {
+        val target = (_playbackPositionMs.value + deltaMs).coerceAtMost(_durationMs.value.coerceAtLeast(0))
+        seekTo(target)
+    }
+
+    fun seekBackward(deltaMs: Long = 10000L) {
+        val target = (_playbackPositionMs.value - deltaMs).coerceAtLeast(0)
+        seekTo(target)
     }
 
     fun getOrCreateWebView(ctx: Context): View {

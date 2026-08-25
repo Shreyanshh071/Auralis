@@ -41,7 +41,9 @@ class YouTubeAudioEngine(private val context: Context) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -154,6 +156,13 @@ class YouTubeAudioEngine(private val context: Context) {
                 wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours
                 Log.d("AuralisPlayback", "[WakeLock Acquired] reason=$reason")
             }
+            if (wifiLock == null) {
+                wifiLock = wifiManager?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Auralis:BackgroundWifi")
+            }
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+                Log.d("AuralisPlayback", "[WifiLock Acquired] reason=$reason")
+            }
         } catch (_: Exception) {}
     }
 
@@ -162,6 +171,10 @@ class YouTubeAudioEngine(private val context: Context) {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
                 Log.d("AuralisPlayback", "[WakeLock Released] reason=$reason")
+            }
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+                Log.d("AuralisPlayback", "[WifiLock Released] reason=$reason")
             }
         } catch (_: Exception) {}
     }
@@ -244,8 +257,8 @@ class YouTubeAudioEngine(private val context: Context) {
                     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                         val url = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
 
-                        // Unconditionally allow ALL media stream requests
-                        if (url.contains("googlevideo.com")) {
+                        // Unconditionally allow ALL legitimate music stream requests
+                        if (url.contains("googlevideo.com") && !url.contains("&ad_") && !url.contains("ctier") && !url.contains("adformat")) {
                             return super.shouldInterceptRequest(view, request)
                         }
 
@@ -258,7 +271,17 @@ class YouTubeAudioEngine(private val context: Context) {
                                 url.contains("youtube.com/pagead/") ||
                                 url.contains("youtube.com/ptracking") ||
                                 url.contains("googlesyndication.com") ||
-                                url.contains("pubads.g.doubleclick.net")
+                                url.contains("pubads.g.doubleclick.net") ||
+                                url.contains("/api/stats/qoe?adformat") ||
+                                url.contains("/get_midroll_info") ||
+                                url.contains("youtubei/v1/att/get") ||
+                                url.contains("youtubei/v1/player/ad_break") ||
+                                url.contains("ad_creative") ||
+                                url.contains("&ad_") ||
+                                url.contains("ctier") ||
+                                url.contains("adunit") ||
+                                url.contains("ad-formats") ||
+                                url.contains("adformat")
 
                         if (isAd) {
                             return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
@@ -325,7 +348,8 @@ class YouTubeAudioEngine(private val context: Context) {
                     style.textContent = `
                         .ad-showing, .ad-interrupting, .video-ads, .ytp-ad-module,
                         .ytp-ad-overlay-container, #player-ads, .ytp-ad-text,
-                        ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer {
+                        ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer,
+                        .ytp-ad-player-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer {
                             display: none !important;
                             visibility: hidden !important;
                         }
@@ -335,18 +359,50 @@ class YouTubeAudioEngine(private val context: Context) {
 
                 function enforceAudioOutput() {
                     try {
-                        document.querySelectorAll('video').forEach(function(el) {
-                            if (el.muted) el.muted = false;
-                            if (el.volume < 1.0) el.volume = 1.0;
-                        });
-                        var unmuteBtn = document.querySelector('.ytp-unmute, .ytp-unmute-inner, button[aria-label*="unmute" i]');
-                        if (unmuteBtn) unmuteBtn.click();
+                        var isAd = document.querySelector('.ad-showing, .ad-interrupting') !== null;
+                        if (!isAd) {
+                            document.querySelectorAll('video').forEach(function(el) {
+                                if (el.muted) el.muted = false;
+                                if (el.volume < 1.0) el.volume = 1.0;
+                            });
+                            var unmuteBtn = document.querySelector('.ytp-unmute, .ytp-unmute-inner, button[aria-label*="unmute" i]');
+                            if (unmuteBtn) unmuteBtn.click();
+                        }
                     } catch(e) {}
                 }
+
+                // Rapid Ad Destroyer - runs every 80ms
+                function killAdsImmediately() {
+                    try {
+                        var v = document.querySelector('.html5-main-video') || document.querySelector('video');
+                        var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay') !== null ||
+                                   (v && v.src && (v.src.indexOf('ctier') !== -1 || v.src.indexOf('&ad_') !== -1 || v.src.indexOf('ptracking') !== -1));
+                        
+                        if (isAd && v) {
+                            v.muted = true;
+                            v.playbackRate = 16.0;
+                            if (v.duration > 0 && !isNaN(v.duration)) {
+                                v.currentTime = v.duration;
+                            }
+                        }
+
+                        var skipButtons = document.querySelectorAll(
+                            '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
+                            '.ytp-skip-ad-button, button[class*="skip-button"], .ytp-ad-skip-button-slot button, ' +
+                            '.ytp-ad-skip-button-container button'
+                        );
+                        skipButtons.forEach(function(btn) {
+                            try { btn.click(); } catch(e) {}
+                        });
+                    } catch(e) {}
+                }
+
+                window._auralisUserPaused = false;
 
                 // Global controller functions
                 window._auralisPlay = function(targetReq, caller) {
                     if (targetReq !== window._auralisRequestId) return;
+                    window._auralisUserPaused = false;
                     enforceAudioOutput();
                     var v = document.querySelector('.html5-main-video') || document.querySelector('video');
                     if (v) {
@@ -361,6 +417,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
                 window._auralisPause = function(targetReq, caller) {
                     if (targetReq !== window._auralisRequestId) return;
+                    window._auralisUserPaused = true;
                     var v = document.querySelector('.html5-main-video') || document.querySelector('video');
                     if (v) v.pause();
                 };
@@ -371,16 +428,6 @@ class YouTubeAudioEngine(private val context: Context) {
                     if (v) v.currentTime = seconds;
                 };
 
-                function clickSkipButtons() {
-                    try {
-                        var skipButtons = document.querySelectorAll(
-                            '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
-                            '.ytp-skip-ad-button, button[class*="skip-button"], .ytp-ad-skip-button-slot button'
-                        );
-                        skipButtons.forEach(function(btn) { btn.click(); });
-                    } catch(e) {}
-                }
-
                 var attempts = 0;
                 var maxAttempts = 35; // 35 * 150ms = 5.25s
                 var mediaStarted = false;
@@ -388,7 +435,7 @@ class YouTubeAudioEngine(private val context: Context) {
                 function tryStartMedia() {
                     if (mediaStarted || window._auralisRequestId !== reqId) return;
                     attempts++;
-                    clickSkipButtons();
+                    killAdsImmediately();
                     enforceAudioOutput();
 
                     var v = document.querySelector('.html5-main-video') || document.querySelector('video');
@@ -423,23 +470,40 @@ class YouTubeAudioEngine(private val context: Context) {
                             if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId, 'native_playing');
                         });
                         v.addEventListener('pause', function() {
+                            if (!window._auralisUserPaused) {
+                                // Background OS / visibility throttle attempted to pause playback!
+                                // Immediately auto-resume!
+                                setTimeout(function() {
+                                    if (!window._auralisUserPaused) {
+                                        v.play().catch(function() {});
+                                    }
+                                }, 30);
+                                return;
+                            }
                             if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId, 'native_pause');
                         });
                         v.addEventListener('waiting', function() {
                             if (window.AuralisBridge) window.AuralisBridge.onStateChange(3, window._auralisRequestId, 'native_waiting');
                         });
                         v.addEventListener('ended', function() {
-                            // Only emit ended if track truly reached duration end
-                            if (v.duration > 0 && Math.abs(v.currentTime - v.duration) < 3.0) {
+                            // Only emit ended if the actual track (not an ad) reached duration end
+                            var isAd = document.querySelector('.ad-showing, .ad-interrupting') !== null;
+                            if (!isAd && v.duration > 0 && Math.abs(v.currentTime - v.duration) < 3.0) {
                                 if (window.AuralisBridge) window.AuralisBridge.onStateChange(0, window._auralisRequestId, 'native_ended');
                             }
                         });
                         v.addEventListener('timeupdate', function() {
-                            if (v.muted) {
-                                v.muted = false;
-                                v.volume = 1.0;
+                            var isAd = document.querySelector('.ad-showing, .ad-interrupting') !== null;
+                            if (isAd) {
+                                v.muted = true;
+                                v.playbackRate = 16.0;
+                            } else {
+                                if (v.muted) {
+                                    v.muted = false;
+                                    v.volume = 1.0;
+                                }
+                                if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId);
                             }
-                            if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId);
                         });
                         v.addEventListener('error', function(e) {
                             var errDesc = v.error ? "code=" + v.error.code + " msg=" + v.error.message : "unknown error";
@@ -480,14 +544,6 @@ class YouTubeAudioEngine(private val context: Context) {
                 }
 
                 tryStartMedia();
-
-                // Periodic check for ad skip button & sound enforcement
-                if (!window._auralisSkipInterval) {
-                    window._auralisSkipInterval = setInterval(function() {
-                        clickSkipButtons();
-                        enforceAudioOutput();
-                    }, 1000);
-                }
             })();
         """.trimIndent()
         webView?.evaluateJavascript(js, null)
@@ -515,6 +571,8 @@ class YouTubeAudioEngine(private val context: Context) {
             val web = getOrCreateWebView(context) as WebView
             Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId (Caller: loadVideo)")
 
+            // Immediately mute and stop previous audio before loading next video
+            web.evaluateJavascript("try { var v = document.querySelector('video'); if (v) { v.muted = true; v.pause(); } } catch(e){}", null)
             web.loadUrl("https://m.youtube.com/watch?v=$videoId")
         }
     }
