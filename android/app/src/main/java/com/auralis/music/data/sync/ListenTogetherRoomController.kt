@@ -22,7 +22,7 @@ data class RoomState(
 )
 
 object ListenTogetherSyncMath {
-    const val DRIFT_THRESHOLD_MS = 1500L
+    const val DRIFT_THRESHOLD_MS = 2500L
 
     /**
      * Calculates the estimated host playback position at [nowMs].

@@ -204,7 +204,10 @@ class ListenTogetherManager(
 
         try {
             roomDoc.update(updates).await()
-        } catch (_: Exception) {}
+            android.util.Log.d("ListenTogether", "[Host Broadcast OK] room=$normalizedCode, isPlaying=$isPlaying, pos=${playbackPositionMs}ms, track=${currentTrack?.title}")
+        } catch (e: Exception) {
+            android.util.Log.e("ListenTogether", "[Host Broadcast Error] failed updating room $normalizedCode: ${e.message}", e)
+        }
     }
 
     suspend fun leaveRoom(roomCode: String, isHost: Boolean) {
@@ -217,7 +220,9 @@ class ListenTogetherManager(
             if (isHost) {
                 roomDoc.update("status", "closed").await()
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.e("ListenTogether", "[Leave Room Error] code=$normalizedCode, isHost=$isHost: ${e.message}", e)
+        }
 
         stopListening()
     }

@@ -122,6 +122,12 @@ fun AuralisApp(
         return
     }
 
+    val isGuestInRoom = listenTogetherUiState.activeRoom != null && !listenTogetherUiState.isHost
+
+    fun notifyGuestControlBlocked() {
+        android.widget.Toast.makeText(context, "Playback is controlled by the room host", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     androidx.activity.compose.BackHandler(
         enabled = searchUiState.selectedArtistPage != null ||
                 isNowPlayingOpen ||
@@ -142,30 +148,61 @@ fun AuralisApp(
 
     // Wire Listen Together Sync Callbacks
     LaunchedEffect(Unit) {
-        listenTogetherViewModel.onSyncTrackChange = { track, queue ->
-            playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+        listenTogetherViewModel.onSyncTrackChange = { track, queue, startPosMs ->
+            val idx = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+            playerViewModel.playTrack(track, queue, idx, initialPositionMs = startPosMs)
         }
-        listenTogetherViewModel.onSyncPlayPause = { isPlaying ->
-            if (playerUiState.isPlaying != isPlaying) {
-                playerViewModel.togglePlayPause()
-            }
+        listenTogetherViewModel.onSyncResume = {
+            playerViewModel.resume()
+        }
+        listenTogetherViewModel.onSyncPause = {
+            playerViewModel.pause()
         }
         listenTogetherViewModel.onSyncSeek = { pos ->
             playerViewModel.seekTo(pos)
         }
+        listenTogetherViewModel.onGetLocalPosition = {
+            playerViewModel.uiState.value.playbackPositionMs
+        }
+        listenTogetherViewModel.onGetLocalIsPlaying = {
+            playerViewModel.uiState.value.isPlaying
+        }
+        listenTogetherViewModel.onGetLocalTrackId = {
+            playerViewModel.uiState.value.currentTrack?.id
+        }
     }
 
-    // Host Broadcast Sync
-    LaunchedEffect(playerUiState.currentTrack, playerUiState.isPlaying) {
+    // Host Broadcast Sync & Periodic Heartbeat
+    LaunchedEffect(
+        listenTogetherUiState.isHost,
+        listenTogetherUiState.activeRoom?.code,
+        playerUiState.currentTrack?.id,
+        playerUiState.isPlaying
+    ) {
         if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
             val track = playerUiState.currentTrack
             if (track != null) {
+                // Immediate broadcast on track change, room open, or play/pause
                 listenTogetherViewModel.broadcastHostPlayback(
                     currentTrack = track,
                     isPlaying = playerUiState.isPlaying,
                     playbackPositionMs = playerUiState.playbackPositionMs,
                     queue = playerUiState.queue
                 )
+
+                // Periodic drift/position sync heartbeat while host is actively playing
+                while (playerUiState.isPlaying) {
+                    kotlinx.coroutines.delay(5000L)
+                    val curTrack = playerViewModel.uiState.value.currentTrack
+                    if (curTrack != null && playerViewModel.uiState.value.isPlaying) {
+                        listenTogetherViewModel.broadcastHostPlayback(
+                            currentTrack = curTrack,
+                            isPlaying = true,
+                            playbackPositionMs = playerViewModel.uiState.value.playbackPositionMs,
+                            queue = playerViewModel.uiState.value.queue
+                        )
+                    }
+                }
             }
         }
     }
@@ -187,8 +224,14 @@ fun AuralisApp(
                                 isPlaying = playerUiState.isPlaying,
                                 progress = progressFrac,
                                 isFavorite = playerUiState.isFavorite,
-                                onPlayPauseClick = { playerViewModel.togglePlayPause() },
-                                onNextClick = { playerViewModel.next() },
+                                onPlayPauseClick = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else playerViewModel.togglePlayPause()
+                                },
+                                onNextClick = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else playerViewModel.next()
+                                },
                                 onFavoriteToggle = { playerViewModel.toggleFavorite() },
                                 onAddToPlaylist = {
                                     showMiniPlayerTrackOptions = true
@@ -260,7 +303,7 @@ fun AuralisApp(
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        text = if (listenTogetherUiState.isHost) "Streaming to room" else "Synced with host",
+                                        text = if (listenTogetherUiState.isHost) "Streaming to room" else "Synced with host (controls locked)",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                     )
@@ -284,7 +327,8 @@ fun AuralisApp(
                                     isPlaying = playerUiState.isPlaying,
                                     userPlaylists = libraryUiState.playlists,
                                     onTrackClick = { track, queue ->
-                                        playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
                                     },
                                     onFavoriteToggle = { playerViewModel.toggleFavorite() },
                                     onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
@@ -296,9 +340,13 @@ fun AuralisApp(
                                     onMoodSelect = { homeViewModel.selectMoodFilter(it) },
                                     onChipToggle = { homeViewModel.toggleChip(it) },
                                     onSurpriseMe = {
-                                        val surpriseTrack = homeViewModel.getRandomSurpriseTrack()
-                                        if (surpriseTrack != null) {
-                                            playerViewModel.playTrack(surpriseTrack, listOf(surpriseTrack), 0)
+                                        if (isGuestInRoom) {
+                                            notifyGuestControlBlocked()
+                                        } else {
+                                            val surpriseTrack = homeViewModel.getRandomSurpriseTrack()
+                                            if (surpriseTrack != null) {
+                                                playerViewModel.playTrack(surpriseTrack, listOf(surpriseTrack), 0)
+                                            }
                                         }
                                     },
                                     onOpenProfile = { isProfileOpen = true },
@@ -320,7 +368,8 @@ fun AuralisApp(
                                     onSearch = { searchViewModel.performSearch(it) },
                                     onClearSearch = { searchViewModel.clearSearch() },
                                     onTrackClick = { track, queue ->
-                                        playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
                                     },
                                     onFavoriteToggle = { playerViewModel.toggleFavorite() },
                                     onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
@@ -347,7 +396,8 @@ fun AuralisApp(
                                     onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
                                     onPlaylistSelect = { libraryViewModel.selectPlaylist(it?.id) },
                                     onTrackClick = { track, queue ->
-                                        playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
                                     },
                                     onFavoriteToggle = { playerViewModel.toggleFavorite() },
                                     onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
@@ -364,7 +414,10 @@ fun AuralisApp(
                                     onOpenProfile = { isProfileOpen = true },
                                     onSyncPlaylist = { pl -> libraryViewModel.syncPlaylist(pl) },
                                     onEditPlaylist = { id, title, desc, coverUrl -> libraryViewModel.editPlaylist(id, title, desc, coverUrl) },
-                                    onAddToQueue = { tracks -> playerViewModel.addToQueue(tracks) }
+                                    onAddToQueue = { tracks ->
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.addToQueue(tracks)
+                                    }
                                 )
                             }
                         }
@@ -382,20 +435,55 @@ fun AuralisApp(
             NowPlayingSheet(
                 uiState = playerUiState,
                 userPlaylists = libraryUiState.playlists,
-                onPlayPauseClick = { playerViewModel.togglePlayPause() },
-                onSeekTo = { playerViewModel.seekTo(it) },
-                onNextClick = { playerViewModel.next() },
-                onPreviousClick = { playerViewModel.previous() },
-                onToggleShuffle = { playerViewModel.toggleShuffle() },
-                onToggleRepeat = { playerViewModel.toggleRepeat() },
+                onPlayPauseClick = {
+                    if (isGuestInRoom) notifyGuestControlBlocked()
+                    else playerViewModel.togglePlayPause()
+                },
+                onSeekTo = { posMs ->
+                    if (isGuestInRoom) {
+                        notifyGuestControlBlocked()
+                    } else {
+                        playerViewModel.seekTo(posMs)
+                        if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
+                            playerUiState.currentTrack?.let { trk ->
+                                listenTogetherViewModel.broadcastHostPlayback(
+                                    currentTrack = trk,
+                                    isPlaying = playerUiState.isPlaying,
+                                    playbackPositionMs = posMs,
+                                    queue = playerUiState.queue
+                                )
+                            }
+                        }
+                    }
+                },
+                onNextClick = {
+                    if (isGuestInRoom) notifyGuestControlBlocked()
+                    else playerViewModel.next()
+                },
+                onPreviousClick = {
+                    if (isGuestInRoom) notifyGuestControlBlocked()
+                    else playerViewModel.previous()
+                },
+                onToggleShuffle = {
+                    if (isGuestInRoom) notifyGuestControlBlocked()
+                    else playerViewModel.toggleShuffle()
+                },
+                onToggleRepeat = {
+                    if (isGuestInRoom) notifyGuestControlBlocked()
+                    else playerViewModel.toggleRepeat()
+                },
                 onToggleFavorite = { playerViewModel.toggleFavorite() },
                 onToggleLyricsView = { playerViewModel.toggleLyricsView() },
                 onLyricsOffsetChange = { playerViewModel.setLyricsOffset(it) },
                 onSleepTimerSelect = { playerViewModel.setSleepTimer(it) },
                 onSelectQueueTrack = { index ->
-                    val t = playerUiState.queue.getOrNull(index)
-                    if (t != null) {
-                        playerViewModel.playTrack(t, playerUiState.queue, index)
+                    if (isGuestInRoom) {
+                        notifyGuestControlBlocked()
+                    } else {
+                        val t = playerUiState.queue.getOrNull(index)
+                        if (t != null) {
+                            playerViewModel.playTrack(t, playerUiState.queue, index)
+                        }
                     }
                 },
                 onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
@@ -466,7 +554,8 @@ fun AuralisApp(
                 currentTrackId = playerUiState.currentTrack?.id,
                 isPlaying = playerUiState.isPlaying,
                 onTrackClick = { track, queue ->
-                    playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                    if (isGuestInRoom) notifyGuestControlBlocked()
+                    else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
                 },
                 onRemoveFromHistory = { homeViewModel.removeFromHistory(it) },
                 onClearHistory = { homeViewModel.clearHistory() },

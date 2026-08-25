@@ -125,7 +125,12 @@ class PlayerViewModel(
 
     private val currentPlaybackRequestId = java.util.concurrent.atomic.AtomicLong(0L)
 
-    private fun triggerPlayback(track: Track, debounceMs: Long = 100L, requestId: Long = currentPlaybackRequestId.get()) {
+    private fun triggerPlayback(
+        track: Track,
+        debounceMs: Long = 100L,
+        requestId: Long = currentPlaybackRequestId.get(),
+        initialPositionMs: Long = 0L
+    ) {
         playJob?.cancel()
         lyricsJob?.cancel()
 
@@ -137,7 +142,7 @@ class PlayerViewModel(
                 Log.d("AuralisPlayback", "[Stale triggerPlayback dropped] reqId=$requestId vs active=${currentPlaybackRequestId.get()}")
                 return@launch
             }
-            audioPlayer?.play(track, requestId)
+            audioPlayer?.play(track, initialPositionMs, requestId)
             historyRepository.addToHistory(track)
             historyRepository.recordPlay(track)
         }
@@ -151,13 +156,14 @@ class PlayerViewModel(
         track: Track,
         newQueue: List<Track> = emptyList(),
         startIndex: Int = 0,
-        isUserQueue: Boolean = (newQueue.size > 1)
+        isUserQueue: Boolean = (newQueue.size > 1),
+        initialPositionMs: Long = 0L
     ) {
         val reqId = currentPlaybackRequestId.incrementAndGet()
         val isAutoQueue = !isUserQueue || newQueue.size <= 1
         isAutoRadioMode = isAutoQueue
 
-        Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}, isAutoRadio=$isAutoRadioMode")
+        Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}, isAutoRadio=$isAutoRadioMode, initialPos=${initialPositionMs}ms")
         val qState = if (newQueue.isNotEmpty()) {
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               newQueue.map { it.id } == queueManager.state.queue.map { it.id }
@@ -173,13 +179,13 @@ class PlayerViewModel(
                 currentIndex = qState.currentIndex,
                 isShuffled = qState.isShuffled,
                 isPlaying = true,
-                playbackPositionMs = 0,
+                playbackPositionMs = initialPositionMs,
                 durationMs = track.duration * 1000,
                 errorMessage = null
             )
         }
 
-        triggerPlayback(track, debounceMs = 0L, requestId = reqId)
+        triggerPlayback(track, debounceMs = 0L, requestId = reqId, initialPositionMs = initialPositionMs)
 
         if (isAutoRadioMode) {
             fetchAndAppendRadioTracks(track)
@@ -220,6 +226,24 @@ class PlayerViewModel(
                 _uiState.update { it.copy(queue = qState.queue) }
             }
         } catch (_: Exception) {}
+    }
+
+    fun resume() {
+        Log.d("AuralisPlayback", "[Action] resume (currently isPlaying=${_uiState.value.isPlaying})")
+        if (audioPlayer != null) {
+            audioPlayer.resume()
+        } else {
+            _uiState.update { it.copy(isPlaying = true) }
+        }
+    }
+
+    fun pause() {
+        Log.d("AuralisPlayback", "[Action] pause (currently isPlaying=${_uiState.value.isPlaying})")
+        if (audioPlayer != null) {
+            audioPlayer.pause()
+        } else {
+            _uiState.update { it.copy(isPlaying = false) }
+        }
     }
 
     fun togglePlayPause() {
