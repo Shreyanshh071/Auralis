@@ -58,6 +58,7 @@ class LibraryViewModel(
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
+    private var selectPlaylistJob: kotlinx.coroutines.Job? = null
 
     init {
         // Collect playlists
@@ -271,11 +272,12 @@ class LibraryViewModel(
     }
 
     fun selectPlaylist(playlistId: String?) {
+        selectPlaylistJob?.cancel()
         if (playlistId == null) {
             _uiState.update { it.copy(selectedPlaylist = null, selectedSmartCollection = null) }
             return
         }
-        viewModelScope.launch {
+        selectPlaylistJob = viewModelScope.launch {
             libraryRepository.getPlaylist(playlistId).collect { pl ->
                 _uiState.update { it.copy(selectedPlaylist = pl, selectedSmartCollection = null) }
                 if (pl != null) {
@@ -317,9 +319,7 @@ class LibraryViewModel(
                         title = imported.title,
                         description = imported.description
                     )
-                    for (track in imported.tracks) {
-                        libraryRepository.addTrackToPlaylist(playlist.id, track)
-                    }
+                    libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
                     _uiState.update {
                         it.copy(
                             isImporting = false,
@@ -371,9 +371,7 @@ class LibraryViewModel(
                             coverUrl = imported.coverUrl
                         )
                     }
-                    for (track in imported.tracks) {
-                        libraryRepository.addTrackToPlaylist(playlist.id, track)
-                    }
+                    libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
                     val successMsg = "Imported '${imported.title}' (${imported.tracks.size} songs from Spotify)"
                     android.util.Log.i("SpotifyImporter", successMsg)
                     _uiState.update {
@@ -468,6 +466,7 @@ class LibraryViewModel(
 
                         val tracksArr = plObj.optJSONArray("tracks")
                         if (tracksArr != null) {
+                            val tracks = mutableListOf<Track>()
                             for (j in 0 until tracksArr.length()) {
                                 val tObj = tracksArr.optJSONObject(j) ?: continue
                                 val track = Track(
@@ -479,8 +478,9 @@ class LibraryViewModel(
                                     duration = tObj.optLong("duration", 210L),
                                     source = TrackSource.YOUTUBE
                                 )
-                                libraryRepository.addTrackToPlaylist(playlist.id, track)
+                                tracks.add(track)
                             }
+                            libraryRepository.replacePlaylistTracks(playlist.id, tracks)
                         }
                     }
                 }

@@ -201,7 +201,7 @@ class YouTubeAudioEngine(private val context: Context) {
     fun getOrCreateWebView(ctx: Context): View {
         if (webView == null) {
             val targetContext = ctx.applicationContext
-            webView = WebView(targetContext).apply {
+            webView = BackgroundAudioWebView(targetContext).apply {
                 layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 settings.apply {
@@ -625,5 +625,18 @@ class YouTubeAudioEngine(private val context: Context) {
                 webView = null
             } catch (_: Exception) {}
         }
+    }
+}
+
+/**
+ * Custom WebView that prevents Android and Chromium from pausing background audio when the app is minimized or screen is locked.
+ */
+class BackgroundAudioWebView(context: Context) : WebView(context) {
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(View.VISIBLE)
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, View.VISIBLE)
     }
 }

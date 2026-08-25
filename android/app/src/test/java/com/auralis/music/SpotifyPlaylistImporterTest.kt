@@ -122,7 +122,7 @@ class SpotifyPlaylistImporterTest {
         assertEquals(2, playlist.tracks.size)
 
         val t0 = playlist.tracks[0]
-        assertEquals("Seven (feat. Latto)", t0.title)
+        assertEquals("Seven", t0.title)
         assertEquals("Jung Kook, Latto", t0.artist)
         assertEquals(184L, t0.duration)
         assertEquals("sp_4cOdK2wGLETKBW3PvgPWqT", t0.id)
