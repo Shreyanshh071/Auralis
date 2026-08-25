@@ -42,17 +42,17 @@ class LibraryRepositoryImpl(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun getPlaylists(): Flow<List<Playlist>> {
-        return playlistDao.getAllPlaylistsFlow().map { list ->
-            list.map { entity ->
-                val orderedTracks = playlistDao.getOrderedTracksForPlaylist(entity.id)
+        return playlistDao.getAllPlaylistsWithTracksFlow().map { list ->
+            list.map { tuple ->
+                val orderedTracks = playlistDao.getOrderedTracksForPlaylist(tuple.playlist.id)
                 Playlist(
-                    id = entity.id,
-                    title = entity.title,
-                    description = entity.description,
-                    coverUrl = entity.coverUrl,
+                    id = tuple.playlist.id,
+                    title = tuple.playlist.title,
+                    description = tuple.playlist.description,
+                    coverUrl = tuple.playlist.coverUrl,
                     tracks = orderedTracks.map { it.toDomain() }.filter { !it.title.startsWith("Track ") && it.title.isNotBlank() },
-                    createdAt = entity.createdAt,
-                    isCustom = entity.isCustom
+                    createdAt = tuple.playlist.createdAt,
+                    isCustom = tuple.playlist.isCustom
                 )
             }
         }
@@ -109,18 +109,18 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>) {
+        trackDao.upsertTracks(tracks.map { it.toEntity() })
         playlistDao.clearPlaylistTracks(playlistId)
         val refs = tracks.mapIndexed { index, track ->
-            trackDao.upsertTrack(track.toEntity())
             PlaylistTrackCrossRef(playlistId, track.id, index)
         }
         playlistDao.insertCrossRefs(refs)
     }
 
     override suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>) {
+        trackDao.upsertTracks(tracks.map { it.toEntity() })
         playlistDao.clearPlaylistTracks(playlistId)
         val refs = tracks.mapIndexed { index, track ->
-            trackDao.upsertTrack(track.toEntity())
             PlaylistTrackCrossRef(playlistId, track.id, index)
         }
         playlistDao.insertCrossRefs(refs)

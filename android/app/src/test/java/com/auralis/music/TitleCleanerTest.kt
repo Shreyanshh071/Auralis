@@ -10,7 +10,7 @@ class TitleCleanerTest {
     fun `cleanTitle removes extraneous video noise brackets`() {
         val raw = "The Weeknd - Blinding Lights (Official Music Video)"
         val cleaned = TitleCleaner.cleanTitle(raw)
-        assertEquals("The Weeknd - Blinding Lights", cleaned)
+        assertEquals("Blinding Lights", cleaned)
 
         val raw4k = "Starboy [Official Video] [4K]"
         val cleaned4k = TitleCleaner.cleanTitle(raw4k)

@@ -88,7 +88,9 @@ class MainActivity : ComponentActivity() {
                         historyRepository = historyRepository,
                         lyricsRepository = lyricsRepository,
                         settingsRepository = settingsRepository,
-                        audioPlayer = audioPlayer
+                        audioPlayer = audioPlayer,
+                        innerTubeClient = innerTubeClient,
+                        searchRepository = searchRepository
                     )
                 }
                 val listenTogetherViewModel: ListenTogetherViewModel = viewModel {

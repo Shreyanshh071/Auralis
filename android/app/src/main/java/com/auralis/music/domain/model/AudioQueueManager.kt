@@ -4,7 +4,8 @@ data class QueueState(
     val queue: List<Track> = emptyList(),
     val currentIndex: Int = -1,
     val isShuffled: Boolean = false,
-    val repeatMode: RepeatMode = RepeatMode.OFF
+    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val isUserQueue: Boolean = false
 ) {
     val currentTrack: Track?
         get() = if (currentIndex in queue.indices) queue[currentIndex] else null
@@ -29,7 +30,12 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
 
     private var originalQueue: List<Track> = emptyList()
 
-    fun setQueue(tracks: List<Track>, startIndex: Int = 0, preserveOrderIfSame: Boolean = false): QueueState {
+    fun setQueue(
+        tracks: List<Track>,
+        startIndex: Int = 0,
+        preserveOrderIfSame: Boolean = false,
+        isUserQueue: Boolean = false
+    ): QueueState {
         if (!preserveOrderIfSame || originalQueue.isEmpty() || originalQueue.map { it.id } != tracks.map { it.id }) {
             originalQueue = tracks.toList()
         }
@@ -38,19 +44,40 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
             queue = tracks.toList(),
             currentIndex = if (tracks.isNotEmpty()) index else -1,
             isShuffled = if (preserveOrderIfSame) state.isShuffled else false,
-            repeatMode = state.repeatMode
+            repeatMode = state.repeatMode,
+            isUserQueue = isUserQueue
         )
         return state
     }
 
-    fun playTrack(track: Track, currentQueue: List<Track> = emptyList()): QueueState {
+    fun playTrack(
+        track: Track,
+        currentQueue: List<Track> = emptyList(),
+        isUserQueue: Boolean = false
+    ): QueueState {
         val targetQueue = if (currentQueue.isNotEmpty()) currentQueue else state.queue
         val existingIndex = targetQueue.indexOfFirst { it.id == track.id }
         if (existingIndex != -1) {
-            return setQueue(targetQueue, existingIndex)
+            return setQueue(targetQueue, existingIndex, isUserQueue = isUserQueue)
         }
         val newQueue = listOf(track) + targetQueue.filter { it.id != track.id }
-        return setQueue(newQueue, 0)
+        return setQueue(newQueue, 0, isUserQueue = isUserQueue)
+    }
+
+    fun appendTracks(newTracks: List<Track>): QueueState {
+        if (newTracks.isEmpty()) return state
+        val existingIds = state.queue.map { it.id }.toSet()
+        val uniqueNew = newTracks.filter { it.id !in existingIds }
+        if (uniqueNew.isEmpty()) return state
+
+        val updatedQueue = state.queue + uniqueNew
+        state = state.copy(queue = updatedQueue)
+        return state
+    }
+
+    fun isNearEnd(threshold: Int = 3): Boolean {
+        if (state.queue.isEmpty()) return true
+        return state.currentIndex >= (state.queue.size - threshold)
     }
 
     fun nextIndex(): Int? {

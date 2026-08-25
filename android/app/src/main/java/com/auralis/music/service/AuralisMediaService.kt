@@ -29,6 +29,9 @@ import com.auralis.music.MainActivity
 import com.auralis.music.R
 import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.model.Track
+import com.auralis.music.ui.components.getHighResArtworkUrl
+import com.auralis.music.util.ArtworkProcessor
+import com.auralis.music.util.MasterArtworkResolver
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +40,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Pure native AndroidX Media3 MediaSessionService providing:
@@ -51,6 +55,9 @@ class AuralisMediaService : MediaSessionService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var lastArtworkUrl: String? = null
     private var currentArtworkBitmap: Bitmap? = null
+    private val sessionListeners = java.util.concurrent.CopyOnWriteArrayList<Player.Listener>()
+    private var currentActiveMediaItem: androidx.media3.common.MediaItem? = null
+    private var currentActiveMetadata: androidx.media3.common.MediaMetadata? = null
 
     companion object {
         const val ACTION_PLAY = "com.auralis.music.ACTION_PLAY"
@@ -91,6 +98,16 @@ class AuralisMediaService : MediaSessionService() {
 
         // Wrap player in ForwardingPlayer so Android 13/14 system UI always exposes Previous/Next/Seek commands
         val forwardingPlayer = object : ForwardingPlayer(player) {
+            override fun addListener(listener: Player.Listener) {
+                sessionListeners.add(listener)
+                super.addListener(listener)
+            }
+
+            override fun removeListener(listener: Player.Listener) {
+                sessionListeners.remove(listener)
+                super.removeListener(listener)
+            }
+
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS)
@@ -114,6 +131,30 @@ class AuralisMediaService : MediaSessionService() {
                 }
             }
 
+            override fun play() {
+                audioPlayer.resume()
+            }
+
+            override fun pause() {
+                audioPlayer.pause()
+            }
+
+            override fun getPlayWhenReady(): Boolean {
+                return audioPlayer.isPlaying.value
+            }
+
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) {
+                    audioPlayer.resume()
+                } else {
+                    audioPlayer.pause()
+                }
+            }
+
+            override fun getPlaybackState(): Int {
+                return if (audioPlayer.currentTrack.value != null) Player.STATE_READY else Player.STATE_IDLE
+            }
+
             override fun seekToPrevious() {
                 audioPlayer.previous()
             }
@@ -130,9 +171,32 @@ class AuralisMediaService : MediaSessionService() {
                 audioPlayer.seekTo(positionMs)
             }
 
+            override fun getCurrentTimeline(): androidx.media3.common.Timeline {
+                val track = audioPlayer.currentTrack.value
+                val durMs = audioPlayer.durationMs.value.takeIf { it > 0 } ?: ((track?.duration ?: 0L) * 1000L)
+                val durationUs = durMs * 1000L
+                val currentItem = currentMediaItem
+                return if (track != null) SingleTrackTimeline(durationUs, currentItem) else androidx.media3.common.Timeline.EMPTY
+            }
+
+            override fun getCurrentMediaItem(): androidx.media3.common.MediaItem? {
+                return currentActiveMediaItem ?: super.getCurrentMediaItem()
+            }
+
+            override fun getMediaMetadata(): androidx.media3.common.MediaMetadata {
+                return currentActiveMetadata ?: super.getMediaMetadata()
+            }
+
+            override fun isCurrentMediaItemSeekable(): Boolean = true
+            override fun isCurrentMediaItemDynamic(): Boolean = false
+            override fun isCurrentMediaItemLive(): Boolean = false
+            override fun getCurrentMediaItemIndex(): Int = 0
+            override fun getCurrentPeriodIndex(): Int = 0
+
             override fun getDuration(): Long {
                 val d = audioPlayer.durationMs.value
-                return if (d > 0) d else super.getDuration()
+                val trackDur = (audioPlayer.currentTrack.value?.duration ?: 0L) * 1000L
+                return if (d > 0) d else if (trackDur > 0) trackDur else super.getDuration()
             }
 
             override fun getCurrentPosition(): Long {
@@ -155,22 +219,55 @@ class AuralisMediaService : MediaSessionService() {
         // 3. Start foreground with MediaSession token attached
         startForegroundSafely()
 
+        fun dispatchPlaybackState(isPlaying: Boolean) {
+            val state = if (audioPlayer.currentTrack.value != null) Player.STATE_READY else Player.STATE_IDLE
+            for (listener in sessionListeners) {
+                try {
+                    listener.onIsPlayingChanged(isPlaying)
+                    listener.onPlayWhenReadyChanged(isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                    listener.onPlaybackStateChanged(state)
+                } catch (_: Exception) {}
+            }
+        }
+
         // Observe track changes to update notification and system MediaSession dynamically
         serviceScope.launch {
             audioPlayer.currentTrack.collectLatest { track ->
                 if (track != null) {
+                    currentArtworkBitmap = null
+
+                    val rawUrl = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
+                    val isOfficialCdn = !rawUrl.isNullOrBlank() &&
+                            (rawUrl.contains("googleusercontent.com") || rawUrl.contains("ggpht.com") ||
+                             rawUrl.contains("mzstatic.com") || rawUrl.contains("scdn.co"))
+                    val initialArtworkUri = if (isOfficialCdn) android.net.Uri.parse(rawUrl) else null
+
+                    val initialMeta = androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setArtworkUri(initialArtworkUri)
+                        .build()
+                    val initialItem = androidx.media3.common.MediaItem.Builder()
+                        .setMediaId(track.id)
+                        .setMediaMetadata(initialMeta)
+                        .build()
+
+                    currentActiveMetadata = initialMeta
+                    currentActiveMediaItem = initialItem
+
                     try {
-                        val meta = androidx.media3.common.MediaMetadata.Builder()
-                            .setTitle(track.title)
-                            .setArtist(track.artist)
-                            .setArtworkUri(if (!track.thumbnail.isNullOrBlank()) android.net.Uri.parse(track.thumbnail) else null)
-                            .build()
-                        val item = androidx.media3.common.MediaItem.Builder()
-                            .setMediaId(track.id)
-                            .setMediaMetadata(meta)
-                            .build()
-                        player.setMediaItem(item)
+                        player.setMediaItem(initialItem)
                     } catch (_: Exception) {}
+
+                    withContext(Dispatchers.Main) {
+                        for (listener in sessionListeners) {
+                            try {
+                                listener.onMediaMetadataChanged(initialMeta)
+                                listener.onMediaItemTransition(initialItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
+                            } catch (_: Exception) {}
+                        }
+                        dispatchPlaybackState(audioPlayer.isPlaying.value)
+                    }
                 }
                 updateNotification(track, audioPlayer.isPlaying.value, audioPlayer.isFavorite.value)
             }
@@ -179,13 +276,9 @@ class AuralisMediaService : MediaSessionService() {
         // Observe playing state changes
         serviceScope.launch {
             audioPlayer.isPlaying.collectLatest { isPlaying ->
-                try {
-                    if (isPlaying && player.playbackState != Player.STATE_READY) {
-                        player.play()
-                    } else if (!isPlaying) {
-                        player.pause()
-                    }
-                } catch (_: Exception) {}
+                withContext(Dispatchers.Main) {
+                    dispatchPlaybackState(isPlaying)
+                }
                 updateNotification(audioPlayer.currentTrack.value, isPlaying, audioPlayer.isFavorite.value)
             }
         }
@@ -349,20 +442,71 @@ class AuralisMediaService : MediaSessionService() {
             notifManager.notify(NOTIFICATION_ID, notif)
         } catch (_: SecurityException) {}
 
-        // Asynchronously fetch artwork if changed
+        // Asynchronously fetch highest-definition studio master artwork and process for edge-to-edge notification panel
         val thumbUrl = track?.thumbnail
-        if (!thumbUrl.isNullOrBlank() && thumbUrl != lastArtworkUrl) {
-            lastArtworkUrl = thumbUrl
+        val trackTitle = track?.title
+        val trackArtist = track?.artist
+        val cacheKey = "${trackArtist.orEmpty()} - ${trackTitle.orEmpty()} - $thumbUrl"
+        if (cacheKey != lastArtworkUrl) {
+            lastArtworkUrl = cacheKey
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    val masterUrl = MasterArtworkResolver.resolveMasterArtworkUrl(trackTitle, trackArtist, thumbUrl)
+                    val candidates = (listOfNotNull(masterUrl) + ArtworkProcessor.getHighResArtworkCandidates(thumbUrl)).distinct()
+
                     val loader = ImageLoader(applicationContext)
-                    val req = ImageRequest.Builder(applicationContext)
-                        .data(thumbUrl)
-                        .allowHardware(false)
-                        .build()
-                    val result = loader.execute(req).drawable
-                    if (result is BitmapDrawable) {
-                        currentArtworkBitmap = result.bitmap
+                    var loadedBitmap: Bitmap? = null
+                    var resolvedUrl = masterUrl ?: thumbUrl ?: ""
+
+                    for (candidate in candidates) {
+                        try {
+                            val req = ImageRequest.Builder(applicationContext)
+                                .data(candidate)
+                                .allowHardware(false)
+                                .build()
+                            val drawable = loader.execute(req).drawable
+                            if (drawable is BitmapDrawable && drawable.bitmap.width > 0 && drawable.bitmap.height > 0) {
+                                loadedBitmap = drawable.bitmap
+                                resolvedUrl = candidate
+                                break
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    if (loadedBitmap != null && track != null) {
+                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap)
+                        currentArtworkBitmap = processed
+                        val artworkBytes = ArtworkProcessor.toByteArray(processed, quality = 95)
+
+                        val isMasterCdn = resolvedUrl.isNotBlank() && !resolvedUrl.contains("i.ytimg.com") && !resolvedUrl.contains("img.youtube.com")
+                        val updatedMeta = androidx.media3.common.MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.artist)
+                            .setArtworkUri(if (isMasterCdn) android.net.Uri.parse(resolvedUrl) else null)
+                            .setArtworkData(artworkBytes, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                            .build()
+                        val updatedItem = androidx.media3.common.MediaItem.Builder()
+                            .setMediaId(track.id)
+                            .setMediaMetadata(updatedMeta)
+                            .build()
+
+                        currentActiveMetadata = updatedMeta
+                        currentActiveMediaItem = updatedItem
+
+                        // Update MediaSession with artworkData byte array for full-bleed background in Android 13/14 Quick Settings & Lockscreen
+                        withContext(Dispatchers.Main) {
+                            try {
+                                mediaSession?.player?.setMediaItem(updatedItem)
+
+                                for (listener in sessionListeners) {
+                                    try {
+                                        listener.onMediaMetadataChanged(updatedMeta)
+                                        listener.onPlaylistMetadataChanged(updatedMeta)
+                                    } catch (_: Exception) {}
+                                }
+                            } catch (_: Exception) {}
+                        }
+
                         val updatedNotif = buildNotification(track, isPlaying, isFavorite, currentArtworkBitmap)
                         notifManager.notify(NOTIFICATION_ID, updatedNotif)
                     }
@@ -441,4 +585,54 @@ class AuralisMediaService : MediaSessionService() {
         }
         super.onDestroy()
     }
+}
+
+/**
+ * Custom Media3 Timeline providing 1-window seekable timeline for the current active track,
+ * allowing Android 13/14 Quick Settings & Lockscreen controls to render the interactive squiggly seekbar.
+ */
+private class SingleTrackTimeline(
+    private val durationUs: Long,
+    private val currentMediaItem: androidx.media3.common.MediaItem?
+) : androidx.media3.common.Timeline() {
+    override fun getWindowCount(): Int = 1
+    override fun getPeriodCount(): Int = 1
+
+    override fun getWindow(
+        windowIndex: Int,
+        window: Window,
+        defaultPositionProjectionUs: Long
+    ): Window {
+        window.set(
+            Window.SINGLE_WINDOW_UID,
+            currentMediaItem,
+            null,
+            0L,
+            0L,
+            0L,
+            true, // isSeekable
+            false, // isDynamic
+            null, // liveConfiguration
+            0L,
+            if (durationUs > 0) durationUs else androidx.media3.common.C.TIME_UNSET,
+            0,
+            0,
+            0L
+        )
+        return window
+    }
+
+    override fun getPeriod(periodIndex: Int, period: Period, setIds: Boolean): Period {
+        period.set(
+            if (setIds) 0 else null,
+            if (setIds) Window.SINGLE_WINDOW_UID else null,
+            0,
+            if (durationUs > 0) durationUs else androidx.media3.common.C.TIME_UNSET,
+            0L
+        )
+        return period
+    }
+
+    override fun getIndexOfPeriod(uid: Any): Int = if (uid == 0 || uid == Window.SINGLE_WINDOW_UID) 0 else androidx.media3.common.C.INDEX_UNSET
+    override fun getUidOfPeriod(periodIndex: Int): Any = 0
 }
