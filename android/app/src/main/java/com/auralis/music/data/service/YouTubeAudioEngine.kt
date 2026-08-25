@@ -18,21 +18,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Ultra-High-Speed Pre-warmed YouTube HTML5 Audio Engine.
+ * Production-Grade YouTube HTML5 Web Audio Engine.
  * 
  * Features:
- * - Pre-warmed IFrame Engine: Zero page reloads on song changes. Track switches execute in < 200ms via `loadVideoById`.
- * - Request-ID Synchronization: Stale callbacks or time updates from skipped songs are discarded instantly.
- * - Native Background Audio: Partial WakeLock and hardware audio priority keep playback seamless when screen is locked.
- * - Automated Ad Annihilation: Injected CSS, JS bypass, and network filter strip all YouTube ads.
+ * - Direct mobile YouTube loading (`m.youtube.com/watch?v=...`) with full HTML5 <video> element integration.
+ * - Comprehensive logging of readyState, networkState, currentSrc, and play() promise resolution.
+ * - Exact `onplay` StateFlow synchronization (isPlaying=true only set when onplay/playing fires).
+ * - Monotonic request-ID tracking: stale requests and async callbacks are discarded immediately.
+ * - Background keepalive: Partial WakeLock + AudioFocus + visibility spoofing.
+ * - 3-tier Ad Interception: network filter, CSS suppression, and JS fast-forwarding/skipping.
  */
 class YouTubeAudioEngine(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
-    private var isEngineReady = false
-    private var pendingVideoId: String? = null
-    private var pendingRequestId: Long = 0L
     private var currentVideoId: String? = null
     private var onTrackCompletedCallback: (() -> Unit)? = null
 
@@ -55,186 +54,21 @@ class YouTubeAudioEngine(private val context: Context) {
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
-    private val playerHtml = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            <style>
-                * { margin:0; padding:0; overflow:hidden; background:#000; }
-                html, body, #player { width:100%; height:100%; }
-                .ad-showing, .ad-interrupting, .video-ads, .ytp-ad-module,
-                .ytp-ad-overlay-container, #player-ads, .ytp-ad-text {
-                    display: none !important;
-                    visibility: hidden !important;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="player"></div>
-            <script>
-                var player = null;
-                var isReady = false;
-                var currentReq = 0;
-
-                // 1. Spoof visibility state so YouTube never pauses when backgrounded
-                try {
-                    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
-                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
-                    Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; } });
-                } catch(e) {}
-
-                window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-                document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-                window.addEventListener('pagehide', function(e) { e.stopImmediatePropagation(); }, true);
-                window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
-
-                // 2. Load YouTube IFrame API
-                var tag = document.createElement('script');
-                tag.src = "https://www.youtube.com/iframe_api";
-                var firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-                function onYouTubeIframeAPIReady() {
-                    player = new YT.Player('player', {
-                        height: '100%',
-                        width: '100%',
-                        playerVars: {
-                            'autoplay': 1,
-                            'playsinline': 1,
-                            'controls': 0,
-                            'disablekb': 1,
-                            'fs': 0,
-                            'rel': 0,
-                            'modestbranding': 1,
-                            'origin': 'https://www.youtube.com'
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange,
-                            'onError': onPlayerError
-                        }
-                    });
-                }
-
-                function onPlayerReady(event) {
-                    isReady = true;
-                    if (window.AuralisBridge) {
-                        window.AuralisBridge.onEngineReady();
-                    }
-                }
-
-                function annihilateAds() {
-                    try {
-                        var skipButtons = document.querySelectorAll(
-                            '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
-                            '.ytp-skip-ad-button, button[class*="skip-button"], .ytp-ad-skip-button-slot button'
-                        );
-                        skipButtons.forEach(function(btn) { btn.click(); });
-                    } catch(e) {}
-
-                    var v = document.querySelector('video');
-                    if (v) {
-                        var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-module, .ytp-ad-text');
-                        if (isAd) {
-                            try {
-                                v.muted = true;
-                                v.playbackRate = 16.0;
-                                if (!isNaN(v.duration) && v.duration > 0) {
-                                    v.currentTime = v.duration + 1;
-                                }
-                            } catch(e) {}
-                        } else {
-                            if (v.muted) v.muted = false;
-                            if (v.playbackRate !== 1.0) v.playbackRate = 1.0;
-                        }
-                    }
-                }
-
-                function loadVideo(videoId, reqId) {
-                    currentReq = reqId;
-                    window._auralisRequestId = reqId;
-                    if (!isReady || !player) return;
-                    try {
-                        player.loadVideoById({
-                            videoId: videoId,
-                            suggestedQuality: 'small'
-                        });
-                        if (player.unMute) player.unMute();
-                        if (player.setVolume) player.setVolume(100);
-                        player.playVideo();
-                    } catch(e) {}
-                }
-
-                function onPlayerStateChange(event) {
-                    // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING, 0 = ENDED
-                    var state = event.data;
-                    annihilateAds();
-                    if (player) {
-                        try {
-                            if (player.unMute) player.unMute();
-                            if (player.setVolume) player.setVolume(100);
-                        } catch(e) {}
-                    }
-                    if (window.AuralisBridge) {
-                        window.AuralisBridge.onStateChange(state, currentReq);
-                    }
-                }
-
-                function onPlayerError(event) {
-                    if (window.AuralisBridge) {
-                        window.AuralisBridge.onStateChange(2, currentReq);
-                    }
-                }
-
-                function playAudio() {
-                    if (player && player.playVideo) {
-                        try {
-                            if (player.unMute) player.unMute();
-                            if (player.setVolume) player.setVolume(100);
-                        } catch(e) {}
-                        player.playVideo();
-                    }
-                }
-
-                function pauseAudio() {
-                    if (player && player.pauseVideo) player.pauseVideo();
-                }
-
-                function seekAudio(seconds) {
-                    if (player && player.seekTo) player.seekTo(seconds, true);
-                }
-
-                setInterval(function() {
-                    annihilateAds();
-                    if (player && isReady && player.getCurrentTime) {
-                        try {
-                            var curr = player.getCurrentTime() || 0;
-                            var dur = player.getDuration() || 0;
-                            if (window.AuralisBridge) {
-                                window.AuralisBridge.updateTime(curr, dur, currentReq);
-                            }
-                        } catch(e) {}
-                    }
-                }, 250);
-            </script>
-        </body>
-        </html>
-    """.trimIndent()
-
     private inner class WebAppInterface {
+
         @JavascriptInterface
-        fun onEngineReady() {
-            mainHandler.post {
-                isEngineReady = true
-                Log.d("AuralisPlayback", "[YouTube Engine] HTML5 IFrame Engine Pre-warmed & Ready")
-                val pVid = pendingVideoId
-                val pReq = pendingRequestId
-                if (!pVid.isNullOrBlank()) {
-                    pendingVideoId = null
-                    loadVideo(pVid, pReq)
-                }
-            }
+        fun logVideoState(reqId: Long, exists: Boolean, readyState: Int, networkState: Int, currentSrc: String, paused: Boolean, details: String) {
+            Log.d("AuralisPlayback", "[Video State #$reqId] exists=$exists, readyState=$readyState, networkState=$networkState, paused=$paused, src=$currentSrc, msg=$details")
+        }
+
+        @JavascriptInterface
+        fun logPlaySuccess(reqId: Long, readyState: Int, networkState: Int, currentSrc: String) {
+            Log.d("AuralisPlayback", "[JS Play Success #$reqId] readyState=$readyState, networkState=$networkState, src=$currentSrc")
+        }
+
+        @JavascriptInterface
+        fun logPlayError(reqId: Long, error: String, readyState: Int, networkState: Int, currentSrc: String) {
+            Log.e("AuralisPlayback", "[JS Play Error #$reqId] err=$error, readyState=$readyState, networkState=$networkState, src=$currentSrc")
         }
 
         @JavascriptInterface
@@ -242,10 +76,11 @@ class YouTubeAudioEngine(private val context: Context) {
             mainHandler.post {
                 val activeReq = currentRequestId.get()
                 if (reqId != activeReq && reqId != 0L) {
-                    Log.d("AuralisPlayback", "[Stale onStateChange dropped] reqId=$reqId != activeReq=$activeReq")
+                    Log.d("AuralisPlayback", "[Stale onStateChange dropped] reqId=$reqId != activeReq=$activeReq (state=$state)")
                     return@post
                 }
 
+                Log.d("AuralisPlayback", "[onStateChange #$reqId] state=$state (1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED)")
                 when (state) {
                     0 -> { // Ended
                         _isPlaying.value = false
@@ -253,7 +88,7 @@ class YouTubeAudioEngine(private val context: Context) {
                         releaseWakeLock()
                         onTrackCompletedCallback?.invoke()
                     }
-                    1 -> { // Playing
+                    1 -> { // Playing - ONLY set isPlaying = true upon verified onplay callback
                         _isPlaying.value = true
                         _isBuffering.value = false
                         acquireWakeLock()
@@ -263,7 +98,7 @@ class YouTubeAudioEngine(private val context: Context) {
                         _isBuffering.value = false
                         releaseWakeLock()
                     }
-                    3 -> { // Buffering
+                    3 -> { // Buffering / Waiting
                         _isBuffering.value = true
                     }
                 }
@@ -279,9 +114,7 @@ class YouTubeAudioEngine(private val context: Context) {
         fun updateTime(currentSec: Double, durationSec: Double, reqId: Long) {
             mainHandler.post {
                 val activeReq = currentRequestId.get()
-                if (reqId != activeReq && reqId != 0L) {
-                    return@post
-                }
+                if (reqId != activeReq && reqId != 0L) return@post
 
                 if (currentSec >= 0) {
                     _playbackPositionMs.value = (currentSec * 1000).toLong()
@@ -301,8 +134,6 @@ class YouTubeAudioEngine(private val context: Context) {
     init {
         mainHandler.post {
             getOrCreateWebView(context)
-            Log.d("AuralisPlayback", "[Pre-warming] Initializing YouTube IFrame Engine")
-            webView?.loadDataWithBaseURL("https://www.youtube.com", playerHtml, "text/html", "UTF-8", null)
         }
     }
 
@@ -384,6 +215,20 @@ class YouTubeAudioEngine(private val context: Context) {
                 }
 
                 webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        Log.d("AuralisPlayback", "[WebView PageStarted] url=$url (reqId=${currentRequestId.get()})")
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        val activeReq = currentRequestId.get()
+                        Log.d("AuralisPlayback", "[WebView PageFinished] url=$url (reqId=$activeReq)")
+                        
+                        // Inject playback controller script on finished page
+                        injectPlaybackScript(activeReq)
+                    }
+
                     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                         val url = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
                         
@@ -411,12 +256,176 @@ class YouTubeAudioEngine(private val context: Context) {
 
                     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                         super.onReceivedError(view, request, error)
-                        Log.e("AuralisPlayback", "[WebView Error] ${error?.description} for ${request?.url}")
+                        if (request?.isForMainFrame == true || request?.url?.toString()?.contains("youtube") == true) {
+                            Log.e("AuralisPlayback", "[WebView Error] code=${error?.errorCode}, desc=${error?.description}, url=${request?.url}")
+                        }
+                    }
+
+                    override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                        super.onReceivedHttpError(view, request, errorResponse)
+                        if (request?.isForMainFrame == true || request?.url?.toString()?.contains("youtube") == true) {
+                            Log.e("AuralisPlayback", "[WebView HTTP Error] status=${errorResponse?.statusCode}, url=${request?.url}")
+                        }
                     }
                 }
             }
         }
         return webView!!
+    }
+
+    private fun injectPlaybackScript(reqId: Long) {
+        val js = """
+            (function() {
+                var reqId = $reqId;
+                window._auralisRequestId = reqId;
+
+                // 1. Spoof visibility state so YouTube never pauses when backgrounded
+                try {
+                    Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+                    Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+                } catch(e) {}
+
+                window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                window.addEventListener('pagehide', function(e) { e.stopImmediatePropagation(); }, true);
+                window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
+
+                // 2. Hide ads and overlay clutter with injected style
+                if (!document.getElementById('auralis-css')) {
+                    var style = document.createElement('style');
+                    style.id = 'auralis-css';
+                    style.textContent = `
+                        .ad-showing, .ad-interrupting, .video-ads, .ytp-ad-module,
+                        .ytp-ad-overlay-container, #player-ads, .ytp-ad-text,
+                        ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer {
+                            display: none !important;
+                            visibility: hidden !important;
+                        }
+                    `;
+                    (document.head || document.documentElement).appendChild(style);
+                }
+
+                function annihilateAds() {
+                    try {
+                        var skipButtons = document.querySelectorAll(
+                            '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
+                            '.ytp-skip-ad-button, button[class*="skip-button"], .ytp-ad-skip-button-slot button'
+                        );
+                        skipButtons.forEach(function(btn) { btn.click(); });
+                    } catch(e) {}
+
+                    var v = document.querySelector('video');
+                    if (v) {
+                        var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-module, .ytp-ad-text');
+                        if (isAd) {
+                            try {
+                                v.playbackRate = 16.0;
+                                v.currentTime = v.duration || 100;
+                            } catch(e) {}
+                        }
+                    }
+                }
+
+                var attempts = 0;
+                var maxAttempts = 35; // 35 * 150ms = 5.25 seconds
+
+                function tryStartMedia() {
+                    attempts++;
+                    annihilateAds();
+
+                    var v = document.querySelector('video');
+                    if (!v) {
+                        if (attempts % 5 === 0 && window.AuralisBridge) {
+                            window.AuralisBridge.logVideoState(reqId, false, 0, 0, "", true, "Video element not found (attempt " + attempts + ")");
+                        }
+                        if (attempts < maxAttempts) {
+                            setTimeout(tryStartMedia, 150);
+                        } else {
+                            if (window.AuralisBridge) {
+                                window.AuralisBridge.logVideoState(reqId, false, 0, 0, "", true, "Video element timeout after " + maxAttempts + " attempts");
+                            }
+                        }
+                        return;
+                    }
+
+                    // Video element found!
+                    v.muted = false;
+                    v.volume = 1.0;
+
+                    // Attach listeners once
+                    if (!v._auralisAttached) {
+                        v._auralisAttached = true;
+                        v.addEventListener('play', function() {
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId || reqId);
+                        });
+                        v.addEventListener('playing', function() {
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId || reqId);
+                        });
+                        v.addEventListener('pause', function() {
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId || reqId);
+                        });
+                        v.addEventListener('waiting', function() {
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(3, window._auralisRequestId || reqId);
+                        });
+                        v.addEventListener('ended', function() {
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(0, window._auralisRequestId || reqId);
+                        });
+                        v.addEventListener('timeupdate', function() {
+                            if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId || reqId);
+                        });
+                        v.addEventListener('error', function(e) {
+                            var errDesc = v.error ? "code=" + v.error.code + " msg=" + v.error.message : "unknown error";
+                            if (window.AuralisBridge) window.AuralisBridge.logPlayError(reqId, errDesc, v.readyState, v.networkState, v.currentSrc || "");
+                        });
+                    }
+
+                    // Dismiss consent / popups if present
+                    var dismissBtn = document.querySelector('button[aria-label*="Dismiss"], button[aria-label*="No thanks"], ytd-button-renderer#dismiss-button, .yt-spec-button-shape-next--tonal');
+                    if (dismissBtn) try { dismissBtn.click(); } catch(e) {}
+
+                    // Click YouTube large play button if present and video is paused
+                    var playBtn = document.querySelector('.ytp-large-play-button, .ytp-play-button, button.player-control-play-pause');
+                    if (playBtn && v.paused) {
+                        try { playBtn.click(); } catch(e) {}
+                    }
+
+                    // Call video.play()
+                    var playPromise = v.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(function() {
+                            if (window.AuralisBridge) {
+                                window.AuralisBridge.logPlaySuccess(reqId, v.readyState, v.networkState, v.currentSrc || "");
+                            }
+                        }).catch(function(err) {
+                            var errMsg = err ? err.message : "play rejection";
+                            if (window.AuralisBridge) {
+                                window.AuralisBridge.logPlayError(reqId, errMsg, v.readyState, v.networkState, v.currentSrc || "");
+                            }
+                            // Autoplay fallback: unmute after play
+                            v.muted = true;
+                            v.play().then(function() {
+                                v.muted = false;
+                            }).catch(function() {});
+                        });
+                    } else {
+                        if (window.AuralisBridge) {
+                            window.AuralisBridge.logPlaySuccess(reqId, v.readyState, v.networkState, v.currentSrc || "");
+                        }
+                    }
+                }
+
+                tryStartMedia();
+
+                // Ongoing polling for ads
+                if (!window._auralisPollInterval) {
+                    window._auralisPollInterval = setInterval(function() {
+                        annihilateAds();
+                    }, 500);
+                }
+            })();
+        """.trimIndent()
+        webView?.evaluateJavascript(js, null)
     }
 
     fun setOnTrackCompletedCallback(callback: () -> Unit) {
@@ -425,7 +434,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
     /**
      * Loads a video with a monotonically increasing session request ID.
-     * Instant playback switch via pre-warmed IFrame player in < 200ms without page reloads.
+     * Starts background playback and logs progress end-to-end.
      */
     fun loadVideo(videoId: String, requestId: Long = currentRequestId.incrementAndGet()) {
         currentRequestId.set(requestId)
@@ -436,19 +445,16 @@ class YouTubeAudioEngine(private val context: Context) {
             acquireWakeLock()
             _playbackPositionMs.value = 0L
             _isBuffering.value = true
-            _isPlaying.value = true
+            _isPlaying.value = false // Set isPlaying = true only upon verified onplay callback
 
-            getOrCreateWebView(context)
+            val web = getOrCreateWebView(context) as WebView
+            Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId")
 
-            if (isEngineReady) {
-                Log.d("AuralisPlayback", "[Instant Track Switch] loadVideo('$videoId', reqId=$requestId)")
-                webView?.evaluateJavascript("loadVideo('$videoId', $requestId);", null)
-            } else {
-                pendingVideoId = videoId
-                pendingRequestId = requestId
-                Log.d("AuralisPlayback", "[Pre-warm Init] Loading YouTube IFrame Engine for '$videoId'")
-                webView?.loadDataWithBaseURL("https://www.youtube.com", playerHtml, "text/html", "UTF-8", null)
-            }
+            // Stop any existing audio immediately before navigating
+            web.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.pause(); v.currentTime = 0; }", null)
+
+            // Direct mobile YouTube navigation
+            web.loadUrl("https://m.youtube.com/watch?v=$videoId")
         }
     }
 
@@ -456,8 +462,19 @@ class YouTubeAudioEngine(private val context: Context) {
         mainHandler.post {
             requestAudioFocus()
             acquireWakeLock()
-            _isPlaying.value = true
-            webView?.evaluateJavascript("playAudio();", null)
+            webView?.evaluateJavascript("""
+                (function() {
+                    var v = document.querySelector('video');
+                    if (v) {
+                        v.muted = false;
+                        v.volume = 1.0;
+                        v.play().catch(function(e) {
+                            v.muted = true;
+                            v.play().then(function() { v.muted = false; });
+                        });
+                    }
+                })();
+            """.trimIndent(), null)
         }
     }
 
@@ -465,7 +482,12 @@ class YouTubeAudioEngine(private val context: Context) {
         mainHandler.post {
             _isPlaying.value = false
             releaseWakeLock()
-            webView?.evaluateJavascript("pauseAudio();", null)
+            webView?.evaluateJavascript("""
+                (function() {
+                    var v = document.querySelector('video');
+                    if (v) v.pause();
+                })();
+            """.trimIndent(), null)
         }
     }
 
@@ -473,7 +495,12 @@ class YouTubeAudioEngine(private val context: Context) {
         mainHandler.post {
             _playbackPositionMs.value = positionMs
             val seconds = positionMs / 1000.0
-            webView?.evaluateJavascript("seekAudio($seconds);", null)
+            webView?.evaluateJavascript("""
+                (function() {
+                    var v = document.querySelector('video');
+                    if (v) v.currentTime = $seconds;
+                })();
+            """.trimIndent(), null)
         }
     }
 
@@ -481,7 +508,15 @@ class YouTubeAudioEngine(private val context: Context) {
         mainHandler.post {
             _isPlaying.value = false
             releaseWakeLock()
-            webView?.evaluateJavascript("pauseAudio();", null)
+            webView?.evaluateJavascript("""
+                (function() {
+                    var v = document.querySelector('video');
+                    if (v) {
+                        v.pause();
+                        v.currentTime = 0;
+                    }
+                })();
+            """.trimIndent(), null)
         }
     }
 
