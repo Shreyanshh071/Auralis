@@ -92,7 +92,11 @@ fun ProfileSheet(
     onClosePlaylistSelector: () -> Unit,
     onTogglePlaylistSelection: (String) -> Unit,
     onSelectAllPlaylists: () -> Unit,
-    onImportSelectedPlaylists: () -> Unit,
+    onImportSelectedPlaylists: () -> Unit = {},
+    onImportSpotifyPlaylist: (String) -> Unit = {},
+    onClearSpotifyImportMessage: () -> Unit = {},
+    isImportingSpotify: Boolean = false,
+    spotifyImportMessage: String? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -100,6 +104,7 @@ fun ProfileSheet(
     val profile = authUiState.profile
     var oauthTokenInput by remember { mutableStateOf("") }
     var showManualTokenInput by remember { mutableStateOf(false) }
+    var spotifyUrlInput by remember { mutableStateOf("") }
 
     Box(
         modifier = modifier
@@ -474,6 +479,175 @@ fun ProfileSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // ── SPOTIFY PLAYLIST IMPORTER CARD (EXACTLY BELOW YOUTUBE CARD) ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .border(1.dp, Color(0xFF1DB954).copy(alpha = 0.20f), RoundedCornerShape(22.dp))
+                    .padding(20.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SpotifyLogoIcon(modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Import Spotify Playlist",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 16.sp
+                            )
+                        }
+
+                        if (isImportingSpotify) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF1DB954),
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Paste any Spotify playlist, album, or track link to import songs directly into your Auralis library.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Spotify Link Input
+                    OutlinedTextField(
+                        value = spotifyUrlInput,
+                        onValueChange = {
+                            spotifyUrlInput = it
+                            onClearSpotifyImportMessage()
+                        },
+                        label = { Text("Spotify Link", color = Color.White.copy(alpha = 0.6f)) },
+                        placeholder = { Text("Paste open.spotify.com/playlist/...", color = Color.White.copy(alpha = 0.3f)) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF1DB954),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFF1DB954)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = {
+                            Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFF1DB954))
+                        },
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (spotifyUrlInput.isNotEmpty()) {
+                                    IconButton(onClick = {
+                                        spotifyUrlInput = ""
+                                        onClearSpotifyImportMessage()
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = clipboard.primaryClip
+                                        if (clip != null && clip.itemCount > 0) {
+                                            spotifyUrlInput = clip.getItemAt(0).text.toString().trim()
+                                            onClearSpotifyImportMessage()
+                                            Toast.makeText(context, "Pasted Spotify link", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color.White.copy(alpha = 0.7f))
+                                }
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // ── GLASSY SPOTIFY IMPORT BUTTON ──
+                    Button(
+                        onClick = {
+                            if (spotifyUrlInput.isNotBlank() && !isImportingSpotify) {
+                                onImportSpotifyPlaylist(spotifyUrlInput.trim())
+                            }
+                        },
+                        enabled = spotifyUrlInput.isNotBlank() && !isImportingSpotify,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1DB954),
+                            disabledContainerColor = Color(0xFF1DB954).copy(alpha = 0.22f),
+                            contentColor = Color.Black,
+                            disabledContentColor = Color.White.copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                    ) {
+                        if (isImportingSpotify) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.Black,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Importing Spotify Tracks...",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = if (spotifyUrlInput.isNotBlank()) Color.Black else Color.White.copy(alpha = 0.45f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Import Spotify Playlist",
+                                    color = if (spotifyUrlInput.isNotBlank()) Color.Black else Color.White.copy(alpha = 0.45f),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
+                    }
+
+                    if (spotifyImportMessage != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = spotifyImportMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (spotifyImportMessage.contains("fail", ignoreCase = true) || spotifyImportMessage.contains("could not", ignoreCase = true)) Color(0xFFF87171) else Color(0xFF4ADE80),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             // ── DISCONNECT BUTTON (DARK GLASS DANGER) ──
@@ -645,3 +819,64 @@ private fun GoogleLogoIcon(modifier: Modifier = Modifier) {
         )
     }
 }
+
+@Composable
+fun SpotifyLogoIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val radius = w / 2f
+
+        // Green Circle Background
+        drawCircle(
+            color = Color(0xFF1DB954),
+            radius = radius,
+            center = Offset(w / 2f, h / 2f)
+        )
+
+        // 3 Soundwave Arcs (Top, Middle, Bottom)
+        // Top Arc
+        val topPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.24f, h * 0.38f)
+            quadraticTo(w * 0.49f, h * 0.24f, w * 0.75f, h * 0.33f)
+        }
+        drawPath(
+            path = topPath,
+            color = Color.Black,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = w * 0.088f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+        )
+
+        // Middle Arc
+        val midPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.28f, h * 0.52f)
+            quadraticTo(w * 0.49f, h * 0.40f, w * 0.72f, h * 0.47f)
+        }
+        drawPath(
+            path = midPath,
+            color = Color.Black,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = w * 0.078f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+        )
+
+        // Bottom Arc
+        val botPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.32f, h * 0.65f)
+            quadraticTo(w * 0.49f, h * 0.55f, w * 0.68f, h * 0.61f)
+        }
+        drawPath(
+            path = botPath,
+            color = Color.Black,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = w * 0.068f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+        )
+    }
+}
+
+

@@ -1,7 +1,9 @@
 package com.auralis.music.ui.search
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -106,6 +109,20 @@ fun VoiceAndMusicRecognitionModal(
         }
     }
 
+    // Google Speech Recognition Intent fallback
+    val speechIntentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val text = matches?.firstOrNull()
+            if (!text.isNullOrBlank()) {
+                onSearchQuery(text)
+                onDismiss()
+            }
+        }
+    }
+
     fun requestAndStartListening() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         hasAudioPermission = granted
@@ -113,6 +130,18 @@ fun VoiceAndMusicRecognitionModal(
             onStartListening()
         } else {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    fun launchSystemSpeechRecognizer() {
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak song, artist, or music name...")
+            }
+            speechIntentLauncher.launch(intent)
+        } catch (_: Exception) {
+            requestAndStartListening()
         }
     }
 
@@ -125,12 +154,16 @@ fun VoiceAndMusicRecognitionModal(
         }
     }
 
-    // Auto-play immediately when a track is identified
-    LaunchedEffect(state.status, state.identifiedTrack) {
-        if (state.status == RecognitionStatus.SUCCESS && state.identifiedTrack != null) {
-            val track = state.identifiedTrack!!
-            onPlayIdentifiedTrack(track)
-            onDismiss()
+    // Auto-execute search immediately in VOICE_SEARCH mode or auto-play in MUSIC_IDENTIFY mode
+    LaunchedEffect(state.status, state.recognizedText, state.identifiedTrack, state.mode) {
+        if (state.status == RecognitionStatus.SUCCESS) {
+            if (state.mode == RecognitionMode.VOICE_SEARCH && state.recognizedText.isNotBlank()) {
+                onSearchQuery(state.recognizedText)
+                onDismiss()
+            } else if (state.mode == RecognitionMode.MUSIC_IDENTIFY && state.identifiedTrack != null) {
+                onPlayIdentifiedTrack(state.identifiedTrack!!)
+                onDismiss()
+            }
         }
     }
 
@@ -218,7 +251,7 @@ fun VoiceAndMusicRecognitionModal(
 
             // ── TITLE / STATUS TEXT ──
             Text(
-                text = if (state.mode == RecognitionMode.VOICE_SEARCH) "Speak music name" else "Listening for music...",
+                text = if (state.mode == RecognitionMode.VOICE_SEARCH) "Speak to Search" else "Recognize Music",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -295,15 +328,20 @@ fun VoiceAndMusicRecognitionModal(
                 }
             }
 
-            // Live recognized transcript text
+            // Live recognized transcript text with tap-to-search action
             if (state.recognizedText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(20.dp))
-                Box(
+                Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xFF1B1D16))
                         .border(1.dp, RECOG_LIME.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                         .padding(horizontal = 18.dp, vertical = 10.dp)
+                        .clickable {
+                            onSearchQuery(state.recognizedText)
+                            onDismiss()
+                        },
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "\"${state.recognizedText}\"",
@@ -311,6 +349,13 @@ fun VoiceAndMusicRecognitionModal(
                         fontWeight = FontWeight.Bold,
                         color = RECOG_LIME,
                         fontSize = 18.sp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = RECOG_LIME,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -375,7 +420,7 @@ fun VoiceAndMusicRecognitionModal(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Permission Request or Retry Button
+            // Permission Request or Retry Buttons
             if (!hasAudioPermission) {
                 Button(
                     onClick = { requestAndStartListening() },
@@ -388,17 +433,34 @@ fun VoiceAndMusicRecognitionModal(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             } else if (state.status == RecognitionStatus.ERROR) {
-                OutlinedButton(
-                    onClick = { requestAndStartListening() },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = RECOG_LIME),
-                    shape = RoundedCornerShape(14.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(bottom = 16.dp)
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, tint = RECOG_LIME, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tap to Retry", fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = { requestAndStartListening() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RECOG_LIME),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = RECOG_LIME, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Tap to Retry", fontWeight = FontWeight.Bold)
+                    }
+
+                    if (state.mode == RecognitionMode.VOICE_SEARCH) {
+                        Button(
+                            onClick = { launchSystemSpeechRecognizer() },
+                            colors = ButtonDefaults.buttonColors(containerColor = RECOG_LIME),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Google Voice", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
 }
+

@@ -84,7 +84,7 @@ class AudioRecognitionManager(
                                 it.copy(
                                     status = RecognitionStatus.LISTENING,
                                     statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH)
-                                        "Speak song name or artist..."
+                                        "Listening... Speak song or artist name"
                                     else
                                         "Listening to music near your phone...",
                                     errorMessage = null
@@ -107,7 +107,10 @@ class AudioRecognitionManager(
                             _state.update {
                                 it.copy(
                                     status = RecognitionStatus.PROCESSING,
-                                    statusMessage = "Finding song in music catalog..."
+                                    statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH)
+                                        "Processing speech..."
+                                    else
+                                        "Finding song in music catalog..."
                                 )
                             }
                         }
@@ -126,13 +129,14 @@ class AudioRecognitionManager(
                                 return
                             }
 
+                            val isVoice = _state.value.mode == RecognitionMode.VOICE_SEARCH
                             val message = when (error) {
-                                SpeechRecognizer.ERROR_NO_MATCH -> "No music or voice detected. Tap to retry."
-                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Listening timed out. Tap to retry."
+                                SpeechRecognizer.ERROR_NO_MATCH -> if (isVoice) "No speech detected. Tap to speak." else "No music detected. Tap to retry."
+                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> if (isVoice) "Listening timed out. Tap to speak." else "Listening timed out. Tap to retry."
                                 SpeechRecognizer.ERROR_NETWORK -> "Network connection required."
                                 SpeechRecognizer.ERROR_AUDIO -> "Microphone recording error."
                                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required."
-                                else -> "Could not identify. Play music closer to mic."
+                                else -> if (isVoice) "Could not recognize speech. Tap to try again." else "Could not identify. Play music closer to mic."
                             }
                             _state.update {
                                 it.copy(
@@ -157,7 +161,10 @@ class AudioRecognitionManager(
                                     _state.update {
                                         it.copy(
                                             status = RecognitionStatus.ERROR,
-                                            statusMessage = "Could not identify track. Tap to retry."
+                                            statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH)
+                                                "No speech detected. Tap to speak."
+                                            else
+                                                "Could not identify track. Tap to retry."
                                         )
                                     }
                                     isListening = false
@@ -181,11 +188,24 @@ class AudioRecognitionManager(
     }
 
     private fun handleRecognizedQuery(query: String) {
+        if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
+            _state.update {
+                it.copy(
+                    status = RecognitionStatus.SUCCESS,
+                    recognizedText = query,
+                    statusMessage = "Searching for \"$query\"..."
+                )
+            }
+            isListening = false
+            return
+        }
+
+        // Ambient Music Identification Mode
         _state.update {
             it.copy(
                 status = RecognitionStatus.PROCESSING,
                 recognizedText = query,
-                statusMessage = "Searching for \"$query\"..."
+                statusMessage = "Searching for song: \"$query\"..."
             )
         }
 
@@ -239,7 +259,7 @@ class AudioRecognitionManager(
                 recognizedText = "",
                 identifiedTrack = null,
                 errorMessage = null,
-                statusMessage = if (mode == RecognitionMode.VOICE_SEARCH) "Tap to speak song name" else "Play music near your phone..."
+                statusMessage = if (mode == RecognitionMode.VOICE_SEARCH) "Tap to speak song or artist name" else "Play music near your phone..."
             )
         }
     }

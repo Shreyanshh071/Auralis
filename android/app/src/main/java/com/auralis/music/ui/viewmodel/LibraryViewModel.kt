@@ -2,6 +2,7 @@ package com.auralis.music.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.auralis.music.data.network.SpotifyPlaylistImporter
 import com.auralis.music.data.network.YouTubePlaylistImporter
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.SavedAlbum
@@ -43,12 +44,15 @@ data class LibraryUiState(
     val isGridView: Boolean = true,
     val sortOrder: String = "Date added",
     val isImporting: Boolean = false,
-    val importMessage: String? = null
+    val importMessage: String? = null,
+    val isImportingSpotify: Boolean = false,
+    val spotifyImportMessage: String? = null
 )
 
 class LibraryViewModel(
     private val libraryRepository: LibraryRepository,
-    private val youtubeImporter: YouTubePlaylistImporter = YouTubePlaylistImporter()
+    private val youtubeImporter: YouTubePlaylistImporter = YouTubePlaylistImporter(),
+    private val spotifyImporter: SpotifyPlaylistImporter = SpotifyPlaylistImporter()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
@@ -274,6 +278,70 @@ class LibraryViewModel(
                         importMessage = e.localizedMessage ?: "Failed to import playlist"
                     )
                 }
+            }
+        }
+    }
+
+    fun clearSpotifyImportMessage() {
+        _uiState.update { it.copy(spotifyImportMessage = null) }
+    }
+
+    fun importSpotifyPlaylist(urlOrLink: String, onComplete: ((Boolean, String) -> Unit)? = null) {
+        val trimmed = urlOrLink.trim()
+        if (trimmed.isBlank()) return
+        android.util.Log.i("SpotifyImporter", "importSpotifyPlaylist called in ViewModel with: '$trimmed'")
+        _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = "Importing Spotify playlist...") }
+
+        viewModelScope.launch {
+            try {
+                val imported = spotifyImporter.importPlaylist(trimmed)
+                if (imported != null && (imported.tracks.isNotEmpty() || imported.title.isNotBlank())) {
+                    val playlist = libraryRepository.createPlaylist(
+                        title = imported.title,
+                        description = imported.description
+                    )
+                    if (!imported.coverUrl.isNullOrBlank()) {
+                        libraryRepository.updatePlaylist(
+                            playlistId = playlist.id,
+                            title = imported.title,
+                            description = imported.description,
+                            coverUrl = imported.coverUrl
+                        )
+                    }
+                    for (track in imported.tracks) {
+                        libraryRepository.addTrackToPlaylist(playlist.id, track)
+                    }
+                    val successMsg = "Imported '${imported.title}' (${imported.tracks.size} songs from Spotify)"
+                    android.util.Log.i("SpotifyImporter", successMsg)
+                    _uiState.update {
+                        it.copy(
+                            isImportingSpotify = false,
+                            spotifyImportMessage = successMsg,
+                            importMessage = successMsg
+                        )
+                    }
+                    onComplete?.invoke(true, successMsg)
+                } else {
+                    val errorMsg = "Could not parse Spotify playlist. Please check the link."
+                    android.util.Log.e("SpotifyImporter", "Import returned null for: '$trimmed'")
+                    _uiState.update {
+                        it.copy(
+                            isImportingSpotify = false,
+                            spotifyImportMessage = errorMsg
+                        )
+                    }
+                    onComplete?.invoke(false, errorMsg)
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.localizedMessage ?: "Failed to import Spotify playlist"
+                android.util.Log.e("SpotifyImporter", "Import exception: $errorMsg", e)
+                _uiState.update {
+                    it.copy(
+                        isImportingSpotify = false,
+                        spotifyImportMessage = errorMsg
+                    )
+                }
+                onComplete?.invoke(false, errorMsg)
             }
         }
     }

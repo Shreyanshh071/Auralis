@@ -75,6 +75,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
@@ -131,6 +132,7 @@ fun LibraryScreen(
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onRemoveFromPlaylist: (String, String) -> Unit = { _, _ -> },
     onImportYouTubePlaylist: (String) -> Unit = {},
+    onImportSpotifyPlaylist: (String) -> Unit = {},
     onExportBackup: suspend () -> String = { "" },
     onImportBackup: (String) -> Unit = {},
     onSmartCollectionClick: (SmartCollectionType) -> Unit = {},
@@ -550,46 +552,156 @@ fun LibraryScreen(
 
     // Create / Import Options Dialog
     if (showCreateDialog) {
-        var playlistName by remember { mutableStateOf("") }
-        var isYtImport by remember { mutableStateOf(false) }
+        var playlistInput by remember { mutableStateOf("") }
+        var importMode by remember { mutableStateOf(0) } // 0: Custom, 1: YouTube, 2: Spotify
 
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text(if (isYtImport) "Import YouTube Playlist" else "New Playlist", fontWeight = FontWeight.Bold) },
+            containerColor = CARD_DARK_BG,
+            title = {
+                Text(
+                    text = when (importMode) {
+                        1 -> "Import YouTube Playlist"
+                        2 -> "Import Spotify Playlist"
+                        else -> "New Playlist"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            },
             text = {
                 Column {
+                    // Mode Selector Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.06f))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Custom Mode Chip
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (importMode == 0) LIME_TEXT else Color.Transparent)
+                                .clickable { importMode = 0 },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Custom",
+                                fontWeight = FontWeight.Bold,
+                                color = if (importMode == 0) Color.Black else Color.White.copy(alpha = 0.7f),
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        // YouTube Mode Chip
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (importMode == 1) Color(0xFFEF4444) else Color.Transparent)
+                                .clickable { importMode = 1 },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "YouTube",
+                                fontWeight = FontWeight.Bold,
+                                color = if (importMode == 1) Color.White else Color.White.copy(alpha = 0.7f),
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        // Spotify Mode Chip
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (importMode == 2) Color(0xFF1DB954) else Color.Transparent)
+                                .clickable { importMode = 2 },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Spotify",
+                                fontWeight = FontWeight.Bold,
+                                color = if (importMode == 2) Color.Black else Color.White.copy(alpha = 0.7f),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     OutlinedTextField(
-                        value = playlistName,
-                        onValueChange = { playlistName = it },
-                        placeholder = { Text(if (isYtImport) "Paste YouTube playlist URL" else "Playlist title") },
+                        value = playlistInput,
+                        onValueChange = { playlistInput = it },
+                        placeholder = {
+                            Text(
+                                when (importMode) {
+                                    1 -> "Paste YouTube playlist link"
+                                    2 -> "Paste Spotify playlist / album link"
+                                    else -> "Playlist title"
+                                },
+                                color = Color.White.copy(alpha = 0.4f),
+                                fontSize = 13.sp
+                            )
+                        },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = when (importMode) {
+                                1 -> Color(0xFFEF4444)
+                                2 -> Color(0xFF1DB954)
+                                else -> LIME_TEXT
+                            },
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(onClick = { isYtImport = !isYtImport }) {
-                        Text(if (isYtImport) "Switch to Custom Playlist" else "Or Import from YouTube Playlist")
-                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (playlistName.isNotBlank()) {
-                            if (isYtImport) {
-                                onImportYouTubePlaylist(playlistName.trim())
-                            } else {
-                                onCreatePlaylist(playlistName.trim())
+                        if (playlistInput.isNotBlank()) {
+                            when (importMode) {
+                                1 -> onImportYouTubePlaylist(playlistInput.trim())
+                                2 -> onImportSpotifyPlaylist(playlistInput.trim())
+                                else -> onCreatePlaylist(playlistInput.trim())
                             }
                             showCreateDialog = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = LIME_TEXT)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = when (importMode) {
+                            1 -> Color(0xFFEF4444)
+                            2 -> Color(0xFF1DB954)
+                            else -> LIME_TEXT
+                        }
+                    )
                 ) {
-                    Text(if (isYtImport) "Import" else "Create", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = when (importMode) {
+                            1 -> "Import YouTube"
+                            2 -> "Import Spotify"
+                            else -> "Create"
+                        },
+                        color = if (importMode == 1) Color.White else Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.7f))
+                }
             }
         )
     }
