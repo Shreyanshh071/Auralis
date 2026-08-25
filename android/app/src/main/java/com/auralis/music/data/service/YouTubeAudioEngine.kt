@@ -160,6 +160,8 @@ class YouTubeAudioEngine(private val context: Context) {
                             videoId: videoId,
                             suggestedQuality: 'small'
                         });
+                        if (player.unMute) player.unMute();
+                        if (player.setVolume) player.setVolume(100);
                         player.playVideo();
                     } catch(e) {}
                 }
@@ -168,6 +170,12 @@ class YouTubeAudioEngine(private val context: Context) {
                     // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING, 0 = ENDED
                     var state = event.data;
                     annihilateAds();
+                    if (player) {
+                        try {
+                            if (player.unMute) player.unMute();
+                            if (player.setVolume) player.setVolume(100);
+                        } catch(e) {}
+                    }
                     if (window.AuralisBridge) {
                         window.AuralisBridge.onStateChange(state, currentReq);
                     }
@@ -180,7 +188,13 @@ class YouTubeAudioEngine(private val context: Context) {
                 }
 
                 function playAudio() {
-                    if (player && player.playVideo) player.playVideo();
+                    if (player && player.playVideo) {
+                        try {
+                            if (player.unMute) player.unMute();
+                            if (player.setVolume) player.setVolume(100);
+                        } catch(e) {}
+                        player.playVideo();
+                    }
                 }
 
                 function pauseAudio() {
