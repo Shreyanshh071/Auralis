@@ -192,126 +192,31 @@ fun NowPlayingModal(
     val totalDurationMs = if (uiState.durationMs > 0) uiState.durationMs else (track.duration * 1000L)
 
     val context = LocalContext.current
-    var highResArtworkUrl by remember(track.id) { mutableStateOf(track.thumbnail) }
 
-    // Vibrant extracted colors with initial fallbacks
-    var extractedPrimaryColor by remember(track.id) {
-        mutableStateOf(
-            if (track.dominantColor != null) boostColorVibrancy(Color(track.dominantColor), 0.65f, 0.55f)
-            else Color(0xFF8E24AA) // Vibrant Electric Violet default
+    // Cached and downsampled palette extraction for zero-jank background rendering
+    val cachedPalette = remember(track.id) {
+        com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.id) 
+            ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.thumbnail)
+    }
+
+    var extractedColors by remember(track.id) {
+        mutableStateOf(cachedPalette ?: com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette)
+    }
+
+    // Async extraction with downsampling and LRU caching on Dispatchers.Default
+    LaunchedEffect(track.id, track.thumbnail) {
+        val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+            context = context,
+            key = track.id,
+            artworkUrl = track.thumbnail
         )
-    }
-    var extractedSecondaryColor by remember(track.id) {
-        mutableStateOf(Color(0xFFE91E63)) // Radiant Magenta default
-    }
-    var extractedTertiaryColor by remember(track.id) {
-        mutableStateOf(Color(0xFF3949AB)) // Deep Indigo default
+        extractedColors = palette
     }
 
-    // High-resolution artwork search from iTunes
-    LaunchedEffect(track.id, track.title, track.artist) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val cleanArtist = track.artist.replace(" - Topic", "").replace("VEVO", "").trim()
-                val cleanTitle = track.title.replace(Regex("\\[.*?\\]|\\(.*?\\)"), "").trim()
-                val query = if (cleanArtist.isNotBlank() && cleanArtist != "Shreyanshh") "$cleanArtist $cleanTitle" else cleanTitle
-                val itunesUrl = "https://itunes.apple.com/search?term=${java.net.URLEncoder.encode(query, "UTF-8")}&entity=song&limit=3"
-                val req = okhttp3.Request.Builder().url(itunesUrl).build()
-                val okClient = okhttp3.OkHttpClient()
-                val res = okClient.newCall(req).execute()
-                if (res.isSuccessful) {
-                    val body = res.body?.string() ?: ""
-                    val json = org.json.JSONObject(body)
-                    val results = json.optJSONArray("results")
-                    if (results != null && results.length() > 0) {
-                        val first = results.getJSONObject(0)
-                        val art = first.optString("artworkUrl100")
-                        if (art.isNotBlank()) {
-                            highResArtworkUrl = art.replace("100x100bb", "600x600bb").replace("100x100", "600x600")
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
-    // Deep multi-point palette extraction with saturation boosting
-    LaunchedEffect(highResArtworkUrl, track.thumbnail) {
-        val artToLoad = highResArtworkUrl.ifBlank { track.thumbnail }
-        if (artToLoad.isNotBlank()) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    val loader = coil.ImageLoader(context)
-                    val request = coil.request.ImageRequest.Builder(context)
-                        .data(artToLoad)
-                        .allowHardware(false)
-                        .build()
-                    val result = loader.execute(request)
-                    val drawable = result.drawable
-                    if (drawable is android.graphics.drawable.BitmapDrawable) {
-                        val bitmap = drawable.bitmap
-                        val palette = Palette.from(bitmap).maximumColorCount(24).generate()
-                        val swatches = palette.swatches.sortedByDescending { it.population }
-
-                        val rawPrimary = palette.vibrantSwatch?.rgb
-                            ?: palette.dominantSwatch?.rgb
-                            ?: palette.lightVibrantSwatch?.rgb
-                            ?: palette.darkVibrantSwatch?.rgb
-                            ?: palette.mutedSwatch?.rgb
-                            ?: swatches.firstOrNull()?.rgb
-
-                        val rawSecondary = palette.lightVibrantSwatch?.rgb
-                            ?: palette.vibrantSwatch?.rgb
-                            ?: palette.dominantSwatch?.rgb
-                            ?: palette.lightMutedSwatch?.rgb
-                            ?: swatches.getOrNull(1)?.rgb
-                            ?: rawPrimary
-
-                        val rawTertiary = palette.darkVibrantSwatch?.rgb
-                            ?: palette.dominantSwatch?.rgb
-                            ?: palette.darkMutedSwatch?.rgb
-                            ?: swatches.getOrNull(2)?.rgb
-                            ?: rawPrimary
-
-                        if (rawPrimary != null) {
-                            extractedPrimaryColor = boostColorVibrancy(Color(rawPrimary), minSaturation = 0.65f, targetLightness = 0.55f)
-                        }
-                        if (rawSecondary != null) {
-                            extractedSecondaryColor = boostColorVibrancy(Color(rawSecondary), minSaturation = 0.55f, targetLightness = 0.65f)
-                        }
-                        if (rawTertiary != null) {
-                            extractedTertiaryColor = boostColorVibrancy(Color(rawTertiary), minSaturation = 0.60f, targetLightness = 0.40f)
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedPrimaryColor, tween(600), label = "animPrimary")
-    val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedSecondaryColor, tween(600), label = "animSecondary")
-    val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedTertiaryColor, tween(600), label = "animTertiary")
-
-    // Dynamic fluid breathing and orbital floating transitions
-    val infiniteTransition = rememberInfiniteTransition(label = "nowPlayingAuroraMesh")
-    val auroraScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.30f,
-        animationSpec = infiniteRepeatable(tween(7000, easing = FastOutSlowInEasing), repeatMode = androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "scale"
-    )
-    val auroraShiftX by infiniteTransition.animateFloat(
-        initialValue = -45f,
-        targetValue = 45f,
-        animationSpec = infiniteRepeatable(tween(8800, easing = LinearOutSlowInEasing), repeatMode = androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "shiftX"
-    )
-    val auroraShiftY by infiniteTransition.animateFloat(
-        initialValue = -30f,
-        targetValue = 30f,
-        animationSpec = infiniteRepeatable(tween(7800, easing = FastOutSlowInEasing), repeatMode = androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "shiftY"
-    )
+    // Short 250ms color crossfade executed ONLY on song/palette change, completely static while playing
+    val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedColors.primary, tween(250), label = "animPrimary")
+    val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedColors.secondary, tween(250), label = "animSecondary")
+    val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, tween(250), label = "animTertiary")
 
     Box(
         modifier = modifier
@@ -319,83 +224,54 @@ fun NowPlayingModal(
             .background(Color(0xFF08060C))
     ) {
         // ====================================================================
-        // 1. DYNAMIC HIGH-VIBRANCY AURORA MESH BACKGROUND (SYNCED WITH COVER)
+        // 1. STATIC HIGH-VIBRANCY AURORA MESH BACKGROUND (SYNCED WITH COVER)
         // ====================================================================
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Layer A: Artwork Canvas with 48dp Blur for rich texture & color dispersion
-            AsyncImage(
-                model = highResArtworkUrl.ifBlank { track.thumbnail },
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = 1.38f * auroraScale.coerceIn(1.0f, 1.12f)
-                        scaleY = 1.38f * auroraScale.coerceIn(1.0f, 1.12f)
-                        alpha = 0.88f
-                    }
-                    .blur(48.dp)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+
+            // Base foundation
+            drawRect(color = Color(0xFF08060C))
+
+            // Primary radiant orb (Top right)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        animatedPrimaryColor.copy(alpha = 0.55f),
+                        animatedSecondaryColor.copy(alpha = 0.25f),
+                        Color.Transparent
+                    ),
+                    center = Offset(width * 0.90f, height * 0.15f),
+                    radius = width * 1.15f
+                ),
+                center = Offset(width * 0.90f, height * 0.15f),
+                radius = width * 1.15f
             )
 
-            // Layer B: Radiant Primary Aurora Orb (Top / Upper-Right Float)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationX = auroraShiftX
-                        translationY = auroraShiftY
-                        scaleX = auroraScale
-                        scaleY = auroraScale
-                    }
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                animatedPrimaryColor.copy(alpha = 0.70f),
-                                animatedSecondaryColor.copy(alpha = 0.38f),
-                                Color.Transparent
-                            ),
-                            center = Offset(Float.POSITIVE_INFINITY, 0f),
-                            radius = 1400f
-                        )
-                    )
+            // Secondary harmonic orb (Bottom left)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        animatedSecondaryColor.copy(alpha = 0.45f),
+                        animatedTertiaryColor.copy(alpha = 0.22f),
+                        Color.Transparent
+                    ),
+                    center = Offset(width * 0.10f, height * 0.75f),
+                    radius = width * 1.05f
+                ),
+                center = Offset(width * 0.10f, height * 0.75f),
+                radius = width * 1.05f
             )
 
-            // Layer C: Harmonic Secondary Aurora Orb (Lower-Left Float)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationX = -auroraShiftX * 0.9f
-                        translationY = -auroraShiftY * 0.9f
-                        scaleX = 1.3f - (auroraScale - 1.0f) * 0.5f
-                        scaleY = 1.3f - (auroraScale - 1.0f) * 0.5f
-                    }
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                animatedSecondaryColor.copy(alpha = 0.60f),
-                                animatedTertiaryColor.copy(alpha = 0.35f),
-                                Color.Transparent
-                            ),
-                            center = Offset(0f, Float.POSITIVE_INFINITY),
-                            radius = 1300f
-                        )
-                    )
-            )
-
-            // Layer D: Atmospheric Contrast Vignette for Header & Bottom Controls
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.00f to Color.Black.copy(alpha = 0.28f),
-                            0.15f to Color.Transparent,
-                            0.60f to Color.Transparent,
-                            0.82f to Color.Black.copy(alpha = 0.40f),
-                            1.00f to Color.Black.copy(alpha = 0.65f)
-                        )
-                    )
+            // Vignette for header and bottom controls
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0.00f to Color.Black.copy(alpha = 0.28f),
+                    0.15f to Color.Transparent,
+                    0.60f to Color.Transparent,
+                    0.82f to Color.Black.copy(alpha = 0.40f),
+                    1.00f to Color.Black.copy(alpha = 0.65f)
+                )
             )
         }
 
@@ -734,19 +610,15 @@ fun NowPlayingModal(
                                 modifier = Modifier
                                     .fillMaxWidth(0.92f)
                                     .aspectRatio(1f)
-                                    .graphicsLayer {
-                                        scaleX = auroraScale
-                                        scaleY = auroraScale
-                                    }
-                                    .blur(50.dp)
                                     .background(
                                         Brush.radialGradient(
                                             colors = listOf(
-                                                animatedPrimaryColor.copy(alpha = 0.85f),
-                                                animatedSecondaryColor.copy(alpha = 0.50f),
+                                                animatedPrimaryColor.copy(alpha = 0.65f),
+                                                animatedSecondaryColor.copy(alpha = 0.30f),
                                                 Color.Transparent
                                             )
-                                        )
+                                        ),
+                                        shape = CircleShape
                                     )
                             )
 

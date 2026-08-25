@@ -44,11 +44,12 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
     }
 
     fun playTrack(track: Track, currentQueue: List<Track> = emptyList()): QueueState {
-        val existingIndex = currentQueue.indexOfFirst { it.id == track.id }
+        val targetQueue = if (currentQueue.isNotEmpty()) currentQueue else state.queue
+        val existingIndex = targetQueue.indexOfFirst { it.id == track.id }
         if (existingIndex != -1) {
-            return setQueue(currentQueue, existingIndex)
+            return setQueue(targetQueue, existingIndex)
         }
-        val newQueue = listOf(track) + currentQueue.filter { it.id != track.id }
+        val newQueue = listOf(track) + targetQueue.filter { it.id != track.id }
         return setQueue(newQueue, 0)
     }
 
