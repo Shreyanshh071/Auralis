@@ -246,7 +246,6 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     fun resume() {
         youTubeEngine.play()
-        _isPlaying.value = true
     }
 
     fun pause() {
