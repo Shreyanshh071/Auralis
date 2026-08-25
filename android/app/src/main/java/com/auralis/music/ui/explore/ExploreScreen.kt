@@ -203,17 +203,19 @@ fun ExploreScreen(
                     )
                 }
 
-                // Globe / Region Icon Button
-                IconButton(
-                    onClick = {},
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Language,
-                        contentDescription = "Region",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                // Dynamic Clear Cross Button (only visible when text is typed)
+                if (uiState.query.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear search",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
