@@ -3,8 +3,10 @@ package com.auralis.music.data.network
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
@@ -14,16 +16,18 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * High-Speed Direct Audio Stream Resolver.
- * Resolves direct streams with ultra-fast failover (1-second timeouts) to prevent playback lag.
+ * Resolves direct audio streams with ultra-fast failover for pure native background playback in ExoPlayer.
  */
 object AudioStreamResolver {
 
     private const val TAG = "AuralisPlayback"
     private val client = OkHttpClient.Builder()
-        .connectTimeout(1500, TimeUnit.MILLISECONDS)
-        .readTimeout(1500, TimeUnit.MILLISECONDS)
+        .connectTimeout(3000, TimeUnit.MILLISECONDS)
+        .readTimeout(3000, TimeUnit.MILLISECONDS)
         .followRedirects(true)
         .build()
+
+    private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     // Host blacklisting with timestamp (clears after 5 minutes)
     private val blacklistedHosts = ConcurrentHashMap<String, Long>()
@@ -31,7 +35,9 @@ object AudioStreamResolver {
 
     fun blacklistHost(host: String) {
         blacklistedHosts[host] = System.currentTimeMillis()
-        Log.w(TAG, "[Resolver Blacklist] Host blacklisted for 5 min: $host")
+        try {
+            Log.w(TAG, "[Resolver Blacklist] Host blacklisted for 5 min: $host")
+        } catch (_: Throwable) {}
     }
 
     private fun isHostBlacklisted(url: String): Boolean {
@@ -50,32 +56,19 @@ object AudioStreamResolver {
         }
     }
 
-    private fun validateStreamUrl(url: String): Boolean {
-        return try {
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Range", "bytes=0-1024")
-                .build()
-            val response = client.newCall(request).execute()
-            val code = response.code
-            val contentType = (response.header("Content-Type") ?: "").lowercase()
-            val isSuccess = (code == 200 || code == 206) &&
-                (contentType.contains("audio") || contentType.contains("video") || contentType.contains("octet-stream") || contentType.contains("mp4") || contentType.contains("mpeg"))
-
-            if (!isSuccess) {
-                val host = java.net.URI(url).host
-                if (!host.isNullOrBlank()) blacklistHost(host)
-            }
-            response.close()
-            isSuccess
-        } catch (e: Exception) {
-            false
-        }
-    }
-
     suspend fun resolveAudioStream(videoId: String, title: String, artist: String): String? = withContext(Dispatchers.IO) {
-        // Fast-check JioSaavn DES decrypted 320kbps streams
+        // 1. First priority: Direct YouTube InnerTube iOS stream (pure native, exact YouTube audio)
+        try {
+            val ytStream = resolveYouTubePlayerStream(videoId)
+            if (!ytStream.isNullOrBlank()) {
+                try {
+                    Log.d(TAG, "[Resolver] Resolved direct YouTube audio stream for $videoId")
+                } catch (_: Throwable) {}
+                return@withContext ytStream
+            }
+        } catch (_: Exception) {}
+
+        // 2. Second priority: JioSaavn 320kbps lossless master stream
         try {
             val cleanTitle = title.replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)|official.*|video.*"), "").trim()
             val cleanArtist = if (artist.lowercase() !in listOf("shreyanshh", "shreyansh", "unknown", "artist", "youtube music")) artist else ""
@@ -113,10 +106,7 @@ object AudioStreamResolver {
                                 val decryptedUrl = decryptSaavnMediaUrl(encUrl)
                                 if (!decryptedUrl.isNullOrBlank() && !isHostBlacklisted(decryptedUrl)) {
                                     val candidate = decryptedUrl.replace("_96.mp4", "_320.mp4").replace("_160.mp4", "_320.mp4")
-                                    if (validateStreamUrl(candidate)) {
-                                        Log.d(TAG, "[Resolver] Validated direct 320kbps stream: ${candidate.substringBefore("?")}")
-                                        return@withContext candidate
-                                    }
+                                    return@withContext candidate
                                 }
                             }
                         }
@@ -125,8 +115,60 @@ object AudioStreamResolver {
             }
         } catch (_: Exception) {}
 
-        // Immediate return if no direct high-bitrate stream exists, so YouTube engine plays instantly
         null
+    }
+
+    private fun resolveYouTubePlayerStream(videoId: String): String? {
+        try {
+            val iosPayload = JSONObject().apply {
+                put("videoId", videoId)
+                put("context", JSONObject().apply {
+                    put("client", JSONObject().apply {
+                        put("clientName", "IOS")
+                        put("clientVersion", "19.29.1")
+                        put("deviceModel", "iPhone14,3")
+                        put("hl", "en")
+                        put("gl", "US")
+                    })
+                })
+            }
+
+            val req = Request.Builder()
+                .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                .post(iosPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("User-Agent", "com.google.ios.youtube/19.29.1 (iPhone14,3; U; CPU iOS 17_5_1 like Mac OS X; en_US)")
+                .header("Origin", "https://www.youtube.com")
+                .build()
+
+            val res = client.newCall(req).execute()
+            if (res.isSuccessful) {
+                val body = res.body?.string() ?: ""
+                val json = JSONObject(body)
+                val streamingData = json.optJSONObject("streamingData")
+                val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
+                if (adaptiveFormats != null) {
+                    var bestAudioUrl: String? = null
+                    var bestBitrate = 0
+                    for (i in 0 until adaptiveFormats.length()) {
+                        val fmt = adaptiveFormats.getJSONObject(i)
+                        val mime = fmt.optString("mimeType", "")
+                        if (mime.startsWith("audio/")) {
+                            val directUrl = fmt.optString("url")
+                            val bitrate = fmt.optInt("bitrate", 0)
+                            if (directUrl.isNotBlank() && bitrate > bestBitrate) {
+                                bestBitrate = bitrate
+                                bestAudioUrl = directUrl
+                            }
+                        }
+                    }
+                    if (!bestAudioUrl.isNullOrBlank()) {
+                        return bestAudioUrl
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return null
     }
 
     internal fun decryptSaavnMediaUrl(encryptedUrl: String): String? {
@@ -138,7 +180,7 @@ object AudioStreamResolver {
             cipher.init(Cipher.DECRYPT_MODE, secretKey)
             val decoded = try {
                 java.util.Base64.getDecoder().decode(encryptedUrl.trim())
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 android.util.Base64.decode(encryptedUrl.trim(), android.util.Base64.DEFAULT)
             }
             val decrypted = cipher.doFinal(decoded)
