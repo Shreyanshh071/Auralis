@@ -125,13 +125,11 @@ fun VoiceAndMusicRecognitionModal(
         }
     }
 
-    // Auto-search if voice recognized text
-    LaunchedEffect(state.status, state.recognizedText) {
-        if (state.mode == RecognitionMode.VOICE_SEARCH &&
-            state.status == RecognitionStatus.SUCCESS &&
-            state.recognizedText.isNotBlank()
-        ) {
-            onSearchQuery(state.recognizedText)
+    // Auto-play immediately when a track is identified
+    LaunchedEffect(state.status, state.identifiedTrack) {
+        if (state.status == RecognitionStatus.SUCCESS && state.identifiedTrack != null) {
+            val track = state.identifiedTrack!!
+            onPlayIdentifiedTrack(track)
             onDismiss()
         }
     }
