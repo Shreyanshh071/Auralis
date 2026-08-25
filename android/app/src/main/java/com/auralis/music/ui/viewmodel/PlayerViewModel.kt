@@ -74,6 +74,10 @@ class PlayerViewModel(
             player.setOnTrackCompletedCallback {
                 next()
             }
+            player.setNavigationCallbacks(
+                onNext = { next() },
+                onPrevious = { previous() }
+            )
 
             viewModelScope.launch {
                 player.isPlaying.collect { playing ->

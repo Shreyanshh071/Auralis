@@ -279,6 +279,22 @@ class AuralisAudioPlayer private constructor(context: Context) {
         }
     }
 
+    private var onNextCallback: (() -> Unit)? = null
+    private var onPreviousCallback: (() -> Unit)? = null
+
+    fun setNavigationCallbacks(onNext: () -> Unit, onPrevious: () -> Unit) {
+        this.onNextCallback = onNext
+        this.onPreviousCallback = onPrevious
+    }
+
+    fun next() {
+        onNextCallback?.invoke()
+    }
+
+    fun previous() {
+        onPreviousCallback?.invoke()
+    }
+
     fun getOrCreateWebView(ctx: Context): View {
         return youTubeEngine.getOrCreateWebView(ctx)
     }
