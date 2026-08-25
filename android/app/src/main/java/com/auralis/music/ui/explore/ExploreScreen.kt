@@ -72,6 +72,7 @@ import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.search.VoiceAndMusicRecognitionModal
 import com.auralis.music.ui.theme.GlassBorderHairline
+import com.auralis.music.ui.screens.ArtistScreen
 import com.auralis.music.ui.viewmodel.SearchUiState
 
 enum class SearchCategory {
@@ -109,11 +110,32 @@ fun ExploreScreen(
     onModeSelect: (RecognitionMode) -> Unit = {},
     onStartListening: () -> Unit = {},
     onStopListening: () -> Unit = {},
+    onOpenArtist: (Artist) -> Unit = {},
+    onCloseArtist: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
     var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+
+    // If an Artist Page is selected, display the full YouTube Music ArtistScreen
+    if (uiState.selectedArtistPage != null) {
+        ArtistScreen(
+            artistPage = uiState.selectedArtistPage,
+            isLoading = uiState.isLoadingArtist,
+            currentTrackId = currentTrackId,
+            isPlaying = isPlaying,
+            userPlaylists = userPlaylists,
+            onTrackClick = onTrackClick,
+            onFavoriteToggle = onFavoriteToggle,
+            onAddToPlaylist = onAddToPlaylist,
+            onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+            onOpenArtist = onOpenArtist,
+            onBack = onCloseArtist,
+            modifier = modifier
+        )
+        return
+    }
 
     val hasResults = uiState.query.isNotBlank() && (
         uiState.searchResults.songs.isNotEmpty() ||
@@ -205,7 +227,7 @@ fun ExploreScreen(
                     )
                 }
 
-                // Dynamic Clear Cross Button (visible when text is typed or search has results)
+                // Dynamic Trailing Button: Clear Cross when query/results exist; else Microphone button for quick Speak & Search
                 if (uiState.query.isNotEmpty() || hasResults) {
                     IconButton(
                         onClick = {
@@ -218,6 +240,20 @@ fun ExploreScreen(
                             contentDescription = "Clear search",
                             tint = Color.White.copy(alpha = 0.8f),
                             modifier = Modifier.size(20.dp)
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = {
+                            onOpenRecognition(RecognitionMode.VOICE_SEARCH)
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Speak to search",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -259,7 +295,7 @@ fun ExploreScreen(
                     isPlaying = isPlaying,
                     onTrackClick = { track, list -> onTrackClick(track, list) },
                     onMenuClick = { track -> selectedTrackForMenu = track },
-                    onArtistClick = { artist -> onSearch(artist.query) },
+                    onArtistClick = { artist -> onOpenArtist(artist) },
                     onPlaylistClick = { playlist -> onSearch(playlist.title) }
                 )
             } else {

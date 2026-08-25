@@ -7,6 +7,7 @@ import com.auralis.music.data.network.SearchSuggestionsClient
 import com.auralis.music.data.remote.InvidiousApi
 import com.auralis.music.data.remote.PipedApi
 import com.auralis.music.domain.model.Artist
+import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.PlaylistResult
 import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.model.Track
@@ -73,6 +74,10 @@ class SearchRepositoryImpl(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
         suggestionsClient.getSuggestions(trimmed)
+    }
+
+    override suspend fun getArtistPage(artist: Artist): ArtistPage? = withContext(Dispatchers.IO) {
+        innerTubeClient.getArtistPage(artist)
     }
 
     override fun getRecentSearchQueries(): Flow<List<String>> {

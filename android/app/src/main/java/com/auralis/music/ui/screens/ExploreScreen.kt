@@ -33,6 +33,8 @@ fun ExploreScreen(
     onModeSelect: (RecognitionMode) -> Unit = {},
     onStartListening: () -> Unit = {},
     onStopListening: () -> Unit = {},
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
+    onCloseArtist: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     PureExploreScreen(
@@ -55,6 +57,8 @@ fun ExploreScreen(
         onModeSelect = onModeSelect,
         onStartListening = onStartListening,
         onStopListening = onStopListening,
+        onOpenArtist = onOpenArtist,
+        onCloseArtist = onCloseArtist,
         modifier = modifier
     )
 }

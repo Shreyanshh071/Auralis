@@ -123,13 +123,15 @@ fun AuralisApp(
     }
 
     androidx.activity.compose.BackHandler(
-        enabled = isNowPlayingOpen ||
+        enabled = searchUiState.selectedArtistPage != null ||
+                isNowPlayingOpen ||
                 isHistoryOpen ||
                 isProfileOpen ||
                 isListenTogetherOpen ||
                 destinationBackStack.isNotEmpty()
     ) {
-        if (isNowPlayingOpen) isNowPlayingOpen = false
+        if (searchUiState.selectedArtistPage != null) searchViewModel.closeArtist()
+        else if (isNowPlayingOpen) isNowPlayingOpen = false
         else if (isHistoryOpen) isHistoryOpen = false
         else if (isProfileOpen) isProfileOpen = false
         else if (isListenTogetherOpen) isListenTogetherOpen = false
@@ -192,7 +194,8 @@ fun AuralisApp(
                                     showMiniPlayerTrackOptions = true
                                 },
                                 onArtistClick = {
-                                    isListenTogetherOpen = true
+                                    searchViewModel.openArtist(com.auralis.music.domain.model.Artist(id = "", name = playerUiState.currentTrack!!.artist))
+                                    navigateToDestination(AppDestination.EXPLORE)
                                 },
                                 onClick = { isNowPlayingOpen = true }
                             )
@@ -325,7 +328,9 @@ fun AuralisApp(
                                     onCloseRecognition = { searchViewModel.closeRecognitionModal() },
                                     onModeSelect = { searchViewModel.setRecognitionMode(it) },
                                     onStartListening = { searchViewModel.startListening() },
-                                    onStopListening = { searchViewModel.stopListening() }
+                                    onStopListening = { searchViewModel.stopListening() },
+                                    onOpenArtist = { searchViewModel.openArtist(it) },
+                                    onCloseArtist = { searchViewModel.closeArtist() }
                                 )
                             }
                             AppDestination.LIBRARY -> {
@@ -344,6 +349,7 @@ fun AuralisApp(
                                     onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
                                     onRemoveFromPlaylist = { plId, trackId -> libraryViewModel.removeTrackFromPlaylist(plId, trackId) },
                                     onImportYouTubePlaylist = { libraryViewModel.importYouTubePlaylist(it) },
+                                    onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
                                     onExportBackup = suspend { libraryViewModel.exportLibraryJson() },
                                     onImportBackup = { libraryViewModel.importLibraryJson(it) },
                                     onSmartCollectionClick = { libraryViewModel.openSmartCollection(it) },
@@ -433,7 +439,14 @@ fun AuralisApp(
                 onTogglePlaylistSelection = { authViewModel.togglePlaylistSelection(it) },
                 onSelectAllPlaylists = { authViewModel.selectAllPlaylists() },
                 onImportSelectedPlaylists = { authViewModel.importSelectedPlaylists() },
-                onDismiss = { isProfileOpen = false }
+                onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
+                onClearSpotifyImportMessage = { libraryViewModel.clearSpotifyImportMessage() },
+                isImportingSpotify = libraryUiState.isImportingSpotify,
+                spotifyImportMessage = libraryUiState.spotifyImportMessage,
+                onDismiss = {
+                    libraryViewModel.clearSpotifyImportMessage()
+                    isProfileOpen = false
+                }
             )
         }
 
