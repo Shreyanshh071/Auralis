@@ -173,7 +173,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
     fun getOrCreateWebView(ctx: Context): View {
         if (webView == null) {
-            val targetContext = if (ctx is android.app.Activity) ctx else ctx.applicationContext
+            val targetContext = ctx.applicationContext
             webView = WebView(targetContext).apply {
                 layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)

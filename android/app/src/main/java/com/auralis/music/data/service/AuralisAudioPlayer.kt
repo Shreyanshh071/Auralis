@@ -72,35 +72,35 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
-                        if (isUsingExoPlayer) {
-                            _isPlaying.value = playing
-                            Log.d("AuralisPlayback", "[ExoPlayer] onIsPlayingChanged: $playing")
+                        _isPlaying.value = playing
+                        Log.d("AuralisPlayback", "[ExoPlayer Listener] onIsPlayingChanged: $playing")
+                    }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            val seekMs = newPosition.positionMs
+                            _playbackPositionMs.value = seekMs
+                            youTubeEngine.seekTo(seekMs)
                         }
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (isUsingExoPlayer) {
-                            val stateName = when (playbackState) {
-                                Player.STATE_BUFFERING -> "BUFFERING"
-                                Player.STATE_READY -> "READY"
-                                Player.STATE_ENDED -> "ENDED"
-                                Player.STATE_IDLE -> "IDLE"
-                                else -> "UNKNOWN"
+                        when (playbackState) {
+                            Player.STATE_BUFFERING -> _isBuffering.value = true
+                            Player.STATE_READY -> {
+                                _isBuffering.value = false
+                                if (duration > 0) _durationMs.value = duration
                             }
-                            Log.d("AuralisPlayback", "[ExoPlayer State] $stateName (duration=${duration}ms)")
-                            when (playbackState) {
-                                Player.STATE_BUFFERING -> _isBuffering.value = true
-                                Player.STATE_READY -> {
-                                    _isBuffering.value = false
-                                    if (duration > 0) _durationMs.value = duration
-                                }
-                                Player.STATE_ENDED -> {
-                                    _isPlaying.value = false
-                                    _isBuffering.value = false
-                                    onTrackCompletedCallback?.invoke()
-                                }
-                                Player.STATE_IDLE -> _isBuffering.value = false
+                            Player.STATE_ENDED -> {
+                                _isPlaying.value = false
+                                _isBuffering.value = false
+                                onTrackCompletedCallback?.invoke()
                             }
+                            Player.STATE_IDLE -> _isBuffering.value = false
                         }
                     }
 
@@ -233,10 +233,27 @@ class AuralisAudioPlayer private constructor(context: Context) {
             Log.w("AuralisPlayback", "[MediaSession Service] startForegroundService notice: ${e.message}")
         }
 
-        // Direct Ultra-Reliable High-Speed Audio Playback
+        // 2. Prepare ExoPlayer with MediaMetadata & audio keepalive for native Android 13/14 Quick Settings & Lock Screen System Media Player
         try {
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
+            val highResThumb = com.auralis.music.ui.components.getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
+            val mediaMetadata = MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.artist)
+                .setArtworkUri(if (highResThumb.isNotBlank()) Uri.parse(highResThumb) else null)
+                .build()
+
+            val mediaItem = MediaItem.Builder()
+                .setMediaId(track.id)
+                .setUri(Uri.parse("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"))
+                .setMediaMetadata(mediaMetadata)
+                .build()
+
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.repeatMode = Player.REPEAT_MODE_ALL
+            exoPlayer.volume = 0.0f
+            exoPlayer.prepare()
+            exoPlayer.play()
         } catch (_: Exception) {}
 
         isUsingExoPlayer = false
@@ -245,20 +262,14 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun resume() {
-        if (isUsingExoPlayer) {
-            exoPlayer.play()
-        } else {
-            youTubeEngine.play()
-        }
+        try { exoPlayer.play() } catch (_: Exception) {}
+        youTubeEngine.play()
         _isPlaying.value = true
     }
 
     fun pause() {
-        if (isUsingExoPlayer) {
-            exoPlayer.pause()
-        } else {
-            youTubeEngine.pause()
-        }
+        try { exoPlayer.pause() } catch (_: Exception) {}
+        youTubeEngine.pause()
         _isPlaying.value = false
     }
 
@@ -272,11 +283,8 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     fun seekTo(positionMs: Long) {
         _playbackPositionMs.value = positionMs
-        if (isUsingExoPlayer) {
-            exoPlayer.seekTo(positionMs)
-        } else {
-            youTubeEngine.seekTo(positionMs)
-        }
+        try { exoPlayer.seekTo(positionMs) } catch (_: Exception) {}
+        youTubeEngine.seekTo(positionMs)
     }
 
     private var onNextCallback: (() -> Unit)? = null
