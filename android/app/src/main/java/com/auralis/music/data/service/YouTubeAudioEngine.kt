@@ -16,14 +16,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 100% Unrestricted Mobile Web Audio Engine with Background Playback Support.
+ * 100% Unrestricted Mobile Web Audio Engine with Latest-Request-Wins Synchronization.
  * 
  * Features:
- * - Direct routing via first-party mobile web client (m.youtube.com).
+ * - Monotonically increasing requestId guards: Stale page loads, polling, or completion events from old songs are immediately dropped.
+ * - Zero-Audible-Flash Navigation: Immediately mutes and clears the previous video element before loading a new URL.
  * - Full Background Playback: Uses Partial WakeLock and spoofed visibility state to prevent OS throttling.
- * - Hardware WebLayer integration at 0-alpha base.
  * - Live bidirectional JS bridge for time, duration, and state synchronisation.
  */
 class YouTubeAudioEngine(private val context: Context) {
@@ -33,6 +34,9 @@ class YouTubeAudioEngine(private val context: Context) {
     private var isPolling = false
     private var currentVideoId: String? = null
     private var onTrackCompletedCallback: (() -> Unit)? = null
+
+    // Monotonically increasing playback request/session ID
+    private val currentRequestId = AtomicLong(0L)
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -61,12 +65,19 @@ class YouTubeAudioEngine(private val context: Context) {
 
     private inner class WebAppInterface {
         @JavascriptInterface
-        fun onStateChange(state: Int) {
+        fun onStateChange(state: Int, reqId: Long) {
             mainHandler.post {
+                val activeReq = currentRequestId.get()
+                if (reqId != activeReq) {
+                    Log.d("AuralisPlayback", "[Stale onStateChange dropped] reqId=$reqId != activeReq=$activeReq")
+                    return@post
+                }
+
                 when (state) {
                     0 -> { // Ended
                         _isPlaying.value = false
                         _isBuffering.value = false
+                        releaseWakeLock()
                         onTrackCompletedCallback?.invoke()
                     }
                     1 -> { // Playing
@@ -86,9 +97,20 @@ class YouTubeAudioEngine(private val context: Context) {
             }
         }
 
+        // Backward compatibility overload
         @JavascriptInterface
-        fun updateTime(currentSec: Double, durationSec: Double) {
+        fun onStateChange(state: Int) {
+            onStateChange(state, currentRequestId.get())
+        }
+
+        @JavascriptInterface
+        fun updateTime(currentSec: Double, durationSec: Double, reqId: Long) {
             mainHandler.post {
+                val activeReq = currentRequestId.get()
+                if (reqId != activeReq) {
+                    return@post
+                }
+
                 if (currentSec >= 0) {
                     _playbackPositionMs.value = (currentSec * 1000).toLong()
                 }
@@ -96,6 +118,12 @@ class YouTubeAudioEngine(private val context: Context) {
                     _durationMs.value = (durationSec * 1000).toLong()
                 }
             }
+        }
+
+        // Backward compatibility overload
+        @JavascriptInterface
+        fun updateTime(currentSec: Double, durationSec: Double) {
+            updateTime(currentSec, durationSec, currentRequestId.get())
         }
     }
 
@@ -185,11 +213,14 @@ class YouTubeAudioEngine(private val context: Context) {
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        Log.d("AuralisPlayback", "[YouTube Engine Page Finished] $url")
+                        val activeReq = currentRequestId.get()
+                        Log.d("AuralisPlayback", "[YouTube Engine Page Finished] $url (reqId=$activeReq)")
 
-                        // Injected media hook for background-capable mobile playback
+                        // Injected media hook for background-capable mobile playback tagged with current activeReq
                         view?.evaluateJavascript("""
                             (function() {
+                                window._auralisRequestId = $activeReq;
+
                                 // 1. Spoof visibility state so YouTube never pauses when backgrounded
                                 try {
                                     Object.defineProperty(document, 'hidden', { get: function() { return false; } });
@@ -209,10 +240,11 @@ class YouTubeAudioEngine(private val context: Context) {
                                     if (window._auralisUserPaused) {
                                         return originalPause.apply(this, arguments);
                                     }
-                                    // Block automatic background pause
                                 };
 
                                 function autoPlay() {
+                                    if (window._auralisRequestId !== $activeReq) return;
+
                                     // Dismiss cookies / consent prompts
                                     var consent = document.querySelector('button[aria-label*="Agree"], button[aria-label*="Accept"], .yt-spec-button-shape-next--call-to-action');
                                     if (consent) consent.click();
@@ -232,19 +264,29 @@ class YouTubeAudioEngine(private val context: Context) {
                                         if (!v._auralisAttached) {
                                             v._auralisAttached = true;
                                             v.ontimeupdate = function() {
-                                                if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration);
+                                                if (window.AuralisBridge) {
+                                                    window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId || $activeReq);
+                                                }
                                             };
                                             v.onplay = function() {
-                                                if (window.AuralisBridge) window.AuralisBridge.onStateChange(1);
+                                                if (window.AuralisBridge) {
+                                                    window.AuralisBridge.onStateChange(1, window._auralisRequestId || $activeReq);
+                                                }
                                             };
                                             v.onpause = function() {
-                                                if (window.AuralisBridge) window.AuralisBridge.onStateChange(2);
+                                                if (window.AuralisBridge) {
+                                                    window.AuralisBridge.onStateChange(2, window._auralisRequestId || $activeReq);
+                                                }
                                             };
                                             v.onwaiting = function() {
-                                                if (window.AuralisBridge) window.AuralisBridge.onStateChange(3);
+                                                if (window.AuralisBridge) {
+                                                    window.AuralisBridge.onStateChange(3, window._auralisRequestId || $activeReq);
+                                                }
                                             };
                                             v.onended = function() {
-                                                if (window.AuralisBridge) window.AuralisBridge.onStateChange(0);
+                                                if (window.AuralisBridge) {
+                                                    window.AuralisBridge.onStateChange(0, window._auralisRequestId || $activeReq);
+                                                }
                                             };
                                         }
                                     }
@@ -282,6 +324,7 @@ class YouTubeAudioEngine(private val context: Context) {
     }
 
     private fun pollMediaState() {
+        val activeReq = currentRequestId.get()
         webView?.evaluateJavascript("""
             (function() {
                 var v = document.querySelector('video');
@@ -292,23 +335,24 @@ class YouTubeAudioEngine(private val context: Context) {
                 if (!v._auralisAttached) {
                     v._auralisAttached = true;
                     v.ontimeupdate = function() {
-                        if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration);
+                        if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId || $activeReq);
                     };
                     v.onplay = function() {
-                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(1);
+                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId || $activeReq);
                     };
                     v.onpause = function() {
-                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(2);
+                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId || $activeReq);
                     };
                     v.onwaiting = function() {
-                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(3);
+                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(3, window._auralisRequestId || $activeReq);
                     };
                     v.onended = function() {
-                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(0);
+                        if (window.AuralisBridge) window.AuralisBridge.onStateChange(0, window._auralisRequestId || $activeReq);
                     };
                 }
 
                 return JSON.stringify({
+                    reqId: window._auralisRequestId || $activeReq,
                     currentTime: v.currentTime,
                     duration: v.duration,
                     paused: v.paused,
@@ -324,6 +368,12 @@ class YouTubeAudioEngine(private val context: Context) {
                     } else result
 
                     val obj = JSONObject(cleanJson)
+                    val resultReqId = obj.optLong("reqId", 0L)
+                    val currentActive = currentRequestId.get()
+                    if (resultReqId != currentActive && resultReqId != 0L) {
+                        return@evaluateJavascript // Ignore stale polling results
+                    }
+
                     val curr = obj.optDouble("currentTime", 0.0)
                     val dur = obj.optDouble("duration", 0.0)
                     val paused = obj.optBoolean("paused", true)
@@ -351,17 +401,41 @@ class YouTubeAudioEngine(private val context: Context) {
         this.onTrackCompletedCallback = callback
     }
 
-    fun loadVideo(videoId: String) {
+    /**
+     * Loads a video with a monotonically increasing session request ID.
+     * Instantly mutes and clears any old playing video to ensure zero audible flash.
+     */
+    fun loadVideo(videoId: String, requestId: Long = currentRequestId.incrementAndGet()) {
+        currentRequestId.set(requestId)
         currentVideoId = videoId
+
         mainHandler.post {
             requestAudioFocus()
             acquireWakeLock()
             _playbackPositionMs.value = 0L
             _isBuffering.value = true
             _isPlaying.value = true
+
+            // Immediately mute, pause, and detach old video before loading new URL
+            webView?.evaluateJavascript("""
+                (function() {
+                    window._auralisRequestId = $requestId;
+                    window._auralisUserPaused = true;
+                    var v = document.querySelector('video');
+                    if (v) {
+                        try {
+                            v.muted = true;
+                            v.pause();
+                            v.removeAttribute('src');
+                            v.load();
+                        } catch(e) {}
+                    }
+                })();
+            """.trimIndent(), null)
+
             getOrCreateWebView(context)
             val url = "https://m.youtube.com/watch?v=$videoId"
-            Log.d("AuralisPlayback", "[YouTube Engine] Loading mobile web stream: $url")
+            Log.d("AuralisPlayback", "[YouTube Engine] Loading mobile web stream: $url (reqId=$requestId)")
             val extraHeaders = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             )
@@ -372,10 +446,12 @@ class YouTubeAudioEngine(private val context: Context) {
 
     fun play() {
         mainHandler.post {
+            val activeReq = currentRequestId.get()
             requestAudioFocus()
             acquireWakeLock()
             webView?.evaluateJavascript("""
                 (function() {
+                    window._auralisRequestId = $activeReq;
                     window._auralisUserPaused = false;
                     var v = document.querySelector('video');
                     if (v) {
@@ -391,9 +467,11 @@ class YouTubeAudioEngine(private val context: Context) {
 
     fun pause() {
         mainHandler.post {
+            val activeReq = currentRequestId.get()
             releaseWakeLock()
             webView?.evaluateJavascript("""
                 (function() {
+                    window._auralisRequestId = $activeReq;
                     window._auralisUserPaused = true;
                     var v = document.querySelector('video');
                     if (v) {

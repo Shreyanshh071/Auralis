@@ -109,7 +109,9 @@ class PlayerViewModel(
         }
     }
 
-    private fun triggerPlayback(track: Track, debounceMs: Long = 100L) {
+    private val currentPlaybackRequestId = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun triggerPlayback(track: Track, debounceMs: Long = 100L, requestId: Long = currentPlaybackRequestId.get()) {
         playJob?.cancel()
         lyricsJob?.cancel()
 
@@ -117,7 +119,11 @@ class PlayerViewModel(
             if (debounceMs > 0) {
                 delay(debounceMs)
             }
-            audioPlayer?.play(track)
+            if (requestId != currentPlaybackRequestId.get()) {
+                Log.d("AuralisPlayback", "[Stale triggerPlayback dropped] reqId=$requestId vs active=${currentPlaybackRequestId.get()}")
+                return@launch
+            }
+            audioPlayer?.play(track, requestId)
             historyRepository.addToHistory(track)
             historyRepository.recordPlay(track)
         }
@@ -128,7 +134,8 @@ class PlayerViewModel(
     }
 
     fun playTrack(track: Track, newQueue: List<Track> = emptyList(), startIndex: Int = 0) {
-        Log.d("AuralisPlayback", "[UI Tap] playTrack: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}")
+        val reqId = currentPlaybackRequestId.incrementAndGet()
+        Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}")
         val qState = if (newQueue.isNotEmpty()) {
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               newQueue.map { it.id } == queueManager.state.queue.map { it.id }
@@ -150,7 +157,7 @@ class PlayerViewModel(
             )
         }
 
-        triggerPlayback(track, debounceMs = 0L)
+        triggerPlayback(track, debounceMs = 0L, requestId = reqId)
     }
 
     fun togglePlayPause() {
@@ -172,6 +179,7 @@ class PlayerViewModel(
     }
 
     fun next() {
+        val reqId = currentPlaybackRequestId.incrementAndGet()
         val nextTrack = queueManager.advanceNext()
         if (nextTrack != null) {
             val qState = queueManager.state
@@ -185,7 +193,7 @@ class PlayerViewModel(
                     errorMessage = null
                 )
             }
-            triggerPlayback(nextTrack, debounceMs = 0L)
+            triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
         } else {
             if (audioPlayer != null) {
                 audioPlayer.pause()
@@ -199,6 +207,7 @@ class PlayerViewModel(
             seekTo(0)
             return
         }
+        val reqId = currentPlaybackRequestId.incrementAndGet()
         val prevTrack = queueManager.advancePrevious()
         if (prevTrack != null) {
             val qState = queueManager.state
@@ -212,7 +221,7 @@ class PlayerViewModel(
                     errorMessage = null
                 )
             }
-            triggerPlayback(prevTrack, debounceMs = 0L)
+            triggerPlayback(prevTrack, debounceMs = 0L, requestId = reqId)
         } else {
             seekTo(0)
         }
