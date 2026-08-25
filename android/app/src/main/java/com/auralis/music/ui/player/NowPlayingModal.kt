@@ -230,46 +230,69 @@ fun NowPlayingModal(
             val width = size.width
             val height = size.height
 
-            // Base foundation
-            drawRect(color = Color(0xFF08060C))
+            // Base dark tone
+            drawRect(color = Color(0xFF0C0912))
 
-            // Primary radiant orb (Top right)
+            // Layer 1: Primary Radiant Orb (Upper Right / Center Bloom)
+            val center1 = Offset(width * 0.75f, height * 0.22f)
+            val radius1 = width * 1.30f
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedPrimaryColor.copy(alpha = 0.55f),
-                        animatedSecondaryColor.copy(alpha = 0.25f),
+                        animatedPrimaryColor.copy(alpha = 0.82f),
+                        animatedPrimaryColor.copy(alpha = 0.45f),
+                        animatedPrimaryColor.copy(alpha = 0.15f),
                         Color.Transparent
                     ),
-                    center = Offset(width * 0.90f, height * 0.15f),
-                    radius = width * 1.15f
+                    center = center1,
+                    radius = radius1
                 ),
-                center = Offset(width * 0.90f, height * 0.15f),
-                radius = width * 1.15f
+                center = center1,
+                radius = radius1
             )
 
-            // Secondary harmonic orb (Bottom left)
+            // Layer 2: Secondary Harmonic Orb (Left-Center Bloom)
+            val center2 = Offset(width * 0.15f, height * 0.52f)
+            val radius2 = width * 1.20f
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedSecondaryColor.copy(alpha = 0.45f),
-                        animatedTertiaryColor.copy(alpha = 0.22f),
+                        animatedSecondaryColor.copy(alpha = 0.70f),
+                        animatedSecondaryColor.copy(alpha = 0.35f),
+                        animatedSecondaryColor.copy(alpha = 0.10f),
                         Color.Transparent
                     ),
-                    center = Offset(width * 0.10f, height * 0.75f),
-                    radius = width * 1.05f
+                    center = center2,
+                    radius = radius2
                 ),
-                center = Offset(width * 0.10f, height * 0.75f),
-                radius = width * 1.05f
+                center = center2,
+                radius = radius2
             )
 
-            // Vignette for header and bottom controls
+            // Layer 3: Tertiary Deep Anchor Orb (Bottom Anchor)
+            val center3 = Offset(width * 0.50f, height * 0.85f)
+            val radius3 = width * 1.10f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        animatedTertiaryColor.copy(alpha = 0.60f),
+                        animatedTertiaryColor.copy(alpha = 0.25f),
+                        Color.Transparent
+                    ),
+                    center = center3,
+                    radius = radius3
+                ),
+                center = center3,
+                radius = radius3
+            )
+
+            // Layer 4: Atmospheric Contrast Vignette for Header & Bottom Controls
             drawRect(
                 brush = Brush.verticalGradient(
-                    0.00f to Color.Black.copy(alpha = 0.28f),
-                    0.15f to Color.Transparent,
-                    0.60f to Color.Transparent,
-                    0.82f to Color.Black.copy(alpha = 0.40f),
+                    0.00f to Color.Black.copy(alpha = 0.25f),
+                    0.18f to Color.Transparent,
+                    0.58f to Color.Transparent,
+                    0.82f to Color.Black.copy(alpha = 0.35f),
                     1.00f to Color.Black.copy(alpha = 0.65f)
                 )
             )

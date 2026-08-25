@@ -8,6 +8,7 @@ import androidx.palette.graphics.Palette
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.size.Scale
+import com.auralis.music.ui.components.getHighResArtworkUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -23,8 +24,8 @@ data class ArtworkPalette(
 /**
  * High-performance thread-safe LRU Cache & Async Extractor for album artwork palettes.
  * 
- * - Downsamples images to 96x96 for instantaneous (<2ms) CPU palette generation.
- * - Caches up to 100 recent artwork palettes by URL/Track ID.
+ * - Downsamples images to 128x128 for ultra-fast (<2ms) CPU palette generation.
+ * - Intelligently filters out monochrome backgrounds (white/black) to extract true vibrant album art tones.
  * - Pure JVM/Android compatible LinkedHashMap memory cache for testability and runtime speed.
  */
 object ArtworkPaletteCache {
@@ -62,16 +63,19 @@ object ArtworkPaletteCache {
     suspend fun extractPalette(context: Context, key: String, artworkUrl: String): ArtworkPalette {
         if (artworkUrl.isBlank()) return defaultPalette
 
+        val targetUrl = getHighResArtworkUrl(artworkUrl) ?: artworkUrl
+
         // 1. Check memory cache first
         getCached(key)?.let { return it }
+        getCached(targetUrl)?.let { return it }
         getCached(artworkUrl)?.let { return it }
 
         return withContext(Dispatchers.IO) {
             try {
                 val imageLoader = ImageLoader(context)
                 val request = ImageRequest.Builder(context)
-                    .data(artworkUrl)
-                    .size(96, 96) // Downsample for ultra-fast <2ms extraction
+                    .data(targetUrl)
+                    .size(128, 128) // Downsample for ultra-fast <2ms extraction
                     .scale(Scale.FIT)
                     .allowHardware(false)
                     .build()
@@ -82,46 +86,50 @@ object ArtworkPaletteCache {
                     val bitmap = drawable.bitmap
                     val palette = withContext(Dispatchers.Default) {
                         Palette.from(bitmap)
-                            .maximumColorCount(16)
+                            .maximumColorCount(24)
                             .generate()
                     }
 
-                    val swatches = palette.swatches.sortedByDescending { it.population }
+                    // Filter out monochrome backgrounds (white/grey/black) to extract true vibrant colors
+                    val colorfulSwatches = palette.swatches.filter { swatch ->
+                        val hsl = swatch.hsl
+                        val s = hsl[1]
+                        val l = hsl[2]
+                        s > 0.18f && l in 0.12f..0.88f
+                    }.sortedByDescending { it.population }
 
-                    val rawPrimary = palette.vibrantSwatch?.rgb
+                    val rawPrimary = palette.vibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
+                        ?: colorfulSwatches.firstOrNull()?.rgb
                         ?: palette.dominantSwatch?.rgb
                         ?: palette.lightVibrantSwatch?.rgb
-                        ?: palette.darkVibrantSwatch?.rgb
-                        ?: palette.mutedSwatch?.rgb
-                        ?: swatches.firstOrNull()?.rgb
 
-                    val rawSecondary = palette.lightVibrantSwatch?.rgb
+                    val rawSecondary = palette.lightVibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
+                        ?: colorfulSwatches.getOrNull(1)?.rgb
                         ?: palette.vibrantSwatch?.rgb
-                        ?: palette.dominantSwatch?.rgb
-                        ?: palette.lightMutedSwatch?.rgb
-                        ?: swatches.getOrNull(1)?.rgb
+                        ?: palette.darkVibrantSwatch?.rgb
                         ?: rawPrimary
 
-                    val rawTertiary = palette.darkVibrantSwatch?.rgb
-                        ?: palette.dominantSwatch?.rgb
+                    val rawTertiary = palette.darkVibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
+                        ?: colorfulSwatches.getOrNull(2)?.rgb
                         ?: palette.darkMutedSwatch?.rgb
-                        ?: swatches.getOrNull(2)?.rgb
+                        ?: palette.dominantSwatch?.rgb
                         ?: rawPrimary
 
                     val primary = if (rawPrimary != null) {
-                        boostVibrancy(Color(rawPrimary), minSaturation = 0.65f, targetLightness = 0.55f)
+                        boostVibrancy(Color(rawPrimary), minSaturation = 0.70f, targetLightness = 0.52f)
                     } else defaultPalette.primary
 
                     val secondary = if (rawSecondary != null) {
-                        boostVibrancy(Color(rawSecondary), minSaturation = 0.55f, targetLightness = 0.65f)
+                        boostVibrancy(Color(rawSecondary), minSaturation = 0.65f, targetLightness = 0.58f)
                     } else defaultPalette.secondary
 
                     val tertiary = if (rawTertiary != null) {
-                        boostVibrancy(Color(rawTertiary), minSaturation = 0.60f, targetLightness = 0.40f)
+                        boostVibrancy(Color(rawTertiary), minSaturation = 0.60f, targetLightness = 0.42f)
                     } else defaultPalette.tertiary
 
                     val extracted = ArtworkPalette(primary, secondary, tertiary)
                     put(key, extracted)
+                    put(targetUrl, extracted)
                     put(artworkUrl, extracted)
                     extracted
                 } else {
@@ -133,7 +141,7 @@ object ArtworkPaletteCache {
         }
     }
 
-    private fun boostVibrancy(color: Color, minSaturation: Float = 0.60f, targetLightness: Float = 0.50f): Color {
+    private fun boostVibrancy(color: Color, minSaturation: Float = 0.65f, targetLightness: Float = 0.50f): Color {
         val r = color.red
         val g = color.green
         val b = color.blue
@@ -160,7 +168,7 @@ object ArtworkPaletteCache {
         }
 
         val boostedS = s.coerceAtLeast(minSaturation)
-        val tunedL = targetLightness.coerceIn(0.35f, 0.70f)
+        val tunedL = targetLightness.coerceIn(0.38f, 0.68f)
 
         fun hslToRgb(hVal: Float, sVal: Float, lVal: Float): Color {
             if (sVal == 0f) return Color(lVal, lVal, lVal)
