@@ -79,7 +79,7 @@ enum class SearchCategory {
     ALL,
     SONGS,
     ARTISTS,
-    PLAYLISTS
+    ALBUMS
 }
 
 /**
@@ -561,6 +561,19 @@ private fun SearchResultsView(
         contentPadding = PaddingValues(bottom = 120.dp, start = 16.dp, end = 16.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Songs Header on ALL Tab
+        if (category == SearchCategory.ALL && results.songs.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Songs",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD4E157),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                )
+            }
+        }
+
         // Songs
         if (category == SearchCategory.ALL || category == SearchCategory.SONGS) {
             items(results.songs, key = { it.id }) { track ->
@@ -617,94 +630,165 @@ private fun SearchResultsView(
             }
         }
 
-        // Artists
-        if (category == SearchCategory.ALL || category == SearchCategory.ARTISTS) {
-            if (results.artists.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Artists",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFD4E157),
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+        // Artists (When ARTISTS tab is explicitly selected -> Full list view)
+        if (category == SearchCategory.ARTISTS) {
+            items(results.artists, key = { it.id }) { artist ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onArtistClick(artist) }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ArtworkCard(
+                        url = artist.thumbnail ?: "",
+                        modifier = Modifier.size(56.dp).clip(CircleShape),
+                        cornerRadius = 28.dp,
+                        contentDescription = artist.name
                     )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = artist.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Artist",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
                 }
-                item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(results.artists, key = { it.id }) { artist ->
-                            Column(
-                                modifier = Modifier
-                                    .width(105.dp)
-                                    .clickable { onArtistClick(artist) }
-                                    .padding(4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                ArtworkCard(
-                                    url = artist.thumbnail ?: "",
-                                    modifier = Modifier.size(90.dp).clip(CircleShape),
-                                    cornerRadius = 45.dp,
-                                    contentDescription = artist.name
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = artist.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+            }
+        }
+
+        // Artists (When ALL tab is selected -> Horizontal shelf)
+        if (category == SearchCategory.ALL && results.artists.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Artists",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD4E157),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                )
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(results.artists, key = { it.id }) { artist ->
+                        Column(
+                            modifier = Modifier
+                                .width(105.dp)
+                                .clickable { onArtistClick(artist) }
+                                .padding(4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            ArtworkCard(
+                                url = artist.thumbnail ?: "",
+                                modifier = Modifier.size(90.dp).clip(CircleShape),
+                                cornerRadius = 45.dp,
+                                contentDescription = artist.name
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = artist.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Playlists
-        if (category == SearchCategory.ALL || category == SearchCategory.PLAYLISTS) {
-            if (results.playlists.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Playlists",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFD4E157),
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+        // Playlists / Albums (When ALL tab is selected -> Horizontal shelf, or ALBUMS tab -> Full list)
+        if (category == SearchCategory.ALBUMS) {
+            items(results.playlists, key = { it.id }) { pl ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onPlaylistClick(pl) }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ArtworkCard(
+                        url = pl.thumbnail,
+                        modifier = Modifier.size(56.dp),
+                        cornerRadius = 8.dp,
+                        contentDescription = pl.title
                     )
-                }
-                items(results.playlists, key = { it.id }) { pl ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onPlaylistClick(pl) }
-                            .padding(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ArtworkCard(
-                            url = pl.thumbnail ?: "",
-                            modifier = Modifier.size(50.dp),
-                            cornerRadius = 8.dp,
-                            contentDescription = pl.title
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = pl.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = pl.author ?: "Playlist",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+        } else if (category == SearchCategory.ALL && results.playlists.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Albums & Playlists",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD4E157),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                )
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(results.playlists, key = { it.id }) { pl ->
+                        Column(
+                            modifier = Modifier
+                                .width(120.dp)
+                                .clickable { onPlaylistClick(pl) }
+                                .padding(4.dp)
+                        ) {
+                            ArtworkCard(
+                                url = pl.thumbnail,
+                                modifier = Modifier.size(110.dp),
+                                cornerRadius = 10.dp,
+                                contentDescription = pl.title
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = pl.title,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Text(
-                                text = pl.author ?: "Playlist",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.6f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            pl.author?.let { auth ->
+                                Text(
+                                    text = auth,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

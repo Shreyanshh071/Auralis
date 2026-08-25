@@ -17,6 +17,7 @@ interface LibraryRepository {
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)
     suspend fun deletePlaylist(playlistId: String)
     suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>)
+    suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>)
 
     fun getSavedArtists(): Flow<List<SavedArtist>>
     fun isArtistSaved(artistId: String): Flow<Boolean>

@@ -89,13 +89,14 @@ fun SyncedLyricsView(
     }
 
     val listState = rememberLazyListState()
-    val activeIndex = remember(currentPositionMs, offsetMs, lyrics.lines) {
-        LyricsEngine.findActiveLyricIndex(lyrics.lines, currentPositionMs, offsetMs)
+    val isSynced = lyrics.syncType != SyncType.PLAIN
+    val activeIndex = remember(currentPositionMs, offsetMs, lyrics.lines, isSynced) {
+        if (isSynced) LyricsEngine.findActiveLyricIndex(lyrics.lines, currentPositionMs, offsetMs) else -1
     }
 
     // Smooth auto-scrolling to keep active lyric line centered
-    LaunchedEffect(activeIndex) {
-        if (activeIndex >= 0 && activeIndex < lyrics.lines.size) {
+    LaunchedEffect(activeIndex, isSynced) {
+        if (isSynced && activeIndex >= 0 && activeIndex < lyrics.lines.size) {
             val targetScroll = (activeIndex - 2).coerceAtLeast(0)
             listState.animateScrollToItem(
                 index = targetScroll,
@@ -115,8 +116,8 @@ fun SyncedLyricsView(
                 items = lyrics.lines,
                 key = { idx, line -> "${line.time}_$idx" }
             ) { index, line ->
-                val isCurrent = index == activeIndex
-                val isPast = index < activeIndex
+                val isCurrent = isSynced && index == activeIndex
+                val isPast = isSynced && index < activeIndex
 
                 LyricLineRow(
                     line = line,
@@ -125,7 +126,7 @@ fun SyncedLyricsView(
                     lyricsMode = lyricsMode,
                     syncType = lyrics.syncType,
                     currentTimeMs = currentPositionMs + offsetMs,
-                    onClick = { onSeekTo(line.time) }
+                    onClick = { if (isSynced) onSeekTo(line.time) }
                 )
             }
         }
@@ -147,8 +148,11 @@ private fun LyricLineRow(
 ) {
     val dynamicPalette = MaterialTheme.dynamicPalette
 
+    val isPlain = syncType == SyncType.PLAIN
+
     // Kinetic blur & opacity animation based on active state
     val targetBlur = when {
+        isPlain -> 0.dp
         isCurrent -> 0.dp
         lyricsMode == LyricsMode.SPICY -> 1.5.dp
         else -> 0.dp
@@ -160,6 +164,7 @@ private fun LyricLineRow(
     )
 
     val targetAlpha = when {
+        isPlain -> 0.90f
         isCurrent -> 1.0f
         isPast -> if (lyricsMode == LyricsMode.CINEMA) 0.35f else 0.45f
         else -> if (lyricsMode == LyricsMode.CINEMA) 0.28f else 0.40f
@@ -171,6 +176,7 @@ private fun LyricLineRow(
     )
 
     val fontSize = when {
+        isPlain -> 20.sp
         isCurrent -> if (lyricsMode == LyricsMode.CINEMA) 30.sp else 24.sp
         else -> if (lyricsMode == LyricsMode.CINEMA) 24.sp else 20.sp
     }

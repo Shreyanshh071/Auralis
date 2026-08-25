@@ -2,6 +2,7 @@ package com.auralis.music.ui.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.player.NowPlayingModal
@@ -27,6 +28,7 @@ fun NowPlayingSheet(
     onSelectQueueTrack: (Int) -> Unit = {},
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
+    onArtistClick: ((Artist) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -45,6 +47,7 @@ fun NowPlayingSheet(
         onLyricsOffsetChange = onLyricsOffsetChange,
         onAddToPlaylist = onAddToPlaylist,
         onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+        onArtistClick = onArtistClick,
         onDismiss = onDismiss,
         modifier = modifier
     )

@@ -62,9 +62,11 @@ class PlayerViewModel(
                     if (trackId != null) {
                         libraryRepository.isFavorite(trackId).collect { isFav ->
                             _uiState.update { it.copy(isFavorite = isFav) }
+                            audioPlayer?.setIsFavorite(isFav)
                         }
                     } else {
                         _uiState.update { it.copy(isFavorite = false) }
+                        audioPlayer?.setIsFavorite(false)
                     }
                 }
         }
@@ -76,7 +78,9 @@ class PlayerViewModel(
             }
             player.setNavigationCallbacks(
                 onNext = { next() },
-                onPrevious = { previous() }
+                onPrevious = { previous() },
+                onToggleFavorite = { toggleFavorite() },
+                onToggleRepeat = { toggleRepeat() }
             )
 
             viewModelScope.launch {
@@ -313,7 +317,8 @@ class PlayerViewModel(
             val data = lyricsRepository.getLyrics(
                 title = track.title,
                 artist = track.artist,
-                durationSec = track.duration
+                durationSec = track.duration,
+                videoId = track.id
             )
             _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
         }

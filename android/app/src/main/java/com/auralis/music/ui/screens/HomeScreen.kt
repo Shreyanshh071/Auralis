@@ -2,6 +2,7 @@ package com.auralis.music.ui.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.home.HomeScreen as PureHomeScreen
@@ -27,6 +28,7 @@ fun HomeScreen(
     onSurpriseMe: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onArtistClick: (Artist) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     PureHomeScreen(
@@ -45,6 +47,7 @@ fun HomeScreen(
         onSurpriseMe = onSurpriseMe,
         onOpenProfile = onOpenProfile,
         onOpenHistory = onOpenHistory,
+        onArtistClick = onArtistClick,
         modifier = modifier
     )
 }

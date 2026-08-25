@@ -132,10 +132,15 @@ class SearchViewModel(
     }
 
     fun openArtist(artist: Artist) {
+        val verifiedBanner = if (artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail.contains("i.ytimg.com")) {
+            artist.thumbnail
+        } else {
+            null
+        }
         _uiState.update {
             it.copy(
                 isLoadingArtist = true,
-                selectedArtistPage = ArtistPage(artist = artist, bannerUrl = artist.thumbnail)
+                selectedArtistPage = ArtistPage(artist = artist, bannerUrl = verifiedBanner)
             )
         }
         viewModelScope.launch {

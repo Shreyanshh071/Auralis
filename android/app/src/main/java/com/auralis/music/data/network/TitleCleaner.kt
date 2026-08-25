@@ -3,9 +3,9 @@ package com.auralis.music.data.network
 object TitleCleaner {
 
     private val BRACKET_NOISE_REGEX = Regex(
-        """(?i)[\(\[\{][^)\]\}]*(?:official|music\s+video|lyric\s+video|lyrics|audio|video|visualizer|remaster|hd|4k|hq|prod\.)[^)\]\}]*[\)\]\}]"""
+        """(?i)[\(\[\{][^)\]\}]*(?:official|music\s+video|lyric\s+video|lyrics|audio|video|visualizer|remaster|hd|4k|hq|prod\.|feat\.?|ft\.?|from\s+|ost)[^)\]\}]*[\)\]\}]"""
     )
-
+    private val FEAT_TRAILING_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?)\s+.*$""")
     private val MULTI_SPACE = Regex("""\s+""")
 
     /**
@@ -14,11 +14,22 @@ object TitleCleaner {
     fun cleanTitle(rawTitle: String): String {
         var title = rawTitle.trim()
 
+        // Strip leading "Artist - " if present
+        if (title.contains(" - ")) {
+            val parts = title.split(" - ", limit = 2)
+            if (parts.size == 2 && parts[1].isNotBlank()) {
+                title = parts[1].trim()
+            }
+        }
+
         // Strip bracketed noise phrases
         title = BRACKET_NOISE_REGEX.replace(title, "")
 
+        // Strip trailing featuring text
+        title = FEAT_TRAILING_REGEX.replace(title, "")
+
         // Clean double quotes / single quotes at edges
-        title = title.trim(' ', '"', '\'', '-', '|')
+        title = title.trim(' ', '"', '\'', '-', '|', ':')
         title = MULTI_SPACE.replace(title, " ").trim()
 
         return if (title.isBlank()) rawTitle.trim() else title
@@ -31,20 +42,10 @@ object TitleCleaner {
         val cleaned = cleanTitle(rawTitle)
 
         // Check for common artist - title separator (" - ")
-        if (cleaned.contains(" - ")) {
-            val parts = cleaned.split(" - ", limit = 2)
+        if (rawTitle.contains(" - ")) {
+            val parts = rawTitle.split(" - ", limit = 2)
             val artist = parts[0].trim()
-            val song = parts[1].trim()
-            if (artist.isNotBlank() && song.isNotBlank()) {
-                return Pair(artist, song)
-            }
-        }
-
-        // Check for " : "
-        if (cleaned.contains(" : ")) {
-            val parts = cleaned.split(" : ", limit = 2)
-            val artist = parts[0].trim()
-            val song = parts[1].trim()
+            val song = cleanTitle(parts[1])
             if (artist.isNotBlank() && song.isNotBlank()) {
                 return Pair(artist, song)
             }
