@@ -211,30 +211,81 @@ class YouTubeAudioEngine(private val context: Context) {
                 }
 
                 webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                        val url = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
+                        
+                        val isAd = url.contains("doubleclick.net") ||
+                                url.contains("googleads") ||
+                                url.contains("adservice.google") ||
+                                url.contains("/pagead/") ||
+                                url.contains("pagead2") ||
+                                url.contains("youtube.com/api/stats/ads") ||
+                                url.contains("youtube.com/pagead/") ||
+                                url.contains("youtube.com/ptracking") ||
+                                url.contains("googlesyndication.com") ||
+                                url.contains("&adformat=") ||
+                                url.contains("&ad_type=") ||
+                                url.contains("ad_flags=") ||
+                                url.contains("/get_midroll_info") ||
+                                url.contains("/get_ad_break") ||
+                                url.contains("pubads.g.doubleclick.net")
+
+                        if (isAd) {
+                            return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                        }
+                        return super.shouldInterceptRequest(view, request)
+                    }
+
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         val activeReq = currentRequestId.get()
                         Log.d("AuralisPlayback", "[YouTube Engine Page Finished] $url (reqId=$activeReq)")
 
-                        // Injected media hook for background-capable mobile playback tagged with current activeReq
+                        // Injected media hook for background playback + zero-ad playback
                         view?.evaluateJavascript("""
                             (function() {
                                 window._auralisRequestId = $activeReq;
 
-                                // 1. Spoof visibility state so YouTube never pauses when backgrounded
+                                // 1. Inject CSS AdBlocker
+                                try {
+                                    var style = document.createElement('style');
+                                    style.textContent = `
+                                        .ad-showing, .ad-interrupting, .video-ads, .ytp-ad-module, .ytp-ad-overlay-container,
+                                        .ytp-ad-message-container, .ytp-ad-preview-container, .ytp-ad-skip-button-container,
+                                        ytd-promoted-sparkles-web-renderer, ytd-banner-promo-renderer, ytd-ad-slot-renderer,
+                                        #player-ads, .ytd-merch-shelf-renderer, .sparkles-light-cta, .ytp-ad-text,
+                                        ytm-promoted-sparkles-web-renderer, ytm-promoted-sparkles-text-search-renderer {
+                                            display: none !important;
+                                            visibility: hidden !important;
+                                            height: 0 !important;
+                                            width: 0 !important;
+                                        }
+                                    `;
+                                    document.head.appendChild(style);
+                                } catch(e) {}
+
+                                // 2. Clean YouTube ad data structures
+                                try {
+                                    if (window.ytInitialPlayerResponse) {
+                                        if (window.ytInitialPlayerResponse.adPlacements) window.ytInitialPlayerResponse.adPlacements = [];
+                                        if (window.ytInitialPlayerResponse.playerAds) window.ytInitialPlayerResponse.playerAds = [];
+                                    }
+                                } catch(e) {}
+
+                                // 3. Spoof visibility state so YouTube never pauses when backgrounded
                                 try {
                                     Object.defineProperty(document, 'hidden', { get: function() { return false; } });
                                     Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
                                     Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; } });
                                 } catch(e) {}
 
-                                // 2. Block background visibility change events
+                                // 4. Block background visibility change events
                                 window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
                                 document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
                                 window.addEventListener('pagehide', function(e) { e.stopImmediatePropagation(); }, true);
                                 window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
 
-                                // 3. Intercept pause calls to prevent YouTube auto-pausing in background
+                                // 5. Intercept pause calls to prevent YouTube auto-pausing in background
                                 var originalPause = HTMLMediaElement.prototype.pause;
                                 HTMLMediaElement.prototype.pause = function() {
                                     if (window._auralisUserPaused) {
@@ -242,8 +293,34 @@ class YouTubeAudioEngine(private val context: Context) {
                                     }
                                 };
 
+                                function annihilateAds() {
+                                    // Click skip buttons
+                                    var skipButtons = document.querySelectorAll(
+                                        '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
+                                        '.ytp-skip-ad-button, button[class*="skip-button"], .ytp-ad-skip-button-slot button'
+                                    );
+                                    skipButtons.forEach(function(btn) {
+                                        try { btn.click(); } catch(e) {}
+                                    });
+
+                                    // Fast-forward any ad video
+                                    var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-module, .ytp-ad-text');
+                                    var v = document.querySelector('video');
+                                    if (v && isAd) {
+                                        try {
+                                            v.muted = true;
+                                            v.playbackRate = 16.0;
+                                            if (!isNaN(v.duration) && v.duration > 0) {
+                                                v.currentTime = v.duration + 1;
+                                            }
+                                        } catch(e) {}
+                                    }
+                                }
+
                                 function autoPlay() {
                                     if (window._auralisRequestId !== $activeReq) return;
+
+                                    annihilateAds();
 
                                     // Dismiss cookies / consent prompts
                                     var consent = document.querySelector('button[aria-label*="Agree"], button[aria-label*="Accept"], .yt-spec-button-shape-next--call-to-action');
@@ -255,20 +332,26 @@ class YouTubeAudioEngine(private val context: Context) {
                                         playBtn.click();
                                     }
                                     if (v) {
-                                        v.muted = false;
-                                        v.volume = 1.0;
-                                        if (v.paused && !window._auralisUserPaused) {
+                                        var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-module, .ytp-ad-text');
+                                        if (!isAd) {
+                                            v.muted = false;
+                                            v.volume = 1.0;
+                                            v.playbackRate = 1.0;
+                                        }
+                                        if (v.paused && !window._auralisUserPaused && !isAd) {
                                             v.play().catch(function(e) {});
                                         }
 
                                         if (!v._auralisAttached) {
                                             v._auralisAttached = true;
                                             v.ontimeupdate = function() {
+                                                annihilateAds();
                                                 if (window.AuralisBridge) {
                                                     window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId || $activeReq);
                                                 }
                                             };
                                             v.onplay = function() {
+                                                annihilateAds();
                                                 if (window.AuralisBridge) {
                                                     window.AuralisBridge.onStateChange(1, window._auralisRequestId || $activeReq);
                                                 }
@@ -292,9 +375,10 @@ class YouTubeAudioEngine(private val context: Context) {
                                     }
                                 }
                                 autoPlay();
-                                setTimeout(autoPlay, 300);
-                                setTimeout(autoPlay, 800);
-                                setTimeout(autoPlay, 1500);
+                                setTimeout(autoPlay, 200);
+                                setTimeout(autoPlay, 500);
+                                setTimeout(autoPlay, 1000);
+                                setTimeout(autoPlay, 2000);
                             })();
                         """.trimIndent(), null)
 
@@ -327,8 +411,30 @@ class YouTubeAudioEngine(private val context: Context) {
         val activeReq = currentRequestId.get()
         webView?.evaluateJavascript("""
             (function() {
+                // Annihilate any ad on every polling tick
+                try {
+                    var skipButtons = document.querySelectorAll(
+                        '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, ' +
+                        '.ytp-skip-ad-button, button[class*="skip-button"], .ytp-ad-skip-button-slot button'
+                    );
+                    skipButtons.forEach(function(btn) { btn.click(); });
+                } catch(e) {}
+
                 var v = document.querySelector('video');
                 if (!v) return null;
+
+                var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-module, .ytp-ad-text');
+                if (isAd) {
+                    try {
+                        v.muted = true;
+                        v.playbackRate = 16.0;
+                        if (!isNaN(v.duration) && v.duration > 0) {
+                            v.currentTime = v.duration + 1;
+                        }
+                    } catch(e) {}
+                    return null;
+                }
+
                 if (window._auralisRequestId !== $activeReq || window._auralisUserPaused) {
                     try {
                         v.muted = true;
@@ -339,6 +445,7 @@ class YouTubeAudioEngine(private val context: Context) {
                 }
                 if (v.muted) v.muted = false;
                 if (v.volume < 1.0) v.volume = 1.0;
+                if (v.playbackRate !== 1.0) v.playbackRate = 1.0;
                 
                 if (!v._auralisAttached) {
                     v._auralisAttached = true;
