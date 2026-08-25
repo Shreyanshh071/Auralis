@@ -1,134 +1,95 @@
 # Auralis 🎵
 
-> A modern, fluid, and immersive music streaming experience built with React 19, TypeScript, Tailwind CSS, and Capacitor.
-
-![Auralis Banner](https://raw.githubusercontent.com/shreyanshchoubey09/Auralis/main/public/banner.png)
+> A modern, sleek, and high-performance native music streaming app built with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines**, and **Material 3**.
 
 ---
 
 ## ✨ Features
 
-- 🎧 **Rich Audio Experience**: Seamless streaming with full player controls, queue management, shuffle, repeat, and playback speed adjustment.
-- 📜 **Synchronized Lyrics**: Real-time synchronized lyrics integration via LRCLIB with line-by-line active tracking and fallback support.
-- 📊 **Dynamic Audio Visualizer**: Ambient audio waveform visualization synced to the active playback state.
-- 🎨 **Adaptive Palette & Glassmorphism**: Dynamic color extraction that adapts the player UI theme to the current track's album art.
-- 📱 **Cross-Platform**: Web, PWA, and native Android application powered by Capacitor (`com.auralis.music`).
-- ⚡ **Speed Dial & Personalization**: Quick-access speed dial computed from real play counts, favorite tracks, and custom user playlists.
-- ☁️ **Cloud Sync with Firebase**: User authentication (Google Sign-In & Email/Password) with real-time Firestore sync for playlists, favorites, and history.
-- 🔍 **Honest Search & Discovery**: Fast, error-resilient search across millions of tracks with instant suggestion chips and genre discovery.
+- 🎧 **Uninterrupted Background Audio**: Full background streaming with `PARTIAL_WAKE_LOCK`, `WifiLock`, and native foreground `MediaSessionService` that never stops when minimized or screen locked.
+- 🎛️ **Android 13/14 Quick Settings & Lock-Screen Deck**: Native system media card featuring monochrome app badge, interactive scrub seekbar, previous/next controls, like/heart toggle, repeat mode, and play/pause.
+- 📜 **Multi-Provider Synced Lyrics Engine**: Real-time synchronized line-by-line karaoke lyrics powered by **Musixmatch** (Spotify catalog), **LRCLIB**, **KuGou** (200M+ synchronized catalog), **AMLL**, and official **YouTube Music** record-label lyrics.
+- 🎨 **Official Record-Label Studio Artwork**: High-resolution studio album covers (`=w1200-h1200`) and verified circular artist avatar photos.
+- ⚡ **Dynamic Speed Dial & Taste Profiler**: Personal speed dial recommendations built from real listening history, heavy rotation, and top-played tracks.
+- 🧑‍🎤 **Full Artist Profiles & Discography**: Explore complete artist profiles with official portrait banners, subscriber count, bio, top songs, studio albums, singles, and similar artists.
+- 🔍 **Real-Time Search & Autocomplete**: Instant search suggestions across songs, albums, artists, and playlists with parallel query filtering.
+- 📦 **Local-First Architecture**: Powered by Room database (`AuralisDatabase`) with full offline caching of tracks, playback history, favorites, and playlists.
+- ☁️ **Cloud Sync & Playlist Import**: Firebase Auth and Google Account Sync with one-click Spotify & YouTube playlist import.
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Architecture & Tech Stack
 
-- **Frontend**: [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vitejs.dev/)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/), [Framer Motion](https://www.framer.com/motion/)
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Backend & Auth**: [Firebase](https://firebase.google.com/) (Auth, Cloud Firestore)
-- **Mobile Container**: [Capacitor 8](https://capacitorjs.com/) (Android SDK 36, JDK 21)
-- **Lyrics Provider**: [LRCLIB API](https://lrclib.net/)
-- **Quality & Linting**: [Oxlint](https://oxc.rs/)
+- **UI & Presentation**: [Jetpack Compose](https://developer.android.com/jetpack/compose), [Material 3](https://m3.material.io/), [Coil](https://coil-kt.github.io/coil/) (Image Loading)
+- **Audio & Media**: [AndroidX Media3](https://developer.android.com/media/media3) (`MediaSessionService`, `ExoPlayer`, `ForwardingPlayer`)
+- **Async & Reactive**: [Kotlin Coroutines](https://kotlinlang.org/docs/coroutines-overview.html) & [StateFlow](https://developer.android.com/kotlin/flow/stateflow-and-sharedflow)
+- **Local Storage**: [Room Database](https://developer.android.com/training/data-storage/room) & [DataStore](https://developer.android.com/topic/libraries/architecture/datastore)
+- **Networking**: [OkHttp 4](https://square.github.io/okhttp/) & Custom InnerTube Web Client
+- **Lyrics Providers**: Musixmatch, LRCLIB, KuGou, AMLL, and YouTube Music
+- **Cloud & Auth**: Firebase Auth, Google Sign-In, Firestore Sync
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Building & Installing
 
 ### Prerequisites
 
-- **Node.js**: `v20+` or `v22+`
-- **npm** or **pnpm**
-- **Android Development** *(optional, for APK builds)*:
-  - JDK 21
-  - Android SDK (API 36)
-  - Gradle 8.14+
+- **Android Studio Ladybug** or newer
+- **JDK 17** or **JDK 21**
+- **Android SDK** (API 34 / 35 / 36)
 
-### Installation
+### Build Debug APK
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/shreyanshchoubey09/Auralis.git
-   cd Auralis
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Configure Environment Variables**:
-   Copy the example `.env` file and populate your Firebase credentials:
-   ```bash
-   cp .env.example .env
-   ```
-
-4. **Start the development server**:
-   ```bash
-   npm run dev
-   ```
-   Open `http://localhost:5173` in your browser.
-
----
-
-## 📱 Mobile Build (Android)
-
-1. **Build web assets and sync Capacitor**:
-   ```bash
-   npm run cap:sync
-   ```
-
-2. **Open in Android Studio**:
-   ```bash
-   npm run cap:open:android
-   ```
-
-3. **Build Debug APK via CLI**:
-   ```powershell
-   cd android
-   .\gradlew assembleDebug
-   ```
-   The generated APK will be at `android/app/build/outputs/apk/debug/app-debug.apk`.
-
----
-
-## 🧪 Testing & Verification
-
-Run the test suite to verify queue operations, storage persistence, and lyrics fuzzy matching:
-
-```bash
-npm run test
+```powershell
+cd android
+.\gradlew.bat assembleDebug
 ```
 
-To run a production web build:
+The APK will be generated at:
+`android/app/build/outputs/apk/debug/app-debug.apk`
 
-```bash
-npm run build
+### Install Directly to Connected Android Device
+
+```powershell
+cd android
+.\gradlew.bat installDebug
 ```
 
 ---
 
-## 📂 Project Architecture
+## 📂 Project Structure
 
 ```
 Auralis/
-├── android/               # Capacitor Android project (com.auralis.music)
-├── docs/                  # Architectural audit, baseline fixes, & parity docs
-│   ├── baseline-fixes.md  # Detailed defect and identity fixes
-│   └── parity-audit.md    # Feature status and parity tracker
-├── scripts/               # Build verification & unit test scripts
-├── src/
-│   ├── components/        # UI components (player, modals, views, visualizer)
-│   ├── context/           # React Contexts (PlayerContext, AuthContext)
-│   ├── lib/               # Utility modules (queueOps, queueStorage)
-│   ├── services/          # Services (firebase, lyrics, youtube, artwork)
-│   ├── types/             # TypeScript type definitions
-│   ├── App.tsx            # Main application root
-│   └── index.css          # Core design tokens and CSS variables
-├── capacitor.config.json  # Capacitor mobile configuration
-└── vite.config.ts         # Vite build configuration
+├── android/
+│   ├── app/
+│   │   ├── src/main/
+│   │   │   ├── java/com/auralis/music/
+│   │   │   │   ├── data/
+│   │   │   │   │   ├── local/          # Room DB, DAOs, Entities
+│   │   │   │   │   ├── network/        # InnerTubeClient, LyricsClient, Spotify/YT Importers
+│   │   │   │   │   ├── parser/         # LRC & TTML timestamp parsers, LyricsMatcher
+│   │   │   │   │   ├── repository/     # Repository implementations
+│   │   │   │   │   └── service/        # AuralisAudioPlayer, YouTubeAudioEngine
+│   │   │   │   ├── domain/             # Domain Models & Repository Interfaces
+│   │   │   │   ├── service/            # AuralisMediaService (Media3 Session & System Deck)
+│   │   │   │   ├── ui/                 # Jetpack Compose UI (Screens, ViewModels, Themes)
+│   │   │   │   │   ├── home/           # HomeScreen & SpeedDial
+│   │   │   │   │   ├── explore/        # Search & Explore screens
+│   │   │   │   │   ├── library/        # Playlists & Favorites
+│   │   │   │   │   ├── lyrics/         # Synced Lyrics view
+│   │   │   │   │   ├── player/         # MiniPlayer & NowPlaying Modal
+│   │   │   │   │   ├── screens/        # ArtistScreen & Sub-views
+│   │   │   │   │   └── viewmodel/      # Architecture ViewModels
+│   │   │   │   └── MainActivity.kt     # Main Android Entry Point
+│   │   │   └── res/                    # Drawables, icons, layout values
+│   │   └── build.gradle.kts
+│   └── build.gradle.kts
+└── README.md
 ```
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is open-source under the [MIT License](LICENSE).
