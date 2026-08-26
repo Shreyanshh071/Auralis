@@ -1,9 +1,12 @@
 package com.auralis.music.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,6 +29,7 @@ import com.auralis.music.ui.components.MiniPlayer
 import com.auralis.music.ui.profile.ProfileSheet
 import com.auralis.music.ui.screens.*
 import com.auralis.music.ui.viewmodel.*
+import kotlinx.coroutines.launch
 
 enum class AppDestination(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
@@ -52,9 +56,28 @@ fun AuralisApp(
     val authUiState by authViewModel.uiState.collectAsState()
     val recognitionState by searchViewModel.recognitionState.collectAsState()
 
+    val coroutineScope = rememberCoroutineScope()
     var currentDestination by remember { mutableStateOf(AppDestination.HOME) }
     val destinationBackStack = remember { androidx.compose.runtime.mutableStateListOf<AppDestination>() }
+    val mainPagerState = rememberPagerState(initialPage = 0) { AppDestination.values().size }
+
+    // Guarantee the app opens directly to the Home screen on startup
+    LaunchedEffect(Unit) {
+        if (mainPagerState.currentPage != 0) {
+            mainPagerState.scrollToPage(0)
+        }
+        currentDestination = AppDestination.HOME
+    }
+
+    LaunchedEffect(mainPagerState.currentPage) {
+        val dest = AppDestination.values().getOrNull(mainPagerState.currentPage)
+        if (dest != null && currentDestination != dest) {
+            currentDestination = dest
+        }
+    }
+
     var isNowPlayingOpen by remember { mutableStateOf(false) }
+
     var isListenTogetherOpen by remember { mutableStateOf(false) }
     var isProfileOpen by remember { mutableStateOf(false) }
     var isHistoryOpen by remember { mutableStateOf(false) }
@@ -64,6 +87,15 @@ fun AuralisApp(
         if (currentDestination != dest) {
             destinationBackStack.add(currentDestination)
             currentDestination = dest
+            coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                mainPagerState.animateScrollToPage(
+                    dest.ordinal,
+                    animationSpec = tween(
+                        durationMillis = 240,
+                        easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                    )
+                )
+            }
         }
         isHistoryOpen = false
         isProfileOpen = false
@@ -150,9 +182,28 @@ fun AuralisApp(
         else if (isProfileOpen) isProfileOpen = false
         else if (isListenTogetherOpen) isListenTogetherOpen = false
         else if (destinationBackStack.isNotEmpty()) {
-            currentDestination = destinationBackStack.removeAt(destinationBackStack.lastIndex)
+            val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)
+            currentDestination = prevDest
+            coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                mainPagerState.animateScrollToPage(
+                    prevDest.ordinal,
+                    animationSpec = tween(
+                        durationMillis = 240,
+                        easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                    )
+                )
+            }
         } else if (currentDestination != AppDestination.HOME) {
             currentDestination = AppDestination.HOME
+            coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                mainPagerState.animateScrollToPage(
+                    AppDestination.HOME.ordinal,
+                    animationSpec = tween(
+                        durationMillis = 240,
+                        easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                    )
+                )
+            }
         }
     }
 
@@ -179,6 +230,16 @@ fun AuralisApp(
         }
         listenTogetherViewModel.onGetLocalTrackId = {
             playerViewModel.uiState.value.currentTrack?.id
+        }
+        listenTogetherViewModel.onHostPlayTrack = { track ->
+            val curQueue = playerViewModel.uiState.value.queue
+            val newQueue = if (curQueue.none { it.id == track.id }) curQueue + track else curQueue
+            val index = newQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+            playerViewModel.playTrack(track, newQueue, index)
+        }
+        listenTogetherViewModel.onHostAddToQueue = { track ->
+            playerViewModel.addToQueue(listOf(track))
+            android.widget.Toast.makeText(context, "Added \"${track.title}\" to room queue", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -221,67 +282,86 @@ fun AuralisApp(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             bottomBar = {
-                if (!isNowPlayingOpen) {
-                    Column {
-                        // Persistent Mini Player across all tabs
-                        if (playerUiState.currentTrack != null) {
-                            val progressFrac = if (playerUiState.durationMs > 0) {
-                                (playerUiState.playbackPositionMs.toFloat() / playerUiState.durationMs).coerceIn(0f, 1f)
-                            } else 0f
+                Column(
+                    modifier = Modifier.graphicsLayer {
+                        // Prevent Scaffold from remeasuring and relayouting the entire screen when NowPlaying opens/closes
+                        alpha = if (isNowPlayingOpen) 0f else 1f
+                    }
+                ) {
+                    // Persistent Mini Player across all tabs
+                    if (playerUiState.currentTrack != null) {
+                        val progressFrac = if (playerUiState.durationMs > 0) {
+                            (playerUiState.playbackPositionMs.toFloat() / playerUiState.durationMs).coerceIn(0f, 1f)
+                        } else 0f
 
-                            MiniPlayer(
-                                track = playerUiState.currentTrack!!,
-                                isPlaying = playerUiState.isPlaying,
-                                progress = progressFrac,
-                                isFavorite = playerUiState.isFavorite,
-                                onPlayPauseClick = {
-                                    if (isGuestInRoom) notifyGuestControlBlocked()
-                                    else playerViewModel.togglePlayPause()
-                                },
-                                onNextClick = {
-                                    if (isGuestInRoom) notifyGuestControlBlocked()
-                                    else playerViewModel.next()
-                                },
-                                onFavoriteToggle = { playerViewModel.toggleFavorite() },
-                                onAddToPlaylist = {
-                                    showMiniPlayerTrackOptions = true
-                                },
-                                onArtistClick = {
-                                    searchViewModel.openArtist(com.auralis.music.domain.model.Artist(id = "", name = playerUiState.currentTrack!!.artist))
-                                    navigateToDestination(AppDestination.EXPLORE)
-                                },
-                                onClick = { isNowPlayingOpen = true }
-                            )
-                        }
+                        MiniPlayer(
+                            track = playerUiState.currentTrack!!,
+                            isPlaying = playerUiState.isPlaying,
+                            progress = progressFrac,
+                            queue = playerUiState.queue,
+                            currentIndex = playerUiState.currentIndex,
+                            isFavorite = playerUiState.isFavorite,
+                            userScrollEnabled = !isGuestInRoom && !isNowPlayingOpen,
+                            onPlayPauseClick = {
+                                if (isGuestInRoom) notifyGuestControlBlocked()
+                                else playerViewModel.togglePlayPause()
+                            },
+                            onNextClick = {
+                                if (isGuestInRoom) notifyGuestControlBlocked()
+                                else playerViewModel.next()
+                            },
+                            onPreviousClick = {
+                                if (isGuestInRoom) notifyGuestControlBlocked()
+                                else playerViewModel.previous()
+                            },
+                            onSelectQueueTrack = { index ->
+                                if (isGuestInRoom) {
+                                    notifyGuestControlBlocked()
+                                } else {
+                                    val t = playerUiState.queue.getOrNull(index)
+                                    if (t != null) {
+                                        playerViewModel.playTrack(t, playerUiState.queue, index)
+                                    }
+                                }
+                            },
+                            onFavoriteToggle = { playerViewModel.toggleFavorite() },
+                            onAddToPlaylist = {
+                                showMiniPlayerTrackOptions = true
+                            },
+                            onArtistClick = {
+                                searchViewModel.openArtist(com.auralis.music.domain.model.Artist(id = "", name = playerUiState.currentTrack!!.artist))
+                                navigateToDestination(AppDestination.EXPLORE)
+                            },
+                            onClick = { isNowPlayingOpen = true }
+                        )
+                    }
 
-                        // Bottom Navigation Bar
-                        NavigationBar(
-                            containerColor = Color(0xFF0D0E0B),
-                            tonalElevation = 8.dp
-                        ) {
-                            AppDestination.values().forEach { destination ->
-                                NavigationBarItem(
-                                    selected = currentDestination == destination && !isHistoryOpen && !isProfileOpen && !isListenTogetherOpen,
-                                    onClick = {
-                                        navigateToDestination(destination)
-                                    },
-                                    icon = { Icon(destination.icon, contentDescription = destination.label) },
-                                    label = { Text(destination.label) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Color(0xFFD4E157),
-                                        selectedTextColor = Color(0xFFD4E157),
-                                        indicatorColor = Color(0xFF383C25),
-                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
-                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
-                                    )
+                    // Bottom Navigation Bar
+                    NavigationBar(
+                        containerColor = Color(0xFF0D0E0B),
+                        tonalElevation = 8.dp
+                    ) {
+                        AppDestination.values().forEach { destination ->
+                            NavigationBarItem(
+                                selected = currentDestination == destination && !isHistoryOpen && !isProfileOpen && !isListenTogetherOpen,
+                                onClick = {
+                                    navigateToDestination(destination)
+                                },
+                                icon = { Icon(destination.icon, contentDescription = destination.label) },
+                                label = { Text(destination.label) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color(0xFFD4E157),
+                                    selectedTextColor = Color(0xFFD4E157),
+                                    indicatorColor = Color(0xFF383C25),
+                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
                                 )
-                            }
+                            )
                         }
                     }
                 }
             }
-        )
- { paddingValues ->
+        ) { paddingValues ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -327,129 +407,227 @@ fun AuralisApp(
                         }
                     }
 
-                    // Main Navigation Screen
+                    // Main Navigation Screen with Instant 0ms Hardware Pager Slide
                     Box(modifier = Modifier.weight(1f)) {
-                        when (currentDestination) {
-                            AppDestination.HOME -> {
-                                HomeScreen(
-                                    uiState = homeUiState,
-                                    currentTrackId = playerUiState.currentTrack?.id,
-                                    isPlaying = playerUiState.isPlaying,
-                                    userPlaylists = libraryUiState.playlists,
-                                    onTrackClick = { track, queue ->
-                                        if (isGuestInRoom) notifyGuestControlBlocked()
-                                        else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
-                                    },
-                                    onFavoriteToggle = { playerViewModel.toggleFavorite() },
-                                    onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
-                                    onCreatePlaylistAndAdd = { title, track ->
-                                        libraryViewModel.createPlaylistAndAddTrack(title, track)
-                                    },
-                                    onOpenListenTogether = { isListenTogetherOpen = true },
-                                    onNavigateToExplore = { navigateToDestination(AppDestination.EXPLORE) },
-                                    onMoodSelect = { homeViewModel.selectMoodFilter(it) },
-                                    onChipToggle = { homeViewModel.toggleChip(it) },
-                                    onSurpriseMe = {
-                                        if (isGuestInRoom) {
-                                            notifyGuestControlBlocked()
-                                        } else {
-                                            val surpriseTrack = homeViewModel.getRandomSurpriseTrack()
-                                            if (surpriseTrack != null) {
-                                                playerViewModel.playTrack(surpriseTrack, listOf(surpriseTrack), 0)
-                                            }
+                        HorizontalPager(
+                            state = mainPagerState,
+                            userScrollEnabled = false,
+                            beyondViewportPageCount = 2,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                                Box(modifier = Modifier.fillMaxSize().graphicsLayer { clip = true }) {
+                                    when (AppDestination.values()[page]) {
+                                        AppDestination.HOME -> {
+                                            HomeScreen(
+                                                uiState = homeUiState,
+                                                currentTrackId = playerUiState.currentTrack?.id,
+                                                isPlaying = playerUiState.isPlaying,
+                                                userPlaylists = libraryUiState.playlists,
+                                                favoriteTracks = libraryUiState.favorites,
+                                                onTrackClick = { track, queue ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                                },
+                                                onFavoriteToggle = { track -> playerViewModel.toggleFavorite(track) },
+                                                onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
+                                                onCreatePlaylistAndAdd = { title, track ->
+                                                    libraryViewModel.createPlaylistAndAddTrack(title, track)
+                                                },
+                                                onPlayNext = { track ->
+                                                    playerViewModel.playNext(track)
+                                                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onAddToQueue = { track ->
+                                                    playerViewModel.addToQueue(listOf(track))
+                                                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onStartRadio = { track ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.playTrack(track, listOf(track), 0)
+                                                },
+                                                onOpenListenTogether = { isListenTogetherOpen = true },
+                                                onNavigateToExplore = { navigateToDestination(AppDestination.EXPLORE) },
+                                                onMoodSelect = { homeViewModel.selectMoodFilter(it) },
+                                                onChipToggle = { homeViewModel.toggleChip(it) },
+                                                onSurpriseMe = {
+                                                    if (isGuestInRoom) {
+                                                        notifyGuestControlBlocked()
+                                                    } else {
+                                                        val surpriseTrack = homeViewModel.getRandomSurpriseTrack()
+                                                        if (surpriseTrack != null) {
+                                                            playerViewModel.playTrack(surpriseTrack, listOf(surpriseTrack), 0)
+                                                        }
+                                                    }
+                                                },
+                                                onOpenProfile = { isProfileOpen = true },
+                                                onOpenHistory = { isHistoryOpen = true },
+                                                onArtistClick = { artist ->
+                                                    searchViewModel.openArtist(artist)
+                                                    navigateToDestination(AppDestination.EXPLORE)
+                                                },
+                                                isInListenTogetherRoom = isGuestInRoom,
+                                                onRecommendToRoom = { trk ->
+                                                    listenTogetherViewModel.recommendSong(trk)
+                                                    android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
                                         }
-                                    },
-                                    onOpenProfile = { isProfileOpen = true },
-                                    onOpenHistory = { isHistoryOpen = true },
-                                    onArtistClick = { artist ->
-                                        searchViewModel.openArtist(artist)
-                                        navigateToDestination(AppDestination.EXPLORE)
-                                    }
-                                )
-                            }
-                            AppDestination.EXPLORE -> {
-                                ExploreScreen(
-                                    uiState = searchUiState,
-                                    recognitionState = recognitionState,
-                                    currentTrackId = playerUiState.currentTrack?.id,
-                                    isPlaying = playerUiState.isPlaying,
-                                    userPlaylists = libraryUiState.playlists,
-                                    onQueryChange = { searchViewModel.onQueryChange(it) },
-                                    onSearch = { searchViewModel.performSearch(it) },
-                                    onClearSearch = { searchViewModel.clearSearch() },
-                                    onTrackClick = { track, queue ->
-                                        if (isGuestInRoom) notifyGuestControlBlocked()
-                                        else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
-                                    },
-                                    onFavoriteToggle = { playerViewModel.toggleFavorite() },
-                                    onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
-                                    onCreatePlaylistAndAdd = { title, track ->
-                                        libraryViewModel.createPlaylistAndAddTrack(title, track)
-                                    },
-                                    onRemoveRecentQuery = { searchViewModel.removeRecentQuery(it) },
-                                    onOpenRecognition = { searchViewModel.openRecognitionModal(it) },
-                                    onCloseRecognition = { searchViewModel.closeRecognitionModal() },
-                                    onModeSelect = { searchViewModel.setRecognitionMode(it) },
-                                    onStartListening = { searchViewModel.startListening() },
-                                    onStopListening = { searchViewModel.stopListening() },
-                                    onOpenArtist = { searchViewModel.openArtist(it) },
-                                    onCloseArtist = { searchViewModel.closeArtist() },
-                                    onBack = {
-                                        if (destinationBackStack.isNotEmpty()) {
-                                            currentDestination = destinationBackStack.removeAt(destinationBackStack.lastIndex)
-                                        } else {
-                                            currentDestination = AppDestination.HOME
+                                        AppDestination.EXPLORE -> {
+                                            ExploreScreen(
+                                                uiState = searchUiState,
+                                                recognitionState = recognitionState,
+                                                currentTrackId = playerUiState.currentTrack?.id,
+                                                isPlaying = playerUiState.isPlaying,
+                                                userPlaylists = libraryUiState.playlists,
+                                                favoriteTracks = libraryUiState.favorites,
+                                                onQueryChange = { searchViewModel.onQueryChange(it) },
+                                                onSearch = { searchViewModel.performSearch(it) },
+                                                onClearSearch = { searchViewModel.clearSearch() },
+                                                onTrackClick = { track, queue ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                                },
+                                                onFavoriteToggle = { track -> playerViewModel.toggleFavorite(track) },
+                                                onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
+                                                onCreatePlaylistAndAdd = { title, track ->
+                                                    libraryViewModel.createPlaylistAndAddTrack(title, track)
+                                                },
+                                                onPlayNext = { track ->
+                                                    playerViewModel.playNext(track)
+                                                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onAddToQueue = { track ->
+                                                    playerViewModel.addToQueue(listOf(track))
+                                                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onStartRadio = { track ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.playTrack(track, listOf(track), 0)
+                                                },
+                                                onRemoveRecentQuery = { searchViewModel.removeRecentQuery(it) },
+                                                onOpenRecognition = { searchViewModel.openRecognitionModal(it) },
+                                                onCloseRecognition = { searchViewModel.closeRecognitionModal() },
+                                                onModeSelect = { searchViewModel.setRecognitionMode(it) },
+                                                onStartListening = { searchViewModel.startListening() },
+                                                onStopListening = { searchViewModel.stopListening() },
+                                                onOpenArtist = { searchViewModel.openArtist(it) },
+                                                onCloseArtist = { searchViewModel.closeArtist() },
+                                                onBack = {
+                                                    if (destinationBackStack.isNotEmpty()) {
+                                                        val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)
+                                                        currentDestination = prevDest
+                                                        coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                                            mainPagerState.animateScrollToPage(
+                                                                prevDest.ordinal,
+                                                                animationSpec = tween(
+                                                                    durationMillis = 240,
+                                                                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                                                                )
+                                                            )
+                                                        }
+                                                    } else {
+                                                        currentDestination = AppDestination.HOME
+                                                        coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                                            mainPagerState.animateScrollToPage(
+                                                                AppDestination.HOME.ordinal,
+                                                                animationSpec = tween(
+                                                                    durationMillis = 240,
+                                                                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                isInListenTogetherRoom = isGuestInRoom,
+                                                onRecommendToRoom = { trk ->
+                                                    listenTogetherViewModel.recommendSong(trk)
+                                                    android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
+                                        }
+                                        AppDestination.LIBRARY -> {
+                                            LibraryScreen(
+                                                uiState = libraryUiState,
+                                                currentTrackId = playerUiState.currentTrack?.id,
+                                                isPlaying = playerUiState.isPlaying,
+                                                userName = authUiState.profile.displayName.ifBlank { "You" },
+                                                userAvatarUrl = authUiState.profile.avatarUrl,
+                                                onFilterSelect = { libraryViewModel.setFilter(it) },
+                                                onCreatePlaylist = { libraryViewModel.createPlaylist(it) },
+                                                onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
+                                                onPlaylistSelect = { libraryViewModel.selectPlaylist(it?.id) },
+                                                onTrackClick = { track, queue ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                                },
+                                                onFavoriteToggle = { track -> playerViewModel.toggleFavorite(track) },
+                                                onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
+                                                onRemoveFromPlaylist = { plId, trackId -> libraryViewModel.removeTrackFromPlaylist(plId, trackId) },
+                                                onImportYouTubePlaylist = { libraryViewModel.importYouTubePlaylist(it) },
+                                                onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
+                                                onExportBackup = suspend { libraryViewModel.exportLibraryJson() },
+                                                onImportBackup = { libraryViewModel.importLibraryJson(it) },
+                                                onSmartCollectionClick = { libraryViewModel.openSmartCollection(it) },
+                                                onSortChange = { libraryViewModel.setSortOrder(it) },
+                                                onToggleGridView = { libraryViewModel.toggleGridView() },
+                                                onOpenHistory = { isHistoryOpen = true },
+                                                onOpenListenTogether = { isListenTogetherOpen = true },
+                                                onOpenProfile = { isProfileOpen = true },
+                                                onSyncPlaylist = { pl -> libraryViewModel.syncPlaylist(pl) },
+                                                onEditPlaylist = { id, title, desc, coverUrl -> libraryViewModel.editPlaylist(id, title, desc, coverUrl) },
+                                                onAddToQueue = { tracks ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.addToQueue(tracks)
+                                                },
+                                                onPlayNext = { track ->
+                                                    playerViewModel.playNext(track)
+                                                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onAddToQueueTrack = { track ->
+                                                    playerViewModel.addToQueue(listOf(track))
+                                                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onStartRadio = { track ->
+                                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                                    else playerViewModel.playTrack(track, listOf(track), 0)
+                                                },
+                                                onOpenArtist = { artist ->
+                                                    searchViewModel.openArtist(artist)
+                                                    navigateToDestination(AppDestination.EXPLORE)
+                                                },
+                                                isInListenTogetherRoom = isGuestInRoom,
+                                                onRecommendToRoom = { trk ->
+                                                    listenTogetherViewModel.recommendSong(trk)
+                                                    android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
                                         }
                                     }
-                                )
-                            }
-                            AppDestination.LIBRARY -> {
-                                LibraryScreen(
-                                    uiState = libraryUiState,
-                                    currentTrackId = playerUiState.currentTrack?.id,
-                                    isPlaying = playerUiState.isPlaying,
-                                    userName = authUiState.profile.displayName.ifBlank { "You" },
-                                    userAvatarUrl = authUiState.profile.avatarUrl,
-                                    onFilterSelect = { libraryViewModel.setFilter(it) },
-                                    onCreatePlaylist = { libraryViewModel.createPlaylist(it) },
-                                    onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
-                                    onPlaylistSelect = { libraryViewModel.selectPlaylist(it?.id) },
-                                    onTrackClick = { track, queue ->
-                                        if (isGuestInRoom) notifyGuestControlBlocked()
-                                        else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
-                                    },
-                                    onFavoriteToggle = { playerViewModel.toggleFavorite() },
-                                    onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
-                                    onRemoveFromPlaylist = { plId, trackId -> libraryViewModel.removeTrackFromPlaylist(plId, trackId) },
-                                    onImportYouTubePlaylist = { libraryViewModel.importYouTubePlaylist(it) },
-                                    onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
-                                    onExportBackup = suspend { libraryViewModel.exportLibraryJson() },
-                                    onImportBackup = { libraryViewModel.importLibraryJson(it) },
-                                    onSmartCollectionClick = { libraryViewModel.openSmartCollection(it) },
-                                    onSortChange = { libraryViewModel.setSortOrder(it) },
-                                    onToggleGridView = { libraryViewModel.toggleGridView() },
-                                    onOpenHistory = { isHistoryOpen = true },
-                                    onOpenListenTogether = { isListenTogetherOpen = true },
-                                    onOpenProfile = { isProfileOpen = true },
-                                    onSyncPlaylist = { pl -> libraryViewModel.syncPlaylist(pl) },
-                                    onEditPlaylist = { id, title, desc, coverUrl -> libraryViewModel.editPlaylist(id, title, desc, coverUrl) },
-                                    onAddToQueue = { tracks ->
-                                        if (isGuestInRoom) notifyGuestControlBlocked()
-                                        else playerViewModel.addToQueue(tracks)
-                                    }
-                                )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
         // Fullscreen Expandable Now Playing Modal Sheet (Root Overlay, takes 100% of the screen)
         AnimatedVisibility(
             visible = isNowPlayingOpen,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(
+                    durationMillis = 260,
+                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                )
+            ) + fadeIn(animationSpec = tween(180)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
+                )
+            ) + fadeOut(animationSpec = tween(140)),
+            modifier = Modifier.graphicsLayer { clip = true }
         ) {
             NowPlayingSheet(
                 uiState = playerUiState,
@@ -515,8 +693,25 @@ fun AuralisApp(
                 onDismiss = { isNowPlayingOpen = false }
             )
         }
-        // Listen Together Sheet
-        if (isListenTogetherOpen) {
+
+        // Listen Together Sheet with smooth slide animation from the right
+        AnimatedVisibility(
+            visible = isListenTogetherOpen,
+            enter = slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(
+                    durationMillis = 260,
+                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                )
+            ) + fadeIn(animationSpec = tween(200)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
+                )
+            ) + fadeOut(animationSpec = tween(160))
+        ) {
             ListenTogetherSheet(
                 uiState = listenTogetherUiState,
                 currentTrack = playerUiState.currentTrack,
@@ -533,21 +728,58 @@ fun AuralisApp(
                 onLeaveRoom = {
                     listenTogetherViewModel.leaveRoom()
                 },
+                onSearchRecommendations = { query ->
+                    listenTogetherViewModel.searchRecommendations(query)
+                },
+                onClearRecommendationSearch = {
+                    listenTogetherViewModel.clearRecommendationSearch()
+                },
+                onRecommendSong = { trk, note ->
+                    listenTogetherViewModel.recommendSong(trk, note)
+                },
+                onUpvoteRecommendation = { recId ->
+                    listenTogetherViewModel.upvoteRecommendation(recId)
+                },
+                onDismissRecommendation = { recId ->
+                    listenTogetherViewModel.dismissRecommendation(recId)
+                },
+                onPlayRecommendationNow = { rec ->
+                    listenTogetherViewModel.playRecommendationNow(rec)
+                },
+                onAddRecommendationToQueue = { rec ->
+                    listenTogetherViewModel.addRecommendationToQueue(rec)
+                },
                 onDismiss = { isListenTogetherOpen = false }
             )
         }
 
         // Profile & YouTube Music Account Sync Modal Sheet
-        if (isProfileOpen) {
-            val context = androidx.compose.ui.platform.LocalContext.current
+        AnimatedVisibility(
+            visible = isProfileOpen,
+            enter = slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(
+                    durationMillis = 260,
+                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                )
+            ) + fadeIn(animationSpec = tween(200)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
+                )
+            ) + fadeOut(animationSpec = tween(160))
+        ) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
             ProfileSheet(
                 authUiState = authUiState,
                 onConnectWithGoogleOAuth = {
-                    val act = context.findActivity()
+                    val act = ctx.findActivity()
                     if (act != null) {
                         authViewModel.connectWithGoogleOAuth(act)
                     } else {
-                        android.widget.Toast.makeText(context, "Activity not found for Google OAuth", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(ctx, "Activity not found for Google OAuth", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 },
                 onOpenPlaylistSelector = { authViewModel.openPlaylistSelectDialog() },
@@ -573,7 +805,23 @@ fun AuralisApp(
         }
 
         // Listening History Modal Sheet
-        if (isHistoryOpen) {
+        AnimatedVisibility(
+            visible = isHistoryOpen,
+            enter = slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(
+                    durationMillis = 260,
+                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                )
+            ) + fadeIn(animationSpec = tween(200)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
+                )
+            ) + fadeOut(animationSpec = tween(160))
+        ) {
             com.auralis.music.ui.history.HistorySheet(
                 history = homeUiState.recentTracks,
                 currentTrackId = playerUiState.currentTrack?.id,

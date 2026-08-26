@@ -1,16 +1,17 @@
 package com.auralis.music.ui.components
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
@@ -18,14 +19,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.AuralisSurface
 import com.auralis.music.ui.theme.AuralisSurfaceElevated
 import com.auralis.music.ui.theme.GlassBorderHairline
 import com.auralis.music.ui.theme.GlassBorderHighlight
-import kotlinx.coroutines.launch
 
 // ============================================================================
 // 💎 AURALIS GLASSMORPHIC MODIFIERS
@@ -43,14 +42,38 @@ import kotlinx.coroutines.launch
  */
 fun Modifier.auralisGlass(
     blurRadius: Dp = 24.dp,
-    alpha: Float = 0.70f,
+    alpha: Float = 0.85f,
     backgroundColor: Color = AuralisSurface,
     borderColor: Color = GlassBorderHairline,
-    shape: Shape = RoundedCornerShape(20.dp)
+    shape: Shape = RoundedCornerShape(18.dp)
 ): Modifier = this
     .clip(shape)
-    .background(backgroundColor.copy(alpha = alpha), shape)
-    .border(width = 1.dp, color = borderColor, shape = shape)
+    .background(backgroundColor.copy(alpha = alpha))
+    .border(1.dp, borderColor, shape)
+
+/**
+ * Enhanced frosted glass with top-to-bottom specular gradient highlight for a 3D glass slab effect.
+ */
+fun Modifier.auralisGlassElevated(
+    alpha: Float = 0.90f,
+    shape: Shape = RoundedCornerShape(22.dp)
+): Modifier = this
+    .clip(shape)
+    .background(
+        Brush.verticalGradient(
+            0.0f to Color(0xFF1E211A).copy(alpha = alpha),
+            1.0f to Color(0xFF10120D).copy(alpha = alpha)
+        )
+    )
+    .border(
+        width = 1.dp,
+        brush = Brush.verticalGradient(
+            0.0f to GlassBorderHighlight,
+            0.5f to GlassBorderHairline,
+            1.0f to Color.White.copy(alpha = 0.03f)
+        ),
+        shape = shape
+    )
 
 /**
  * Adds a top-down specular hairline highlight gradient border to simulate light reflection.
@@ -77,13 +100,15 @@ fun Modifier.specularHighlight(
 )
 
 /**
- * Tactile bouncy spring physics modifier.
- * On press: smoothly scales down to [scaleDown] (0.94f).
- * On release: springs back with bouncy physics and triggers [onClick].
+ * Ultra-fast tactile bouncy spring physics modifier.
+ * On press: instantly and smoothly scales down to [scaleDown].
+ * On release: springs back with bouncy physics and dispatches [onClick] immediately.
+ *
+ * Uses Compose Native Interaction Source to guarantee ZERO input lag or gesture conflict.
  *
  * @param scaleDown Scale factor on press (default 0.94f)
  * @param enabled Whether interaction is enabled
- * @param onClick Callback triggered on click release
+ * @param onClick Optional callback triggered on click release
  */
 fun Modifier.tactileBounce(
     scaleDown: Float = 0.94f,
@@ -92,47 +117,33 @@ fun Modifier.tactileBounce(
 ): Modifier = composed {
     if (!enabled) return@composed this
 
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) scaleDown else 1f,
+        animationSpec = spring(
+            dampingRatio = if (isPressed) 0.80f else 0.48f,
+            stiffness = if (isPressed) Spring.StiffnessHigh else Spring.StiffnessMediumLow
+        ),
+        label = "tactileBounceScale"
+    )
 
     this
         .graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
+            scaleX = scale
+            scaleY = scale
         }
-        .pointerInput(enabled) {
-            while (true) {
-                awaitPointerEventScope {
-                    // Wait for touch down
-                    awaitFirstDown(requireUnconsumed = false)
-                    scope.launch {
-                        scale.animateTo(
-                            targetValue = scaleDown,
-                            animationSpec = spring(
-                                dampingRatio = 0.70f,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        )
-                    }
-
-                    // Wait for touch up or cancellation
-                    val up = waitForUpOrCancellation()
-                    scope.launch {
-                        scale.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = 0.42f, // Enhanced tactile bouncy spring
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                    }
-
-                    if (up != null) {
-                        onClick?.invoke()
-                    }
-                }
+        .then(
+            if (onClick != null) {
+                Modifier.clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                )
+            } else {
+                Modifier
             }
-        }
+        )
 }
 
 /**

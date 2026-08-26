@@ -17,10 +17,14 @@ fun HomeScreen(
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
+    favoriteTracks: List<Track> = emptyList(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit,
     onCreatePlaylistAndAdd: (String, Track) -> Unit,
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueue: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
     onOpenListenTogether: () -> Unit,
     onNavigateToExplore: () -> Unit = {},
     onMoodSelect: (String?) -> Unit = {},
@@ -29,6 +33,8 @@ fun HomeScreen(
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     PureHomeScreen(
@@ -36,10 +42,14 @@ fun HomeScreen(
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,
         userPlaylists = userPlaylists,
+        favoriteTracks = favoriteTracks,
         onTrackClick = onTrackClick,
         onFavoriteToggle = onFavoriteToggle,
         onAddToPlaylist = onAddToPlaylist,
         onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+        onPlayNext = onPlayNext,
+        onAddToQueue = onAddToQueue,
+        onStartRadio = onStartRadio,
         onOpenListenTogether = onOpenListenTogether,
         onNavigateToExplore = onNavigateToExplore,
         onMoodSelect = onMoodSelect,
@@ -48,6 +58,8 @@ fun HomeScreen(
         onOpenProfile = onOpenProfile,
         onOpenHistory = onOpenHistory,
         onArtistClick = onArtistClick,
+        isInListenTogetherRoom = isInListenTogetherRoom,
+        onRecommendToRoom = onRecommendToRoom,
         modifier = modifier
     )
 }

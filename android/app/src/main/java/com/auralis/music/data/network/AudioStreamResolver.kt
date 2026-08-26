@@ -2,17 +2,16 @@ package com.auralis.music.data.network
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import javax.crypto.Cipher
-import javax.crypto.spec.SecretKeySpec
 
 /**
  * High-Speed Direct Audio Stream Resolver.
@@ -56,69 +55,217 @@ object AudioStreamResolver {
         }
     }
 
-    suspend fun resolveAudioStream(videoId: String, title: String, artist: String): String? = withContext(Dispatchers.IO) {
-        // 1. First priority: Direct YouTube InnerTube iOS stream (pure native, exact YouTube audio)
+    private var isNewPipeInitialized = false
+
+    private data class CachedStream(val url: String, val expiresAtMs: Long)
+    private val streamCache = java.util.concurrent.ConcurrentHashMap<String, CachedStream>()
+
+    fun init(context: android.content.Context) {
         try {
-            val ytStream = resolveYouTubePlayerStream(videoId)
-            if (!ytStream.isNullOrBlank()) {
-                try {
-                    Log.d(TAG, "[Resolver] Resolved direct YouTube audio stream for $videoId")
-                } catch (_: Throwable) {}
-                return@withContext ytStream
-            }
+            NewPipeDownloader.init(context.cacheDir)
+            ensureNewPipeInitialized()
         } catch (_: Exception) {}
+    }
 
-        // 2. Second priority: JioSaavn 320kbps lossless master stream
+    fun getCachedStream(videoId: String): String? {
+        val cached = streamCache[videoId] ?: return null
+        if (System.currentTimeMillis() >= (cached.expiresAtMs - 60_000L)) {
+            streamCache.remove(videoId)
+            return null
+        }
+        return cached.url
+    }
+
+    fun cacheStream(videoId: String, url: String) {
+        val expireParam = Regex("expire=([0-9]+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+        val expiresAtMs = if (expireParam != null) {
+            expireParam * 1000L
+        } else {
+            System.currentTimeMillis() + (4 * 3600 * 1000L)
+        }
+        streamCache[videoId] = CachedStream(url, expiresAtMs)
+    }
+
+    private fun ensureNewPipeInitialized() {
+        if (!isNewPipeInitialized) {
+            synchronized(this) {
+                if (!isNewPipeInitialized) {
+                    try {
+                        org.schabi.newpipe.extractor.NewPipe.init(NewPipeDownloader.instance)
+                        isNewPipeInitialized = true
+                        Log.d(TAG, "[Resolver] NewPipeExtractor initialized successfully")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[Resolver] NewPipe init error: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun resolveAudioStream(videoId: String, title: String, artist: String): String? = withContext(Dispatchers.IO) {
+        // 0. Check in-memory stream cache (instant 0ms resolution)
+        val cachedUrl = getCachedStream(videoId)
+        if (!cachedUrl.isNullOrBlank()) {
+            Log.d(TAG, "[Resolver] Memory Cache HIT for $videoId ('$title') - 0ms")
+            return@withContext cachedUrl
+        }
+
+        // 1. Parallel Resolution: Start fast direct check & NewPipeExtractor concurrently
+        val directDeferred = async(Dispatchers.IO) {
+            try {
+                resolveYouTubePlayerStream(videoId)
+            } catch (_: Exception) { null }
+        }
+
+        val newPipeDeferred = async(Dispatchers.IO) {
+            try {
+                ensureNewPipeInitialized()
+                val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                streamExtractor.fetchPage()
+                val audioStreams = streamExtractor.audioStreams
+                val bestAudio = audioStreams
+                    ?.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
+                    ?.maxByOrNull { it.averageBitrate }
+                bestAudio?.content
+            } catch (e: Exception) {
+                Log.w(TAG, "[Resolver] NewPipeExtractor notice for $videoId: ${e.message}")
+                null
+            }
+        }
+
+        // Check if direct stream completes quickly (within 400ms)
+        val fastDirect = withTimeoutOrNull(400L) { directDeferred.await() }
+        if (!fastDirect.isNullOrBlank()) {
+            newPipeDeferred.cancel()
+            Log.d(TAG, "[Resolver] Resolved ultra-fast direct stream for $videoId ('$title')")
+            cacheStream(videoId, fastDirect)
+            return@withContext fastDirect
+        }
+
+        // Direct stream was not instant; await NewPipe (already calculating in parallel)
+        val newPipeStream = newPipeDeferred.await()
+        if (!newPipeStream.isNullOrBlank()) {
+            Log.d(TAG, "[Resolver] Resolved via NewPipeExtractor for $videoId ('$title')")
+            cacheStream(videoId, newPipeStream)
+            return@withContext newPipeStream
+        }
+
+        // Fallback to direct stream if it finished late and was valid
+        val lateDirect = directDeferred.await()
+        if (!lateDirect.isNullOrBlank()) {
+            Log.d(TAG, "[Resolver] Resolved via direct stream for $videoId ('$title')")
+            cacheStream(videoId, lateDirect)
+            return@withContext lateDirect
+        }
+
+        // 2. Track is unavailable/restricted; auto-recover with active official release
+        val altStream = resolveNonRestrictedAlternative(title, artist, videoId)
+        if (!altStream.isNullOrBlank()) {
+            cacheStream(videoId, altStream)
+            return@withContext altStream
+        }
+
+        null
+    }
+
+    private suspend fun resolveNonRestrictedAlternative(title: String, artist: String, originalVideoId: String): String? {
+        if (title.isBlank()) return null
+        return try {
+            val query = if (artist.isNotBlank() && !title.contains(artist, ignoreCase = true)) "$title $artist" else title
+            val searchClient = InnerTubeClient()
+            val songs = searchClient.search(query, InnerTubeClient.FILTER_SONGS).songs
+
+            val cleanTitle = title.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
+            val cleanArtist = artist.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
+
+            val candidates = songs.filter { s ->
+                s.id != originalVideoId &&
+                (cleanArtist.isBlank() || s.artist.lowercase().replace(Regex("[^a-z0-9 ]"), "").contains(cleanArtist)) &&
+                s.title.lowercase().replace(Regex("[^a-z0-9 ]"), "").contains(cleanTitle.take(8))
+            }
+
+            for (candidate in candidates.take(3)) {
+                try {
+                    val direct = resolveYouTubePlayerStream(candidate.id)
+                    if (!direct.isNullOrBlank()) {
+                        Log.d(TAG, "[Resolver] Resolved non-restricted alternative direct stream for '$title' -> ${candidate.id}")
+                        return direct
+                    }
+                    val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")
+                    streamExtractor.fetchPage()
+                    val audioStreams = streamExtractor.audioStreams
+                    val bestAudio = audioStreams
+                        ?.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
+                        ?.maxByOrNull { it.averageBitrate }
+                    val streamUrl = bestAudio?.content
+                    if (!streamUrl.isNullOrBlank()) {
+                        Log.d(TAG, "[Resolver] Resolved non-restricted alternative via NewPipe for '$title' -> ${candidate.id}")
+                        return streamUrl
+                    }
+                } catch (_: Exception) {}
+            }
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "[Resolver] Alternative search failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun resolveYouTubePlayerStream(videoId: String): String? {
+        // 1. Try ANDROID_VR client (returns direct unencrypted googlevideo audio streams for exact videoId)
         try {
-            val cleanTitle = title.replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)|official.*|video.*"), "").trim()
-            val cleanArtist = if (artist.lowercase() !in listOf("shreyanshh", "shreyansh", "unknown", "artist", "youtube music")) artist else ""
-            val query = if (cleanArtist.isNotBlank()) "$cleanTitle $cleanArtist" else cleanTitle
-            val encQuery = URLEncoder.encode(query, "UTF-8")
-            val searchUrl = "https://www.jiosaavn.com/api.php?__call=autocomplete.get&_format=json&_marker=0&cc=in&includeMetaTags=1&query=$encQuery"
+            val vrPayload = JSONObject().apply {
+                put("videoId", videoId)
+                put("context", JSONObject().apply {
+                    put("client", JSONObject().apply {
+                        put("clientName", "ANDROID_VR")
+                        put("clientVersion", "1.59.19")
+                        put("deviceModel", "Quest 3")
+                        put("hl", "en")
+                        put("gl", "US")
+                    })
+                })
+            }
 
-            val searchReq = Request.Builder()
-                .url(searchUrl)
+            val req = Request.Builder()
+                .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                .post(vrPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Origin", "https://www.youtube.com")
                 .build()
 
-            val searchRes = client.newCall(searchReq).execute()
-            if (searchRes.isSuccessful) {
-                val body = searchRes.body?.string() ?: ""
+            val res = client.newCall(req).execute()
+            if (res.isSuccessful) {
+                val body = res.body?.string() ?: ""
                 val json = JSONObject(body)
-                val songs = json.optJSONObject("songs")?.optJSONArray("data")
-                if (songs != null && songs.length() > 0) {
-                    val firstSong = songs.getJSONObject(0)
-                    val pid = firstSong.optString("id")
-                    if (pid.isNotBlank()) {
-                        val detailUrl = "https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0%3F_marker%3D0&_format=json&pids=$pid"
-                        val detailReq = Request.Builder()
-                            .url(detailUrl)
-                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                            .build()
-                        val detailRes = client.newCall(detailReq).execute()
-                        if (detailRes.isSuccessful) {
-                            val detailBody = detailRes.body?.string() ?: ""
-                            val detailJson = JSONObject(detailBody)
-                            val songObj = detailJson.optJSONObject(pid)
-                            val encUrl = songObj?.optString("encrypted_media_url")
-
-                            if (!encUrl.isNullOrBlank()) {
-                                val decryptedUrl = decryptSaavnMediaUrl(encUrl)
-                                if (!decryptedUrl.isNullOrBlank() && !isHostBlacklisted(decryptedUrl)) {
-                                    val candidate = decryptedUrl.replace("_96.mp4", "_320.mp4").replace("_160.mp4", "_320.mp4")
-                                    return@withContext candidate
+                val status = json.optJSONObject("playabilityStatus")?.optString("status")
+                if (status == "OK") {
+                    val streamingData = json.optJSONObject("streamingData")
+                    val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
+                    if (adaptiveFormats != null) {
+                        var bestAudioUrl: String? = null
+                        var bestBitrate = 0
+                        for (i in 0 until adaptiveFormats.length()) {
+                            val fmt = adaptiveFormats.getJSONObject(i)
+                            val mime = fmt.optString("mimeType", "")
+                            if (mime.startsWith("audio/")) {
+                                val directUrl = fmt.optString("url")
+                                val bitrate = fmt.optInt("bitrate", 0)
+                                if (directUrl.isNotBlank() && bitrate > bestBitrate && !isHostBlacklisted(directUrl)) {
+                                    bestBitrate = bitrate
+                                    bestAudioUrl = directUrl
                                 }
                             }
+                        }
+                        if (!bestAudioUrl.isNullOrBlank()) {
+                            return bestAudioUrl
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        null
-    }
-
-    private fun resolveYouTubePlayerStream(videoId: String): String? {
+        // 2. Fallback: Try IOS client
         try {
             val iosPayload = JSONObject().apply {
                 put("videoId", videoId)
@@ -144,54 +291,33 @@ object AudioStreamResolver {
             if (res.isSuccessful) {
                 val body = res.body?.string() ?: ""
                 val json = JSONObject(body)
-                val streamingData = json.optJSONObject("streamingData")
-                val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
-                if (adaptiveFormats != null) {
-                    var bestAudioUrl: String? = null
-                    var bestBitrate = 0
-                    for (i in 0 until adaptiveFormats.length()) {
-                        val fmt = adaptiveFormats.getJSONObject(i)
-                        val mime = fmt.optString("mimeType", "")
-                        if (mime.startsWith("audio/")) {
-                            val directUrl = fmt.optString("url")
-                            val bitrate = fmt.optInt("bitrate", 0)
-                            if (directUrl.isNotBlank() && bitrate > bestBitrate) {
-                                bestBitrate = bitrate
-                                bestAudioUrl = directUrl
+                val status = json.optJSONObject("playabilityStatus")?.optString("status")
+                if (status == "OK") {
+                    val streamingData = json.optJSONObject("streamingData")
+                    val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
+                    if (adaptiveFormats != null) {
+                        var bestAudioUrl: String? = null
+                        var bestBitrate = 0
+                        for (i in 0 until adaptiveFormats.length()) {
+                            val fmt = adaptiveFormats.getJSONObject(i)
+                            val mime = fmt.optString("mimeType", "")
+                            if (mime.startsWith("audio/")) {
+                                val directUrl = fmt.optString("url")
+                                val bitrate = fmt.optInt("bitrate", 0)
+                                if (directUrl.isNotBlank() && bitrate > bestBitrate && !isHostBlacklisted(directUrl)) {
+                                    bestBitrate = bitrate
+                                    bestAudioUrl = directUrl
+                                }
                             }
                         }
-                    }
-                    if (!bestAudioUrl.isNullOrBlank()) {
-                        return bestAudioUrl
+                        if (!bestAudioUrl.isNullOrBlank()) {
+                            return bestAudioUrl
+                        }
                     }
                 }
             }
         } catch (_: Exception) {}
 
         return null
-    }
-
-    internal fun decryptSaavnMediaUrl(encryptedUrl: String): String? {
-        if (encryptedUrl.isBlank()) return null
-        return try {
-            val key = "38346564".toByteArray(Charsets.UTF_8)
-            val secretKey = SecretKeySpec(key, "DES")
-            val cipher = Cipher.getInstance("DES/ECB/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, secretKey)
-            val decoded = try {
-                java.util.Base64.getDecoder().decode(encryptedUrl.trim())
-            } catch (_: Throwable) {
-                android.util.Base64.decode(encryptedUrl.trim(), android.util.Base64.DEFAULT)
-            }
-            val decrypted = cipher.doFinal(decoded)
-            val url = String(decrypted, Charsets.UTF_8)
-            if (url.startsWith("http://") || url.startsWith("https://")) {
-                url
-            } else {
-                null
-            }
-        } catch (_: Exception) {
-            null
-        }
     }
 }

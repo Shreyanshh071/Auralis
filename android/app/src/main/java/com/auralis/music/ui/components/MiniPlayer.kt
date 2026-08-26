@@ -13,9 +13,14 @@ fun MiniPlayer(
     track: Track,
     isPlaying: Boolean,
     progress: Float, // 0.0f to 1.0f
+    queue: List<Track> = emptyList(),
+    currentIndex: Int = 0,
     isFavorite: Boolean = false,
+    userScrollEnabled: Boolean = true,
     onPlayPauseClick: () -> Unit,
     onNextClick: (() -> Unit)? = null,
+    onPreviousClick: (() -> Unit)? = null,
+    onSelectQueueTrack: ((Int) -> Unit)? = null,
     onFavoriteToggle: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
     onArtistClick: (() -> Unit)? = null,
@@ -26,9 +31,14 @@ fun MiniPlayer(
         track = track,
         isPlaying = isPlaying,
         progress = progress,
+        queue = queue,
+        currentIndex = currentIndex,
         isFavorite = isFavorite,
+        userScrollEnabled = userScrollEnabled,
         onPlayPauseClick = onPlayPauseClick,
         onNextClick = onNextClick,
+        onPreviousClick = onPreviousClick,
+        onSelectQueueTrack = onSelectQueueTrack,
         onFavoriteToggle = onFavoriteToggle,
         onAddToPlaylist = onAddToPlaylist,
         onArtistClick = onArtistClick,
@@ -36,3 +46,4 @@ fun MiniPlayer(
         modifier = modifier
     )
 }
+

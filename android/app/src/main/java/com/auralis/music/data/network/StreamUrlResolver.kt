@@ -9,7 +9,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -56,15 +55,7 @@ class StreamUrlResolver(
             return@withContext cached.first
         }
 
-        // ── TIER 1: GLOBAL HIGH-BITRATE 320KBPS CDN (INSTANT, UNTHROTTLED) ──
-        if (track.title.isNotBlank()) {
-            val cdnUrl = resolveFromGlobalCdn(track.title, track.artist)
-            if (!cdnUrl.isNullOrBlank()) {
-                Log.d(TAG, "Resolved 320kbps CDN stream for '${track.title}': $cdnUrl")
-                urlCache[cacheKey] = Pair(cdnUrl, now)
-                return@withContext cdnUrl
-            }
-        }
+        // Direct YouTube proxy pool resolution by exact track.id
 
         // ── TIER 2: PIPED PROXY POOL ──
         if (track.id.isNotBlank()) {
@@ -112,72 +103,7 @@ class StreamUrlResolver(
         null
     }
 
-    /**
-     * Resolves direct, unthrottled 320kbps/160kbps audio CDN stream URL.
-     */
-    private fun resolveFromGlobalCdn(title: String, artist: String): String? {
-        try {
-            val cleanTitle = cleanSearchQuery(title)
-            val cleanArtist = cleanSearchQuery(artist)
-            val query = if (cleanArtist.isNotBlank() && !cleanTitle.contains(cleanArtist, ignoreCase = true)) {
-                "$cleanTitle $cleanArtist"
-            } else {
-                cleanTitle
-            }
 
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val searchUrl = "https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=3&p=1&q=$encodedQuery"
-
-            val searchRequest = Request.Builder()
-                .url(searchUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
-                .header("Referer", "https://www.jiosaavn.com/")
-                .build()
-
-            val searchResponse = client.newCall(searchRequest).execute()
-            if (!searchResponse.isSuccessful) return null
-
-            val body = searchResponse.body?.string() ?: return null
-            val json = JSONObject(body)
-            val results = json.optJSONArray("results") ?: return null
-            if (results.length() == 0) return null
-
-            val firstSong = results.optJSONObject(0) ?: return null
-            val moreInfo = firstSong.optJSONObject("more_info") ?: return null
-            val encMediaUrl = moreInfo.optString("encrypted_media_url")
-            if (encMediaUrl.isBlank()) return null
-
-            val encodedEncMediaUrl = URLEncoder.encode(encMediaUrl, "UTF-8")
-            val tokenUrl = "https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=$encodedEncMediaUrl&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0"
-
-            val tokenRequest = Request.Builder()
-                .url(tokenUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
-                .header("Referer", "https://www.jiosaavn.com/")
-                .build()
-
-            val tokenResponse = client.newCall(tokenRequest).execute()
-            if (!tokenResponse.isSuccessful) return null
-
-            val tokenBody = tokenResponse.body?.string() ?: return null
-            val tokenJson = JSONObject(tokenBody)
-            val authUrl = tokenJson.optString("auth_url")
-            if (authUrl.isNotBlank()) {
-                return authUrl
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resolving Global CDN stream: ${e.message}", e)
-        }
-        return null
-    }
-
-    private fun cleanSearchQuery(text: String): String {
-        return text
-            .replace(Regex("\\(.*?\\)"), "")
-            .replace(Regex("\\[.*?\\]"), "")
-            .replace(Regex("(?i)ft\\.?|feat\\.?|official|audio|video|lyrics|hd|4k|remix|version"), "")
-            .trim()
-    }
 
     private fun resolveFromPiped(videoId: String): String? {
         for (instance in PIPED_INSTANCES) {

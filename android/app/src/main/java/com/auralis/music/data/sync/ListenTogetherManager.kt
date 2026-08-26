@@ -13,12 +13,26 @@ import kotlinx.coroutines.tasks.await
 import java.util.Locale
 import kotlin.random.Random
 
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.Query
+
 data class RoomMember(
     val id: String = "",
     val name: String = "",
     val isHost: Boolean = false,
     val joinedAt: Long = System.currentTimeMillis(),
     val avatarColorHex: String = "#7C4DFF"
+)
+
+data class RoomRecommendation(
+    val id: String = "",
+    val track: Track = Track(),
+    val recommendedByUid: String = "",
+    val recommendedByName: String = "",
+    val note: String = "",
+    val upvotes: List<String> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val status: String = "pending" // "pending", "accepted", "played", "declined"
 )
 
 data class NativeRoomState(
@@ -42,6 +56,7 @@ class ListenTogetherManager(
 ) {
     private var roomListener: ListenerRegistration? = null
     private var membersListener: ListenerRegistration? = null
+    private var recommendationsListener: ListenerRegistration? = null
 
     suspend fun ensureAuthenticated(): String {
         val currentUser = auth.currentUser
@@ -271,11 +286,159 @@ class ListenTogetherManager(
         }
     }
 
+    suspend fun recommendSong(
+        roomCode: String,
+        track: Track,
+        note: String = "",
+        recommenderName: String = ""
+    ): String {
+        val uid = ensureAuthenticated()
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val recCol = firestore.collection("rooms").document(normalizedCode).collection("recommendations")
+        val recDoc = recCol.document()
+        val docId = recDoc.id
+        val now = System.currentTimeMillis()
+        val displayName = recommenderName.ifBlank { "Guest_${uid.take(4)}" }
+
+        val trackMap = mapOf(
+            "id" to track.id,
+            "title" to track.title,
+            "artist" to track.artist,
+            "album" to track.album,
+            "thumbnail" to track.thumbnail,
+            "duration" to track.duration
+        )
+
+        val recData = hashMapOf(
+            "id" to docId,
+            "track" to trackMap,
+            "recommendedByUid" to uid,
+            "recommendedByName" to displayName,
+            "note" to note.trim(),
+            "upvotes" to listOf(uid), // Initial upvote from recommender
+            "createdAt" to now,
+            "status" to "pending"
+        )
+
+        recDoc.set(recData).await()
+        return docId
+    }
+
+    fun observeRecommendations(roomCode: String): Flow<List<RoomRecommendation>> = callbackFlow {
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val recCol = firestore.collection("rooms")
+            .document(normalizedCode)
+            .collection("recommendations")
+
+        val registration = recCol.addSnapshotListener { snapshot, error ->
+            if (error != null || snapshot == null) {
+                trySend(emptyList())
+                return@addSnapshotListener
+            }
+            val list = snapshot.documents.mapNotNull { doc ->
+                parseRecommendation(doc)
+            }.sortedWith(
+                compareByDescending<RoomRecommendation> { it.upvotes.size }
+                    .thenByDescending { it.createdAt }
+            )
+            trySend(list)
+        }
+
+        recommendationsListener = registration
+        awaitClose {
+            registration.remove()
+        }
+    }
+
+    suspend fun upvoteRecommendation(roomCode: String, recommendationId: String) {
+        val uid = ensureAuthenticated()
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val recDoc = firestore.collection("rooms")
+            .document(normalizedCode)
+            .collection("recommendations")
+            .document(recommendationId)
+
+        firestore.runTransaction { transaction ->
+            val snapshot = transaction.get(recDoc)
+            if (snapshot.exists()) {
+                val currentUpvotes = (snapshot.get("upvotes") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                if (currentUpvotes.contains(uid)) {
+                    transaction.update(recDoc, "upvotes", FieldValue.arrayRemove(uid))
+                } else {
+                    transaction.update(recDoc, "upvotes", FieldValue.arrayUnion(uid))
+                }
+            }
+        }.await()
+    }
+
+    suspend fun updateRecommendationStatus(roomCode: String, recommendationId: String, status: String) {
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val recDoc = firestore.collection("rooms")
+            .document(normalizedCode)
+            .collection("recommendations")
+            .document(recommendationId)
+
+        try {
+            recDoc.update("status", status).await()
+        } catch (e: Exception) {
+            android.util.Log.e("ListenTogether", "Failed updating recommendation status: ${e.message}", e)
+        }
+    }
+
+    suspend fun deleteRecommendation(roomCode: String, recommendationId: String) {
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val recDoc = firestore.collection("rooms")
+            .document(normalizedCode)
+            .collection("recommendations")
+            .document(recommendationId)
+
+        try {
+            recDoc.delete().await()
+        } catch (e: Exception) {
+            android.util.Log.e("ListenTogether", "Failed deleting recommendation: ${e.message}", e)
+        }
+    }
+
     fun stopListening() {
         roomListener?.remove()
         roomListener = null
         membersListener?.remove()
         membersListener = null
+        recommendationsListener?.remove()
+        recommendationsListener = null
+    }
+
+    private fun parseRecommendation(doc: DocumentSnapshot): RoomRecommendation? {
+        val id = doc.getString("id") ?: doc.id
+        val recommendedByUid = doc.getString("recommendedByUid") ?: ""
+        val recommendedByName = doc.getString("recommendedByName") ?: "Listener"
+        val note = doc.getString("note") ?: ""
+        val createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
+        val status = doc.getString("status") ?: "pending"
+        val upvotesRaw = doc.get("upvotes") as? List<*>
+        val upvotes = upvotesRaw?.filterIsInstance<String>() ?: emptyList()
+
+        val trackRaw = doc.get("track") as? Map<*, *> ?: return null
+        val track = Track(
+            id = trackRaw["id"] as? String ?: "",
+            title = trackRaw["title"] as? String ?: "",
+            artist = trackRaw["artist"] as? String ?: "",
+            album = trackRaw["album"] as? String ?: "",
+            thumbnail = trackRaw["thumbnail"] as? String ?: "",
+            duration = (trackRaw["duration"] as? Long) ?: 0L,
+            source = TrackSource.YOUTUBE
+        )
+
+        return RoomRecommendation(
+            id = id,
+            track = track,
+            recommendedByUid = recommendedByUid,
+            recommendedByName = recommendedByName,
+            note = note,
+            upvotes = upvotes,
+            createdAt = createdAt,
+            status = status
+        )
     }
 
     private fun parseRoomState(doc: DocumentSnapshot): NativeRoomState {

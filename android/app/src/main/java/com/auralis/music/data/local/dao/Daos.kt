@@ -15,6 +15,41 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun getTrackById(id: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE id IN (:ids)")
+    suspend fun getTracksByIds(ids: List<String>): List<TrackEntity>
+
+    @Transaction
+    suspend fun upsertTrackPreservingFavorite(track: TrackEntity) {
+        val existing = getTrackById(track.id)
+        if (existing != null) {
+            val preserved = track.copy(
+                isFavorite = existing.isFavorite,
+                favoriteAddedAt = existing.favoriteAddedAt
+            )
+            upsertTrack(preserved)
+        } else {
+            upsertTrack(track)
+        }
+    }
+
+    @Transaction
+    suspend fun upsertTracksPreservingFavorite(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        val existingMap = getTracksByIds(tracks.map { it.id }).associateBy { it.id }
+        val preservedTracks = tracks.map { track ->
+            val existing = existingMap[track.id]
+            if (existing != null) {
+                track.copy(
+                    isFavorite = existing.isFavorite,
+                    favoriteAddedAt = existing.favoriteAddedAt
+                )
+            } else {
+                track
+            }
+        }
+        upsertTracks(preservedTracks)
+    }
+
     @Query("SELECT * FROM tracks WHERE isFavorite = 1 ORDER BY favoriteAddedAt DESC")
     fun getFavoriteTracksFlow(): Flow<List<TrackEntity>>
 

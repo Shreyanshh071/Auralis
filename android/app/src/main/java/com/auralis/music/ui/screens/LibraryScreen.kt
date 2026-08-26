@@ -40,6 +40,12 @@ fun LibraryScreen(
     onSyncPlaylist: (Playlist) -> Unit = {},
     onEditPlaylist: (String, String, String?, String?) -> Unit = { _, _, _, _ -> },
     onAddToQueue: (List<Track>) -> Unit = {},
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueueTrack: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     PureLibraryScreen(
@@ -69,6 +75,12 @@ fun LibraryScreen(
         onSyncPlaylist = onSyncPlaylist,
         onEditPlaylist = onEditPlaylist,
         onAddToQueue = onAddToQueue,
+        onPlayNext = onPlayNext,
+        onAddToQueueTrack = onAddToQueueTrack,
+        onStartRadio = onStartRadio,
+        onOpenArtist = onOpenArtist,
+        isInListenTogetherRoom = isInListenTogetherRoom,
+        onRecommendToRoom = onRecommendToRoom,
         modifier = modifier
     )
 }

@@ -98,14 +98,59 @@ class AuralisMediaService : MediaSessionService() {
 
         // Wrap player in ForwardingPlayer so Android 13/14 system UI always exposes Previous/Next/Seek commands
         val forwardingPlayer = object : ForwardingPlayer(player) {
+            private val wrappedListeners = java.util.concurrent.ConcurrentHashMap<Player.Listener, Player.Listener>()
+
             override fun addListener(listener: Player.Listener) {
                 sessionListeners.add(listener)
-                super.addListener(listener)
+                val wrapped = object : Player.Listener {
+                    override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                        // Prevent underlying stream changes from overwriting studio artwork with empty metadata
+                        val active = currentActiveMetadata
+                        val metaToDispatch = if (mediaMetadata.artworkData == null && mediaMetadata.artworkUri == null && active != null) {
+                            active
+                        } else {
+                            active ?: mediaMetadata
+                        }
+                        listener.onMediaMetadataChanged(metaToDispatch)
+                    }
+
+                    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                        val itemToDispatch = currentActiveMediaItem ?: mediaItem
+                        listener.onMediaItemTransition(itemToDispatch, reason)
+                    }
+
+                    override fun onPlaylistMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                        listener.onPlaylistMetadataChanged(currentActiveMetadata ?: mediaMetadata)
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        listener.onIsPlayingChanged(isPlaying)
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        listener.onPlaybackStateChanged(playbackState)
+                    }
+
+                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                        listener.onPlayWhenReadyChanged(playWhenReady, reason)
+                    }
+
+                    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                        listener.onPositionDiscontinuity(oldPosition, newPosition, reason)
+                    }
+
+                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                        listener.onTimelineChanged(timeline, reason)
+                    }
+                }
+                wrappedListeners[listener] = wrapped
+                super.addListener(wrapped)
             }
 
             override fun removeListener(listener: Player.Listener) {
                 sessionListeners.remove(listener)
-                super.removeListener(listener)
+                val wrapped = wrappedListeners.remove(listener) ?: listener
+                super.removeListener(wrapped)
             }
 
             override fun getAvailableCommands(): Player.Commands {
@@ -234,19 +279,36 @@ class AuralisMediaService : MediaSessionService() {
         serviceScope.launch {
             audioPlayer.currentTrack.collectLatest { track ->
                 if (track != null) {
-                    currentArtworkBitmap = null
-
                     val rawUrl = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
+                    val cachedBitmap = if (!rawUrl.isNullOrBlank()) {
+                        imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(rawUrl))?.bitmap
+                    } else null
+
+                    if (cachedBitmap != null) {
+                        currentArtworkBitmap = ArtworkProcessor.processForMediaNotification(cachedBitmap, targetSize = 800)
+                    } else {
+                        currentArtworkBitmap = null
+                    }
+
                     val isOfficialCdn = !rawUrl.isNullOrBlank() &&
                             (rawUrl.contains("googleusercontent.com") || rawUrl.contains("ggpht.com") ||
-                             rawUrl.contains("mzstatic.com") || rawUrl.contains("scdn.co"))
+                             rawUrl.contains("mzstatic.com") || rawUrl.contains("scdn.co") ||
+                             rawUrl.contains("jiosaavn.com") || rawUrl.contains("saavncdn.com"))
                     val initialArtworkUri = if (isOfficialCdn) android.net.Uri.parse(rawUrl) else null
 
-                    val initialMeta = androidx.media3.common.MediaMetadata.Builder()
+                    val initialMetaBuilder = androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(track.title)
                         .setArtist(track.artist)
                         .setArtworkUri(initialArtworkUri)
-                        .build()
+
+                    if (currentArtworkBitmap != null) {
+                        initialMetaBuilder.setArtworkData(
+                            ArtworkProcessor.toByteArray(currentArtworkBitmap!!, quality = 95),
+                            androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER
+                        )
+                    }
+
+                    val initialMeta = initialMetaBuilder.build()
                     val initialItem = androidx.media3.common.MediaItem.Builder()
                         .setMediaId(track.id)
                         .setMediaMetadata(initialMeta)
@@ -256,7 +318,9 @@ class AuralisMediaService : MediaSessionService() {
                     currentActiveMediaItem = initialItem
 
                     try {
-                        player.setMediaItem(initialItem)
+                        if (player.currentMediaItem?.mediaId != track.id && player.currentMediaItem?.localConfiguration == null) {
+                            player.setMediaItem(initialItem)
+                        }
                     } catch (_: Exception) {}
 
                     withContext(Dispatchers.Main) {
@@ -435,6 +499,12 @@ class AuralisMediaService : MediaSessionService() {
         return builder.build()
     }
 
+    private val imageLoader by lazy {
+        ImageLoader.Builder(applicationContext)
+            .respectCacheHeaders(false)
+            .build()
+    }
+
     private fun updateNotification(track: Track?, isPlaying: Boolean, isFavorite: Boolean = false) {
         val notifManager = NotificationManagerCompat.from(this)
         val notif = buildNotification(track, isPlaying, isFavorite, currentArtworkBitmap)
@@ -454,7 +524,6 @@ class AuralisMediaService : MediaSessionService() {
                     val masterUrl = MasterArtworkResolver.resolveMasterArtworkUrl(trackTitle, trackArtist, thumbUrl)
                     val candidates = (listOfNotNull(masterUrl) + ArtworkProcessor.getHighResArtworkCandidates(thumbUrl)).distinct()
 
-                    val loader = ImageLoader(applicationContext)
                     var loadedBitmap: Bitmap? = null
                     var resolvedUrl = masterUrl ?: thumbUrl ?: ""
 
@@ -464,25 +533,30 @@ class AuralisMediaService : MediaSessionService() {
                                 .data(candidate)
                                 .allowHardware(false)
                                 .build()
-                            val drawable = loader.execute(req).drawable
-                            if (drawable is BitmapDrawable && drawable.bitmap.width > 0 && drawable.bitmap.height > 0) {
-                                loadedBitmap = drawable.bitmap
-                                resolvedUrl = candidate
-                                break
+                            val drawable = imageLoader.execute(req).drawable
+                            if (drawable is BitmapDrawable) {
+                                val bmp = drawable.bitmap
+                                // Reject YouTube's 120x90 dummy placeholder returned on missing maxresdefault
+                                val isYouTubeDummy = bmp.width <= 120 && bmp.height <= 90
+                                if (!isYouTubeDummy && bmp.width > 0 && bmp.height > 0) {
+                                    loadedBitmap = bmp
+                                    resolvedUrl = candidate
+                                    break
+                                }
                             }
                         } catch (_: Exception) {}
                     }
 
                     if (loadedBitmap != null && track != null) {
-                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap)
+                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap, targetSize = 800)
                         currentArtworkBitmap = processed
                         val artworkBytes = ArtworkProcessor.toByteArray(processed, quality = 95)
 
-                        val isMasterCdn = resolvedUrl.isNotBlank() && !resolvedUrl.contains("i.ytimg.com") && !resolvedUrl.contains("img.youtube.com")
+                        val isHighResCdn = resolvedUrl.isNotBlank() && !resolvedUrl.contains("hqdefault.jpg") && !resolvedUrl.contains("mqdefault.jpg")
                         val updatedMeta = androidx.media3.common.MediaMetadata.Builder()
                             .setTitle(track.title)
                             .setArtist(track.artist)
-                            .setArtworkUri(if (isMasterCdn) android.net.Uri.parse(resolvedUrl) else null)
+                            .setArtworkUri(if (isHighResCdn) android.net.Uri.parse(resolvedUrl) else null)
                             .setArtworkData(artworkBytes, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                             .build()
                         val updatedItem = androidx.media3.common.MediaItem.Builder()
@@ -493,7 +567,7 @@ class AuralisMediaService : MediaSessionService() {
                         currentActiveMetadata = updatedMeta
                         currentActiveMediaItem = updatedItem
 
-                        // Update MediaSession with artworkData byte array for full-bleed background in Android 13/14 Quick Settings & Lockscreen
+                        // Update MediaSession with artworkData byte array and URI for studio clarity in Android 13/14/15 Quick Settings & Lockscreen
                         withContext(Dispatchers.Main) {
                             try {
                                 mediaSession?.player?.setMediaItem(updatedItem)

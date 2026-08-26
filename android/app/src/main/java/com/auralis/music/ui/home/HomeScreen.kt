@@ -1,8 +1,10 @@
 package com.auralis.music.ui.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -74,17 +76,21 @@ val OLIVE_CARD_BG = Color(0xFF4A502E)
  * - Dynamic YouTube Music Carousel Shelves
  * - Trending Community Playlists
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     uiState: HomeUiState,
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
+    favoriteTracks: List<Track> = emptyList(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueue: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
     onOpenListenTogether: () -> Unit = {},
     onNavigateToExplore: () -> Unit = {},
     onMoodSelect: (String?) -> Unit = {},
@@ -93,6 +99,8 @@ fun HomeScreen(
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -210,6 +218,11 @@ fun HomeScreen(
                                                                 }
                                                                 else -> {}
                                                             }
+                                                        },
+                                                        onLongClick = {
+                                                            if (item.type == SpeedDialType.TRACK && item.track != null) {
+                                                                selectedTrackForMenu = item.track
+                                                            }
                                                         }
                                                     )
                                                 }
@@ -303,7 +316,10 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .width(quickPickRowWidth)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onTrackClick(track, uiState.quickPicks) }
+                                    .combinedClickable(
+                                        onClick = { onTrackClick(track, uiState.quickPicks) },
+                                        onLongClick = { selectedTrackForMenu = track }
+                                    )
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -370,7 +386,11 @@ fun HomeScreen(
                             Column(
                                 modifier = Modifier
                                     .width(115.dp)
-                                    .clickable { onTrackClick(track, listOf(track)) }
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .combinedClickable(
+                                        onClick = { onTrackClick(track, listOf(track)) },
+                                        onLongClick = { selectedTrackForMenu = track }
+                                    )
                                     .padding(4.dp)
                             ) {
                                 ArtworkCard(
@@ -511,7 +531,11 @@ fun HomeScreen(
                                 Column(
                                     modifier = Modifier
                                         .width(115.dp)
-                                        .clickable { onTrackClick(track, simRec.items) }
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .combinedClickable(
+                                            onClick = { onTrackClick(track, simRec.items) },
+                                            onLongClick = { selectedTrackForMenu = track }
+                                        )
                                         .padding(4.dp)
                                 ) {
                                     ArtworkCard(
@@ -576,7 +600,11 @@ fun HomeScreen(
                                     Column(
                                         modifier = Modifier
                                             .width(120.dp)
-                                            .clickable { onTrackClick(track, section.items) }
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .combinedClickable(
+                                                onClick = { onTrackClick(track, section.items) },
+                                                onLongClick = { selectedTrackForMenu = track }
+                                            )
                                             .padding(4.dp)
                                     ) {
                                         ArtworkCard(
@@ -666,15 +694,22 @@ fun HomeScreen(
 
     // Options Menu Bottom Sheet
     selectedTrackForMenu?.let { track ->
+        val isFav = favoriteTracks.any { it.id == track.id }
         TrackOptionsMenu(
             track = track,
-            isFavorite = false,
+            isFavorite = isFav,
             userPlaylists = userPlaylists,
             onToggleFavorite = { onFavoriteToggle(track) },
-            onPlayNext = {},
-            onAddToQueue = {},
+            onPlayNext = { onPlayNext(track) },
+            onAddToQueue = { onAddToQueue(track) },
+            onStartRadio = { onStartRadio(track) },
+            onGoToArtist = {
+                onArtistClick(Artist(id = "", name = track.artist))
+            },
             onAddToPlaylist = { playlist -> onAddToPlaylist(playlist.id, track) },
             onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAdd(title, track) },
+            isInListenTogetherRoom = isInListenTogetherRoom,
+            onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
         )
     }
@@ -684,11 +719,13 @@ fun HomeScreen(
 // 🔲 SPEED DIAL TILE (Artist Circle, Track Square, 5-Dice Surprise Tile)
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SpeedDialTile(
     item: SpeedDialItem,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     if (item.type == SpeedDialType.PLACEHOLDER) {
         Box(modifier = modifier)
@@ -770,7 +807,10 @@ private fun SpeedDialTile(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(Color(0xFF1B1D16))
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         if (!item.image.isNullOrBlank()) {
             ArtworkCard(
