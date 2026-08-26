@@ -98,10 +98,12 @@ fun AuralisApp(
     val isUserLoggedIn = (isFirebaseUserActive && authUiState.profile.email != "Not connected") ||
                          (authUiState.profile.isGoogleConnected && 
                           authUiState.profile.uid.isNotBlank() && 
-                          authUiState.profile.email != "Not connected")
-    
-    var isGuestSessionActive by remember { mutableStateOf(false) }
-    val isAppUnlocked = isUserLoggedIn || isGuestSessionActive
+                          authUiState.profile.email != "Not connected") ||
+                         (authUiState.profile.uid.isNotBlank() && 
+                          authUiState.profile.email != "Not connected" && 
+                          authUiState.profile.email.isNotBlank())
+
+    val isAppUnlocked = isUserLoggedIn
 
     if (!isAppUnlocked) {
         com.auralis.music.ui.onboarding.WelcomeScreen(
@@ -114,9 +116,6 @@ fun AuralisApp(
             },
             onSignInWithEmail = { email, password ->
                 authViewModel.signInWithEmail(email, password) {}
-            },
-            onContinueAsGuest = {
-                isGuestSessionActive = true
             }
         )
         return
@@ -391,6 +390,8 @@ fun AuralisApp(
                                     uiState = libraryUiState,
                                     currentTrackId = playerUiState.currentTrack?.id,
                                     isPlaying = playerUiState.isPlaying,
+                                    userName = authUiState.profile.displayName.ifBlank { "You" },
+                                    userAvatarUrl = authUiState.profile.avatarUrl,
                                     onFilterSelect = { libraryViewModel.setFilter(it) },
                                     onCreatePlaylist = { libraryViewModel.createPlaylist(it) },
                                     onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
@@ -529,7 +530,6 @@ fun AuralisApp(
                 onSyncLikedMusic = { authViewModel.syncLikedMusic() },
                 onDisconnect = {
                     authViewModel.disconnectAccount()
-                    isGuestSessionActive = false
                     isProfileOpen = false
                 },
                 onClosePlaylistSelector = { authViewModel.closePlaylistSelectDialog() },
