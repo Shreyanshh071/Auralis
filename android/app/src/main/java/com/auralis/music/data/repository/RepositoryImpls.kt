@@ -94,7 +94,7 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun addTrackToPlaylist(playlistId: String, track: Track) {
-        trackDao.upsertTrack(track.toEntity())
+        trackDao.upsertTrackPreservingFavorite(track.toEntity())
         val orderedTracks = playlistDao.getOrderedTracksForPlaylist(playlistId)
         val nextPos = orderedTracks.size
         playlistDao.insertCrossRef(PlaylistTrackCrossRef(playlistId, track.id, nextPos))
@@ -109,7 +109,7 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>) {
-        trackDao.upsertTracks(tracks.map { it.toEntity() })
+        trackDao.upsertTracksPreservingFavorite(tracks.map { it.toEntity() })
         playlistDao.clearPlaylistTracks(playlistId)
         val refs = tracks.mapIndexed { index, track ->
             PlaylistTrackCrossRef(playlistId, track.id, index)
@@ -118,7 +118,7 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>) {
-        trackDao.upsertTracks(tracks.map { it.toEntity() })
+        trackDao.upsertTracksPreservingFavorite(tracks.map { it.toEntity() })
         playlistDao.clearPlaylistTracks(playlistId)
         val refs = tracks.mapIndexed { index, track ->
             PlaylistTrackCrossRef(playlistId, track.id, index)
@@ -171,7 +171,7 @@ class HistoryRepositoryImpl(
 
     override suspend fun addToHistory(track: Track) {
         if (track.id.isBlank()) return
-        trackDao.upsertTrack(track.toEntity())
+        trackDao.upsertTrackPreservingFavorite(track.toEntity())
         historyDao.upsertHistory(HistoryEntity(trackId = track.id, playedAt = System.currentTimeMillis()))
         historyDao.pruneHistoryToCap()
     }
@@ -190,7 +190,7 @@ class HistoryRepositoryImpl(
 
     override suspend fun recordPlay(track: Track) {
         if (track.id.isBlank()) return
-        trackDao.upsertTrack(track.toEntity())
+        trackDao.upsertTrackPreservingFavorite(track.toEntity())
         val existing = playCountDao.getPlayCount(track.id)
         val count = (existing?.count ?: 0) + 1
         playCountDao.upsertPlayCount(

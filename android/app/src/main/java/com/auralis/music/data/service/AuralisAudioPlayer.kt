@@ -20,6 +20,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.domain.model.Track
 import com.auralis.music.service.AuralisMediaService
+import com.auralis.music.ui.components.getHighResArtworkUrl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     val youTubeEngine = YouTubeAudioEngine(appContext)
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    init {
+        com.auralis.music.data.network.AudioStreamResolver.init(appContext)
+    }
+
     private var isUsingExoPlayer = false
     private var streamResolveJob: Job? = null
 
@@ -51,8 +56,6 @@ class AuralisAudioPlayer private constructor(context: Context) {
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(
                 mapOf(
-                    "Referer" to "https://www.jiosaavn.com/",
-                    "Origin" to "https://www.jiosaavn.com",
                     "Accept" to "*/*"
                 )
             )
@@ -60,8 +63,19 @@ class AuralisAudioPlayer private constructor(context: Context) {
         val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
             .setDataSourceFactory(httpDataSourceFactory)
 
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 50_000,
+                /* bufferForPlaybackMs = */ 400,
+                /* bufferForPlaybackAfterRebufferMs = */ 1_000
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         ExoPlayer.Builder(appContext)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
             .build().apply {
                 val audioAttributes = AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -98,7 +112,13 @@ class AuralisAudioPlayer private constructor(context: Context) {
                             Player.STATE_ENDED -> {
                                 _isPlaying.value = false
                                 _isBuffering.value = false
-                                onTrackCompletedCallback?.invoke()
+                                if (isUsingExoPlayer) {
+                                    try {
+                                        exoPlayer.stop()
+                                        exoPlayer.clearMediaItems()
+                                    } catch (_: Exception) {}
+                                    dispatchTrackCompleted()
+                                }
                             }
                             Player.STATE_IDLE -> _isBuffering.value = false
                         }
@@ -122,10 +142,11 @@ class AuralisAudioPlayer private constructor(context: Context) {
                         }
 
                         if (isUsingExoPlayer) {
+                            val savedPos = _playbackPositionMs.value
                             isUsingExoPlayer = false
                             _currentTrack.value?.let { track ->
-                                Log.d("AuralisPlayback", "[Fallback] Switching to YouTube HTML5 engine after ExoPlayer error")
-                                youTubeEngine.loadVideo(track.id)
+                                Log.d("AuralisPlayback", "[Fallback] Switching to YouTube HTML5 engine after ExoPlayer error (seek=${savedPos}ms)")
+                                youTubeEngine.loadVideo(track.id, savedPos)
                             }
                         }
                     }
@@ -151,7 +172,25 @@ class AuralisAudioPlayer private constructor(context: Context) {
     private val _playbackError = MutableStateFlow<String?>(null)
     val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
 
-    private var onTrackCompletedCallback: (() -> Unit)? = null
+    private val onTrackCompletedListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+    private val lastCompletedSessionId = java.util.concurrent.atomic.AtomicLong(-1L)
+
+    private fun dispatchTrackCompleted(completedSessionId: Long = currentSessionId.get()) {
+        if (completedSessionId != currentSessionId.get()) {
+            Log.d("AuralisPlayback", "[Stale Track Completed dropped] completedSessionId=$completedSessionId vs currentSession=${currentSessionId.get()}")
+            return
+        }
+        if (lastCompletedSessionId.getAndSet(completedSessionId) != completedSessionId) {
+            Log.d("AuralisPlayback", "[Track Completed #$completedSessionId] Dispatching completion to ${onTrackCompletedListeners.size} listeners")
+            for (listener in onTrackCompletedListeners) {
+                try {
+                    listener.invoke()
+                } catch (e: Exception) {
+                    Log.e("AuralisPlayback", "Error in onTrackCompletedListener: ${e.message}")
+                }
+            }
+        }
+    }
 
     init {
         // Collect YouTube engine states
@@ -186,7 +225,7 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
         youTubeEngine.setOnTrackCompletedCallback {
             if (!isUsingExoPlayer) {
-                onTrackCompletedCallback?.invoke()
+                dispatchTrackCompleted()
             }
         }
 
@@ -205,8 +244,18 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun setOnTrackCompletedCallback(callback: () -> Unit) {
-        this.onTrackCompletedCallback = callback
-        youTubeEngine.setOnTrackCompletedCallback(callback)
+        onTrackCompletedListeners.clear()
+        onTrackCompletedListeners.add(callback)
+    }
+
+    fun addOnTrackCompletedListener(listener: () -> Unit) {
+        if (!onTrackCompletedListeners.contains(listener)) {
+            onTrackCompletedListeners.add(listener)
+        }
+    }
+
+    fun removeOnTrackCompletedListener(listener: () -> Unit) {
+        onTrackCompletedListeners.remove(listener)
     }
 
     private val currentSessionId = java.util.concurrent.atomic.AtomicLong(0L)
@@ -217,11 +266,21 @@ class AuralisAudioPlayer private constructor(context: Context) {
         requestId: Long = currentSessionId.incrementAndGet()
     ) {
         currentSessionId.set(requestId)
+        streamResolveJob?.cancel()
+
+        // 1. Immediately and synchronously stop & flush all previous playback
+        try {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+        } catch (_: Exception) {}
+        youTubeEngine.stop()
+
         _currentTrack.value = track
         _playbackError.value = null
         _durationMs.value = track.duration * 1000L
         _playbackPositionMs.value = initialSeekMs
         _isBuffering.value = true
+        _isPlaying.value = false
 
         Log.d("AuralisPlayback", "[Play Request #$requestId] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s, initialSeek=${initialSeekMs}ms")
 
@@ -238,21 +297,89 @@ class AuralisAudioPlayer private constructor(context: Context) {
             Log.w("AuralisPlayback", "[MediaSession Service] startForegroundService notice: ${e.message}")
         }
 
-        try {
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-        } catch (_: Exception) {}
+        // Fast-path resolution for native ExoPlayer audio stream (stutter-free native AudioTrack)
+        streamResolveJob = scope.launch {
+            var directUrl: String? = null
+            try {
+                withTimeoutOrNull(12000L) {
+                    directUrl = AudioStreamResolver.resolveAudioStream(track.id, track.title, track.artist)
+                }
+            } catch (e: Exception) {
+                Log.w("AuralisPlayback", "[Resolver] Stream resolve notice: ${e.message}")
+            }
 
-        isUsingExoPlayer = false
-        Log.d("AuralisPlayback", "[Audio Engine] Direct routing to YouTube Web Engine for '${track.title}' (${track.id}) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
-        youTubeEngine.loadVideo(track.id, initialSeekMs, requestId)
+            if (currentSessionId.get() != requestId) return@launch
+
+            if (!directUrl.isNullOrBlank()) {
+                Log.d("AuralisPlayback", "[Audio Engine] Direct native ExoPlayer stream resolved for '${track.title}' ($directUrl)")
+                try {
+                    youTubeEngine.stop()
+                    isUsingExoPlayer = true
+
+                    val highResThumb = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
+                    val artworkUri = if (!highResThumb.isNullOrBlank()) Uri.parse(highResThumb) else null
+
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(directUrl)
+                        .setMediaId(track.id)
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(track.title)
+                                .setArtist(track.artist)
+                                .setArtworkUri(artworkUri)
+                                .build()
+                        )
+                        .build()
+
+                    exoPlayer.setMediaItem(mediaItem)
+                    exoPlayer.prepare()
+                    if (initialSeekMs > 0) {
+                        exoPlayer.seekTo(initialSeekMs)
+                    }
+                    exoPlayer.play()
+                    return@launch
+                } catch (e: Exception) {
+                    Log.e("AuralisPlayback", "[Audio Engine] ExoPlayer start failed, falling back to YouTube engine: ${e.message}")
+                }
+            }
+
+            // Fallback to hardened YouTube web engine
+            try {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+            } catch (_: Exception) {}
+
+            isUsingExoPlayer = false
+            Log.d("AuralisPlayback", "[Audio Engine] Routing to YouTube Web Engine for '${track.title}' (${track.id}) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
+            youTubeEngine.loadVideo(track.id, initialSeekMs, requestId)
+        }
+    }
+
+    fun prefetchTrack(track: Track?) {
+        if (track == null) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (com.auralis.music.data.network.AudioStreamResolver.getCachedStream(track.id) == null) {
+                    Log.d("AuralisPlayback", "[Prefetch] Pre-resolving stream for '${track.title}' (${track.id}) in background...")
+                    com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(track.id, track.title, track.artist)
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     fun resume() {
-        youTubeEngine.play()
+        if (isUsingExoPlayer) {
+            exoPlayer.play()
+        } else {
+            youTubeEngine.play()
+        }
+        _isPlaying.value = true
     }
 
     fun pause() {
+        if (isUsingExoPlayer) {
+            exoPlayer.pause()
+        }
         youTubeEngine.pause()
         _isPlaying.value = false
     }
@@ -267,7 +394,11 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     fun seekTo(positionMs: Long) {
         _playbackPositionMs.value = positionMs
-        youTubeEngine.seekTo(positionMs)
+        if (isUsingExoPlayer) {
+            exoPlayer.seekTo(positionMs)
+        } else {
+            youTubeEngine.seekTo(positionMs)
+        }
     }
 
     private val _isFavorite = MutableStateFlow(false)

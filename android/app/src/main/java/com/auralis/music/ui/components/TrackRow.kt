@@ -1,6 +1,8 @@
 package com.auralis.music.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -17,6 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.auralis.music.domain.model.Track
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackRow(
     track: Track,
@@ -31,7 +34,10 @@ fun TrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onTrackClick)
+            .combinedClickable(
+                onClick = onTrackClick,
+                onLongClick = onMoreClick
+            )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

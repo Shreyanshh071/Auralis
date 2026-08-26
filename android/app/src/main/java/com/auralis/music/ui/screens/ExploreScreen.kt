@@ -19,6 +19,7 @@ fun ExploreScreen(
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
+    favoriteTracks: List<Track> = emptyList(),
     onQueryChange: (String) -> Unit,
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -26,6 +27,9 @@ fun ExploreScreen(
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit,
     onCreatePlaylistAndAdd: (String, Track) -> Unit,
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueue: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
     onRemoveRecentQuery: (String) -> Unit,
     onClearRecentQueries: () -> Unit = {},
     onOpenRecognition: (RecognitionMode) -> Unit = {},
@@ -36,6 +40,8 @@ fun ExploreScreen(
     onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
     onCloseArtist: () -> Unit = {},
     onBack: () -> Unit = {},
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     PureExploreScreen(
@@ -44,6 +50,7 @@ fun ExploreScreen(
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,
         userPlaylists = userPlaylists,
+        favoriteTracks = favoriteTracks,
         onQueryChange = onQueryChange,
         onSearch = onSearch,
         onClearSearch = onClearSearch,
@@ -51,6 +58,9 @@ fun ExploreScreen(
         onFavoriteToggle = onFavoriteToggle,
         onAddToPlaylist = onAddToPlaylist,
         onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+        onPlayNext = onPlayNext,
+        onAddToQueue = onAddToQueue,
+        onStartRadio = onStartRadio,
         onRemoveRecentQuery = onRemoveRecentQuery,
         onClearRecentQueries = onClearRecentQueries,
         onOpenRecognition = onOpenRecognition,
@@ -61,6 +71,8 @@ fun ExploreScreen(
         onOpenArtist = onOpenArtist,
         onCloseArtist = onCloseArtist,
         onBack = onBack,
+        isInListenTogetherRoom = isInListenTogetherRoom,
+        onRecommendToRoom = onRecommendToRoom,
         modifier = modifier
     )
 }

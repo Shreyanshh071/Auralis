@@ -7,7 +7,9 @@ import com.auralis.music.data.sync.ListenTogetherManager
 import com.auralis.music.data.sync.ListenTogetherSyncMath
 import com.auralis.music.data.sync.NativeRoomState
 import com.auralis.music.data.sync.RoomMember
+import com.auralis.music.data.sync.RoomRecommendation
 import com.auralis.music.domain.model.Track
+import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,14 +20,19 @@ import kotlinx.coroutines.launch
 data class ListenTogetherUiState(
     val activeRoom: NativeRoomState? = null,
     val members: List<RoomMember> = emptyList(),
+    val recommendations: List<RoomRecommendation> = emptyList(),
+    val currentUserId: String = "",
     val isHost: Boolean = false,
     val isConnecting: Boolean = false,
     val errorMessage: String? = null,
-    val myDisplayName: String = "Listener"
+    val myDisplayName: String = "Listener",
+    val isSearchingRecommendations: Boolean = false,
+    val recommendationSearchResults: List<Track> = emptyList()
 )
 
 class ListenTogetherViewModel(
-    private val manager: ListenTogetherManager = ListenTogetherManager()
+    private val manager: ListenTogetherManager = ListenTogetherManager(),
+    private val searchRepository: SearchRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ListenTogetherUiState())
@@ -33,6 +40,8 @@ class ListenTogetherViewModel(
 
     private var roomJob: Job? = null
     private var membersJob: Job? = null
+    private var recommendationsJob: Job? = null
+    private var searchJob: Job? = null
 
     private var lastSyncedTrackId: String? = null
     private var lastSyncedIsPlaying: Boolean? = null
@@ -45,6 +54,18 @@ class ListenTogetherViewModel(
     var onGetLocalPosition: (() -> Long)? = null
     var onGetLocalIsPlaying: (() -> Boolean)? = null
     var onGetLocalTrackId: (() -> String?)? = null
+
+    var onHostPlayTrack: ((track: Track) -> Unit)? = null
+    var onHostAddToQueue: ((track: Track) -> Unit)? = null
+
+    init {
+        viewModelScope.launch {
+            try {
+                val uid = manager.ensureAuthenticated()
+                _uiState.update { it.copy(currentUserId = uid) }
+            } catch (_: Exception) {}
+        }
+    }
 
     fun setDisplayName(name: String) {
         _uiState.update { it.copy(myDisplayName = name) }
@@ -59,7 +80,7 @@ class ListenTogetherViewModel(
         _uiState.update { it.copy(isConnecting = true, errorMessage = null) }
         viewModelScope.launch {
             try {
-                val (roomCode, _) = manager.createRoom(
+                val (roomCode, uid) = manager.createRoom(
                     hostDisplayName = _uiState.value.myDisplayName,
                     initialTrack = initialTrack,
                     queue = queue,
@@ -68,7 +89,7 @@ class ListenTogetherViewModel(
                 )
                 lastSyncedTrackId = initialTrack?.id
                 lastSyncedIsPlaying = isPlaying
-                _uiState.update { it.copy(isHost = true, isConnecting = false) }
+                _uiState.update { it.copy(isHost = true, isConnecting = false, currentUserId = uid) }
                 startObservingRoom(roomCode)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Create Room Failed]: ${e.message}", e)
@@ -83,13 +104,15 @@ class ListenTogetherViewModel(
         viewModelScope.launch {
             try {
                 val initialRoomState = manager.joinRoom(roomCode, _uiState.value.myDisplayName)
+                val uid = manager.ensureAuthenticated()
                 lastSyncedTrackId = null
                 lastSyncedIsPlaying = null
                 _uiState.update {
                     it.copy(
                         activeRoom = initialRoomState,
                         isHost = false,
-                        isConnecting = false
+                        isConnecting = false,
+                        currentUserId = uid
                     )
                 }
                 // Perform immediate initial playback sync on join
@@ -130,14 +153,114 @@ class ListenTogetherViewModel(
         }
         roomJob?.cancel()
         membersJob?.cancel()
+        recommendationsJob?.cancel()
+        searchJob?.cancel()
         lastSyncedTrackId = null
         lastSyncedIsPlaying = null
-        _uiState.update { it.copy(activeRoom = null, members = emptyList(), isHost = false) }
+        _uiState.update {
+            it.copy(
+                activeRoom = null,
+                members = emptyList(),
+                recommendations = emptyList(),
+                recommendationSearchResults = emptyList(),
+                isSearchingRecommendations = false,
+                isHost = false
+            )
+        }
+    }
+
+    fun searchRecommendations(query: String) {
+        searchJob?.cancel()
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(recommendationSearchResults = emptyList(), isSearchingRecommendations = false) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            _uiState.update { it.copy(isSearchingRecommendations = true) }
+            try {
+                val results = searchRepository?.searchSongs(trimmed) ?: emptyList()
+                _uiState.update { it.copy(recommendationSearchResults = results, isSearchingRecommendations = false) }
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Search songs error: ${e.message}", e)
+                _uiState.update { it.copy(recommendationSearchResults = emptyList(), isSearchingRecommendations = false) }
+            }
+        }
+    }
+
+    fun clearRecommendationSearch() {
+        searchJob?.cancel()
+        _uiState.update { it.copy(recommendationSearchResults = emptyList(), isSearchingRecommendations = false) }
+    }
+
+    fun recommendSong(track: Track, note: String = "") {
+        val roomCode = _uiState.value.activeRoom?.code ?: return
+        viewModelScope.launch {
+            try {
+                manager.recommendSong(
+                    roomCode = roomCode,
+                    track = track,
+                    note = note,
+                    recommenderName = _uiState.value.myDisplayName
+                )
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Failed recommending song: ${e.message}", e)
+            }
+        }
+    }
+
+    fun upvoteRecommendation(recommendationId: String) {
+        val roomCode = _uiState.value.activeRoom?.code ?: return
+        viewModelScope.launch {
+            try {
+                manager.upvoteRecommendation(roomCode, recommendationId)
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Failed upvoting recommendation: ${e.message}", e)
+            }
+        }
+    }
+
+    fun dismissRecommendation(recommendationId: String) {
+        val roomCode = _uiState.value.activeRoom?.code ?: return
+        viewModelScope.launch {
+            try {
+                manager.deleteRecommendation(roomCode, recommendationId)
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Failed dismissing recommendation: ${e.message}", e)
+            }
+        }
+    }
+
+    fun playRecommendationNow(recommendation: RoomRecommendation) {
+        val roomCode = _uiState.value.activeRoom?.code ?: return
+        if (!_uiState.value.isHost) return
+        viewModelScope.launch {
+            try {
+                manager.updateRecommendationStatus(roomCode, recommendation.id, "played")
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Failed setting recommendation status played: ${e.message}", e)
+            }
+            onHostPlayTrack?.invoke(recommendation.track)
+        }
+    }
+
+    fun addRecommendationToQueue(recommendation: RoomRecommendation) {
+        val roomCode = _uiState.value.activeRoom?.code ?: return
+        if (!_uiState.value.isHost) return
+        viewModelScope.launch {
+            try {
+                manager.updateRecommendationStatus(roomCode, recommendation.id, "accepted")
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Failed setting recommendation status accepted: ${e.message}", e)
+            }
+            onHostAddToQueue?.invoke(recommendation.track)
+        }
     }
 
     private fun startObservingRoom(roomCode: String) {
         roomJob?.cancel()
         membersJob?.cancel()
+        recommendationsJob?.cancel()
 
         roomJob = viewModelScope.launch {
             manager.observeRoomState(roomCode).collect { state ->
@@ -148,6 +271,7 @@ class ListenTogetherViewModel(
                         it.copy(
                             activeRoom = null,
                             members = emptyList(),
+                            recommendations = emptyList(),
                             isHost = false,
                             errorMessage = if (state?.status == "closed") "Room was closed by host" else null
                         )
@@ -166,6 +290,12 @@ class ListenTogetherViewModel(
         membersJob = viewModelScope.launch {
             manager.observeRoomMembers(roomCode).collect { membersList ->
                 _uiState.update { it.copy(members = membersList) }
+            }
+        }
+
+        recommendationsJob = viewModelScope.launch {
+            manager.observeRecommendations(roomCode).collect { recs ->
+                _uiState.update { it.copy(recommendations = recs) }
             }
         }
     }

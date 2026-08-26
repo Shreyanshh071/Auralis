@@ -1,8 +1,10 @@
 package com.auralis.music.ui.library
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +99,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.SavedAlbum
 import com.auralis.music.domain.model.SavedArtist
@@ -157,6 +160,12 @@ fun LibraryScreen(
     onSyncPlaylist: (Playlist) -> Unit = {},
     onEditPlaylist: (String, String, String?, String?) -> Unit = { _, _, _, _ -> },
     onAddToQueue: (List<Track>) -> Unit = {},
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueueTrack: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
+    onOpenArtist: (Artist) -> Unit = {},
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isGridView by remember { mutableStateOf(uiState.isGridView) }
@@ -208,35 +217,44 @@ fun LibraryScreen(
         )
 
         // Render Track Options Menu for playlist tracks
-        if (selectedTrackForMenu != null) {
-            ModalBottomSheet(
-                onDismissRequest = { selectedTrackForMenu = null },
-                containerColor = CARD_DARK_BG
-            ) {
-                TrackOptionsMenu(
-                    track = selectedTrackForMenu!!,
-                    isFavorite = false,
-                    userPlaylists = uiState.playlists,
-                    onToggleFavorite = { onFavoriteToggle(selectedTrackForMenu!!) },
-                    onPlayNext = {
-                        onAddToQueue?.invoke(listOf(selectedTrackForMenu!!))
-                        selectedTrackForMenu = null
-                    },
-                    onAddToQueue = {
-                        onAddToQueue?.invoke(listOf(selectedTrackForMenu!!))
-                        selectedTrackForMenu = null
-                    },
-                    onAddToPlaylist = { playlist ->
-                        onAddToPlaylist(playlist.id, selectedTrackForMenu!!)
-                        selectedTrackForMenu = null
-                    },
-                    onCreatePlaylistAndAdd = { title ->
-                        onCreatePlaylist(title)
-                        selectedTrackForMenu = null
-                    },
-                    onDismiss = { selectedTrackForMenu = null }
-                )
-            }
+        selectedTrackForMenu?.let { track ->
+            val isFav = uiState.favorites.any { it.id == track.id }
+            TrackOptionsMenu(
+                track = track,
+                isFavorite = isFav,
+                userPlaylists = uiState.playlists,
+                onToggleFavorite = { onFavoriteToggle(track) },
+                onPlayNext = {
+                    onPlayNext(track)
+                    selectedTrackForMenu = null
+                },
+                onAddToQueue = {
+                    onAddToQueueTrack(track)
+                    selectedTrackForMenu = null
+                },
+                onStartRadio = {
+                    onStartRadio(track)
+                    selectedTrackForMenu = null
+                },
+                onGoToArtist = {
+                    onOpenArtist(Artist(id = "", name = track.artist))
+                    selectedTrackForMenu = null
+                },
+                onAddToPlaylist = { playlist ->
+                    onAddToPlaylist(playlist.id, track)
+                    selectedTrackForMenu = null
+                },
+                onCreatePlaylistAndAdd = { title ->
+                    onCreatePlaylist(title)
+                    selectedTrackForMenu = null
+                },
+                isInListenTogetherRoom = isInListenTogetherRoom,
+                onRecommendToRoom = { trk ->
+                    onRecommendToRoom?.invoke(trk)
+                    selectedTrackForMenu = null
+                },
+                onDismiss = { selectedTrackForMenu = null }
+            )
         }
         return
     }
@@ -1498,7 +1516,10 @@ private fun PlaylistDetailView(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onPlayTrack(track, displayedTracks) }
+                        .combinedClickable(
+                            onClick = { onPlayTrack(track, displayedTracks) },
+                            onLongClick = { onMenuClick(track) }
+                        )
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

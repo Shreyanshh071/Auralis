@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -30,13 +32,21 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Pin
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,10 +54,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -64,6 +77,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.auralis.music.data.sync.RoomRecommendation
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.EqualizerBars
@@ -75,7 +89,7 @@ private val LISTEN_OLIVE_DARK = Color(0xFF282C1C)
 
 /**
  * Pixel-Perfect Fullscreen Listen Together Sheet.
- * Seamless dark glassmorphic design matching the Auralis design system.
+ * Includes real-time synced playback, participant list, and dynamic song recommendations.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +103,13 @@ fun ListenTogetherSheet(
     onCreateRoom: (Track?, List<Track>, Boolean, Long) -> Unit,
     onJoinRoom: (String) -> Unit,
     onLeaveRoom: () -> Unit,
+    onSearchRecommendations: (String) -> Unit = {},
+    onClearRecommendationSearch: () -> Unit = {},
+    onRecommendSong: (Track, String) -> Unit = { _, _ -> },
+    onUpvoteRecommendation: (String) -> Unit = {},
+    onDismissRecommendation: (String) -> Unit = {},
+    onPlayRecommendationNow: (RoomRecommendation) -> Unit = {},
+    onAddRecommendationToQueue: (RoomRecommendation) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -108,7 +129,7 @@ fun ListenTogetherSheet(
                 .padding(horizontal = 18.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // ── TOP BAR: TITLE & CLOSE (WITH SAFE INSETS & PROPER PADDING) ──
+            // ── TOP BAR: TITLE & CLOSE ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -279,6 +300,7 @@ fun ListenTogetherSheet(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Connected Participants List
                 Box(
@@ -302,7 +324,7 @@ fun ListenTogetherSheet(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 200.dp),
+                                .heightIn(max = 160.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(uiState.members) { member ->

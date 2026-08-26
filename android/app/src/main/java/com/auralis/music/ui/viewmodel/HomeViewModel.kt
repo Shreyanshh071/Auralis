@@ -358,45 +358,72 @@ class HomeViewModel(
 
     /**
      * Quick Picks:
-     * - If user has listening history: recommends tracks related to what the user is currently listening to
-     *   (via YouTube Music radio algorithm & related shelves for their recent/top tracks).
-     * - If first-time user / empty history: recommends official YouTube Music home feed / trending chart hits.
+     * - Discovers and aggregates songs across ALL artists the user frequently listens to
+     *   (sampling from listening history, heavy rotation, top played, and liked songs).
+     * - Samples top tracks and radio recommendations from up to 8 distinct artists the user loves.
+     * - Interleaves (round-robin) the tracks so Quick Picks is never saturated with just 1 artist,
+     *   giving a rich, diverse personalized feed.
+     * - If first-time user: falls back to YouTube Music home quick picks & trending hits.
      */
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val heavyRotation = historyRepository.getRecentHeavyRotation()
-            val userSeeds = (history.take(4) + heavyRotation.take(4)).distinctBy { it.id }
-            val quickPicksList = mutableListOf<Track>()
+            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
 
-            if (userSeeds.isNotEmpty()) {
-                // User has listening activity: Recommend songs directly related to what they are listening to
-                for (seedTrack in userSeeds.take(3)) {
-                    try {
-                        // 1. YouTube Music Radio Queue (Up Next algorithm)
-                        val radioTracks = innerTubeClient.getRadioTracks(seedTrack.id).take(8)
-                        quickPicksList.addAll(radioTracks)
+            val allUserTracks = (history + heavyRotation + topPlayed + likedSeeds).distinctBy { it.id }
 
-                        // 2. YouTube Music Related shelf endpoint
-                        val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(seedTrack.id)
-                        if (browseId != null || params != null) {
-                            val related = innerTubeClient.getRelated(browseId, params).take(6)
-                            quickPicksList.addAll(related)
+            // Group user tracks by artist to discover ALL distinct artists the user listens to
+            val artistTracksMap = mutableMapOf<String, MutableList<Track>>()
+            for (track in allUserTracks) {
+                val artist = track.artist.trim()
+                if (artist.isNotBlank() && !isInvalidArtistName(artist)) {
+                    artistTracksMap.getOrPut(artist) { mutableListOf() }.add(track)
+                }
+            }
+
+            val artistPools = Collections.synchronizedList(mutableListOf<MutableList<Track>>())
+
+            if (artistTracksMap.isNotEmpty()) {
+                // Sort artists by how many tracks user has listened to (descending user affinity)
+                val sortedArtists = artistTracksMap.entries
+                    .sortedByDescending { it.value.size }
+                    .map { it.key }
+                    .take(8) // Top 8 distinct artists
+
+                coroutineScope {
+                    sortedArtists.forEach { artistName ->
+                        launch(Dispatchers.IO) {
+                            val pool = mutableListOf<Track>()
+                            val userKnownTracks = artistTracksMap[artistName] ?: emptyList()
+
+                            // 1. Add 1-2 tracks the user loves by this artist
+                            pool.addAll(userKnownTracks.shuffled().take(2))
+
+                            // 2. Fetch radio tracks or top recommendations for this artist
+                            try {
+                                val seedTrack = userKnownTracks.firstOrNull()
+                                if (seedTrack != null) {
+                                    val radio = innerTubeClient.getRadioTracks(seedTrack.id).take(4)
+                                    pool.addAll(radio)
+                                } else {
+                                    val searchHits = searchRepository.search("$artistName songs").songs.take(4)
+                                    pool.addAll(searchHits)
+                                }
+                            } catch (_: Exception) {}
+
+                            if (pool.isNotEmpty()) {
+                                artistPools.add(pool.distinctBy { it.id }.toMutableList())
+                            }
                         }
-                    } catch (_: Exception) {}
+                    }
                 }
+            }
 
-                // If seed tracks had top artists, find similar top tracks from that artist
-                val topArtist = userSeeds.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
-                if (quickPicksList.size < 16 && !topArtist.isNullOrBlank()) {
-                    try {
-                        val artistHits = searchRepository.search("$topArtist radio").songs
-                        quickPicksList.addAll(artistHits)
-                    } catch (_: Exception) {}
-                }
-            } else {
-                // First-time user / New account: Recommend like YouTube Music
-                // 1. Try YouTube Music Home Feed (FEmusic_home) sections
+            // Fallback for new users or if not enough artist pools
+            val fallbackList = mutableListOf<Track>()
+            if (artistPools.size < 3) {
                 try {
                     val (_, sections) = innerTubeClient.getHome()
                     for (section in sections) {
@@ -405,26 +432,54 @@ class HomeViewModel(
                             section.title.contains("Listen again", ignoreCase = true) ||
                             section.title.contains("Trending", ignoreCase = true) ||
                             section.title.contains("Hits", ignoreCase = true)) {
-                            quickPicksList.addAll(section.items)
+                            fallbackList.addAll(section.items)
                         }
                     }
-                    if (quickPicksList.isEmpty() && sections.isNotEmpty()) {
-                        quickPicksList.addAll(sections.first().items)
+                    if (fallbackList.isEmpty()) {
+                        val trending = searchRepository.search("Top trending music hits").songs
+                        fallbackList.addAll(trending)
                     }
                 } catch (_: Exception) {}
+            }
 
-                // 2. Fallback to YouTube Music Trending Charts
-                if (quickPicksList.size < 16) {
-                    try {
-                        val trending = searchRepository.search("Top trending music charts").songs
-                        quickPicksList.addAll(trending)
-                    } catch (_: Exception) {}
+            // Round-Robin Interleave: Pick 1 track per artist per round to ensure diverse artist representation
+            val finalQuickPicks = mutableListOf<Track>()
+            val seenTrackIds = mutableSetOf<String>()
+            val artistAppearanceCount = mutableMapOf<String, Int>()
+
+            var round = 0
+            val maxRounds = 4
+            while (finalQuickPicks.size < 28 && round < maxRounds && artistPools.isNotEmpty()) {
+                var anyAdded = false
+                for (pool in artistPools) {
+                    if (pool.isNotEmpty()) {
+                        val track = pool.removeAt(0)
+                        val count = artistAppearanceCount.getOrDefault(track.artist, 0)
+                        if (count < 3 && seenTrackIds.add(track.id)) {
+                            finalQuickPicks.add(track)
+                            artistAppearanceCount[track.artist] = count + 1
+                            anyAdded = true
+                        }
+                    }
+                }
+                if (!anyAdded) break
+                round++
+            }
+
+            // If we still need more tracks, fill from fallback list
+            if (finalQuickPicks.size < 24 && fallbackList.isNotEmpty()) {
+                for (t in fallbackList) {
+                    val count = artistAppearanceCount.getOrDefault(t.artist, 0)
+                    if (count < 2 && seenTrackIds.add(t.id)) {
+                        finalQuickPicks.add(t)
+                        artistAppearanceCount[t.artist] = count + 1
+                        if (finalQuickPicks.size >= 28) break
+                    }
                 }
             }
 
-            val finalQuick = quickPicksList.distinctBy { it.id }.take(28)
-            if (finalQuick.isNotEmpty()) {
-                _uiState.update { it.copy(quickPicks = finalQuick) }
+            if (finalQuickPicks.isNotEmpty()) {
+                _uiState.update { it.copy(quickPicks = finalQuickPicks) }
             }
         } catch (_: Exception) {}
     }

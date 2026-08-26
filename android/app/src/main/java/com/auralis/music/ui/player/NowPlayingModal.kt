@@ -20,11 +20,13 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
@@ -250,9 +252,18 @@ fun NowPlayingModal(
     val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedColors.secondary, tween(250), label = "animSecondary")
     val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, tween(250), label = "animTertiary")
 
+    val dragOffsetY = remember { Animatable(0f) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
+            .graphicsLayer {
+                translationY = dragOffsetY.value
+                val dragFraction = (dragOffsetY.value / 600f).coerceIn(0f, 1f)
+                scaleX = 1f - (dragFraction * 0.08f)
+                scaleY = 1f - (dragFraction * 0.08f)
+                alpha = 1f - (dragFraction * 0.35f)
+            }
             .background(Color(0xFF08060C))
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -346,11 +357,42 @@ fun NowPlayingModal(
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── TOP BAR: DOWN CHEVRON + NOW PLAYING ARTIST ──
+            // ── TOP BAR: DOWN CHEVRON + NOW PLAYING ARTIST + PULL-DOWN DRAG GESTURE ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 6.dp),
+                    .padding(top = 6.dp, bottom = 6.dp)
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                coroutineScope.launch {
+                                    val nextVal = (dragOffsetY.value + dragAmount).coerceAtLeast(0f)
+                                    dragOffsetY.snapTo(nextVal)
+                                }
+                            },
+                            onDragEnd = {
+                                if (dragOffsetY.value > 160f) {
+                                    onDismiss()
+                                } else {
+                                    coroutineScope.launch {
+                                        dragOffsetY.animateTo(
+                                            0f,
+                                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                        )
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                coroutineScope.launch {
+                                    dragOffsetY.animateTo(
+                                        0f,
+                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                    )
+                                }
+                            }
+                        )
+                    },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {

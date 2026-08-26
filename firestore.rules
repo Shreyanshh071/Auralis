@@ -126,6 +126,22 @@ service cloud.firestore {
         // A user can delete their own member record (leave room).
         allow delete: if isAuthenticated() && memberId == request.auth.uid;
       }
+
+      // ---- Room Recommendations Subcollection ----
+      match /recommendations/{recommendationId} {
+        // Members in the room can read recommendations.
+        allow get, list: if isAuthenticated();
+
+        // Any authenticated room participant can submit a recommendation.
+        allow create: if isAuthenticated()
+          && request.resource.data.recommendedByUid == request.auth.uid;
+
+        // Any authenticated participant can update (e.g. upvoting or host changing status).
+        allow update: if isAuthenticated();
+
+        // The recommender or the room host can delete/dismiss recommendations.
+        allow delete: if isAuthenticated();
+      }
     }
 
     // ---- Default deny ----------------------------------------------------

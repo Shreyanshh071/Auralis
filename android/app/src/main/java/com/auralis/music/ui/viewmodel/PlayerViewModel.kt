@@ -187,6 +187,9 @@ class PlayerViewModel(
 
         triggerPlayback(track, debounceMs = 0L, requestId = reqId, initialPositionMs = initialPositionMs)
 
+        val upcomingTrack = qState.queue.getOrNull(qState.currentIndex + 1)
+        audioPlayer?.prefetchTrack(upcomingTrack)
+
         if (isAutoRadioMode) {
             fetchAndAppendRadioTracks(track)
         }
@@ -203,6 +206,8 @@ class PlayerViewModel(
                         it.copy(queue = qState.queue)
                     }
                     Log.d("AuralisPlayback", "[AutoRadio] Appended ${radioTracks.size} radio tracks for '${seedTrack.title}' (total queue: ${qState.queue.size})")
+                    val upcoming = qState.queue.getOrNull(qState.currentIndex + 1)
+                    audioPlayer?.prefetchTrack(upcoming)
                 } else {
                     loadFallbackTracks(seedTrack)
                 }
@@ -280,6 +285,9 @@ class PlayerViewModel(
                 )
             }
             triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
+
+            val upcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
+            audioPlayer?.prefetchTrack(upcoming)
 
             if (isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
                 fetchAndAppendRadioTracks(nextTrack)
@@ -413,10 +421,19 @@ class PlayerViewModel(
         _uiState.update { it.copy(repeatMode = nextMode) }
     }
 
-    fun toggleFavorite() {
-        val track = _uiState.value.currentTrack ?: return
+    fun playNext(track: Track) {
+        if (_uiState.value.currentTrack == null) {
+            playTrack(track, listOf(track), 0, isUserQueue = true)
+            return
+        }
+        val qState = queueManager.playNext(track)
+        _uiState.update { it.copy(queue = qState.queue) }
+    }
+
+    fun toggleFavorite(track: Track? = null) {
+        val target = track ?: _uiState.value.currentTrack ?: return
         viewModelScope.launch {
-            libraryRepository.toggleFavorite(track)
+            libraryRepository.toggleFavorite(target)
         }
     }
 
