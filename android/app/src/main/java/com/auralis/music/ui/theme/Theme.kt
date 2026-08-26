@@ -55,19 +55,36 @@ fun generateDynamicPalette(dominantColor: Color?, isDark: Boolean = true): Aural
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(dominantColor.toArgb(), hsv)
     val hue = hsv[0]
-    val sat = hsv[1].coerceIn(0.45f, 0.95f)
+    val sat = hsv[1]
+
+    // If dominant color is grayscale / monochrome (sat < 0.08f), render sleek slate/charcoal palette
+    if (sat < 0.08f) {
+        val slatePrimary = Color(0xFF2E323A)
+        val slateSecondary = Color(0xFF1F2228)
+        val slateTertiary = Color(0xFF14161B)
+        return AuralisDynamicPalette(
+            tintA = slatePrimary,
+            tintB = slateSecondary,
+            tintC = slateTertiary,
+            surfaceTint = Color(0xFF101216),
+            accentGlow = slatePrimary.copy(alpha = 0.4f),
+            isDark = isDark
+        )
+    }
+
+    val boostedSat = sat.coerceIn(0.45f, 0.95f)
     val value = if (isDark) hsv[2].coerceIn(0.6f, 0.95f) else hsv[2].coerceIn(0.4f, 0.8f)
 
     // Primary Tint (Hue shifted slightly + boosted saturation)
-    val tintAColor = Color.hsv(hue, sat, value)
+    val tintAColor = Color.hsv(hue, boostedSat, value)
 
     // Secondary Tint (Analogous color + 35 degrees shift)
     val secondaryHue = (hue + 35f) % 360f
-    val tintBColor = Color.hsv(secondaryHue, (sat * 0.85f).coerceAtLeast(0.4f), value)
+    val tintBColor = Color.hsv(secondaryHue, (boostedSat * 0.85f).coerceAtLeast(0.4f), value)
 
     // Tertiary Tint (Complementary-adjacent + 140 degrees shift)
     val tertiaryHue = (hue + 140f) % 360f
-    val tintCColor = Color.hsv(tertiaryHue, (sat * 0.75f).coerceAtLeast(0.35f), value)
+    val tintCColor = Color.hsv(tertiaryHue, (boostedSat * 0.75f).coerceAtLeast(0.35f), value)
 
     // Subtle dark surface tint
     val surfaceTint = Color.hsv(hue, 0.22f, 0.12f)
