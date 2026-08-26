@@ -21,7 +21,7 @@ import com.auralis.music.data.local.entity.*
         SearchHistoryEntity::class,
         LyricsEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)

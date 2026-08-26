@@ -36,7 +36,7 @@ data class PlaylistEntity(
 
 @Entity(
     tableName = "playlist_tracks",
-    primaryKeys = ["playlistId", "trackId"],
+    primaryKeys = ["playlistId", "position"],
     foreignKeys = [
         ForeignKey(
             entity = PlaylistEntity::class,

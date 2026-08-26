@@ -110,6 +110,7 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.PlaylistPickerBottomSheet
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.auralisGlass
 import com.auralis.music.ui.components.tactileBounce
@@ -206,7 +207,7 @@ fun NowPlayingModal(
 
     var currentTab by remember { mutableStateOf(NowPlayingTab.PLAYER) }
     var showSleepDialog by remember { mutableStateOf(false) }
-    var showOptionsMenu by remember { mutableStateOf(false) }
+    var showPlaylistPicker by remember { mutableStateOf(false) }
     var showOffsetControls by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(true) }
 
@@ -768,7 +769,7 @@ fun NowPlayingModal(
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.12f))
                                     .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                    .tactileBounce(scaleDown = 0.86f, onClick = { showOptionsMenu = true }),
+                                    .tactileBounce(scaleDown = 0.86f, onClick = { showPlaylistPicker = true }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1038,24 +1039,22 @@ fun NowPlayingModal(
         }
     }
 
-    // Track Options Menu Modal
-    if (showOptionsMenu) {
-        TrackOptionsMenu(
+    // Direct Add to Playlist Bottom Sheet (Shows all user playlists + Create new)
+    if (showPlaylistPicker) {
+        PlaylistPickerBottomSheet(
             track = track,
-            isFavorite = uiState.isFavorite,
             userPlaylists = userPlaylists,
-            onToggleFavorite = onToggleFavorite,
-            onPlayNext = onPlayNext,
-            onAddToQueue = onAddToQueue,
             onAddToPlaylist = { playlist ->
                 onAddToPlaylist(playlist.id, track)
-                showOptionsMenu = false
+                Toast.makeText(context, "Added to ${playlist.title}", Toast.LENGTH_SHORT).show()
+                showPlaylistPicker = false
             },
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
-                showOptionsMenu = false
+                Toast.makeText(context, "Created and added to $title", Toast.LENGTH_SHORT).show()
+                showPlaylistPicker = false
             },
-            onDismiss = { showOptionsMenu = false }
+            onDismiss = { showPlaylistPicker = false }
         )
     }
 
