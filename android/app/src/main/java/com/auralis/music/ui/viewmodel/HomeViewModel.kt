@@ -3,12 +3,10 @@ package com.auralis.music.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.auralis.music.data.network.InnerTubeClient
-import com.auralis.music.domain.auth.GoogleAccountSyncManager
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.TasteProfile
 import com.auralis.music.domain.recommendations.TasteProfiler
 import com.auralis.music.domain.repository.HistoryRepository
-import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -68,8 +66,6 @@ data class HomeUiState(
 class HomeViewModel(
     private val historyRepository: HistoryRepository,
     private val searchRepository: SearchRepository,
-    private val libraryRepository: LibraryRepository? = null,
-    private val syncManager: GoogleAccountSyncManager? = null,
     private val innerTubeClient: InnerTubeClient = InnerTubeClient()
 ) : ViewModel() {
 
@@ -80,28 +76,6 @@ class HomeViewModel(
 
     init {
         loadHomeData()
-
-        // 1. Observe real-time library changes (e.g. YouTube Music playlists imported or songs liked)
-        libraryRepository?.let { lib ->
-            viewModelScope.launch {
-                lib.getPlaylists().collect { playlists ->
-                    if (playlists.isNotEmpty()) {
-                        loadHomeData()
-                    }
-                }
-            }
-        }
-
-        // 2. Observe Google Account & YouTube Sync events to immediately populate feed upon login
-        syncManager?.let { mgr ->
-            viewModelScope.launch {
-                mgr.userProfile.collect { profile ->
-                    if (profile.isGoogleConnected || profile.isYouTubeSynced) {
-                        loadHomeData()
-                    }
-                }
-            }
-        }
     }
 
     private fun isInvalidArtistName(artist: String?): Boolean {
@@ -116,7 +90,7 @@ class HomeViewModel(
     /**
      * Complete Metrolist Recommendation Engine:
      * Phase 1: Local database queries (Speed Dial, Forgotten Favorites, Heavy Rotation)
-     *          plus user's synced YouTube Music liked songs and imported playlists.
+     *          plus primary YouTube Music Home feed.
      * Phase 2: Asynchronous background coroutines for heavy discovery algorithms
      *          (Daily Discover, Similar recommendations, Community Playlists, Quick Picks).
      */
@@ -126,19 +100,14 @@ class HomeViewModel(
 
             // Phase 1: Fast Parallel Fetch
             coroutineScope {
-                // 1. Local history, top played, and user's YouTube Music liked tracks / playlists
+                // 1. Local history & top played
                 launch(Dispatchers.IO) {
                     try {
                         val history = historyRepository.getHistory().first()
                         val topPlayed = historyRepository.getTopPlayedTracks().first()
                         val profile = TasteProfiler.computeTasteProfile(history, topPlayed)
-                        
-                        val userPlaylists = libraryRepository?.getPlaylists()?.first().orEmpty()
-                        val favoriteTracks = libraryRepository?.getFavoriteTracks()?.first().orEmpty()
-                        val playlistTracks = userPlaylists.flatMap { it.tracks }
-
-                        val topTracks = (topPlayed.map { it.track } + favoriteTracks + playlistTracks).distinctBy { it.id }
-                        val historyTracks = (history.map { it.track } + favoriteTracks).distinctBy { it.id }
+                        val topTracks = topPlayed.map { it.track }
+                        val historyTracks = history.map { it.track }
                         val speedDial = buildSpeedDialPages(topTracks, historyTracks)
 
                         _uiState.update {
@@ -189,21 +158,17 @@ class HomeViewModel(
                     } catch (_: Exception) {}
                 }
 
-                // 3. Keep Listening / Heavy Rotation (last 2 weeks or user's top liked/playlist songs)
+                // 3. Keep Listening / Heavy Rotation (last 2 weeks)
                 launch(Dispatchers.IO) {
                     try {
-                        val heavy = historyRepository.getRecentHeavyRotation()
-                        val favoriteTracks = libraryRepository?.getFavoriteTracks()?.first().orEmpty()
-                        val playlistTracks = libraryRepository?.getPlaylists()?.first().orEmpty().flatMap { it.tracks }
-                        
-                        val keepList = (heavy + favoriteTracks.take(10) + playlistTracks.take(10)).distinctBy { it.id }.take(20)
-                        if (keepList.isNotEmpty()) {
-                            _uiState.update { it.copy(keepListening = keepList) }
+                        val heavy = historyRepository.getRecentHeavyRotation().distinctBy { it.id }.take(15)
+                        if (heavy.isNotEmpty()) {
+                            _uiState.update { it.copy(keepListening = heavy) }
                         }
                     } catch (_: Exception) {}
                 }
 
-                // 4. Quick Picks (recent + trending + related + YouTube Music liked/playlists)
+                // 4. Quick Picks (recent + trending + related)
                 launch(Dispatchers.IO) {
                     try {
                         fetchQuickPicks()
@@ -401,15 +366,12 @@ class HomeViewModel(
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val heavyRotation = historyRepository.getRecentHeavyRotation()
-            val favoriteTracks = libraryRepository?.getFavoriteTracks()?.first().orEmpty()
-            val playlistTracks = libraryRepository?.getPlaylists()?.first().orEmpty().flatMap { it.tracks }
-
-            val userSeeds = (history.take(4) + heavyRotation.take(4) + favoriteTracks.take(6) + playlistTracks.take(6)).distinctBy { it.id }
+            val userSeeds = (history.take(4) + heavyRotation.take(4)).distinctBy { it.id }
             val quickPicksList = mutableListOf<Track>()
 
             if (userSeeds.isNotEmpty()) {
-                // User has listening activity or synced YouTube Music library: Recommend songs directly related to what they are listening to
-                for (seedTrack in userSeeds.take(4)) {
+                // User has listening activity: Recommend songs directly related to what they are listening to
+                for (seedTrack in userSeeds.take(3)) {
                     try {
                         // 1. YouTube Music Radio Queue (Up Next algorithm)
                         val radioTracks = innerTubeClient.getRadioTracks(seedTrack.id).take(8)
@@ -425,14 +387,12 @@ class HomeViewModel(
                 }
 
                 // If seed tracks had top artists, find similar top tracks from that artist
-                val topArtists = userSeeds.map { it.artist }.filter { !isInvalidArtistName(it) }.distinct().take(3)
-                for (topArtist in topArtists) {
-                    if (quickPicksList.size < 20) {
-                        try {
-                            val artistHits = searchRepository.search("$topArtist radio").songs
-                            quickPicksList.addAll(artistHits)
-                        } catch (_: Exception) {}
-                    }
+                val topArtist = userSeeds.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
+                if (quickPicksList.size < 16 && !topArtist.isNullOrBlank()) {
+                    try {
+                        val artistHits = searchRepository.search("$topArtist radio").songs
+                        quickPicksList.addAll(artistHits)
+                    } catch (_: Exception) {}
                 }
             } else {
                 // First-time user / New account: Recommend like YouTube Music
@@ -470,49 +430,21 @@ class HomeViewModel(
     }
 
     /**
-     * Community Playlists & Curated Mixes (Presents user's YouTube playlists first, then curated/trending mixes)
+     * Community Playlists & Curated Mixes
      */
     private suspend fun fetchCommunityPlaylists() = withContext(Dispatchers.IO) {
         try {
-            val userPlaylists = libraryRepository?.getPlaylists()?.first().orEmpty()
-            val remotePlaylists = syncManager?.remotePlaylists?.value.orEmpty()
-
-            val userPlaylistResults = mutableListOf<PlaylistResult>()
-
-            // 1. User's imported/synced YouTube Music playlists
-            for (pl in userPlaylists) {
-                userPlaylistResults.add(
-                    PlaylistResult(
-                        id = pl.id,
-                        title = pl.title,
-                        author = "Your Library",
-                        thumbnail = pl.tracks.firstOrNull()?.thumbnail ?: pl.coverUrl,
-                        trackCount = pl.tracks.size
-                    )
-                )
-            }
-
-            for (rPl in remotePlaylists) {
-                if (userPlaylistResults.none { it.id == rPl.id || it.title.equals(rPl.title, ignoreCase = true) }) {
-                    userPlaylistResults.add(
-                        PlaylistResult(
-                            id = rPl.id,
-                            title = rPl.title,
-                            author = "YouTube Music",
-                            thumbnail = rPl.thumbnail,
-                            trackCount = rPl.trackCount
-                        )
-                    )
-                }
-            }
-
             val history = historyRepository.getHistory().first().map { it.track }
             val topArtist = history.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
             
             val query = if (!topArtist.isNullOrBlank()) "$topArtist Mix" else "Top Hits Playlist 2026"
             val playlistsResult = searchRepository.searchPlaylists(query)
             
-            val community = (userPlaylistResults + playlistsResult).distinctBy { it.id }.take(12)
+            val community = if (playlistsResult.isNotEmpty()) {
+                playlistsResult.take(8)
+            } else {
+                searchRepository.searchPlaylists("Popular Music Mix").take(8)
+            }
             if (community.isNotEmpty()) {
                 _uiState.update { it.copy(communityPlaylists = community) }
             }
