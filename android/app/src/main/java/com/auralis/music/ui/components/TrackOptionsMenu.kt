@@ -12,10 +12,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 
@@ -205,32 +207,58 @@ fun TrackOptionsMenu(
     if (showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
-            title = { Text("New Playlist") },
+            containerColor = Color(0xFF1E2117),
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    text = "New Playlist",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 20.sp
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist Name") },
-                    singleLine = true
+                    label = { Text("Playlist Name", color = Color.White.copy(alpha = 0.6f)) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFD4E157),
+                        focusedLabelColor = Color(0xFFD4E157),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         if (newPlaylistName.isNotBlank()) {
-                            onCreatePlaylistAndAdd(newPlaylistName)
+                            onCreatePlaylistAndAdd(newPlaylistName.trim())
                             newPlaylistName = ""
                             showCreatePlaylistDialog = false
                             onDismiss()
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD4E157),
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Create & Add")
+                    Text("Create & Add", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCreatePlaylistDialog = false }) {
-                    Text("Cancel")
+                TextButton(
+                    onClick = { showCreatePlaylistDialog = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.7f), fontWeight = FontWeight.SemiBold)
                 }
             }
         )
