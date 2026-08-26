@@ -23,3 +23,8 @@ Thumbs.db
 .agents/
 .firebase/
 
+# Environment Secrets & API Keys
+.env
+.env.*
+!.env.example
+secrets.properties
