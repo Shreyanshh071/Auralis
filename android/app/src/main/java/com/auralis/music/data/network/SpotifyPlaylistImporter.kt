@@ -1110,7 +1110,7 @@ class SpotifyPlaylistImporter(
 
                             val count = completedCounter.incrementAndGet()
                             if (count % 10 == 0 || count == total) {
-                                onProgress?.invoke("Matching songs with YouTube Music ($count/$total)...")
+                                onProgress?.invoke("Importing your playlist to Auralis ($count/$total)...")
                             }
 
                             if (match != null) {
