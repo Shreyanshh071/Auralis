@@ -86,7 +86,6 @@ fun WelcomeScreen(
     onContinueWithGoogle: () -> Unit,
     onSignUpWithEmail: (String, String, String) -> Unit,
     onSignInWithEmail: (String, String) -> Unit,
-    onContinueAsGuest: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isEmailAuthOpen by remember { mutableStateOf(false) }
@@ -255,27 +254,6 @@ fun WelcomeScreen(
                                 text = "Sign up / in with Email",
                                 color = Color(0xFF140D05),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                        }
-
-                        // 3. Continue as Guest
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(CircleShape)
-                                .background(Color(0xFF181512))
-                                .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
-                                .tactileBounce(scaleDown = 0.96f) {
-                                    onContinueAsGuest()
-                                }
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Continue as Guest",
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp
                             )
                         }

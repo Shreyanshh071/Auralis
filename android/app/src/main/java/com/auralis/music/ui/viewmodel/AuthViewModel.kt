@@ -87,7 +87,6 @@ class AuthViewModel(
                         avatarUrl = account.avatarUrl,
                         idToken = account.idToken
                     )
-                    syncManager.syncLikedMusic()
                     onSuccess?.invoke()
                 } else {
                     _uiState.update { it.copy(isSyncing = false, syncMessage = "Google Sign-In cancelled.") }

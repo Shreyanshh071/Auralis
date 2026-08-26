@@ -113,9 +113,8 @@ val LIME_TEXT = Color(0xFFD4E157)
 
 /**
  * Pure Jetpack Compose Library Screen with top App Bar (Library title, History, Listen Together, Profile),
- * "Date added ↓" sorting bar, Grid vs List toggle, Search filtering, 2-column grid or single-column list of smart collection cards
- * (Liked, Downloaded, Cached, My Top 50, Uploaded) + user & synced playlists with 4-cover collages,
- * and bottom right floating '+' button.
+ * "Date added ↓" sorting bar, Grid vs List toggle, Search filtering, 2-column grid or single-column list of Liked default playlist
+ * + user & synced playlists with 4-cover collages, and bottom right floating '+' button.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,6 +122,8 @@ fun LibraryScreen(
     uiState: LibraryUiState,
     currentTrackId: String?,
     isPlaying: Boolean,
+    userName: String = "You",
+    userAvatarUrl: String? = null,
     onFilterSelect: (LibraryFilter) -> Unit = {},
     onCreatePlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
@@ -179,6 +180,8 @@ fun LibraryScreen(
             playlist = selectedPl,
             currentTrackId = currentTrackId,
             isPlaying = isPlaying,
+            userName = userName,
+            userAvatarUrl = userAvatarUrl,
             onBack = { onPlaylistSelect(null) },
             onPlayTrack = { track, list -> onTrackClick(track, list) },
             onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
@@ -369,53 +372,19 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     if (searchQuery.isBlank()) {
-                        // Smart Collection Card 1: Liked
+                        // Default Playlist: Liked
                         item {
                             SmartLibraryCard(
                                 title = "Liked",
+                                subtitle = "${uiState.favorites.size} songs",
                                 icon = Icons.Default.FavoriteBorder,
+                                tracks = uiState.favorites,
                                 onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
-                            )
-                        }
-
-                        // Smart Collection Card 2: Downloaded
-                        item {
-                            SmartLibraryCard(
-                                title = "Downloaded",
-                                icon = Icons.Default.DownloadDone,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) }
-                            )
-                        }
-
-                        // Smart Collection Card 3: Cached
-                        item {
-                            SmartLibraryCard(
-                                title = "Cached",
-                                icon = Icons.Default.Autorenew,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) }
-                            )
-                        }
-
-                        // Smart Collection Card 4: My Top 50
-                        item {
-                            SmartLibraryCard(
-                                title = "My Top 50",
-                                icon = Icons.Default.Leaderboard,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) }
-                            )
-                        }
-
-                        // Smart Collection Card 5: Uploaded
-                        item {
-                            SmartLibraryCard(
-                                title = "Uploaded",
-                                icon = Icons.Default.CloudUpload,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.UPLOADED) }
                             )
                         }
                     }
 
-                    // User & Synced Playlists
+                    // User & Synced Playlists (Imported or Created)
                     items(displayedPlaylists, key = { it.id }) { playlist ->
                         UserPlaylistGridCard(
                             playlist = playlist,
@@ -438,39 +407,8 @@ fun LibraryScreen(
                                 title = "Liked",
                                 subtitle = "${uiState.favorites.size} songs",
                                 icon = Icons.Default.FavoriteBorder,
+                                tracks = uiState.favorites,
                                 onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
-                            )
-                        }
-                        item {
-                            SmartLibraryListRow(
-                                title = "Downloaded",
-                                subtitle = "Offline storage",
-                                icon = Icons.Default.DownloadDone,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) }
-                            )
-                        }
-                        item {
-                            SmartLibraryListRow(
-                                title = "Cached",
-                                subtitle = "${uiState.cachedTracks.size} cached tracks",
-                                icon = Icons.Default.Autorenew,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) }
-                            )
-                        }
-                        item {
-                            SmartLibraryListRow(
-                                title = "My Top 50",
-                                subtitle = "Most listened tracks",
-                                icon = Icons.Default.Leaderboard,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) }
-                            )
-                        }
-                        item {
-                            SmartLibraryListRow(
-                                title = "Uploaded",
-                                subtitle = "Local audio files",
-                                icon = Icons.Default.CloudUpload,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.UPLOADED) }
                             )
                         }
                     }
@@ -726,6 +664,8 @@ fun LibraryScreen(
 private fun SmartLibraryCard(
     title: String,
     icon: ImageVector,
+    subtitle: String? = null,
+    tracks: List<Track> = emptyList(),
     onClick: () -> Unit
 ) {
     Column(
@@ -738,15 +678,91 @@ private fun SmartLibraryCard(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(18.dp))
-                .background(CARD_DARK_BG),
-            contentAlignment = Alignment.Center
+                .background(CARD_DARK_BG)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = CREAM_ICON_COLOR,
-                modifier = Modifier.size(54.dp)
-            )
+            if (tracks.size >= 4) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        ArtworkCard(
+                            url = tracks[0].thumbnail,
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                        ArtworkCard(
+                            url = tracks[1].thumbnail,
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                    }
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        ArtworkCard(
+                            url = tracks[2].thumbnail,
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                        ArtworkCard(
+                            url = tracks[3].thumbnail,
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.75f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = LIME_TEXT,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else if (tracks.isNotEmpty()) {
+                ArtworkCard(
+                    url = tracks.first().thumbnail,
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 18.dp,
+                    contentDescription = title
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.75f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = LIME_TEXT,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = CREAM_ICON_COLOR,
+                        modifier = Modifier.size(54.dp)
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -756,8 +772,20 @@ private fun SmartLibraryCard(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White,
-            fontSize = 15.sp
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+
+        if (subtitle != null) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp
+            )
+        }
     }
 }
 
@@ -863,6 +891,7 @@ private fun SmartLibraryListRow(
     title: String,
     subtitle: String,
     icon: ImageVector,
+    tracks: List<Track> = emptyList(),
     onClick: () -> Unit
 ) {
     Row(
@@ -881,12 +910,21 @@ private fun SmartLibraryListRow(
                 .background(Color(0xFF25281E)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = CREAM_ICON_COLOR,
-                modifier = Modifier.size(24.dp)
-            )
+            if (tracks.isNotEmpty()) {
+                ArtworkCard(
+                    url = tracks.first().thumbnail,
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 10.dp,
+                    contentDescription = title
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = CREAM_ICON_COLOR,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -977,6 +1015,8 @@ private fun PlaylistDetailView(
     playlist: Playlist,
     currentTrackId: String?,
     isPlaying: Boolean,
+    userName: String = "You",
+    userAvatarUrl: String? = null,
     onBack: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onRemoveTrack: (String) -> Unit,
@@ -1210,27 +1250,37 @@ private fun PlaylistDetailView(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     // Author Row
+                    val authorName = if (userName.isNotBlank() && userName != "Guest Listener") userName else "You"
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(22.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF2E3324)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = null,
-                                tint = LIME_TEXT,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            if (!userAvatarUrl.isNullOrBlank()) {
+                                ArtworkCard(
+                                    url = userAvatarUrl,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cornerRadius = 11.dp,
+                                    contentDescription = authorName
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = LIME_TEXT,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Shreyanshh",
+                            text = authorName,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White.copy(alpha = 0.9f),

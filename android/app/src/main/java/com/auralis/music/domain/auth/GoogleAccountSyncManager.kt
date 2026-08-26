@@ -61,22 +61,28 @@ class GoogleAccountSyncManager(
     private fun loadPersistedProfile(): UserProfile {
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
         val isFbLoggedIn = fbUser != null && !fbUser.isAnonymous
-        val isConnected = isFbLoggedIn && prefs.getBoolean("is_google_connected", false)
-        val uid = if (isFbLoggedIn) fbUser.uid else ""
-        val email = if (isFbLoggedIn) (fbUser.email ?: "Logged In") else "Not connected"
-        val displayName = if (isFbLoggedIn) (fbUser.displayName ?: prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener") else "Guest Listener"
-        val token = if (isFbLoggedIn) prefs.getString("access_token", null) else null
+        val savedUid = prefs.getString("uid", "") ?: ""
+        val savedEmail = prefs.getString("email", "Not connected") ?: "Not connected"
+        val isLocalLoggedIn = savedUid.isNotBlank() && savedEmail != "Not connected" && savedEmail.isNotBlank()
+        val isConnected = isFbLoggedIn || isLocalLoggedIn
+
+        val uid = if (isFbLoggedIn) fbUser.uid else savedUid
+        val email = if (isFbLoggedIn) (fbUser.email ?: savedEmail) else savedEmail
+        val displayName = if (isFbLoggedIn) (fbUser.displayName ?: prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener")
+                          else if (isLocalLoggedIn) prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener"
+                          else "Guest Listener"
+        val token = if (isConnected) prefs.getString("access_token", null) else null
 
         return UserProfile(
             uid = uid,
             displayName = displayName,
             email = email,
-            avatarUrl = if (isFbLoggedIn) (fbUser.photoUrl?.toString() ?: prefs.getString("avatar_url", null)) else null,
+            avatarUrl = if (isFbLoggedIn) (fbUser.photoUrl?.toString() ?: prefs.getString("avatar_url", null)) else if (isLocalLoggedIn) prefs.getString("avatar_url", null) else null,
             isGoogleConnected = isConnected,
-            isYouTubeSynced = if (isFbLoggedIn) prefs.getBoolean("is_yt_synced", false) else false,
-            lastSyncedTimestamp = if (isFbLoggedIn) prefs.getLong("last_synced_ts", 0L) else 0L,
-            syncedPlaylistsCount = if (isFbLoggedIn) prefs.getInt("synced_playlists_count", 0) else 0,
-            syncedLikedCount = if (isFbLoggedIn) prefs.getInt("synced_liked_count", 0) else 0,
+            isYouTubeSynced = if (isConnected) prefs.getBoolean("is_yt_synced", false) else false,
+            lastSyncedTimestamp = if (isConnected) prefs.getLong("last_synced_ts", 0L) else 0L,
+            syncedPlaylistsCount = if (isConnected) prefs.getInt("synced_playlists_count", 0) else 0,
+            syncedLikedCount = if (isConnected) prefs.getInt("synced_liked_count", 0) else 0,
             autoSyncOnWifi = prefs.getBoolean("auto_sync_wifi", true),
             syncLikedMusic = prefs.getBoolean("sync_liked", true),
             accessToken = token
@@ -376,11 +382,10 @@ class GoogleAccountSyncManager(
             try {
                 ytApiClient.fetchPlaylistTracks(token, "LL")
             } catch (e: Exception) {
-                // If "LL" special playlist fails, query top liked tracks
-                searchRepository.search("My Liked Music").songs.take(15)
+                emptyList()
             }
         } else {
-            searchRepository.search("Global Top Liked Songs").songs.take(15)
+            emptyList()
         }
 
         for (track in tracks) {
@@ -394,7 +399,7 @@ class GoogleAccountSyncManager(
         _userProfile.value = updated
         persistProfile(updated)
 
-        _syncMessage.value = "Synced ${tracks.size} Liked songs!"
+        _syncMessage.value = if (tracks.isNotEmpty()) "Synced ${tracks.size} Liked songs!" else "No liked songs found on YouTube account."
         _isSyncing.value = false
         tracks.size
     }
