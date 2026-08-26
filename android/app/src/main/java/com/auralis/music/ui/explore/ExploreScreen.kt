@@ -84,7 +84,7 @@ enum class SearchCategory {
 
 /**
  * Pure Jetpack Compose Search Screen matching the exact reference:
- * Minimalist top search bar ("Search YouTube Music...", Back arrow, Globe icon),
+ * Minimalist top search bar ("Search Auralis...", Back arrow, Globe icon),
  * interactive history items with clock icon, clear cross, and diagonal insert arrow (↖),
  * live autocomplete suggestions, category filter pills, and bottom right voice / music recognition button.
  */
@@ -197,7 +197,7 @@ fun ExploreScreen(
                 ) {
                     if (uiState.query.isEmpty()) {
                         Text(
-                            text = "Search YouTube Music...",
+                            text = "Search Auralis...",
                             style = TextStyle(
                                 color = Color.White.copy(alpha = 0.50f),
                                 fontSize = 16.sp,
