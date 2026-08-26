@@ -491,40 +491,16 @@ class HomeViewModel(
         if (uniqueTracks.isEmpty()) return emptyList()
 
         val allItems = mutableListOf<SpeedDialItem>()
-        var trackIdx = 0
-        val artists = uniqueTracks
-            .map { it.artist }
-            .filter { !isInvalidArtistName(it) }
-            .distinct()
-        var artistIdx = 0
-
-        while (allItems.size < 24 && (trackIdx < uniqueTracks.size || artistIdx < artists.size)) {
-            if (artistIdx < artists.size && allItems.size % 3 == 0) {
-                val artistName = artists[artistIdx++]
-                val cached = artistAvatarCache[artistName]
-                allItems.add(
-                    SpeedDialItem(
-                        id = cached?.first ?: "artist-$artistName-$artistIdx",
-                        name = artistName,
-                        type = SpeedDialType.ARTIST,
-                        artistQuery = artistName,
-                        image = cached?.second
-                    )
+        for ((idx, t) in uniqueTracks.take(24).withIndex()) {
+            allItems.add(
+                SpeedDialItem(
+                    id = "track-${t.id}-$idx",
+                    name = t.title,
+                    type = SpeedDialType.TRACK,
+                    track = t,
+                    image = t.thumbnail
                 )
-            } else if (trackIdx < uniqueTracks.size) {
-                val t = uniqueTracks[trackIdx++]
-                allItems.add(
-                    SpeedDialItem(
-                        id = "track-${t.id}-$trackIdx",
-                        name = t.title,
-                        type = SpeedDialType.TRACK,
-                        track = t,
-                        image = t.thumbnail
-                    )
-                )
-            } else {
-                break
-            }
+            )
         }
 
         val pages = mutableListOf<List<SpeedDialItem>>()
