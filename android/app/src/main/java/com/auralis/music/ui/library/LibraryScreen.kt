@@ -33,6 +33,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
@@ -49,7 +50,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GridView
@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.RadioButtonChecked
@@ -65,10 +66,13 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -110,6 +114,14 @@ import com.auralis.music.ui.viewmodel.SmartCollectionType
 val CREAM_ICON_COLOR = Color(0xFFDCE2BD)
 val CARD_DARK_BG = Color(0xFF1B1D16)
 val LIME_TEXT = Color(0xFFD4E157)
+
+enum class PlaylistSortOption(val label: String) {
+    CUSTOM("Custom order"),
+    NEWEST("Newest first"),
+    OLDEST("Oldest first"),
+    ALPHABETICAL("Alphabetical (A-Z)"),
+    BY_ARTIST("Artist (A-Z)")
+}
 
 /**
  * Pure Jetpack Compose Library Screen with top App Bar (Library title, History, Listen Together, Profile),
@@ -1044,11 +1056,21 @@ private fun PlaylistDetailView(
     var selectedExportFormat by remember { mutableStateOf("CSV") }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var sortOption by remember { mutableStateOf(PlaylistSortOption.CUSTOM) }
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    val baseTracks = when (sortOption) {
+        PlaylistSortOption.CUSTOM -> playlist.tracks
+        PlaylistSortOption.NEWEST -> playlist.tracks.reversed()
+        PlaylistSortOption.OLDEST -> playlist.tracks
+        PlaylistSortOption.ALPHABETICAL -> playlist.tracks.sortedBy { it.title.lowercase() }
+        PlaylistSortOption.BY_ARTIST -> playlist.tracks.sortedBy { it.artist.lowercase() }
+    }
 
     val displayedTracks = (if (searchQuery.isBlank()) {
-        playlist.tracks
+        baseTracks
     } else {
-        playlist.tracks.filter {
+        baseTracks.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
             it.artist.contains(searchQuery, ignoreCase = true)
         }
@@ -1317,8 +1339,8 @@ private fun PlaylistDetailView(
                                 .clip(CircleShape)
                                 .background(Color(0xFF22251B))
                                 .clickable {
-                                    if (playlist.tracks.isNotEmpty()) {
-                                        val shuffled = playlist.tracks.shuffled()
+                                    if (displayedTracks.isNotEmpty()) {
+                                        val shuffled = displayedTracks.shuffled()
                                         onPlayTrack(shuffled.first(), shuffled)
                                     }
                                 },
@@ -1341,8 +1363,8 @@ private fun PlaylistDetailView(
                                 .clip(CircleShape)
                                 .background(Color(0xFFDCE7A1))
                                 .clickable {
-                                    if (playlist.tracks.isNotEmpty()) {
-                                        onPlayTrack(playlist.tracks.first(), playlist.tracks)
+                                    if (displayedTracks.isNotEmpty()) {
+                                        onPlayTrack(displayedTracks.first(), displayedTracks)
                                     }
                                 },
                             contentAlignment = Alignment.Center
@@ -1377,7 +1399,9 @@ private fun PlaylistDetailView(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Custom Order Header
+                    // ========================================================
+                    // Sort Order Button & Dropdown Menu
+                    // ========================================================
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1385,19 +1409,77 @@ private fun PlaylistDetailView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Custom order",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = LIME_TEXT,
-                            fontSize = 14.sp
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Locked",
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showSortMenu = true }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = sortOption.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = LIME_TEXT,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Sort Options",
+                                    tint = LIME_TEXT,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false },
+                                modifier = Modifier
+                                    .background(Color(0xFF1C1E17))
+                                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            ) {
+                                PlaylistSortOption.values().forEach { option ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = option.label,
+                                                color = if (sortOption == option) LIME_TEXT else Color.White,
+                                                fontWeight = if (sortOption == option) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = 14.sp
+                                            )
+                                        },
+                                        onClick = {
+                                            sortOption = option
+                                            showSortMenu = false
+                                        },
+                                        trailingIcon = {
+                                            if (sortOption == option) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = LIME_TEXT,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { showSortMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Sort,
+                                contentDescription = "Sort Playlist",
+                                tint = LIME_TEXT,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -1416,7 +1498,7 @@ private fun PlaylistDetailView(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onPlayTrack(track, playlist.tracks) }
+                        .clickable { onPlayTrack(track, displayedTracks) }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
