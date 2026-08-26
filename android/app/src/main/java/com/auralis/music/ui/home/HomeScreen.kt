@@ -245,7 +245,167 @@ fun HomeScreen(
             }
 
             // ================================================================
-            // 3. TRENDING COMMUNITY PLAYLISTS
+            // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
+            // ================================================================
+            if (uiState.quickPicks.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Quick picks",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = LIME_ACCENT,
+                            fontSize = 20.sp
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                                .clickable {
+                                    if (uiState.quickPicks.isNotEmpty()) {
+                                        onTrackClick(uiState.quickPicks.first(), uiState.quickPicks)
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "Play all",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+
+                    val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+                    val quickPickRowWidth = (screenWidth - 48.dp).coerceAtLeast(280.dp)
+
+                    // 4-Row Horizontal Grid of Songs (Matching Photo 2)
+                    LazyHorizontalGrid(
+                        rows = GridCells.Fixed(4),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(265.dp)
+                    ) {
+                        items(uiState.quickPicks, key = { it.id }) { track ->
+                            val isCurrent = track.id == currentTrackId
+                            Row(
+                                modifier = Modifier
+                                    .width(quickPickRowWidth)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onTrackClick(track, uiState.quickPicks) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ArtworkCard(
+                                    url = track.thumbnail,
+                                    modifier = Modifier.size(48.dp),
+                                    cornerRadius = 8.dp,
+                                    contentDescription = track.title
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCurrent) LIME_ACCENT else Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(onClick = { selectedTrackForMenu = track }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = Color.White.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(18.dp))
+                }
+            }
+
+            // ================================================================
+            // 5. KEEP LISTENING SECTION (Directly below Quick Picks)
+            // ================================================================
+            val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
+            if (keepList.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Keep listening",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = LIME_ACCENT,
+                        fontSize = 20.sp,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                    )
+
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(keepList, key = { it.id }) { track ->
+                            Column(
+                                modifier = Modifier
+                                    .width(115.dp)
+                                    .clickable { onTrackClick(track, listOf(track)) }
+                                    .padding(4.dp)
+                            ) {
+                                ArtworkCard(
+                                    url = track.thumbnail,
+                                    modifier = Modifier
+                                        .size(115.dp)
+                                        .clip(RoundedCornerShape(14.dp)),
+                                    cornerRadius = 14.dp,
+                                    contentDescription = track.title
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = track.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = track.artist,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(18.dp))
+                }
+            }
+
+            // ================================================================
+            // 6. TRENDING COMMUNITY PLAYLISTS
             // ================================================================
             if (uiState.communityPlaylists.isNotEmpty()) {
                 item {
@@ -298,9 +458,8 @@ fun HomeScreen(
                 }
             }
 
-
             // ================================================================
-            // 4. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
+            // 7. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
             // ================================================================
             uiState.similarRecommendations.forEach { simRec ->
                 if (simRec.items.isNotEmpty()) {
@@ -382,166 +541,6 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.height(18.dp))
                     }
-                }
-            }
-
-            // ================================================================
-            // 5. QUICK PICKS (With "Play all" outlined pill)
-            // ================================================================
-            if (uiState.quickPicks.isNotEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Quick picks",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = LIME_ACCENT,
-                            fontSize = 20.sp
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
-                                .clickable {
-                                    if (uiState.quickPicks.isNotEmpty()) {
-                                        onTrackClick(uiState.quickPicks.first(), uiState.quickPicks)
-                                    }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "Play all",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.9f)
-                            )
-                        }
-                    }
-
-                    val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-                    val quickPickRowWidth = (screenWidth - 32.dp).coerceAtLeast(280.dp)
-
-                    // 3-Row Horizontal Grid of Songs (Spanning full screen width)
-                    LazyHorizontalGrid(
-                        rows = GridCells.Fixed(3),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(210.dp)
-                    ) {
-                        items(uiState.quickPicks, key = { it.id }) { track ->
-                            val isCurrent = track.id == currentTrackId
-                            Row(
-                                modifier = Modifier
-                                    .width(quickPickRowWidth)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onTrackClick(track, uiState.quickPicks) }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    url = track.thumbnail,
-                                    modifier = Modifier.size(52.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = track.title
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = track.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) LIME_ACCENT else Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(onClick = { selectedTrackForMenu = track }) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Options",
-                                        tint = Color.White.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
-                }
-            }
-
-            // ================================================================
-            // 6. KEEP LISTENING SECTION
-            // ================================================================
-            val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
-            if (keepList.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Keep listening",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                    )
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(keepList, key = { it.id }) { track ->
-                            Column(
-                                modifier = Modifier
-                                    .width(115.dp)
-                                    .clickable { onTrackClick(track, listOf(track)) }
-                                    .padding(4.dp)
-                            ) {
-                                ArtworkCard(
-                                    url = track.thumbnail,
-                                    modifier = Modifier
-                                        .size(115.dp)
-                                        .clip(RoundedCornerShape(14.dp)),
-                                    cornerRadius = 14.dp,
-                                    contentDescription = track.title
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
                 }
             }
 
