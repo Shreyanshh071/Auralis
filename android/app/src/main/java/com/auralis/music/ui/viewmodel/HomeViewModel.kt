@@ -361,21 +361,23 @@ class HomeViewModel(
      */
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
         try {
-            val recentTrack = historyRepository.getHistory().first().firstOrNull()?.track
+            val history = historyRepository.getHistory().first().map { it.track }
             val quickPicksList = mutableListOf<Track>()
 
-            if (recentTrack != null) {
-                val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(recentTrack.id)
-                val related = innerTubeClient.getRelated(browseId, params).take(12)
-                quickPicksList.addAll(related)
+            for (recentTrack in history.take(2)) {
+                try {
+                    val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(recentTrack.id)
+                    val related = innerTubeClient.getRelated(browseId, params).take(12)
+                    quickPicksList.addAll(related)
+                } catch (_: Exception) {}
             }
 
-            if (quickPicksList.size < 12) {
-                val searchHits = searchRepository.search("Top trending music charts 2026")
+            if (quickPicksList.size < 16) {
+                val searchHits = searchRepository.search("Top trending music charts")
                 quickPicksList.addAll(searchHits.songs)
             }
 
-            val finalQuick = quickPicksList.distinctBy { it.id }.take(20)
+            val finalQuick = (quickPicksList + history).distinctBy { it.id }.take(28)
             if (finalQuick.isNotEmpty()) {
                 _uiState.update { it.copy(quickPicks = finalQuick) }
             }
