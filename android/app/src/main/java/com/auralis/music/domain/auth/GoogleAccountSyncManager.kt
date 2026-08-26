@@ -60,33 +60,29 @@ class GoogleAccountSyncManager(
 
     private fun loadPersistedProfile(): UserProfile {
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
-        val isFbLoggedIn = fbUser != null && !fbUser.isAnonymous
-        val savedUid = prefs.getString("uid", "") ?: ""
-        val savedEmail = prefs.getString("email", "Not connected") ?: "Not connected"
-        val isLocalLoggedIn = savedUid.isNotBlank() && savedEmail != "Not connected" && savedEmail.isNotBlank()
-        val isConnected = isFbLoggedIn || isLocalLoggedIn
+        if (fbUser != null && !fbUser.isAnonymous) {
+            val uid = fbUser.uid
+            val email = fbUser.email ?: "Authenticated User"
+            val displayName = fbUser.displayName ?: prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener"
+            val token = prefs.getString("access_token", null)
 
-        val uid = if (isFbLoggedIn) fbUser.uid else savedUid
-        val email = if (isFbLoggedIn) (fbUser.email ?: savedEmail) else savedEmail
-        val displayName = if (isFbLoggedIn) (fbUser.displayName ?: prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener")
-                          else if (isLocalLoggedIn) prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener"
-                          else "Guest Listener"
-        val token = if (isConnected) prefs.getString("access_token", null) else null
+            return UserProfile(
+                uid = uid,
+                displayName = displayName,
+                email = email,
+                avatarUrl = fbUser.photoUrl?.toString() ?: prefs.getString("avatar_url", null),
+                isGoogleConnected = true,
+                isYouTubeSynced = prefs.getBoolean("is_yt_synced", false),
+                lastSyncedTimestamp = prefs.getLong("last_synced_ts", 0L),
+                syncedPlaylistsCount = prefs.getInt("synced_playlists_count", 0),
+                syncedLikedCount = prefs.getInt("synced_liked_count", 0),
+                autoSyncOnWifi = prefs.getBoolean("auto_sync_wifi", true),
+                syncLikedMusic = prefs.getBoolean("sync_liked", true),
+                accessToken = token
+            )
+        }
 
-        return UserProfile(
-            uid = uid,
-            displayName = displayName,
-            email = email,
-            avatarUrl = if (isFbLoggedIn) (fbUser.photoUrl?.toString() ?: prefs.getString("avatar_url", null)) else if (isLocalLoggedIn) prefs.getString("avatar_url", null) else null,
-            isGoogleConnected = isConnected,
-            isYouTubeSynced = if (isConnected) prefs.getBoolean("is_yt_synced", false) else false,
-            lastSyncedTimestamp = if (isConnected) prefs.getLong("last_synced_ts", 0L) else 0L,
-            syncedPlaylistsCount = if (isConnected) prefs.getInt("synced_playlists_count", 0) else 0,
-            syncedLikedCount = if (isConnected) prefs.getInt("synced_liked_count", 0) else 0,
-            autoSyncOnWifi = prefs.getBoolean("auto_sync_wifi", true),
-            syncLikedMusic = prefs.getBoolean("sync_liked", true),
-            accessToken = token
-        )
+        return UserProfile()
     }
 
     private fun persistProfile(profile: UserProfile) {
@@ -144,7 +140,7 @@ class GoogleAccountSyncManager(
     }
 
     /**
-     * Creates a new Email & Password account with seamless Firebase + local persistence fallback.
+     * Creates a new Email & Password account via Firebase Auth.
      */
     suspend fun signUpWithEmail(email: String, password: String, displayName: String) = withContext(Dispatchers.IO) {
         _isSyncing.value = true
@@ -164,142 +160,86 @@ class GoogleAccountSyncManager(
             }
 
             val updated = _userProfile.value.copy(
-                uid = user?.uid ?: "user_${System.currentTimeMillis()}",
+                uid = user?.uid ?: "",
                 displayName = name,
                 email = email.trim(),
                 isGoogleConnected = true
             )
             _userProfile.value = updated
             persistProfile(updated)
-            prefs.edit().putString("auth_pwd_${email.trim().lowercase()}", password).apply()
             _syncMessage.value = "Account created successfully!"
-        } catch (_: Exception) {
-            // Graceful fallback when Firebase Email Provider is not yet toggled in Firebase console
-            val updated = _userProfile.value.copy(
-                uid = "user_${System.currentTimeMillis()}",
-                displayName = name,
-                email = email.trim(),
-                isGoogleConnected = true
-            )
-            _userProfile.value = updated
-            persistProfile(updated)
-            prefs.edit()
-                .putString("auth_pwd_${email.trim().lowercase()}", password)
-                .putString("auth_name_${email.trim().lowercase()}", name)
-                .apply()
-            _syncMessage.value = "Account created successfully!"
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: "Failed to create account"
+            _syncMessage.value = msg
+            throw RuntimeException(msg, e)
         } finally {
             _isSyncing.value = false
         }
     }
 
     /**
-     * Signs in with Email & Password with strict password validation against Firebase / saved credentials.
+     * Signs in with Email & Password via Firebase Auth.
      */
     suspend fun signInWithEmail(email: String, password: String) = withContext(Dispatchers.IO) {
         _isSyncing.value = true
         _syncMessage.value = "Signing in..."
-        val cleanEmail = email.trim().lowercase()
 
         try {
             val auth = FirebaseAuth.getInstance()
             val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
-            val user = result.user
-            val name = user?.displayName ?: email.substringBefore("@")
+            val user = result.user ?: throw RuntimeException("Authentication returned empty user.")
+            val name = user.displayName ?: email.substringBefore("@")
 
             val updated = _userProfile.value.copy(
-                uid = user?.uid ?: "user_${System.currentTimeMillis()}",
+                uid = user.uid,
                 displayName = name,
-                email = user?.email ?: email.trim(),
-                avatarUrl = user?.photoUrl?.toString(),
+                email = user.email ?: email.trim(),
+                avatarUrl = user.photoUrl?.toString(),
                 isGoogleConnected = true
             )
             _userProfile.value = updated
             persistProfile(updated)
             _syncMessage.value = "Welcome back, $name!"
         } catch (e: Exception) {
-            val savedPassword = prefs.getString("auth_pwd_$cleanEmail", null)
-
-            if (savedPassword != null) {
-                // Account exists locally - check password match
-                if (savedPassword != password) {
-                    _syncMessage.value = "Incorrect password. Please try again."
-                    throw RuntimeException("Incorrect password. Please try again.")
-                }
-                val savedName = prefs.getString("auth_name_$cleanEmail", email.substringBefore("@")) ?: email.substringBefore("@")
-                val updated = _userProfile.value.copy(
-                    uid = "user_${System.currentTimeMillis()}",
-                    displayName = savedName,
-                    email = email.trim(),
-                    isGoogleConnected = true
-                )
-                _userProfile.value = updated
-                persistProfile(updated)
-                _syncMessage.value = "Welcome back, $savedName!"
-            } else {
-                // Check if Firebase gave a specific error message (e.g. wrong password or user not found)
-                val errorMsg = when {
-                    e.message?.contains("password", ignoreCase = true) == true -> "Incorrect password. Please try again."
-                    e.message?.contains("user", ignoreCase = true) == true -> "No account found with this email. Please sign up."
-                    else -> "No account found with this email. Please sign up."
-                }
-                _syncMessage.value = errorMsg
-                throw RuntimeException(errorMsg)
-            }
+            val msg = e.localizedMessage ?: "Failed to sign in"
+            _syncMessage.value = msg
+            throw RuntimeException(msg, e)
         } finally {
             _isSyncing.value = false
         }
     }
 
     /**
-     * Connects account with Google ID token and seamlessly authenticates Firebase & user profile.
+     * Connects account with Google ID token and authenticates Firebase.
      */
     suspend fun connectGoogleAccountWithIdToken(
-        email: String,
-        displayName: String,
-        avatarUrl: String?,
-        idToken: String
+        account: GoogleUserAccount
     ) = withContext(Dispatchers.IO) {
         _isSyncing.value = true
         _syncMessage.value = "Authenticating with Google..."
         try {
-            if (idToken.isNotBlank() && !idToken.startsWith("demo_")) {
-                val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(idToken, null)
-                FirebaseAuth.getInstance().signInWithCredential(credential).await()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
-        val updated = _userProfile.value.copy(
-            uid = fbUser?.uid ?: "google_${System.currentTimeMillis()}",
-            displayName = fbUser?.displayName ?: displayName,
-            email = fbUser?.email ?: email,
-            avatarUrl = fbUser?.photoUrl?.toString() ?: avatarUrl,
-            isGoogleConnected = true,
-            isYouTubeSynced = true
-        )
-        _userProfile.value = updated
-        persistProfile(updated)
-        _syncMessage.value = "Signed in as ${updated.displayName}"
-        _isSyncing.value = false
-    }
+            val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(account.idToken, null)
+            val authResult = FirebaseAuth.getInstance().signInWithCredential(credential).await()
+            val fbUser = authResult.user ?: FirebaseAuth.getInstance().currentUser
 
-    /**
-     * Connects account manually / via Google Sign-In fallback.
-     */
-    suspend fun connectManualAccount(email: String, displayName: String) = withContext(Dispatchers.IO) {
-        val updated = _userProfile.value.copy(
-            uid = "google_${System.currentTimeMillis()}",
-            displayName = displayName,
-            email = email,
-            isGoogleConnected = true,
-            isYouTubeSynced = true
-        )
-        _userProfile.value = updated
-        persistProfile(updated)
-        _syncMessage.value = "Connected $displayName"
-        _isSyncing.value = false
+            val updated = _userProfile.value.copy(
+                uid = fbUser?.uid ?: "google_${System.currentTimeMillis()}",
+                displayName = fbUser?.displayName ?: account.displayName,
+                email = fbUser?.email ?: account.email,
+                avatarUrl = fbUser?.photoUrl?.toString() ?: account.avatarUrl,
+                isGoogleConnected = true,
+                isYouTubeSynced = true
+            )
+            _userProfile.value = updated
+            persistProfile(updated)
+            _syncMessage.value = "Signed in as ${updated.displayName}"
+        } catch (e: Exception) {
+            val msg = "Google Sign-In failed: ${e.localizedMessage ?: e.message}"
+            _syncMessage.value = msg
+            throw RuntimeException(msg, e)
+        } finally {
+            _isSyncing.value = false
+        }
     }
 
     /**

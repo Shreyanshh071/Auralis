@@ -5,19 +5,21 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.TrackSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URI
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
-
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 
 enum class SpotifyItemType {
     PLAYLIST,
@@ -31,6 +33,14 @@ data class SpotifyResource(
     val type: SpotifyItemType
 )
 
+data class SpotifyAccessToken(
+    val token: String,
+    val expiresAtEpochMs: Long
+) {
+    val isValid: Boolean
+        get() = token.isNotBlank() && System.currentTimeMillis() < (expiresAtEpochMs - 60_000L)
+}
+
 class SpotifyPlaylistImporter(
     private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -42,6 +52,10 @@ class SpotifyPlaylistImporter(
     companion object {
         private const val TAG = "SpotifyImporter"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+        private const val MAX_PAGE_LIMIT = 100 // Maximum 100 pages * 100 tracks = 10,000 tracks safety cap
+
+        @Volatile
+        private var cachedToken: SpotifyAccessToken? = null
 
         /**
          * Extracts Spotify Resource ID and Type (PLAYLIST, ALBUM, TRACK) from any Spotify link, URI, or raw ID.
@@ -95,6 +109,18 @@ class SpotifyPlaylistImporter(
 
             return null
         }
+
+        private fun base64Encode(input: String): String {
+            return try {
+                java.util.Base64.getEncoder().encodeToString(input.toByteArray(Charsets.UTF_8))
+            } catch (_: Throwable) {
+                try {
+                    android.util.Base64.encodeToString(input.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+                } catch (_: Throwable) {
+                    ""
+                }
+            }
+        }
     }
 
     /**
@@ -124,42 +150,95 @@ class SpotifyPlaylistImporter(
     }
 
     /**
-     * Enriches imported Spotify tracks with real YouTube Music official artwork and video IDs.
+     * Retrieves or refreshes a valid Spotify Bearer Access Token.
+     * Tries Developer Client Credentials first, then falls back to Web Player anonymous token.
      */
-    suspend fun enrichTracksWithYouTubeData(tracks: List<Track>): List<Track> = withContext(Dispatchers.IO) {
-        coroutineScope {
-            tracks.map { track ->
-                async {
-                    try {
-                        val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
-                        val query = "${track.title} $cleanArtist".trim()
-                        val songsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_SONGS).songs
-                        val match = songsResult.firstOrNull() ?: innerTubeClient.search(query).songs.firstOrNull()
-                        if (match != null) {
-                            track.copy(
-                                id = match.id,
-                                thumbnail = match.thumbnail.ifBlank { "https://i.ytimg.com/vi/${match.id}/hq720.jpg" },
-                                duration = if (match.duration > 0) match.duration else track.duration
-                            )
-                        } else {
-                            if (track.thumbnail.contains("mosaic.scdn.co") || track.thumbnail.contains("image-cdn")) {
-                                track.copy(thumbnail = "")
-                            } else {
-                                track
-                            }
-                        }
-                    } catch (e: Exception) {
-                        track
-                    }
-                }
-            }.awaitAll()
+    suspend fun getAccessToken(clientId: String? = null, clientSecret: String? = null): String? = withContext(Dispatchers.IO) {
+        cachedToken?.let {
+            if (it.isValid) return@withContext it.token
         }
+
+        // 1. Try Spotify Developer Client Credentials flow
+        val effectiveClientId = clientId?.trim()?.ifBlank { null }
+            ?: runCatching { com.auralis.music.BuildConfig.SPOTIFY_CLIENT_ID.trim().ifBlank { null } }.getOrNull()
+        val effectiveClientSecret = clientSecret?.trim()?.ifBlank { null }
+            ?: runCatching { com.auralis.music.BuildConfig.SPOTIFY_CLIENT_SECRET.trim().ifBlank { null } }.getOrNull()
+
+        if (!effectiveClientId.isNullOrBlank() && !effectiveClientSecret.isNullOrBlank()) {
+            try {
+                Log.d(TAG, "Requesting token via Spotify Client Credentials flow")
+                val basicAuth = base64Encode("$effectiveClientId:$effectiveClientSecret")
+                val requestBody = FormBody.Builder()
+                    .add("grant_type", "client_credentials")
+                    .build()
+
+                val request = Request.Builder()
+                    .url("https://accounts.spotify.com/api/token")
+                    .header("Authorization", "Basic $basicAuth")
+                    .header("User-Agent", USER_AGENT)
+                    .post(requestBody)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
+                    val json = JSONObject(body)
+                    val token = json.optString("access_token")
+                    val expiresIn = json.optLong("expires_in", 3600L)
+                    if (token.isNotBlank()) {
+                        val expiresAt = System.currentTimeMillis() + (expiresIn * 1000L)
+                        cachedToken = SpotifyAccessToken(token, expiresAt)
+                        Log.i(TAG, "Successfully acquired Spotify token via Client Credentials (expires in ${expiresIn}s)")
+                        return@withContext token
+                    }
+                } else {
+                    Log.w(TAG, "Client Credentials token request failed with HTTP ${response.code}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error acquiring token via Client Credentials: ${e.message}")
+            }
+        }
+
+        // 2. Fallback: Spotify Web Player anonymous token generator
+        try {
+            Log.d(TAG, "Requesting token via Spotify Web Player anonymous endpoint")
+            val request = Request.Builder()
+                .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                val json = JSONObject(body)
+                val token = json.optString("accessToken")
+                val expiresAtEpochMs = json.optLong("accessTokenExpirationTimestampMs", 0L)
+                if (token.isNotBlank()) {
+                    val expiresAt = if (expiresAtEpochMs > System.currentTimeMillis()) expiresAtEpochMs else (System.currentTimeMillis() + 3600_000L)
+                    cachedToken = SpotifyAccessToken(token, expiresAt)
+                    Log.i(TAG, "Successfully acquired Spotify token via Web Player anonymous endpoint")
+                    return@withContext token
+                }
+            } else {
+                Log.w(TAG, "Web Player anonymous token request returned HTTP ${response.code}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error acquiring Web Player anonymous token: ${e.message}")
+        }
+
+        null
     }
 
     /**
-     * Imports a Spotify playlist or album by URL or ID and converts it into an Auralis Playlist domain object.
+     * Imports a Spotify playlist, album, or track with full pagination (no 100-song limit).
      */
-    suspend fun importPlaylist(urlOrId: String): Playlist? = withContext(Dispatchers.IO) {
+    suspend fun importPlaylist(
+        urlOrId: String,
+        clientId: String? = null,
+        clientSecret: String? = null,
+        onProgress: ((String) -> Unit)? = null
+    ): Playlist? = withContext(Dispatchers.IO) {
         Log.i(TAG, "Starting import for input: '$urlOrId'")
         val resource = resolveResource(urlOrId)
         if (resource == null) {
@@ -167,14 +246,40 @@ class SpotifyPlaylistImporter(
             return@withContext null
         }
         val (id, type) = resource
+        Log.i(TAG, "Resolved Spotify resource: id=$id, type=$type")
+
+        // ══════════════════════════════════════════════════════════════════════
+        // ── TIER 1: OFFICIAL SPOTIFY WEB API WITH PAGINATION (NO SONG LIMIT) ──
+        // ══════════════════════════════════════════════════════════════════════
+        val token = getAccessToken(clientId, clientSecret)
+        if (!token.isNullOrBlank()) {
+            try {
+                val apiPlaylist = when (type) {
+                    SpotifyItemType.PLAYLIST -> fetchPlaylistFromApi(id, token, onProgress)
+                    SpotifyItemType.ALBUM -> fetchAlbumFromApi(id, token, onProgress)
+                    SpotifyItemType.TRACK -> fetchTrackFromApi(id, token)
+                    else -> fetchPlaylistFromApi(id, token, onProgress)
+                }
+
+                if (apiPlaylist != null && (apiPlaylist.tracks.isNotEmpty() || apiPlaylist.title.isNotBlank())) {
+                    Log.i(TAG, "Spotify Web API fetched ${apiPlaylist.tracks.size} tracks for '${apiPlaylist.title}'. Enriching with YouTube data...")
+                    val enrichedTracks = enrichTracksWithYouTubeData(apiPlaylist.tracks, onProgress)
+                    return@withContext apiPlaylist.copy(tracks = enrichedTracks)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Spotify Web API Tier failed: ${e.message}. Falling back to Embed/oEmbed tiers...")
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // ── TIER 2: SPOTIFY EMBED HTML SCRAPING (FALLBACK) ──────────────────
+        // ══════════════════════════════════════════════════════════════════════
         val endpointType = when (type) {
             SpotifyItemType.ALBUM -> "album"
             SpotifyItemType.TRACK -> "track"
             else -> "playlist"
         }
-        Log.i(TAG, "Resolved Spotify resource: id=$id, type=$type, endpoint=$endpointType")
 
-        // ── TIER 1: SPOTIFY EMBED HTML ──
         val urlsToTry = listOf(
             "https://open.spotify.com/embed/$endpointType/$id",
             "https://open.spotify.com/embed/$endpointType/$id?utm_source=oembed",
@@ -185,7 +290,7 @@ class SpotifyPlaylistImporter(
 
         for (url in urlsToTry) {
             try {
-                Log.d(TAG, "Fetching Spotify URL: $url")
+                Log.d(TAG, "Fetching Spotify Embed URL: $url")
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", USER_AGENT)
@@ -194,40 +299,38 @@ class SpotifyPlaylistImporter(
                     .build()
 
                 val response = client.newCall(request).execute()
-                Log.d(TAG, "Response code for $url: ${response.code}")
                 if (response.code == 404) {
                     was404OrPrivate = true
                 }
                 if (response.isSuccessful) {
                     val html = response.body?.string() ?: ""
-                    Log.d(TAG, "Fetched HTML length: ${html.length}")
                     if (html.contains("Page not found") || html.contains("\"status\":404")) {
                         was404OrPrivate = true
                     }
                     val parsed = parseEmbedHtml(html, id, type)
                     if (parsed != null && parsed.tracks.isNotEmpty()) {
-                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from $url (Title: '${parsed.title}'). Enriching with official artwork...")
-                        val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks)
+                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from Embed HTML. Enriching...")
+                        val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
                         return@withContext parsed.copy(tracks = enrichedTracks)
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Error fetching $url: ${e.message}")
+                Log.w(TAG, "Error fetching Embed HTML $url: ${e.message}")
             }
         }
 
-        // ── TIER 2: SPOTIFY OEMBED METADATA ──
+        // ══════════════════════════════════════════════════════════════════════
+        // ── TIER 3: SPOTIFY OEMBED METADATA (FALLBACK) ──────────────────────
+        // ══════════════════════════════════════════════════════════════════════
         try {
             val encodedTarget = URLEncoder.encode("https://open.spotify.com/$endpointType/$id", "UTF-8")
             val oembedUrl = "https://open.spotify.com/oembed?url=$encodedTarget"
-            Log.d(TAG, "Fetching oEmbed URL: $oembedUrl")
             val request = Request.Builder()
                 .url(oembedUrl)
                 .header("User-Agent", USER_AGENT)
                 .build()
 
             val response = client.newCall(request).execute()
-            Log.d(TAG, "oEmbed response code: ${response.code}")
             if (response.code == 404) {
                 was404OrPrivate = true
             }
@@ -239,10 +342,8 @@ class SpotifyPlaylistImporter(
                 val author = json.optString("author_name", "Spotify")
                 val iframeUrl = json.optString("iframe_url")
 
-                // If iframeUrl is present, fetch that iframe HTML
                 if (iframeUrl.isNotBlank()) {
                     try {
-                        Log.d(TAG, "Fetching oEmbed iframe_url: $iframeUrl")
                         val ifReq = Request.Builder()
                             .url(iframeUrl)
                             .header("User-Agent", USER_AGENT)
@@ -252,18 +353,16 @@ class SpotifyPlaylistImporter(
                             val ifHtml = ifResp.body?.string() ?: ""
                             val parsed = parseEmbedHtml(ifHtml, id, type)
                             if (parsed != null && parsed.tracks.isNotEmpty()) {
-                                Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from oEmbed iframe. Enriching...")
-                                val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks)
+                                val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
                                 return@withContext parsed.copy(tracks = enrichedTracks)
                             }
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Error fetching iframe_url: ${e.message}")
+                        Log.w(TAG, "Error fetching oEmbed iframe: ${e.message}")
                     }
                 }
 
                 if (title.isNotBlank()) {
-                    Log.i(TAG, "Returning shell playlist from oEmbed: '$title'")
                     return@withContext Playlist(
                         id = "sp_$id",
                         title = title,
@@ -283,6 +382,368 @@ class SpotifyPlaylistImporter(
 
         Log.e(TAG, "Failed all tiers for Spotify import: id=$id")
         null
+    }
+
+    /**
+     * Fetches a full playlist from Spotify Web API with multi-page pagination.
+     */
+    suspend fun fetchPlaylistFromApi(
+        playlistId: String,
+        token: String,
+        onProgress: ((String) -> Unit)? = null
+    ): Playlist? = withContext(Dispatchers.IO) {
+        val initialUrl = "https://api.spotify.com/v1/playlists/$playlistId"
+        Log.d(TAG, "Calling Spotify API for playlist: $initialUrl")
+
+        val req = Request.Builder()
+            .url(initialUrl)
+            .header("Authorization", "Bearer $token")
+            .header("User-Agent", USER_AGENT)
+            .build()
+
+        val resp = client.newCall(req).execute()
+        if (!resp.isSuccessful) {
+            Log.w(TAG, "Spotify API Playlist request failed with code ${resp.code}")
+            return@withContext null
+        }
+
+        val jsonStr = resp.body?.string() ?: return@withContext null
+        val root = JSONObject(jsonStr)
+        val title = root.optString("name", "Spotify Playlist")
+        val description = root.optString("description", "Imported from Spotify")
+
+        var coverUrl: String? = null
+        val images = root.optJSONArray("images")
+        if (images != null && images.length() > 0) {
+            coverUrl = images.optJSONObject(0)?.optString("url")
+        }
+
+        val allTracks = mutableListOf<Track>()
+        val tracksObj = root.optJSONObject("tracks")
+        var totalTracks = tracksObj?.optInt("total", 0) ?: 0
+        var nextUrl = tracksObj?.optString("next").takeIf { !it.isNullOrBlank() }
+
+        // Parse initial batch of tracks
+        tracksObj?.optJSONArray("items")?.let { items ->
+            parseApiTrackItems(items, title, allTracks)
+        }
+
+        onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks > 0) totalTracks else allTracks.size})...")
+
+        // ── PAGINATION LOOP: Fetch all remaining pages ──
+        var pageCount = 1
+        while (!nextUrl.isNullOrBlank() && pageCount < MAX_PAGE_LIMIT) {
+            pageCount++
+            try {
+                Log.d(TAG, "Fetching Spotify playlist page $pageCount: $nextUrl")
+                val pageReq = Request.Builder()
+                    .url(nextUrl)
+                    .header("Authorization", "Bearer $token")
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+
+                val pageResp = client.newCall(pageReq).execute()
+                if (pageResp.isSuccessful) {
+                    val pageBody = pageResp.body?.string() ?: ""
+                    val pageJson = JSONObject(pageBody)
+                    val items = pageJson.optJSONArray("items")
+                    if (items != null) {
+                        parseApiTrackItems(items, title, allTracks)
+                    }
+                    totalTracks = pageJson.optInt("total", totalTracks)
+                    nextUrl = pageJson.optString("next").takeIf { !it.isNullOrBlank() }
+                    onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${totalTracks})...")
+                } else {
+                    Log.w(TAG, "Page $pageCount returned HTTP ${pageResp.code}")
+                    break
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching page $pageCount: ${e.message}")
+                break
+            }
+        }
+
+        val uniqueTracks = allTracks.distinctBy { it.id }
+        Log.i(TAG, "Fetched ${uniqueTracks.size} total tracks via Spotify Web API for playlist '$title'")
+
+        Playlist(
+            id = "sp_$playlistId",
+            title = title,
+            description = description,
+            coverUrl = coverUrl,
+            tracks = uniqueTracks
+        )
+    }
+
+    /**
+     * Fetches a full album from Spotify Web API with multi-page pagination.
+     */
+    suspend fun fetchAlbumFromApi(
+        albumId: String,
+        token: String,
+        onProgress: ((String) -> Unit)? = null
+    ): Playlist? = withContext(Dispatchers.IO) {
+        val initialUrl = "https://api.spotify.com/v1/albums/$albumId"
+        Log.d(TAG, "Calling Spotify API for album: $initialUrl")
+
+        val req = Request.Builder()
+            .url(initialUrl)
+            .header("Authorization", "Bearer $token")
+            .header("User-Agent", USER_AGENT)
+            .build()
+
+        val resp = client.newCall(req).execute()
+        if (!resp.isSuccessful) {
+            Log.w(TAG, "Spotify API Album request failed with code ${resp.code}")
+            return@withContext null
+        }
+
+        val jsonStr = resp.body?.string() ?: return@withContext null
+        val root = JSONObject(jsonStr)
+        val title = root.optString("name", "Spotify Album")
+
+        val artists = root.optJSONArray("artists")
+        val artistNames = mutableListOf<String>()
+        if (artists != null) {
+            for (i in 0 until artists.length()) {
+                val aName = artists.optJSONObject(i)?.optString("name")
+                if (!aName.isNullOrBlank()) artistNames.add(aName)
+            }
+        }
+        val albumArtist = if (artistNames.isNotEmpty()) artistNames.joinToString(", ") else "Spotify Artist"
+
+        var coverUrl: String? = null
+        val images = root.optJSONArray("images")
+        if (images != null && images.length() > 0) {
+            coverUrl = images.optJSONObject(0)?.optString("url")
+        }
+
+        val allTracks = mutableListOf<Track>()
+        val tracksObj = root.optJSONObject("tracks")
+        var nextUrl = tracksObj?.optString("next").takeIf { !it.isNullOrBlank() }
+
+        // Parse album tracks
+        tracksObj?.optJSONArray("items")?.let { items ->
+            parseAlbumTrackItems(items, title, albumArtist, coverUrl, allTracks)
+        }
+
+        // Paginate album tracks if needed
+        var pageCount = 1
+        while (!nextUrl.isNullOrBlank() && pageCount < MAX_PAGE_LIMIT) {
+            pageCount++
+            try {
+                val pageReq = Request.Builder()
+                    .url(nextUrl)
+                    .header("Authorization", "Bearer $token")
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+                val pageResp = client.newCall(pageReq).execute()
+                if (pageResp.isSuccessful) {
+                    val pageJson = JSONObject(pageResp.body?.string() ?: "")
+                    val items = pageJson.optJSONArray("items")
+                    if (items != null) {
+                        parseAlbumTrackItems(items, title, albumArtist, coverUrl, allTracks)
+                    }
+                    nextUrl = pageJson.optString("next").takeIf { !it.isNullOrBlank() }
+                } else break
+            } catch (e: Exception) {
+                break
+            }
+        }
+
+        Playlist(
+            id = "sp_$albumId",
+            title = title,
+            description = "Album by $albumArtist",
+            coverUrl = coverUrl,
+            tracks = allTracks.distinctBy { it.id }
+        )
+    }
+
+    /**
+     * Fetches a single track from Spotify Web API.
+     */
+    suspend fun fetchTrackFromApi(
+        trackId: String,
+        token: String
+    ): Playlist? = withContext(Dispatchers.IO) {
+        val url = "https://api.spotify.com/v1/tracks/$trackId"
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $token")
+            .header("User-Agent", USER_AGENT)
+            .build()
+
+        val resp = client.newCall(req).execute()
+        if (!resp.isSuccessful) return@withContext null
+
+        val root = JSONObject(resp.body?.string() ?: return@withContext null)
+        val title = root.optString("name", "Spotify Track")
+        val artists = root.optJSONArray("artists")
+        val artistNames = mutableListOf<String>()
+        if (artists != null) {
+            for (i in 0 until artists.length()) {
+                val aName = artists.optJSONObject(i)?.optString("name")
+                if (!aName.isNullOrBlank()) artistNames.add(aName)
+            }
+        }
+        val artist = if (artistNames.isNotEmpty()) artistNames.joinToString(", ") else "Spotify Artist"
+        val albumObj = root.optJSONObject("album")
+        val albumName = albumObj?.optString("name", "Single") ?: "Single"
+        val coverUrl = albumObj?.optJSONArray("images")?.optJSONObject(0)?.optString("url")
+        val durationMs = root.optLong("duration_ms", 210000L)
+
+        val track = Track(
+            id = "sp_$trackId",
+            title = TitleCleaner.cleanTitle(title),
+            artist = artist,
+            album = albumName,
+            thumbnail = coverUrl ?: "",
+            duration = durationMs / 1000L,
+            source = TrackSource.YOUTUBE
+        )
+
+        Playlist(
+            id = "sp_$trackId",
+            title = title,
+            description = "Track by $artist",
+            coverUrl = coverUrl,
+            tracks = listOf(track)
+        )
+    }
+
+    /**
+     * Helper to extract Track objects from Spotify API items array.
+     */
+    fun parseApiTrackItems(items: JSONArray, defaultAlbum: String, outList: MutableList<Track>) {
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val trackObj = item.optJSONObject("track") ?: item
+            val id = trackObj.optString("id")
+            val name = trackObj.optString("name")
+            val isLocal = trackObj.optBoolean("is_local", false)
+
+            if (name.isBlank() || isLocal || id.isBlank()) continue
+
+            val artistsArr = trackObj.optJSONArray("artists")
+            val artistsList = mutableListOf<String>()
+            if (artistsArr != null) {
+                for (a in 0 until artistsArr.length()) {
+                    val aName = artistsArr.optJSONObject(a)?.optString("name")
+                    if (!aName.isNullOrBlank()) artistsList.add(aName)
+                }
+            }
+            val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else "Spotify Artist"
+
+            val albumObj = trackObj.optJSONObject("album")
+            val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
+            val trackArtwork = albumObj?.optJSONArray("images")?.optJSONObject(0)?.optString("url") ?: ""
+
+            val durationMs = trackObj.optLong("duration_ms", 210000L)
+
+            outList.add(
+                Track(
+                    id = "sp_$id",
+                    title = TitleCleaner.cleanTitle(name),
+                    artist = artistStr,
+                    album = albumName,
+                    thumbnail = trackArtwork,
+                    duration = durationMs / 1000L,
+                    source = TrackSource.YOUTUBE
+                )
+            )
+        }
+    }
+
+    private fun parseAlbumTrackItems(
+        items: JSONArray,
+        albumName: String,
+        albumArtist: String,
+        albumCover: String?,
+        outList: MutableList<Track>
+    ) {
+        for (i in 0 until items.length()) {
+            val trackObj = items.optJSONObject(i) ?: continue
+            val id = trackObj.optString("id")
+            val name = trackObj.optString("name")
+            if (name.isBlank() || id.isBlank()) continue
+
+            val artistsArr = trackObj.optJSONArray("artists")
+            val artistsList = mutableListOf<String>()
+            if (artistsArr != null) {
+                for (a in 0 until artistsArr.length()) {
+                    val aName = artistsArr.optJSONObject(a)?.optString("name")
+                    if (!aName.isNullOrBlank()) artistsList.add(aName)
+                }
+            }
+            val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else albumArtist
+            val durationMs = trackObj.optLong("duration_ms", 210000L)
+
+            outList.add(
+                Track(
+                    id = "sp_$id",
+                    title = TitleCleaner.cleanTitle(name),
+                    artist = artistStr,
+                    album = albumName,
+                    thumbnail = albumCover ?: "",
+                    duration = durationMs / 1000L,
+                    source = TrackSource.YOUTUBE
+                )
+            )
+        }
+    }
+
+    /**
+     * Enriches imported Spotify tracks with real YouTube Music official artwork and video IDs.
+     * Uses controlled concurrency (Semaphore) to prevent network congestion when importing large playlists.
+     */
+    suspend fun enrichTracksWithYouTubeData(
+        tracks: List<Track>,
+        onProgress: ((String) -> Unit)? = null
+    ): List<Track> = withContext(Dispatchers.IO) {
+        val total = tracks.size
+        if (total == 0) return@withContext emptyList()
+
+        val semaphore = Semaphore(8)
+        val completedCounter = AtomicInteger(0)
+
+        coroutineScope {
+            tracks.map { track ->
+                async {
+                    semaphore.withPermit {
+                        try {
+                            val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
+                            val query = "${track.title} $cleanArtist".trim()
+                            val songsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_SONGS).songs
+                            val match = songsResult.firstOrNull() ?: innerTubeClient.search(query).songs.firstOrNull()
+
+                            val count = completedCounter.incrementAndGet()
+                            if (count % 10 == 0 || count == total) {
+                                onProgress?.invoke("Matching songs with YouTube Music ($count/$total)...")
+                            }
+
+                            if (match != null) {
+                                track.copy(
+                                    id = match.id,
+                                    thumbnail = match.thumbnail.ifBlank {
+                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${match.id}/hq720.jpg" }
+                                    },
+                                    duration = if (match.duration > 0) match.duration else track.duration
+                                )
+                            } else {
+                                if (track.thumbnail.contains("mosaic.scdn.co") || track.thumbnail.contains("image-cdn")) {
+                                    track.copy(thumbnail = "")
+                                } else {
+                                    track
+                                }
+                            }
+                        } catch (e: Exception) {
+                            track
+                        }
+                    }
+                }
+            }.awaitAll()
+        }
     }
 
     /**
@@ -391,7 +852,6 @@ class SpotifyPlaylistImporter(
             entity.optString("description", "Imported from Spotify")
         }
 
-        // Extract playlist cover (pick highest resolution)
         var coverUrl: String? = null
         val visualIdentity = entity.optJSONObject("visualIdentity")
         if (visualIdentity != null) {
@@ -414,7 +874,6 @@ class SpotifyPlaylistImporter(
                 val item = trackList.optJSONObject(i) ?: continue
                 val trackTitle = item.optString("title").ifBlank { item.optString("name", "Track $i") }
                 val trackSubtitle = item.optString("subtitle").ifBlank {
-                    // Extract from artists array if present
                     val artistsArr = item.optJSONArray("artists")
                     if (artistsArr != null && artistsArr.length() > 0) {
                         val names = mutableListOf<String>()
@@ -436,7 +895,6 @@ class SpotifyPlaylistImporter(
                     item.optString("id", "track_$i")
                 }
 
-                // Track cover artwork
                 var trackArtwork: String? = null
                 val itemArt = item.optJSONObject("album")?.optJSONObject("coverArt")?.optJSONArray("sources")?.optJSONObject(0)?.optString("url")
                 if (!itemArt.isNullOrBlank()) {

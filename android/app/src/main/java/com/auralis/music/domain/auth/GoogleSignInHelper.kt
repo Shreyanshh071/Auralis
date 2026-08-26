@@ -8,6 +8,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import com.auralis.music.BuildConfig
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
@@ -28,33 +29,32 @@ class GoogleSignInHelper(
     private val context: Context
 ) {
     private val credentialManager = CredentialManager.create(context)
-    private val webClientId = "30030184374-pe7h8deq7qp2josb62junld16udgnnin.apps.googleusercontent.com"
+    private val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
 
     /**
      * Firebase Google OAuth with `https://www.googleapis.com/auth/youtube.readonly` scope.
      * Launches the Google OAuth 2.0 consent window and retrieves the Bearer access token in-memory.
      */
     suspend fun signInWithGoogleYouTubeOAuth(activity: Activity): String? = withContext(Dispatchers.Main) {
-        try {
-            val provider = OAuthProvider.newBuilder("google.com")
-            provider.scopes = listOf("https://www.googleapis.com/auth/youtube.readonly")
-            
-            val auth = FirebaseAuth.getInstance()
-            val result = auth.startActivityForSignInWithProvider(activity, provider.build()).await()
-            val credential = result.credential as? OAuthCredential
-            credential?.accessToken
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        val provider = OAuthProvider.newBuilder("google.com")
+        provider.scopes = listOf("https://www.googleapis.com/auth/youtube.readonly")
+
+        val auth = FirebaseAuth.getInstance()
+        val result = auth.startActivityForSignInWithProvider(activity, provider.build()).await()
+        val credential = result.credential as? OAuthCredential
+        credential?.accessToken ?: throw IllegalStateException("No access token returned from Google OAuth.")
     }
 
-    suspend fun signIn(activityContext: Context): GoogleUserAccount? = withContext(Dispatchers.IO) {
+    /**
+     * Authenticates with Google Credential Manager (ID Token).
+     * Requires an Activity context to display the system account selector bottom sheet.
+     */
+    suspend fun signIn(activity: Activity): GoogleUserAccount? = withContext(Dispatchers.IO) {
         try {
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
                 .setServerClientId(webClientId)
-                .setAutoSelectEnabled(true)
+                .setAutoSelectEnabled(false)
                 .build()
 
             val request = GetCredentialRequest.Builder()
@@ -62,7 +62,7 @@ class GoogleSignInHelper(
                 .build()
 
             val response: GetCredentialResponse = credentialManager.getCredential(
-                context = activityContext,
+                context = activity,
                 request = request
             )
 
@@ -78,14 +78,14 @@ class GoogleSignInHelper(
             }
             null
         } catch (e: GetCredentialCancellationException) {
+            // User dismissed or cancelled the Google Account picker dialog
             null
+        } catch (e: GetCredentialException) {
+            // Surface real Credential Manager error (e.g. Developer Error / SHA-1 / configuration)
+            throw RuntimeException(e.localizedMessage ?: "Google Sign-In failed (${e::class.simpleName})", e)
         } catch (e: Exception) {
-            GoogleUserAccount(
-                email = "user@gmail.com",
-                displayName = "Google User",
-                avatarUrl = null,
-                idToken = "demo_id_token_${System.currentTimeMillis()}"
-            )
+            throw e
         }
     }
 }
+

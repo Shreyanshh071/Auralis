@@ -89,27 +89,35 @@ fun AuralisApp(
         )
     }
     
-    // Check if user is logged in (Firebase authenticated or Google Account connected)
+    // Resolve Activity context for Credential Manager and OAuth popups
+    fun android.content.Context.findActivity(): android.app.Activity? {
+        var cur = this
+        while (cur is android.content.ContextWrapper) {
+            if (cur is android.app.Activity) return cur
+            cur = cur.baseContext
+        }
+        return null
+    }
+
+    // Check if user is logged in (Firebase authenticated)
     val isFirebaseUserActive = try {
         val fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
         fbUser != null && !fbUser.isAnonymous
     } catch (_: Exception) { false }
 
-    val isUserLoggedIn = (isFirebaseUserActive && authUiState.profile.email != "Not connected") ||
-                         (authUiState.profile.isGoogleConnected && 
-                          authUiState.profile.uid.isNotBlank() && 
-                          authUiState.profile.email != "Not connected") ||
-                         (authUiState.profile.uid.isNotBlank() && 
-                          authUiState.profile.email != "Not connected" && 
-                          authUiState.profile.email.isNotBlank())
-
+    val isUserLoggedIn = isFirebaseUserActive || (authUiState.profile.isGoogleConnected && authUiState.profile.uid.isNotBlank())
     val isAppUnlocked = isUserLoggedIn
 
     if (!isAppUnlocked) {
         com.auralis.music.ui.onboarding.WelcomeScreen(
             authUiState = authUiState,
             onContinueWithGoogle = {
-                authViewModel.signInWithGoogle(context)
+                val act = context.findActivity()
+                if (act != null) {
+                    authViewModel.signInWithGoogle(act)
+                } else {
+                    android.widget.Toast.makeText(context, "Activity not found for Google Sign-In", android.widget.Toast.LENGTH_SHORT).show()
+                }
             },
             onSignUpWithEmail = { email, password, name ->
                 authViewModel.signUpWithEmail(email, password, name) {}
@@ -524,8 +532,14 @@ fun AuralisApp(
             val context = androidx.compose.ui.platform.LocalContext.current
             ProfileSheet(
                 authUiState = authUiState,
-                onConnectWithGoogleOAuth = { authViewModel.connectWithGoogleOAuth(context) },
-                onConnectOAuthToken = { token -> authViewModel.connectWithOAuthToken(token) },
+                onConnectWithGoogleOAuth = {
+                    val act = context.findActivity()
+                    if (act != null) {
+                        authViewModel.connectWithGoogleOAuth(act)
+                    } else {
+                        android.widget.Toast.makeText(context, "Activity not found for Google OAuth", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
                 onOpenPlaylistSelector = { authViewModel.openPlaylistSelectDialog() },
                 onSyncLikedMusic = { authViewModel.syncLikedMusic() },
                 onDisconnect = {
@@ -535,6 +549,7 @@ fun AuralisApp(
                 onClosePlaylistSelector = { authViewModel.closePlaylistSelectDialog() },
                 onTogglePlaylistSelection = { authViewModel.togglePlaylistSelection(it) },
                 onSelectAllPlaylists = { authViewModel.selectAllPlaylists() },
+                onDeselectAllPlaylists = { authViewModel.deselectAllPlaylists() },
                 onImportSelectedPlaylists = { authViewModel.importSelectedPlaylists() },
                 onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
                 onClearSpotifyImportMessage = { libraryViewModel.clearSpotifyImportMessage() },

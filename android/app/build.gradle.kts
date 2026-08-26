@@ -6,6 +6,30 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+import java.util.Properties
+
+val envProperties = Properties().apply {
+    // 1. Check workspace root .env
+    val rootEnv = rootProject.file("../.env")
+    if (rootEnv.exists()) {
+        rootEnv.inputStream().use { load(it) }
+    }
+    // 2. Check android folder .env
+    val androidEnv = rootProject.file(".env")
+    if (androidEnv.exists()) {
+        androidEnv.inputStream().use { load(it) }
+    }
+    // 3. Check local.properties
+    val localProps = rootProject.file("local.properties")
+    if (localProps.exists()) {
+        localProps.inputStream().use { load(it) }
+    }
+}
+
+fun getEnv(key: String, default: String = ""): String {
+    return System.getenv(key) ?: envProperties.getProperty(key)?.trim() ?: default
+}
+
 android {
     namespace = "com.auralis.music"
     compileSdk = 35
@@ -20,6 +44,16 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        val webClientId = getEnv("GOOGLE_WEB_CLIENT_ID", "30030184374-pe7h8deq7qp2josb62junld16udgnnin.apps.googleusercontent.com")
+        val youtubeApiKey = getEnv("YOUTUBE_API_KEY", "")
+        val spotifyClientId = getEnv("SPOTIFY_CLIENT_ID", "")
+        val spotifyClientSecret = getEnv("SPOTIFY_CLIENT_SECRET", "")
+
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$webClientId\"")
+        buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
+        buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"$spotifyClientSecret\"")
     }
 
     testOptions {
@@ -57,6 +91,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
