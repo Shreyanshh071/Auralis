@@ -53,6 +53,9 @@ class SpotifyPlaylistImporter(
         private const val TAG = "SpotifyImporter"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
         private const val MAX_PAGE_LIMIT = 100 // Maximum 100 pages * 100 tracks = 10,000 tracks safety cap
+        private const val PATHFINDER_URL = "https://api-partner.spotify.com/pathfinder/v1/query"
+        private const val PLAYLIST_HASH = "a65e12194ed5fc443a1cdebed5fabe33ca5b07b987185d63c72483867ad13cb4"
+        private const val ALBUM_HASH = "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
 
         @Volatile
         private var cachedToken: SpotifyAccessToken? = null
@@ -107,6 +110,41 @@ class SpotifyPlaylistImporter(
                 return SpotifyResource(trimmed, SpotifyItemType.PLAYLIST)
             }
 
+            return null
+        }
+
+        /**
+         * Extracts anonymous bearer token from Spotify Embed HTML __NEXT_DATA__ payload.
+         */
+        fun extractSessionTokenFromEmbed(html: String): String? {
+            if (html.isBlank()) return null
+            try {
+                // Check regex for "accessToken":"..."
+                val tokenMatch = Regex(""""accessToken"\s*:\s*"([^"]+)"""").find(html)
+                if (tokenMatch != null) {
+                    val token = tokenMatch.groupValues[1].trim()
+                    if (token.isNotBlank() && token.length > 20) {
+                        return token
+                    }
+                }
+
+                // Check __NEXT_DATA__ JSON object
+                val nextDataPattern = Pattern.compile("<script id=\"__NEXT_DATA__\" type=\"application/json\">(.*?)</script>", Pattern.DOTALL)
+                val matcher = nextDataPattern.matcher(html)
+                if (matcher.find()) {
+                    val json = JSONObject(matcher.group(1) ?: "")
+                    val pageProps = json.optJSONObject("props")?.optJSONObject("pageProps")
+                    val state = pageProps?.optJSONObject("state")?.optJSONObject("data")
+                    val session = state?.optJSONObject("settings")?.optJSONObject("session")
+                        ?: pageProps?.optJSONObject("settings")?.optJSONObject("session")
+                    val token = session?.optString("accessToken")
+                    if (!token.isNullOrBlank()) {
+                        return token
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error extracting session token from embed: ${e.message}")
+            }
             return null
         }
 
@@ -249,7 +287,7 @@ class SpotifyPlaylistImporter(
         Log.i(TAG, "Resolved Spotify resource: id=$id, type=$type")
 
         // ══════════════════════════════════════════════════════════════════════
-        // ── TIER 1: OFFICIAL SPOTIFY WEB API WITH PAGINATION (NO SONG LIMIT) ──
+        // ── TIER 0: OFFICIAL SPOTIFY WEB API (IF DEVELOPER KEYS PRESENT) ──────
         // ══════════════════════════════════════════════════════════════════════
         val token = getAccessToken(clientId, clientSecret)
         if (!token.isNullOrBlank()) {
@@ -267,12 +305,12 @@ class SpotifyPlaylistImporter(
                     return@withContext apiPlaylist.copy(tracks = enrichedTracks)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Spotify Web API Tier failed: ${e.message}. Falling back to Embed/oEmbed tiers...")
+                Log.w(TAG, "Spotify Web API Tier failed: ${e.message}. Falling back to Pathfinder GraphQL / Embed tiers...")
             }
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // ── TIER 2: SPOTIFY EMBED HTML SCRAPING (FALLBACK) ──────────────────
+        // ── TIER 1: ANONYMOUS PATHFINDER GRAPHQL ENGINE (UNLIMITED TRACKS) ────
         // ══════════════════════════════════════════════════════════════════════
         val endpointType = when (type) {
             SpotifyItemType.ALBUM -> "album"
@@ -280,17 +318,73 @@ class SpotifyPlaylistImporter(
             else -> "playlist"
         }
 
+        val embedUrl = "https://open.spotify.com/embed/$endpointType/$id"
+        var embedHtml: String? = null
+        var was404OrPrivate = false
+
+        try {
+            Log.d(TAG, "Fetching Embed HTML for token & metadata: $embedUrl")
+            val embedReq = Request.Builder()
+                .url(embedUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build()
+
+            val embedResp = client.newCall(embedReq).execute()
+            if (embedResp.code == 404) was404OrPrivate = true
+            if (embedResp.isSuccessful) {
+                embedHtml = embedResp.body?.string() ?: ""
+                if (embedHtml.contains("Page not found") || embedHtml.contains("\"status\":404")) {
+                    was404OrPrivate = true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching embed HTML: ${e.message}")
+        }
+
+        // Extract anonymous token from embed page
+        val anonymousToken = embedHtml?.let { extractSessionTokenFromEmbed(it) }
+        if (!anonymousToken.isNullOrBlank()) {
+            try {
+                Log.i(TAG, "Acquired anonymous session token from embed HTML. Starting Pathfinder GraphQL multi-page import...")
+                val pathfinderPlaylist = when (type) {
+                    SpotifyItemType.PLAYLIST -> fetchPlaylistViaPathfinder(id, anonymousToken, onProgress)
+                    SpotifyItemType.ALBUM -> fetchAlbumViaPathfinder(id, anonymousToken, onProgress)
+                    SpotifyItemType.TRACK -> fetchTrackFromApi(id, anonymousToken)
+                    else -> fetchPlaylistViaPathfinder(id, anonymousToken, onProgress)
+                }
+
+                if (pathfinderPlaylist != null && pathfinderPlaylist.tracks.isNotEmpty()) {
+                    Log.i(TAG, "Pathfinder GraphQL successfully fetched ${pathfinderPlaylist.tracks.size} tracks for '${pathfinderPlaylist.title}'. Enriching...")
+                    val enrichedTracks = enrichTracksWithYouTubeData(pathfinderPlaylist.tracks, onProgress)
+                    return@withContext pathfinderPlaylist.copy(tracks = enrichedTracks)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pathfinder GraphQL Tier failed: ${e.message}. Falling back to Embed HTML scraper...")
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // ── TIER 2: SPOTIFY EMBED HTML SCRAPING (FALLBACK) ──────────────────
+        // ══════════════════════════════════════════════════════════════════════
+        if (!embedHtml.isNullOrBlank()) {
+            val parsed = parseEmbedHtml(embedHtml, id, type)
+            if (parsed != null && parsed.tracks.isNotEmpty()) {
+                Log.i(TAG, "Parsed ${parsed.tracks.size} tracks from Embed HTML. Enriching...")
+                val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
+                return@withContext parsed.copy(tracks = enrichedTracks)
+            }
+        }
+
         val urlsToTry = listOf(
-            "https://open.spotify.com/embed/$endpointType/$id",
             "https://open.spotify.com/embed/$endpointType/$id?utm_source=oembed",
             "https://open.spotify.com/$endpointType/$id"
         )
 
-        var was404OrPrivate = false
-
         for (url in urlsToTry) {
             try {
-                Log.d(TAG, "Fetching Spotify Embed URL: $url")
+                Log.d(TAG, "Fetching Spotify Embed fallback URL: $url")
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", USER_AGENT)
@@ -299,9 +393,7 @@ class SpotifyPlaylistImporter(
                     .build()
 
                 val response = client.newCall(request).execute()
-                if (response.code == 404) {
-                    was404OrPrivate = true
-                }
+                if (response.code == 404) was404OrPrivate = true
                 if (response.isSuccessful) {
                     val html = response.body?.string() ?: ""
                     if (html.contains("Page not found") || html.contains("\"status\":404")) {
@@ -309,7 +401,7 @@ class SpotifyPlaylistImporter(
                     }
                     val parsed = parseEmbedHtml(html, id, type)
                     if (parsed != null && parsed.tracks.isNotEmpty()) {
-                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from Embed HTML. Enriching...")
+                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from fallback HTML. Enriching...")
                         val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
                         return@withContext parsed.copy(tracks = enrichedTracks)
                     }
@@ -382,6 +474,307 @@ class SpotifyPlaylistImporter(
 
         Log.e(TAG, "Failed all tiers for Spotify import: id=$id")
         null
+    }
+
+    /**
+     * Fetches a full playlist from Spotify's internal Pathfinder GraphQL API with multi-page pagination.
+     * Works anonymously without requiring Developer API credentials or Spotify Premium.
+     */
+    suspend fun fetchPlaylistViaPathfinder(
+        playlistId: String,
+        token: String,
+        onProgress: ((String) -> Unit)? = null
+    ): Playlist? = withContext(Dispatchers.IO) {
+        var title = "Spotify Playlist"
+        var description = "Imported from Spotify"
+        var coverUrl: String? = null
+        val allTracks = mutableListOf<Track>()
+        var offset = 0
+        val limit = 100
+        var totalTracks = Int.MAX_VALUE
+        var page = 1
+
+        Log.d(TAG, "Starting Pathfinder GraphQL pagination for playlist $playlistId")
+
+        while (offset < totalTracks && page <= MAX_PAGE_LIMIT) {
+            val variables = JSONObject().apply {
+                put("uri", "spotify:playlist:$playlistId")
+                put("offset", offset)
+                put("limit", limit)
+                put("enableWatchFeedEntrypoint", false)
+            }
+            val extensions = JSONObject().apply {
+                put("persistedQuery", JSONObject().apply {
+                    put("version", 1)
+                    put("sha256Hash", PLAYLIST_HASH)
+                })
+            }
+
+            val queryUrl = "$PATHFINDER_URL?operationName=fetchPlaylist&variables=${URLEncoder.encode(variables.toString(), "UTF-8")}&extensions=${URLEncoder.encode(extensions.toString(), "UTF-8")}"
+
+            val req = Request.Builder()
+                .url(queryUrl)
+                .header("Authorization", "Bearer $token")
+                .header("app-platform", "WebPlayer")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "Pathfinder fetchPlaylist page $page failed with code ${resp.code}")
+                break
+            }
+
+            val body = resp.body?.string() ?: break
+            val json = JSONObject(body)
+            val data = json.optJSONObject("data") ?: break
+            val playlistV2 = data.optJSONObject("playlistV2") ?: break
+
+            if (page == 1) {
+                title = playlistV2.optString("name", title)
+                val descObj = playlistV2.optJSONObject("description")
+                description = descObj?.optString("text", description) ?: description
+                val coverSources = playlistV2.optJSONObject("images")?.optJSONArray("items")?.optJSONObject(0)?.optJSONArray("sources")
+                if (coverSources != null && coverSources.length() > 0) {
+                    coverUrl = coverSources.optJSONObject(0)?.optString("url")
+                }
+            }
+
+            val content = playlistV2.optJSONObject("content") ?: break
+            totalTracks = content.optInt("totalCount", totalTracks)
+            val items = content.optJSONArray("items") ?: break
+            if (items.length() == 0) break
+
+            val initialCount = allTracks.size
+            parsePathfinderPlaylistItems(items, title, allTracks)
+            val addedCount = allTracks.size - initialCount
+
+            onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
+
+            if (addedCount == 0) break
+            offset += items.length()
+            page++
+        }
+
+        if (allTracks.isEmpty()) return@withContext null
+
+        val uniqueTracks = allTracks.distinctBy { it.id }
+        Log.i(TAG, "Pathfinder GraphQL fetched ${uniqueTracks.size} tracks for playlist '$title'")
+
+        Playlist(
+            id = "sp_$playlistId",
+            title = title,
+            description = description,
+            coverUrl = coverUrl,
+            tracks = uniqueTracks
+        )
+    }
+
+    /**
+     * Fetches a full album from Spotify's internal Pathfinder GraphQL API with multi-page pagination.
+     */
+    suspend fun fetchAlbumViaPathfinder(
+        albumId: String,
+        token: String,
+        onProgress: ((String) -> Unit)? = null
+    ): Playlist? = withContext(Dispatchers.IO) {
+        var title = "Spotify Album"
+        var artist = "Spotify Artist"
+        var coverUrl: String? = null
+        val allTracks = mutableListOf<Track>()
+        var offset = 0
+        val limit = 50
+        var totalTracks = Int.MAX_VALUE
+        var page = 1
+
+        Log.d(TAG, "Starting Pathfinder GraphQL pagination for album $albumId")
+
+        while (offset < totalTracks && page <= MAX_PAGE_LIMIT) {
+            val variables = JSONObject().apply {
+                put("uri", "spotify:album:$albumId")
+                put("locale", "")
+                put("offset", offset)
+                put("limit", limit)
+            }
+            val extensions = JSONObject().apply {
+                put("persistedQuery", JSONObject().apply {
+                    put("version", 1)
+                    put("sha256Hash", ALBUM_HASH)
+                })
+            }
+
+            val queryUrl = "$PATHFINDER_URL?operationName=getAlbum&variables=${URLEncoder.encode(variables.toString(), "UTF-8")}&extensions=${URLEncoder.encode(extensions.toString(), "UTF-8")}"
+
+            val req = Request.Builder()
+                .url(queryUrl)
+                .header("Authorization", "Bearer $token")
+                .header("app-platform", "WebPlayer")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "Pathfinder getAlbum page $page failed with code ${resp.code}")
+                break
+            }
+
+            val body = resp.body?.string() ?: break
+            val json = JSONObject(body)
+            val data = json.optJSONObject("data") ?: break
+            val albumUnion = data.optJSONObject("albumUnion") ?: data.optJSONObject("album") ?: break
+
+            if (page == 1) {
+                title = albumUnion.optString("name", title)
+                val artistsArr = albumUnion.optJSONObject("artists")?.optJSONArray("items")
+                if (artistsArr != null && artistsArr.length() > 0) {
+                    val names = mutableListOf<String>()
+                    for (a in 0 until artistsArr.length()) {
+                        val aName = artistsArr.optJSONObject(a)?.optJSONObject("profile")?.optString("name")
+                            ?: artistsArr.optJSONObject(a)?.optString("name")
+                        if (!aName.isNullOrBlank()) names.add(aName)
+                    }
+                    if (names.isNotEmpty()) artist = names.joinToString(", ")
+                }
+                val coverSources = albumUnion.optJSONObject("coverArt")?.optJSONArray("sources")
+                if (coverSources != null && coverSources.length() > 0) {
+                    coverUrl = coverSources.optJSONObject(0)?.optString("url")
+                }
+            }
+
+            val tracksObj = albumUnion.optJSONObject("tracksV2") ?: albumUnion.optJSONObject("tracks") ?: break
+            totalTracks = tracksObj.optInt("totalCount", totalTracks)
+            val items = tracksObj.optJSONArray("items") ?: break
+            if (items.length() == 0) break
+
+            val initialCount = allTracks.size
+            parsePathfinderAlbumItems(items, title, artist, coverUrl, allTracks)
+            val addedCount = allTracks.size - initialCount
+
+            onProgress?.invoke("Fetching album tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
+
+            if (addedCount == 0) break
+            offset += items.length()
+            page++
+        }
+
+        if (allTracks.isEmpty()) return@withContext null
+
+        Playlist(
+            id = "sp_$albumId",
+            title = title,
+            description = "Album by $artist",
+            coverUrl = coverUrl,
+            tracks = allTracks.distinctBy { it.id }
+        )
+    }
+
+    /**
+     * Helper to extract Track objects from Pathfinder GraphQL playlist items array.
+     */
+    fun parsePathfinderPlaylistItems(
+        items: JSONArray,
+        defaultAlbum: String,
+        outList: MutableList<Track>
+    ) {
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val itemV2 = item.optJSONObject("itemV2")
+            val trackData = itemV2?.optJSONObject("data") ?: item.optJSONObject("track") ?: item
+
+            val name = trackData.optString("name")
+            val uri = trackData.optString("uri")
+            val id = if (uri.startsWith("spotify:track:")) uri.substringAfter("spotify:track:") else trackData.optString("id", item.optString("uid"))
+
+            if (name.isBlank() || id.isBlank()) continue
+
+            val artistsArr = trackData.optJSONObject("artists")?.optJSONArray("items")
+            val artistsList = mutableListOf<String>()
+            if (artistsArr != null) {
+                for (a in 0 until artistsArr.length()) {
+                    val aObj = artistsArr.optJSONObject(a)
+                    val aName = aObj?.optJSONObject("profile")?.optString("name")
+                        ?: aObj?.optString("name")
+                    if (!aName.isNullOrBlank()) artistsList.add(aName)
+                }
+            }
+            val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else "Spotify Artist"
+
+            val albumObj = trackData.optJSONObject("albumOfTrack") ?: trackData.optJSONObject("album")
+            val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
+
+            val coverSources = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
+                ?: albumObj?.optJSONArray("images")
+            val trackArtwork = coverSources?.optJSONObject(0)?.optString("url") ?: ""
+
+            val durationObj = trackData.optJSONObject("trackDuration")
+            val durationMs = durationObj?.optLong("totalMilliseconds")
+                ?: trackData.optLong("duration", trackData.optLong("duration_ms", 210000L))
+
+            outList.add(
+                Track(
+                    id = "sp_$id",
+                    title = TitleCleaner.cleanTitle(name),
+                    artist = artistStr,
+                    album = albumName,
+                    thumbnail = trackArtwork,
+                    duration = if (durationMs > 1000L) durationMs / 1000L else durationMs,
+                    source = TrackSource.YOUTUBE
+                )
+            )
+        }
+    }
+
+    /**
+     * Helper to extract Track objects from Pathfinder GraphQL album items array.
+     */
+    fun parsePathfinderAlbumItems(
+        items: JSONArray,
+        albumName: String,
+        albumArtist: String,
+        albumCover: String?,
+        outList: MutableList<Track>
+    ) {
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val trackData = item.optJSONObject("track") ?: item
+
+            val name = trackData.optString("name")
+            val uri = trackData.optString("uri")
+            val id = if (uri.startsWith("spotify:track:")) uri.substringAfter("spotify:track:") else trackData.optString("id", "track_$i")
+
+            if (name.isBlank() || id.isBlank()) continue
+
+            val artistsArr = trackData.optJSONObject("artists")?.optJSONArray("items")
+                ?: trackData.optJSONArray("artists")
+            val artistsList = mutableListOf<String>()
+            if (artistsArr != null) {
+                for (a in 0 until artistsArr.length()) {
+                    val aObj = artistsArr.optJSONObject(a)
+                    val aName = aObj?.optJSONObject("profile")?.optString("name")
+                        ?: aObj?.optString("name")
+                    if (!aName.isNullOrBlank()) artistsList.add(aName)
+                }
+            }
+            val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else albumArtist
+
+            val durationObj = trackData.optJSONObject("trackDuration")
+            val durationMs = durationObj?.optLong("totalMilliseconds")
+                ?: trackData.optLong("duration", trackData.optLong("duration_ms", 210000L))
+
+            outList.add(
+                Track(
+                    id = "sp_$id",
+                    title = TitleCleaner.cleanTitle(name),
+                    artist = artistStr,
+                    album = albumName,
+                    thumbnail = albumCover ?: "",
+                    duration = if (durationMs > 1000L) durationMs / 1000L else durationMs,
+                    source = TrackSource.YOUTUBE
+                )
+            )
+        }
     }
 
     /**
