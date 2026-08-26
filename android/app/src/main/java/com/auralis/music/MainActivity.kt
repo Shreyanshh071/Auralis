@@ -74,7 +74,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             AuralisTheme {
                 val homeViewModel: HomeViewModel = viewModel {
-                    HomeViewModel(historyRepository, searchRepository, innerTubeClient)
+                    HomeViewModel(
+                        historyRepository = historyRepository,
+                        searchRepository = searchRepository,
+                        libraryRepository = libraryRepository,
+                        syncManager = googleAccountSyncManager,
+                        innerTubeClient = innerTubeClient
+                    )
                 }
                 val searchViewModel: SearchViewModel = viewModel {
                     SearchViewModel(searchRepository, applicationContext)
