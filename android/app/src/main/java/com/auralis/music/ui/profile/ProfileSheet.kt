@@ -27,9 +27,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
@@ -37,7 +40,8 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -85,13 +89,13 @@ val PROFILE_CARD_BG = Color(0xFF1B1D16)
 fun ProfileSheet(
     authUiState: AuthUiState,
     onConnectWithGoogleOAuth: () -> Unit,
-    onConnectOAuthToken: (String) -> Unit,
     onOpenPlaylistSelector: () -> Unit,
     onSyncLikedMusic: () -> Unit,
     onDisconnect: () -> Unit,
     onClosePlaylistSelector: () -> Unit,
     onTogglePlaylistSelection: (String) -> Unit,
     onSelectAllPlaylists: () -> Unit,
+    onDeselectAllPlaylists: () -> Unit = {},
     onImportSelectedPlaylists: () -> Unit = {},
     onImportSpotifyPlaylist: (String) -> Unit = {},
     onClearSpotifyImportMessage: () -> Unit = {},
@@ -102,8 +106,6 @@ fun ProfileSheet(
 ) {
     val context = LocalContext.current
     val profile = authUiState.profile
-    var oauthTokenInput by remember { mutableStateOf("") }
-    var showManualTokenInput by remember { mutableStateOf(false) }
     var spotifyUrlInput by remember { mutableStateOf("") }
 
     Box(
@@ -327,13 +329,41 @@ fun ProfileSheet(
                                 GoogleLogoIcon(modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = if (profile.isGoogleConnected) "Re-sync with Google" else "Connect YouTube (Google OAuth)",
+                                    text = "Sync with Google",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
                                 )
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Helpful YouTube Music login note
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF4ADE80),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Note: Log in to your YouTube Music account to import playlists and Liked songs.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
                     }
 
                     if (authUiState.syncMessage != null) {
@@ -414,65 +444,6 @@ fun ProfileSheet(
                                         fontSize = 12.sp
                                     )
                                 }
-                            }
-                        }
-                    }
-
-                    // Optional Manual Token Accordion Toggle
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = if (showManualTokenInput) "▲ Hide manual token entry" else "▼ Or enter OAuth token manually",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.45f),
-                        modifier = Modifier
-                            .clickable { showManualTokenInput = !showManualTokenInput }
-                            .padding(vertical = 4.dp)
-                    )
-
-                    if (showManualTokenInput) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = oauthTokenInput,
-                            onValueChange = { oauthTokenInput = it },
-                            label = { Text("OAuth Token (ya29...)", color = Color.White.copy(alpha = 0.6f)) },
-                            placeholder = { Text("Paste youtube.readonly token", color = Color.White.copy(alpha = 0.3f)) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color.White.copy(alpha = 0.4f),
-                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = Color.White.copy(alpha = 0.7f)) },
-                            trailingIcon = {
-                                IconButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = clipboard.primaryClip
-                                        if (clip != null && clip.itemCount > 0) {
-                                            oauthTokenInput = clip.getItemAt(0).text.toString().trim()
-                                            Toast.makeText(context, "Pasted token", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color.White.copy(alpha = 0.7f))
-                                }
-                            }
-                        )
-
-                        if (oauthTokenInput.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { onConnectOAuthToken(oauthTokenInput.trim()) },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.12f)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Connect With Token", color = Color.White, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -716,78 +687,294 @@ fun ProfileSheet(
 
     // ── SELECT YOUTUBE PLAYLISTS TO IMPORT DIALOG ──
     if (authUiState.showPlaylistSelectDialog) {
-        AlertDialog(
+        val totalCount = authUiState.remotePlaylists.size
+        val selectedCount = authUiState.selectedPlaylistIds.size
+        val allSelected = totalCount > 0 && selectedCount == totalCount
+
+        Dialog(
             onDismissRequest = onClosePlaylistSelector,
-            title = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onClosePlaylistSelector() }
+                    .padding(horizontal = 20.dp, vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color(0xFF141416))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(28.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* prevent dismissal on clicking content */ }
+                        .padding(22.dp)
                 ) {
-                    Text("Import Playlists", fontWeight = FontWeight.Bold)
-                    TextButton(onClick = onSelectAllPlaylists) {
-                        Text("Select All", color = PROFILE_LIME, fontWeight = FontWeight.Bold)
-                    }
-                }
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                    Text(
-                        text = "Select the YouTube playlists you want to import into your library:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.7f)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (authUiState.remotePlaylists.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No playlists found or loading...", color = Color.White.copy(alpha = 0.5f))
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // ── HEADER ──
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            items(authUiState.remotePlaylists, key = { it.id }) { playlist ->
-                                val isChecked = authUiState.selectedPlaylistIds.contains(playlist.id)
-                                Row(
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.LibraryMusic,
+                                        contentDescription = null,
+                                        tint = PROFILE_LIME,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Import Playlists",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 20.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = if (totalCount > 0) {
+                                        "$totalCount playlists found on YouTube"
+                                    } else {
+                                        "Select playlists to import"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.55f),
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            // Select All / Deselect All Pill Button
+                            if (totalCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(PROFILE_LIME.copy(alpha = 0.12f))
+                                        .border(1.dp, PROFILE_LIME.copy(alpha = 0.30f), RoundedCornerShape(20.dp))
+                                        .tactileBounce(scaleDown = 0.94f) {
+                                            if (allSelected) {
+                                                onDeselectAllPlaylists()
+                                            } else {
+                                                onSelectAllPlaylists()
+                                            }
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (allSelected) "Deselect All" else "Select All",
+                                        color = PROFILE_LIME,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // ── PLAYLIST LIST ──
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp, max = 380.dp)
+                        ) {
+                            if (authUiState.remotePlaylists.isEmpty()) {
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (isChecked) PROFILE_LIME.copy(alpha = 0.15f) else Color(0xFF1B1D16))
-                                        .clickable { onTogglePlaylistSelection(playlist.id) }
-                                        .padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .height(160.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Checkbox(
-                                        checked = isChecked,
-                                        onCheckedChange = { onTogglePlaylistSelection(playlist.id) },
-                                        colors = CheckboxDefaults.colors(checkedColor = PROFILE_LIME, checkmarkColor = Color.Black)
-                                    )
-
-                                    ArtworkCard(
-                                        url = playlist.thumbnail ?: "",
-                                        modifier = Modifier.size(44.dp),
-                                        cornerRadius = 8.dp,
-                                        contentDescription = playlist.title
-                                    )
-
-                                    Spacer(modifier = Modifier.width(10.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = playlist.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(28.dp),
+                                            color = PROFILE_LIME,
+                                            strokeWidth = 2.5.dp
                                         )
+                                        Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = "${playlist.trackCount} songs",
+                                            text = "Loading your YouTube playlists...",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = Color.White.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(authUiState.remotePlaylists, key = { it.id }) { playlist ->
+                                        val isChecked = authUiState.selectedPlaylistIds.contains(playlist.id)
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(
+                                                    if (isChecked) PROFILE_LIME.copy(alpha = 0.12f)
+                                                    else Color.White.copy(alpha = 0.04f)
+                                                )
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isChecked) PROFILE_LIME.copy(alpha = 0.45f)
+                                                    else Color.White.copy(alpha = 0.06f),
+                                                    shape = RoundedCornerShape(16.dp)
+                                                )
+                                                .tactileBounce(scaleDown = 0.97f) {
+                                                    onTogglePlaylistSelection(playlist.id)
+                                                }
+                                                .padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Custom Check Indicator Circle
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        if (isChecked) PROFILE_LIME
+                                                        else Color.Transparent
+                                                    )
+                                                    .border(
+                                                        width = 1.5.dp,
+                                                        color = if (isChecked) PROFILE_LIME
+                                                        else Color.White.copy(alpha = 0.30f),
+                                                        shape = CircleShape
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (isChecked) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = Color.Black,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(12.dp))
+
+                                            // Artwork
+                                            ArtworkCard(
+                                                url = playlist.thumbnail ?: "",
+                                                modifier = Modifier
+                                                    .size(48.dp)
+                                                    .clip(RoundedCornerShape(10.dp)),
+                                                cornerRadius = 10.dp,
+                                                contentDescription = playlist.title
+                                            )
+
+                                            Spacer(modifier = Modifier.width(12.dp))
+
+                                            // Details
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = playlist.title,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    fontSize = 14.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "${playlist.trackCount} songs",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.White.copy(alpha = 0.50f),
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // ── ACTIONS ──
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Cancel button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                                    .tactileBounce(scaleDown = 0.95f) { onClosePlaylistSelector() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Cancel",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            // Import Selected Button
+                            val isEnabled = selectedCount > 0 && !authUiState.isSyncing
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(48.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        if (isEnabled) PROFILE_LIME
+                                        else PROFILE_LIME.copy(alpha = 0.20f)
+                                    )
+                                    .tactileBounce(scaleDown = 0.95f) {
+                                        if (isEnabled) onImportSelectedPlaylists()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (authUiState.isSyncing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.Black,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = null,
+                                            tint = if (isEnabled) Color.Black else Color.White.copy(alpha = 0.40f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (selectedCount > 0) "Import ($selectedCount)" else "Import (0)",
+                                            color = if (isEnabled) Color.Black else Color.White.copy(alpha = 0.40f),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
                                         )
                                     }
                                 }
@@ -795,20 +982,8 @@ fun ProfileSheet(
                         }
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = onImportSelectedPlaylists,
-                    enabled = authUiState.selectedPlaylistIds.isNotEmpty() && !authUiState.isSyncing,
-                    colors = ButtonDefaults.buttonColors(containerColor = PROFILE_LIME)
-                ) {
-                    Text("Import Selected (${authUiState.selectedPlaylistIds.size})", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = onClosePlaylistSelector) { Text("Cancel") }
             }
-        )
+        }
     }
 }
 

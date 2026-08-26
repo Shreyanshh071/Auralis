@@ -1,10 +1,15 @@
 package com.auralis.music
 
+import com.auralis.music.data.network.SpotifyAccessToken
 import com.auralis.music.data.network.SpotifyItemType
 import com.auralis.music.data.network.SpotifyPlaylistImporter
+import com.auralis.music.domain.model.Track
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpotifyPlaylistImporterTest {
@@ -67,6 +72,83 @@ class SpotifyPlaylistImporterTest {
     fun extractResource_fromInvalidUrl_returnsNull() {
         val url = "https://example.com/not-a-spotify-link"
         assertNull(SpotifyPlaylistImporter.extractResource(url))
+    }
+
+    @Test
+    fun spotifyAccessToken_validityChecks() {
+        val validToken = SpotifyAccessToken("test_token", System.currentTimeMillis() + 300_000L)
+        assertTrue(validToken.isValid)
+
+        val expiredToken = SpotifyAccessToken("test_token", System.currentTimeMillis() - 10_000L)
+        assertFalse(expiredToken.isValid)
+
+        val blankToken = SpotifyAccessToken("", System.currentTimeMillis() + 300_000L)
+        assertFalse(blankToken.isValid)
+    }
+
+    @Test
+    fun parseApiTrackItems_extractsMultipleTracksProperly() {
+        val jsonArrayStr = """
+            [
+              {
+                "track": {
+                  "id": "track_1",
+                  "name": "Starboy",
+                  "duration_ms": 230000,
+                  "artists": [{"name": "The Weeknd"}, {"name": "Daft Punk"}],
+                  "album": {
+                    "name": "Starboy",
+                    "images": [{"url": "https://i.scdn.co/image/starboy.jpg"}]
+                  },
+                  "is_local": false
+                }
+              },
+              {
+                "track": {
+                  "id": "track_2",
+                  "name": "Blinding Lights",
+                  "duration_ms": 200000,
+                  "artists": [{"name": "The Weeknd"}],
+                  "album": {
+                    "name": "After Hours",
+                    "images": [{"url": "https://i.scdn.co/image/afterhours.jpg"}]
+                  },
+                  "is_local": false
+                }
+              },
+              {
+                "track": {
+                  "id": "local_track",
+                  "name": "Local Audio",
+                  "duration_ms": 120000,
+                  "is_local": true
+                }
+              }
+            ]
+        """.trimIndent()
+
+        val jsonArray = JSONArray(jsonArrayStr)
+        val tracksList = mutableListOf<Track>()
+        val importer = SpotifyPlaylistImporter()
+
+        importer.parseApiTrackItems(jsonArray, "Default Playlist", tracksList)
+
+        assertEquals(2, tracksList.size)
+
+        val t1 = tracksList[0]
+        assertEquals("sp_track_1", t1.id)
+        assertEquals("Starboy", t1.title)
+        assertEquals("The Weeknd, Daft Punk", t1.artist)
+        assertEquals("Starboy", t1.album)
+        assertEquals("https://i.scdn.co/image/starboy.jpg", t1.thumbnail)
+        assertEquals(230L, t1.duration)
+
+        val t2 = tracksList[1]
+        assertEquals("sp_track_2", t2.id)
+        assertEquals("Blinding Lights", t2.title)
+        assertEquals("The Weeknd", t2.artist)
+        assertEquals("After Hours", t2.album)
+        assertEquals(200L, t2.duration)
     }
 
     @Test

@@ -353,11 +353,16 @@ class LibraryViewModel(
         val trimmed = urlOrLink.trim()
         if (trimmed.isBlank()) return
         android.util.Log.i("SpotifyImporter", "importSpotifyPlaylist called in ViewModel with: '$trimmed'")
-        _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = "Importing Spotify playlist...") }
+        _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = "Connecting to Spotify...") }
 
         viewModelScope.launch {
             try {
-                val imported = spotifyImporter.importPlaylist(trimmed)
+                val imported = spotifyImporter.importPlaylist(
+                    urlOrId = trimmed,
+                    onProgress = { progressText ->
+                        _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                    }
+                )
                 if (imported != null && (imported.tracks.isNotEmpty() || imported.title.isNotBlank())) {
                     val playlist = libraryRepository.createPlaylist(
                         title = imported.title,

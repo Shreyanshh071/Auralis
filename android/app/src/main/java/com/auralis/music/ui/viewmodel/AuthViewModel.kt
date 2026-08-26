@@ -52,47 +52,40 @@ class AuthViewModel(
         }
     }
 
-    fun connectWithGoogleOAuth(context: Context, onSuccess: (() -> Unit)? = null) {
-        val activity = context as? android.app.Activity
+    fun connectWithGoogleOAuth(activity: android.app.Activity, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, syncMessage = "Connecting with Google YouTube OAuth...") }
             try {
-                val helper = GoogleSignInHelper(context)
-                val token = if (activity != null) helper.signInWithGoogleYouTubeOAuth(activity) else null
+                val helper = GoogleSignInHelper(activity)
+                val token = helper.signInWithGoogleYouTubeOAuth(activity)
 
                 if (!token.isNullOrBlank()) {
                     syncManager.connectWithOAuthToken(token)
                     onSuccess?.invoke()
                     openPlaylistSelectDialog()
                 } else {
-                    // Fallback to Google credential sign-in
-                    signInWithGoogle(context, onSuccess)
+                    _uiState.update { it.copy(isSyncing = false, syncMessage = "Google OAuth cancelled.") }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, syncMessage = "OAuth error: ${e.localizedMessage}") }
+                _uiState.update { it.copy(isSyncing = false, syncMessage = "OAuth error: ${e.localizedMessage ?: e.message}") }
             }
         }
     }
 
-    fun signInWithGoogle(context: Context, onSuccess: (() -> Unit)? = null) {
+    fun signInWithGoogle(activity: android.app.Activity, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, syncMessage = "Signing in with Google...") }
             try {
-                val helper = GoogleSignInHelper(context)
-                val account = helper.signIn(context)
+                val helper = GoogleSignInHelper(activity)
+                val account = helper.signIn(activity)
                 if (account != null) {
-                    syncManager.connectGoogleAccountWithIdToken(
-                        email = account.email,
-                        displayName = account.displayName,
-                        avatarUrl = account.avatarUrl,
-                        idToken = account.idToken
-                    )
+                    syncManager.connectGoogleAccountWithIdToken(account)
                     onSuccess?.invoke()
                 } else {
                     _uiState.update { it.copy(isSyncing = false, syncMessage = "Google Sign-In cancelled.") }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, syncMessage = "Sign-in error: ${e.localizedMessage}") }
+                _uiState.update { it.copy(isSyncing = false, syncMessage = "Sign-in error: ${e.localizedMessage ?: e.message}") }
             }
         }
     }
@@ -145,6 +138,12 @@ class AuthViewModel(
     fun selectAllPlaylists() {
         _uiState.update {
             it.copy(selectedPlaylistIds = it.remotePlaylists.map { p -> p.id }.toSet())
+        }
+    }
+
+    fun deselectAllPlaylists() {
+        _uiState.update {
+            it.copy(selectedPlaylistIds = emptySet())
         }
     }
 
