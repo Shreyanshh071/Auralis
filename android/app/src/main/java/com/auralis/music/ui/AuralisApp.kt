@@ -343,7 +343,7 @@ fun AuralisApp(
                                     onFavoriteToggle = { playerViewModel.toggleFavorite() },
                                     onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
                                     onCreatePlaylistAndAdd = { title, track ->
-                                        libraryViewModel.createPlaylist(title)
+                                        libraryViewModel.createPlaylistAndAddTrack(title, track)
                                     },
                                     onOpenListenTogether = { isListenTogetherOpen = true },
                                     onNavigateToExplore = { navigateToDestination(AppDestination.EXPLORE) },
@@ -384,7 +384,7 @@ fun AuralisApp(
                                     onFavoriteToggle = { playerViewModel.toggleFavorite() },
                                     onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
                                     onCreatePlaylistAndAdd = { title, track ->
-                                        libraryViewModel.createPlaylist(title)
+                                        libraryViewModel.createPlaylistAndAddTrack(title, track)
                                     },
                                     onRemoveRecentQuery = { searchViewModel.removeRecentQuery(it) },
                                     onOpenRecognition = { searchViewModel.openRecognitionModal(it) },
@@ -506,7 +506,7 @@ fun AuralisApp(
                     }
                 },
                 onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
-                onCreatePlaylistAndAdd = { title, track -> libraryViewModel.createPlaylist(title) },
+                onCreatePlaylistAndAdd = { title, track -> libraryViewModel.createPlaylistAndAddTrack(title, track) },
                 onArtistClick = { artist ->
                     isNowPlayingOpen = false
                     searchViewModel.openArtist(artist)
@@ -600,8 +600,8 @@ fun AuralisApp(
                     showMiniPlayerTrackOptions = false
                 },
                 onCreatePlaylistAndAdd = { title ->
-                    libraryViewModel.createPlaylist(title)
-                    android.widget.Toast.makeText(context, "Created playlist $title", android.widget.Toast.LENGTH_SHORT).show()
+                    libraryViewModel.createPlaylistAndAddTrack(title, curTrack)
+                    android.widget.Toast.makeText(context, "Created and added to $title", android.widget.Toast.LENGTH_SHORT).show()
                     showMiniPlayerTrackOptions = false
                 },
                 onDismiss = { showMiniPlayerTrackOptions = false }

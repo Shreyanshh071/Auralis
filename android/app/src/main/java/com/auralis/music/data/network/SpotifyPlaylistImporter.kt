@@ -559,15 +559,14 @@ class SpotifyPlaylistImporter(
 
         if (allTracks.isEmpty()) return@withContext null
 
-        val uniqueTracks = allTracks.distinctBy { it.id }
-        Log.i(TAG, "Pathfinder GraphQL fetched ${uniqueTracks.size} tracks for playlist '$title'")
+        Log.i(TAG, "Pathfinder GraphQL fetched ${allTracks.size} tracks for playlist '$title'")
 
         Playlist(
             id = "sp_$playlistId",
             title = title,
             description = description,
             coverUrl = coverUrl,
-            tracks = uniqueTracks
+            tracks = allTracks
         )
     }
 
@@ -666,7 +665,7 @@ class SpotifyPlaylistImporter(
             title = title,
             description = "Album by $artist",
             coverUrl = coverUrl,
-            tracks = allTracks.distinctBy { it.id }
+            tracks = allTracks
         )
     }
 
@@ -856,15 +855,14 @@ class SpotifyPlaylistImporter(
             }
         }
 
-        val uniqueTracks = allTracks.distinctBy { it.id }
-        Log.i(TAG, "Fetched ${uniqueTracks.size} total tracks via Spotify Web API for playlist '$title'")
+        Log.i(TAG, "Fetched ${allTracks.size} total tracks via Spotify Web API for playlist '$title'")
 
         Playlist(
             id = "sp_$playlistId",
             title = title,
             description = description,
             coverUrl = coverUrl,
-            tracks = uniqueTracks
+            tracks = allTracks
         )
     }
 
@@ -949,7 +947,7 @@ class SpotifyPlaylistImporter(
             title = title,
             description = "Album by $albumArtist",
             coverUrl = coverUrl,
-            tracks = allTracks.distinctBy { it.id }
+            tracks = allTracks
         )
     }
 
@@ -1220,7 +1218,7 @@ class SpotifyPlaylistImporter(
                     title = if (cleanTitle.isNotBlank()) cleanTitle else "Spotify Playlist",
                     description = "Imported from Spotify",
                     coverUrl = null,
-                    tracks = tracks.distinctBy { it.id }
+                    tracks = tracks
                 )
             }
         } catch (e: Exception) {
@@ -1310,15 +1308,13 @@ class SpotifyPlaylistImporter(
             }
         }
 
-        val uniqueTracks = tracks.distinctBy { it.id }
-
-        return if (uniqueTracks.isNotEmpty() || title.isNotBlank()) {
+        return if (tracks.isNotEmpty() || title.isNotBlank()) {
             Playlist(
                 id = "sp_$resourceId",
                 title = title,
                 description = description,
                 coverUrl = coverUrl,
-                tracks = uniqueTracks
+                tracks = tracks
             )
         } else null
     }
