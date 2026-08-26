@@ -215,4 +215,141 @@ class SpotifyPlaylistImporterTest {
         assertEquals(178L, t1.duration)
         assertEquals("sp_1BxfuPKGuaTgP7aM0XbdQA", t1.id)
     }
+
+    @Test
+    fun extractSessionTokenFromEmbed_extractsValidBearerToken() {
+        val sampleHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <script id="__NEXT_DATA__" type="application/json">
+            {
+              "props": {
+                "pageProps": {
+                  "state": {
+                    "data": {
+                      "settings": {
+                        "session": {
+                          "accessToken": "BQCJBudBda9gJuuv0qBSYeMROaK3u_ZP9KXLXz3D4IzZgU7xLP8pbKcXAc_50voEgRVjDXDnLG12iHNuN_lnAY2e_d517KDDtAp9nRMESMcIJbi2OovYNb-wvDkOl6UbfCj0tqabZTdH",
+                          "accessTokenExpirationTimestampMs": 1787735265511,
+                          "isAnonymous": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            </script>
+            </head>
+            </html>
+        """.trimIndent()
+
+        val token = SpotifyPlaylistImporter.extractSessionTokenFromEmbed(sampleHtml)
+        assertNotNull(token)
+        assertEquals("BQCJBudBda9gJuuv0qBSYeMROaK3u_ZP9KXLXz3D4IzZgU7xLP8pbKcXAc_50voEgRVjDXDnLG12iHNuN_lnAY2e_d517KDDtAp9nRMESMcIJbi2OovYNb-wvDkOl6UbfCj0tqabZTdH", token)
+    }
+
+    @Test
+    fun parsePathfinderPlaylistItems_extractsTracksCorrectly() {
+        val sampleJsonArray = """
+            [
+              {
+                "uid": "item_uid_1",
+                "itemV2": {
+                  "__typename": "TrackResponseWrapper",
+                  "data": {
+                    "__typename": "Track",
+                    "uri": "spotify:track:3Zwu2K0Qa5sT6teCCHPShP",
+                    "name": "Thnks fr th Mmrs",
+                    "trackDuration": {
+                      "totalMilliseconds": 203506
+                    },
+                    "artists": {
+                      "items": [
+                        {
+                          "profile": {
+                            "name": "Fall Out Boy"
+                          }
+                        }
+                      ]
+                    },
+                    "albumOfTrack": {
+                      "name": "Infinity On High",
+                      "coverArt": {
+                        "sources": [
+                          {
+                            "url": "https://i.scdn.co/image/infinity.jpg"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "uid": "item_uid_2",
+                "itemV2": {
+                  "__typename": "TrackResponseWrapper",
+                  "data": {
+                    "__typename": "Track",
+                    "uri": "spotify:track:4cOdK2wGLETKBW3PvgPWqT",
+                    "name": "Seven (feat. Latto)",
+                    "trackDuration": {
+                      "totalMilliseconds": 184400
+                    },
+                    "artists": {
+                      "items": [
+                        {
+                          "profile": {
+                            "name": "Jung Kook"
+                          }
+                        },
+                        {
+                          "profile": {
+                            "name": "Latto"
+                          }
+                        }
+                      ]
+                    },
+                    "albumOfTrack": {
+                      "name": "Seven",
+                      "coverArt": {
+                        "sources": [
+                          {
+                            "url": "https://i.scdn.co/image/seven.jpg"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+        """.trimIndent()
+
+        val jsonArray = JSONArray(sampleJsonArray)
+        val outList = mutableListOf<Track>()
+        val importer = SpotifyPlaylistImporter()
+
+        importer.parsePathfinderPlaylistItems(jsonArray, "Test Album", outList)
+
+        assertEquals(2, outList.size)
+
+        val t1 = outList[0]
+        assertEquals("sp_3Zwu2K0Qa5sT6teCCHPShP", t1.id)
+        assertEquals("Thnks fr th Mmrs", t1.title)
+        assertEquals("Fall Out Boy", t1.artist)
+        assertEquals("Infinity On High", t1.album)
+        assertEquals("https://i.scdn.co/image/infinity.jpg", t1.thumbnail)
+        assertEquals(203L, t1.duration)
+
+        val t2 = outList[1]
+        assertEquals("sp_4cOdK2wGLETKBW3PvgPWqT", t2.id)
+        assertEquals("Seven", t2.title)
+        assertEquals("Jung Kook, Latto", t2.artist)
+        assertEquals("Seven", t2.album)
+        assertEquals("https://i.scdn.co/image/seven.jpg", t2.thumbnail)
+        assertEquals(184L, t2.duration)
+    }
 }
