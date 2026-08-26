@@ -129,24 +129,8 @@ class GoogleAccountSyncManager(
             _syncMessage.value = "Connected as ${channelInfo.title}. Fetching your playlists..."
 
             // 2. Fetch playlists
-            val playlists = fetchRemotePlaylists()
+            fetchRemotePlaylists()
 
-            // 3. Automatically sync Liked Music ("LL") to immediately populate user's favorite tracks
-            try {
-                _syncMessage.value = "Syncing your Liked songs..."
-                syncLikedMusic()
-            } catch (_: Exception) {}
-
-            // 4. Automatically import top 3 playlists so home feed is populated immediately
-            try {
-                val topPids = playlists.take(3).map { it.id }
-                if (topPids.isNotEmpty()) {
-                    _syncMessage.value = "Importing top playlists..."
-                    importSelectedPlaylists(topPids)
-                }
-            } catch (_: Exception) {}
-
-            _syncMessage.value = "Connected as ${channelInfo.title}! Your library and home feed are ready."
             _isSyncing.value = false
         } catch (e: Exception) {
             _syncMessage.value = "Auth error: ${e.localizedMessage}"
