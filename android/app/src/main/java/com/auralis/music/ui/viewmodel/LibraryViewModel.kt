@@ -196,6 +196,14 @@ class LibraryViewModel(
         }
     }
 
+    fun createPlaylistAndAddTrack(title: String, track: Track, description: String? = null) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            val playlist = libraryRepository.createPlaylist(title.trim(), description?.trim())
+            libraryRepository.addTrackToPlaylist(playlist.id, track)
+        }
+    }
+
     fun editPlaylist(playlistId: String, newTitle: String, newDescription: String?, newCoverUrl: String? = null) {
         if (newTitle.isBlank()) return
         viewModelScope.launch {
