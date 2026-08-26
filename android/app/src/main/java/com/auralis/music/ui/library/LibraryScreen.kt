@@ -1984,21 +1984,47 @@ private fun PlaylistDetailView(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Playlist", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete '${playlist.title}'?") },
+            containerColor = Color(0xFF1E2117),
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    text = "Delete Playlist",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 20.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete '${playlist.title}'?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 15.sp
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
                         showDeleteConfirm = false
                         onDeletePlaylist()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFEF4444),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Delete")
+                    Text("Delete", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                TextButton(
+                    onClick = { showDeleteConfirm = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                }
             }
         )
     }
