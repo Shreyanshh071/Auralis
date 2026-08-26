@@ -711,11 +711,11 @@ private fun SpeedDialTile(
         return
     }
 
-    // Artist Tile (Full Circular Avatar + Name + Right Chevron)
+    // Artist Tile (Full Rounded Card + Name + Right Chevron)
     if (item.type == SpeedDialType.ARTIST) {
         Box(
             modifier = modifier
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFF1B1D16))
                 .clickable(onClick = onClick)
         ) {
@@ -723,7 +723,7 @@ private fun SpeedDialTile(
                 ArtworkCard(
                     url = item.image,
                     modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 999.dp,
+                    cornerRadius = 14.dp,
                     contentDescription = item.name
                 )
                 Box(
@@ -741,10 +741,9 @@ private fun SpeedDialTile(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
+                    .align(Alignment.BottomStart)
                     .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = item.name,
