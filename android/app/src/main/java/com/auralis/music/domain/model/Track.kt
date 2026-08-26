@@ -7,14 +7,15 @@ enum class TrackSource {
 }
 
 data class Track(
-    val id: String, // Stream / Video identifier (e.g. YouTube ID)
-    val title: String,
-    val artist: String,
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
     val album: String? = null,
-    val duration: Long, // in seconds
-    val thumbnail: String,
+    val duration: Long = 0L,
+    val thumbnail: String = "",
     val source: TrackSource = TrackSource.YOUTUBE,
     val channelTitle: String? = null,
     val views: String? = null,
     val dominantColor: Int? = null // Extracted ARGB Color integer
 )
+

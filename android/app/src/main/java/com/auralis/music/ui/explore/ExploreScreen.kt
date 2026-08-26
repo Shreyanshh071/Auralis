@@ -1,9 +1,13 @@
 package com.auralis.music.ui.explore
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,16 +55,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.PlaylistResult
@@ -88,7 +97,7 @@ enum class SearchCategory {
  * interactive history items with clock icon, clear cross, and diagonal insert arrow (↖),
  * live autocomplete suggestions, category filter pills, and bottom right voice / music recognition button.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ExploreScreen(
     uiState: SearchUiState,
@@ -96,6 +105,7 @@ fun ExploreScreen(
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
+    favoriteTracks: List<Track> = emptyList(),
     onQueryChange: (String) -> Unit,
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -103,6 +113,9 @@ fun ExploreScreen(
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueue: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
     onRemoveRecentQuery: (String) -> Unit = {},
     onClearRecentQueries: () -> Unit = {},
     onOpenRecognition: (RecognitionMode) -> Unit = {},
@@ -113,53 +126,88 @@ fun ExploreScreen(
     onOpenArtist: (Artist) -> Unit = {},
     onCloseArtist: () -> Unit = {},
     onBack: () -> Unit = {},
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusRequester = remember { FocusRequester() }
     var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
-    // If an Artist Page is selected, display the full YouTube Music ArtistScreen
-    if (uiState.selectedArtistPage != null) {
-        ArtistScreen(
-            artistPage = uiState.selectedArtistPage,
-            isLoading = uiState.isLoadingArtist,
-            currentTrackId = currentTrackId,
-            isPlaying = isPlaying,
-            userPlaylists = userPlaylists,
-            onTrackClick = onTrackClick,
-            onFavoriteToggle = onFavoriteToggle,
-            onAddToPlaylist = onAddToPlaylist,
-            onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
-            onOpenArtist = onOpenArtist,
-            onBack = onCloseArtist,
-            modifier = modifier
-        )
-        return
-    }
 
-    val hasResults = uiState.query.isNotBlank() && (
-        uiState.searchResults.songs.isNotEmpty() ||
-        uiState.searchResults.artists.isNotEmpty() ||
-        uiState.searchResults.playlists.isNotEmpty()
-    )
+    AnimatedContent(
+        targetState = uiState.selectedArtistPage,
+        transitionSpec = {
+            if (targetState != null) {
+                (slideInHorizontally(
+                    initialOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(300, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f))
+                ) + fadeIn(tween(240))).togetherWith(
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                        animationSpec = tween(260)
+                    ) + fadeOut(tween(180))
+                )
+            } else {
+                (slideInHorizontally(
+                    initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                    animationSpec = tween(260)
+                ) + fadeIn(tween(200))).togetherWith(
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(260, easing = CubicBezierEasing(0.32f, 0f, 0.8f, 0.15f))
+                    ) + fadeOut(tween(180))
+                )
+            }
+        },
+        label = "ArtistScreenTransition"
+    ) { artistPage ->
+        if (artistPage != null) {
+            ArtistScreen(
+                artistPage = artistPage,
+                isLoading = uiState.isLoadingArtist,
+                currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
+                userPlaylists = userPlaylists,
+                favoriteTracks = favoriteTracks,
+                onTrackClick = onTrackClick,
+                onFavoriteToggle = onFavoriteToggle,
+                onAddToPlaylist = onAddToPlaylist,
+                onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+                onPlayNext = onPlayNext,
+                onAddToQueue = onAddToQueue,
+                onStartRadio = onStartRadio,
+                onOpenArtist = onOpenArtist,
+                onBack = onCloseArtist,
+                isInListenTogetherRoom = isInListenTogetherRoom,
+                onRecommendToRoom = onRecommendToRoom,
+                modifier = modifier
+            )
+        } else {
+            val hasResults = uiState.query.isNotBlank() && (
+                uiState.searchResults.songs.isNotEmpty() ||
+                uiState.searchResults.artists.isNotEmpty() ||
+                uiState.searchResults.playlists.isNotEmpty()
+            )
 
-    androidx.activity.compose.BackHandler(
-        enabled = uiState.isRecognitionOpen || uiState.query.isNotEmpty() || hasResults
-    ) {
-        if (uiState.isRecognitionOpen) {
-            onCloseRecognition()
-        } else if (uiState.query.isNotEmpty() || hasResults) {
-            onClearSearch()
-            focusManager.clearFocus()
-        }
-    }
+            androidx.activity.compose.BackHandler(
+                enabled = uiState.isRecognitionOpen || uiState.query.isNotEmpty() || hasResults
+            ) {
+                if (uiState.isRecognitionOpen) {
+                    onCloseRecognition()
+                } else if (uiState.query.isNotEmpty() || hasResults) {
+                    onClearSearch()
+                    focusManager.clearFocus()
+                }
+            }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFF0E0F0C))
-    ) {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0E0F0C))
+            ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -231,7 +279,9 @@ fun ExploreScreen(
                             }
                         ),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
                     )
                 }
 
@@ -284,13 +334,7 @@ fun ExploreScreen(
                         modifier = Modifier.size(36.dp)
                     )
                 }
-                return
-            }
-
-            // ================================================================
-            // 3. SEARCH RESULTS (When search executed)
-            // ================================================================
-            if (hasResults) {
+            } else if (hasResults) {
                 CategoryFilterBar(
                     selectedCategory = selectedCategory,
                     onSelectCategory = { selectedCategory = it }
@@ -456,18 +500,27 @@ fun ExploreScreen(
             )
         }
     }
+}
+}
 
     // Options Menu
     selectedTrackForMenu?.let { track ->
+        val isFav = favoriteTracks.any { it.id == track.id }
         TrackOptionsMenu(
             track = track,
-            isFavorite = false,
+            isFavorite = isFav,
             userPlaylists = userPlaylists,
             onToggleFavorite = { onFavoriteToggle(track) },
-            onPlayNext = {},
-            onAddToQueue = {},
+            onPlayNext = { onPlayNext(track) },
+            onAddToQueue = { onAddToQueue(track) },
+            onStartRadio = { onStartRadio(track) },
+            onGoToArtist = {
+                onOpenArtist(Artist(id = "", name = track.artist))
+            },
             onAddToPlaylist = { playlist -> onAddToPlaylist(playlist.id, track) },
             onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAdd(title, track) },
+            isInListenTogetherRoom = isInListenTogetherRoom,
+            onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
         )
     }
@@ -590,7 +643,10 @@ private fun SearchResultsView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onTrackClick(track, results.songs) }
+                        .combinedClickable(
+                            onClick = { onTrackClick(track, results.songs) },
+                            onLongClick = { onMenuClick(track) }
+                        )
                         .padding(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

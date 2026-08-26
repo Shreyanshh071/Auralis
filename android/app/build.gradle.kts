@@ -166,6 +166,11 @@ dependencies {
     testImplementation(libs.androidx.room.testing)
     testImplementation("org.json:json:20240303")
 
+    // NewPipeExtractor for native YouTube stream extraction and cipher deobfuscation
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5") {
+        exclude(group = "com.google.protobuf")
+    }
+
     // Android Instrumented Testing
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

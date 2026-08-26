@@ -1,13 +1,16 @@
 package com.auralis.music.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -53,7 +56,7 @@ private val PILL_BG = Color(0xFF1B1D16)
  * - Top songs ranked list with durations and track options menu
  * - Discography shelves (Albums, Singles, and Similar artists)
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ArtistScreen(
     artistPage: ArtistPage,
@@ -61,12 +64,18 @@ fun ArtistScreen(
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
+    favoriteTracks: List<Track> = emptyList(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
+    onPlayNext: (Track) -> Unit = {},
+    onAddToQueue: (Track) -> Unit = {},
+    onStartRadio: (Track) -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
     onBack: () -> Unit,
+    isInListenTogetherRoom: Boolean = false,
+    onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -415,7 +424,10 @@ fun ArtistScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onTrackClick(track, artistPage.topSongs) }
+                            .combinedClickable(
+                                onClick = { onTrackClick(track, artistPage.topSongs) },
+                                onLongClick = { selectedTrackForMenu = track }
+                            )
                             .padding(horizontal = 18.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -628,15 +640,20 @@ fun ArtistScreen(
 
     // Options Menu Bottom Sheet
     selectedTrackForMenu?.let { track ->
+        val isFav = favoriteTracks.any { it.id == track.id }
         TrackOptionsMenu(
             track = track,
-            isFavorite = false,
+            isFavorite = isFav,
             userPlaylists = userPlaylists,
             onToggleFavorite = { onFavoriteToggle(track) },
-            onPlayNext = {},
-            onAddToQueue = {},
+            onPlayNext = { onPlayNext(track) },
+            onAddToQueue = { onAddToQueue(track) },
+            onStartRadio = { onStartRadio(track) },
+            onGoToArtist = null, // Already on ArtistScreen
             onAddToPlaylist = { playlist -> onAddToPlaylist(playlist.id, track) },
             onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAdd(title, track) },
+            isInListenTogetherRoom = isInListenTogetherRoom,
+            onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
         )
     }
