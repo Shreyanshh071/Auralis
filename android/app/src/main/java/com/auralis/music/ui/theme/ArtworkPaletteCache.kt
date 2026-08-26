@@ -39,10 +39,18 @@ object ArtworkPaletteCache {
         }
     }
 
+    // Default palette for ambient UI when no image is loaded
     val defaultPalette = ArtworkPalette(
-        primary = Color(0xFF0077CC),   // Ocean Azure
-        secondary = Color(0xFFE91E63), // Vibrant Rose
-        tertiary = Color(0xFF673AB7)   // Deep Purple
+        primary = Color(0xFF1E2430),   // Slate Charcoal
+        secondary = Color(0xFF161A24), // Deep Midnight
+        tertiary = Color(0xFF0F121A)   // Obsidian Base
+    )
+
+    // Sleek monochrome palette for black & white / grayscale album artwork (e.g. NEFFEX Fight Back)
+    val monochromePalette = ArtworkPalette(
+        primary = Color(0xFF2C3038),   // Charcoal Slate
+        secondary = Color(0xFF1E2128), // Midnight Graphite
+        tertiary = Color(0xFF121418)   // Obsidian Black
     )
 
     fun getCached(key: String): ArtworkPalette? {
@@ -60,7 +68,7 @@ object ArtworkPaletteCache {
     }
 
     /**
-     * Extracts vibrancy-boosted colors from artwork asynchronously on Dispatchers.Default.
+     * Extracts dynamic colors from artwork asynchronously with multi-candidate image loading.
      */
     suspend fun extractPalette(context: Context, key: String, artworkUrl: String): ArtworkPalette {
         if (artworkUrl.isBlank()) return defaultPalette
@@ -70,85 +78,85 @@ object ArtworkPaletteCache {
         getCached(artworkUrl)?.let { return it }
 
         val targetUrl = getHighResArtworkUrl(artworkUrl) ?: artworkUrl
-        val rawFallbackUrl = artworkUrl.replace("hq720.jpg", "hqdefault.jpg")
+        val urlCandidates = mutableListOf<String>()
+        urlCandidates.add(targetUrl)
+        if (targetUrl != artworkUrl) {
+            urlCandidates.add(artworkUrl)
+        }
+        if (artworkUrl.contains("i.ytimg.com") || artworkUrl.contains("img.youtube.com")) {
+            val hqDefault = artworkUrl.replace("hq720.jpg", "hqdefault.jpg")
+                .replace("maxresdefault.jpg", "hqdefault.jpg")
+            if (!urlCandidates.contains(hqDefault)) urlCandidates.add(hqDefault)
+            val mqDefault = artworkUrl.replace("hq720.jpg", "mqdefault.jpg")
+            if (!urlCandidates.contains(mqDefault)) urlCandidates.add(mqDefault)
+        }
 
         return withContext(Dispatchers.IO) {
             try {
                 val imageLoader = ImageLoader(context)
-                var drawable: Drawable? = null
+                var bitmap: Bitmap? = null
 
-                // Try studio HD URL first
-                try {
-                    val req = ImageRequest.Builder(context)
-                        .data(targetUrl)
-                        .size(128, 128)
-                        .scale(Scale.FIT)
-                        .allowHardware(false)
-                        .build()
-                    val res = imageLoader.execute(req)
-                    drawable = res.drawable
-                } catch (_: Exception) {}
-
-                // Fallback to raw original URL if upgraded URL failed
-                if (drawable == null) {
+                // Try URL candidates in order until bitmap is obtained
+                for (candidate in urlCandidates) {
                     try {
                         val req = ImageRequest.Builder(context)
-                            .data(rawFallbackUrl)
+                            .data(candidate)
                             .size(128, 128)
                             .scale(Scale.FIT)
                             .allowHardware(false)
                             .build()
                         val res = imageLoader.execute(req)
-                        drawable = res.drawable
+                        val drawable = res.drawable
+                        if (drawable is BitmapDrawable && drawable.bitmap != null && !drawable.bitmap.isRecycled) {
+                            bitmap = drawable.bitmap
+                            break
+                        }
                     } catch (_: Exception) {}
                 }
 
-                if (drawable is BitmapDrawable && drawable.bitmap != null && !drawable.bitmap.isRecycled) {
-                    val bitmap = drawable.bitmap
+                if (bitmap != null && !bitmap.isRecycled) {
                     val palette = withContext(Dispatchers.Default) {
                         Palette.from(bitmap)
-                            .maximumColorCount(24)
+                            .maximumColorCount(32)
                             .generate()
                     }
 
-                    // Filter out monochrome backgrounds (white/grey/black) to extract true vibrant colors
+                    // Identify swatches with genuine color saturation (not pure gray/black/white)
                     val colorfulSwatches = palette.swatches.filter { swatch ->
                         val hsl = swatch.hsl
                         val s = hsl[1]
                         val l = hsl[2]
-                        s > 0.15f && l in 0.10f..0.90f
+                        s >= 0.12f && l in 0.08f..0.92f
                     }.sortedByDescending { it.population }
 
-                    val rawPrimary = palette.vibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
-                        ?: colorfulSwatches.firstOrNull()?.rgb
-                        ?: palette.dominantSwatch?.rgb
-                        ?: palette.lightVibrantSwatch?.rgb
+                    val extracted = if (colorfulSwatches.isNotEmpty()) {
+                        // 🎨 COLORED ALBUM ARTWORK: Extract real authentic hues
+                        val swatchPrimary = palette.vibrantSwatch?.takeIf { it.hsl[1] >= 0.15f }
+                            ?: colorfulSwatches.firstOrNull()
+                            ?: palette.dominantSwatch
 
-                    val rawSecondary = palette.lightVibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
-                        ?: colorfulSwatches.getOrNull(1)?.rgb
-                        ?: palette.vibrantSwatch?.rgb
-                        ?: palette.darkVibrantSwatch?.rgb
-                        ?: rawPrimary
+                        val swatchSecondary = palette.lightVibrantSwatch?.takeIf { it.hsl[1] >= 0.15f }
+                            ?: palette.darkVibrantSwatch?.takeIf { it.hsl[1] >= 0.15f }
+                            ?: colorfulSwatches.getOrNull(1)
+                            ?: palette.mutedSwatch
+                            ?: swatchPrimary
 
-                    val rawTertiary = palette.darkVibrantSwatch?.takeIf { it.hsl[1] > 0.20f }?.rgb
-                        ?: colorfulSwatches.getOrNull(2)?.rgb
-                        ?: palette.darkMutedSwatch?.rgb
-                        ?: palette.dominantSwatch?.rgb
-                        ?: rawPrimary
+                        val swatchTertiary = palette.darkVibrantSwatch?.takeIf { it.hsl[1] >= 0.15f }
+                            ?: palette.darkMutedSwatch?.takeIf { it.hsl[1] >= 0.12f }
+                            ?: colorfulSwatches.getOrNull(2)
+                            ?: palette.dominantSwatch
+                            ?: swatchPrimary
 
-                    val primary = if (rawPrimary != null) {
-                        boostVibrancy(Color(rawPrimary), minSaturation = 0.70f, targetLightness = 0.52f)
-                    } else defaultPalette.primary
+                        val primaryColor = tuneVibrantColor(swatchPrimary, defaultPalette.primary, targetL = 0.52f)
+                        val secondaryColor = tuneVibrantColor(swatchSecondary, defaultPalette.secondary, targetL = 0.46f)
+                        val tertiaryColor = tuneVibrantColor(swatchTertiary, defaultPalette.tertiary, targetL = 0.36f)
 
-                    val secondary = if (rawSecondary != null) {
-                        boostVibrancy(Color(rawSecondary), minSaturation = 0.65f, targetLightness = 0.58f)
-                    } else defaultPalette.secondary
+                        ArtworkPalette(primaryColor, secondaryColor, tertiaryColor)
+                    } else {
+                        // 🖤 MONOCHROME / BLACK & WHITE ARTWORK (e.g. NEFFEX Fight Back)
+                        monochromePalette
+                    }
 
-                    val tertiary = if (rawTertiary != null) {
-                        boostVibrancy(Color(rawTertiary), minSaturation = 0.60f, targetLightness = 0.42f)
-                    } else defaultPalette.tertiary
-
-                    val extracted = ArtworkPalette(primary, secondary, tertiary)
                     put(key, extracted)
                     put(targetUrl, extracted)
                     put(artworkUrl, extracted)
@@ -162,55 +170,30 @@ object ArtworkPaletteCache {
         }
     }
 
-    private fun boostVibrancy(color: Color, minSaturation: Float = 0.65f, targetLightness: Float = 0.50f): Color {
-        val r = color.red
-        val g = color.green
-        val b = color.blue
+    /**
+     * Tunes a colorful swatch to ensure rich ambient radiance while strictly preserving its authentic hue.
+     */
+    private fun tuneVibrantColor(swatch: Palette.Swatch?, fallbackColor: Color, targetL: Float): Color {
+        if (swatch == null) return fallbackColor
+        val hsl = swatch.hsl
+        val h = hsl[0] // 0f .. 360f (True Hue)
+        val s = hsl[1] // 0f .. 1f (Saturation)
+        val l = hsl[2] // 0f .. 1f (Lightness)
 
-        val max = maxOf(r, g, b)
-        val min = minOf(r, g, b)
-        val l = (max + min) / 2f
-
-        var s: Float
-        var h: Float
-
-        if (max == min) {
-            h = 0f
-            s = 0f
-        } else {
-            val d = max - min
-            s = if (l > 0.5f) d / (2f - max - min) else d / (max + min)
-            h = when (max) {
-                r -> (g - b) / d + (if (g < b) 6f else 0f)
-                g -> (b - r) / d + 2f
-                else -> (r - g) / d + 4f
-            }
-            h /= 6f
+        if (s < 0.08f) {
+            // Neutral tone fallback
+            return Color(0xFF282C34)
         }
 
-        val boostedS = s.coerceAtLeast(minSaturation)
-        val tunedL = targetLightness.coerceIn(0.38f, 0.68f)
+        val tunedSat = s.coerceIn(0.48f, 0.88f)
+        val tunedLight = targetL.coerceIn(0.32f, 0.58f)
 
-        fun hslToRgb(hVal: Float, sVal: Float, lVal: Float): Color {
-            if (sVal == 0f) return Color(lVal, lVal, lVal)
-            val q = if (lVal < 0.5f) lVal * (1f + sVal) else lVal + sVal - lVal * sVal
-            val p = 2f * lVal - q
+        // Convert HSL accurately to Android Color
+        val hsv = FloatArray(3)
+        hsv[0] = h
+        hsv[1] = tunedSat
+        hsv[2] = (tunedLight * (1f + tunedSat * 0.25f)).coerceIn(0.35f, 0.85f)
 
-            fun hueToRgb(t: Float): Float {
-                var v = t
-                if (v < 0f) v += 1f
-                if (v > 1f) v -= 1f
-                return when {
-                    v < 1f / 6f -> p + (q - p) * 6f * v
-                    v < 1f / 2f -> q
-                    v < 2f / 3f -> p + (q - p) * (2f / 3f - v) * 6f
-                    else -> p
-                }
-            }
-
-            return Color(hueToRgb(hVal + 1f / 3f), hueToRgb(hVal), hueToRgb(hVal - 1f / 3f))
-        }
-
-        return hslToRgb(h, boostedS, tunedL)
+        return Color(android.graphics.Color.HSVToColor(hsv))
     }
 }
