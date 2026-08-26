@@ -357,27 +357,72 @@ class HomeViewModel(
     }
 
     /**
-     * Quick Picks: combines recent listening + YouTube related + chart hits.
+     * Quick Picks:
+     * - If user has listening history: recommends tracks related to what the user is currently listening to
+     *   (via YouTube Music radio algorithm & related shelves for their recent/top tracks).
+     * - If first-time user / empty history: recommends official YouTube Music home feed / trending chart hits.
      */
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
         try {
             val history = historyRepository.getHistory().first().map { it.track }
+            val heavyRotation = historyRepository.getRecentHeavyRotation()
+            val userSeeds = (history.take(4) + heavyRotation.take(4)).distinctBy { it.id }
             val quickPicksList = mutableListOf<Track>()
 
-            for (recentTrack in history.take(2)) {
+            if (userSeeds.isNotEmpty()) {
+                // User has listening activity: Recommend songs directly related to what they are listening to
+                for (seedTrack in userSeeds.take(3)) {
+                    try {
+                        // 1. YouTube Music Radio Queue (Up Next algorithm)
+                        val radioTracks = innerTubeClient.getRadioTracks(seedTrack.id).take(8)
+                        quickPicksList.addAll(radioTracks)
+
+                        // 2. YouTube Music Related shelf endpoint
+                        val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(seedTrack.id)
+                        if (browseId != null || params != null) {
+                            val related = innerTubeClient.getRelated(browseId, params).take(6)
+                            quickPicksList.addAll(related)
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // If seed tracks had top artists, find similar top tracks from that artist
+                val topArtist = userSeeds.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
+                if (quickPicksList.size < 16 && !topArtist.isNullOrBlank()) {
+                    try {
+                        val artistHits = searchRepository.search("$topArtist radio").songs
+                        quickPicksList.addAll(artistHits)
+                    } catch (_: Exception) {}
+                }
+            } else {
+                // First-time user / New account: Recommend like YouTube Music
+                // 1. Try YouTube Music Home Feed (FEmusic_home) sections
                 try {
-                    val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(recentTrack.id)
-                    val related = innerTubeClient.getRelated(browseId, params).take(12)
-                    quickPicksList.addAll(related)
+                    val (_, sections) = innerTubeClient.getHome()
+                    for (section in sections) {
+                        if (section.title.contains("Quick pick", ignoreCase = true) ||
+                            section.title.contains("Mixed for you", ignoreCase = true) ||
+                            section.title.contains("Listen again", ignoreCase = true) ||
+                            section.title.contains("Trending", ignoreCase = true) ||
+                            section.title.contains("Hits", ignoreCase = true)) {
+                            quickPicksList.addAll(section.items)
+                        }
+                    }
+                    if (quickPicksList.isEmpty() && sections.isNotEmpty()) {
+                        quickPicksList.addAll(sections.first().items)
+                    }
                 } catch (_: Exception) {}
+
+                // 2. Fallback to YouTube Music Trending Charts
+                if (quickPicksList.size < 16) {
+                    try {
+                        val trending = searchRepository.search("Top trending music charts").songs
+                        quickPicksList.addAll(trending)
+                    } catch (_: Exception) {}
+                }
             }
 
-            if (quickPicksList.size < 16) {
-                val searchHits = searchRepository.search("Top trending music charts")
-                quickPicksList.addAll(searchHits.songs)
-            }
-
-            val finalQuick = (quickPicksList + history).distinctBy { it.id }.take(28)
+            val finalQuick = quickPicksList.distinctBy { it.id }.take(28)
             if (finalQuick.isNotEmpty()) {
                 _uiState.update { it.copy(quickPicks = finalQuick) }
             }
