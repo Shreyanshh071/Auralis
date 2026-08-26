@@ -141,7 +141,8 @@ fun AuralisApp(
                 isHistoryOpen ||
                 isProfileOpen ||
                 isListenTogetherOpen ||
-                destinationBackStack.isNotEmpty()
+                destinationBackStack.isNotEmpty() ||
+                currentDestination != AppDestination.HOME
     ) {
         if (searchUiState.selectedArtistPage != null) searchViewModel.closeArtist()
         else if (isNowPlayingOpen) isNowPlayingOpen = false
@@ -150,6 +151,8 @@ fun AuralisApp(
         else if (isListenTogetherOpen) isListenTogetherOpen = false
         else if (destinationBackStack.isNotEmpty()) {
             currentDestination = destinationBackStack.removeAt(destinationBackStack.lastIndex)
+        } else if (currentDestination != AppDestination.HOME) {
+            currentDestination = AppDestination.HOME
         }
     }
 
@@ -390,7 +393,14 @@ fun AuralisApp(
                                     onStartListening = { searchViewModel.startListening() },
                                     onStopListening = { searchViewModel.stopListening() },
                                     onOpenArtist = { searchViewModel.openArtist(it) },
-                                    onCloseArtist = { searchViewModel.closeArtist() }
+                                    onCloseArtist = { searchViewModel.closeArtist() },
+                                    onBack = {
+                                        if (destinationBackStack.isNotEmpty()) {
+                                            currentDestination = destinationBackStack.removeAt(destinationBackStack.lastIndex)
+                                        } else {
+                                            currentDestination = AppDestination.HOME
+                                        }
+                                    }
                                 )
                             }
                             AppDestination.LIBRARY -> {
