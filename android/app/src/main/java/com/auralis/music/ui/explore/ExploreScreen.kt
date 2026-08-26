@@ -112,6 +112,7 @@ fun ExploreScreen(
     onStopListening: () -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
     onCloseArtist: () -> Unit = {},
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
@@ -175,8 +176,15 @@ fun ExploreScreen(
                 // Back Arrow Button
                 IconButton(
                     onClick = {
-                        onClearSearch()
-                        focusManager.clearFocus()
+                        if (uiState.isRecognitionOpen) {
+                            onCloseRecognition()
+                        } else if (uiState.query.isNotEmpty() || hasResults) {
+                            onClearSearch()
+                            focusManager.clearFocus()
+                        } else {
+                            focusManager.clearFocus()
+                            onBack()
+                        }
                     },
                     modifier = Modifier.size(44.dp)
                 ) {
