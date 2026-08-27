@@ -4,8 +4,13 @@ enum class LyricsProvider {
     AMLL,
     LRCLIB,
     KUGOU,
-    LOCAL,
-    YOUTUBE
+    JIOSAAVN,
+    NETEASE,
+    GENIUS,
+    MUSIXMATCH,
+    YOUTUBE,
+    YOUTUBE_CAPTIONS,
+    LOCAL
 }
 
 data class LyricWord(

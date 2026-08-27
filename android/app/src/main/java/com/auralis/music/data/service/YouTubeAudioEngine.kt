@@ -655,8 +655,25 @@ class YouTubeAudioEngine(private val context: Context) {
             val web = getOrCreateWebView(context) as WebView
             Log.d("AuralisPlayback", "[Track Request #$requestId] Loading https://m.youtube.com/watch?v=$videoId (initialSeek=${initialSeekMs}ms)")
 
-            // Immediately mute and stop previous audio before loading next video
-            web.evaluateJavascript("try { window._auralisEnded = true; window._auralisUserPaused = true; var v = document.querySelector('video'); if (v) { v.muted = true; v.pause(); } } catch(e){}", null)
+            // Immediately mute, pause, and detach media sources to terminate audio output in 0ms
+            web.evaluateJavascript(
+                """
+                try {
+                    window._auralisEnded = true;
+                    window._auralisUserPaused = true;
+                    var videos = document.querySelectorAll('video');
+                    videos.forEach(function(v) {
+                        try {
+                            v.pause();
+                            v.muted = true;
+                            v.removeAttribute('src');
+                            v.load();
+                        } catch(e){}
+                    });
+                } catch(e){}
+                """.trimIndent(),
+                null
+            )
             web.loadUrl("https://m.youtube.com/watch?v=$videoId")
         }
     }
@@ -693,12 +710,30 @@ class YouTubeAudioEngine(private val context: Context) {
     }
 
     fun stop() {
-        val activeReq = currentRequestId.get()
+        val activeReq = currentRequestId.incrementAndGet()
         Log.d("AuralisPlayback", "[Stop Command #$activeReq]")
         mainHandler.post {
             _isPlaying.value = false
+            _isBuffering.value = false
             releaseWakeLock("Stop_#$activeReq")
-            webView?.evaluateJavascript("try { window._auralisEnded = true; window._auralisUserPaused = true; var v = document.querySelector('video'); if (v) { v.muted = true; v.pause(); } } catch(e){}", null)
+            webView?.evaluateJavascript(
+                """
+                try {
+                    window._auralisEnded = true;
+                    window._auralisUserPaused = true;
+                    var videos = document.querySelectorAll('video');
+                    videos.forEach(function(v) {
+                        try {
+                            v.pause();
+                            v.muted = true;
+                            v.removeAttribute('src');
+                            v.load();
+                        } catch(e){}
+                    });
+                } catch(e){}
+                """.trimIndent(),
+                null
+            )
         }
     }
 

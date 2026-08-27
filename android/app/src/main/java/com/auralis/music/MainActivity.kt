@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
         val historyRepository = HistoryRepositoryImpl(trackDao, historyDao, playCountDao)
         val settingsRepository = SettingsRepositoryImpl(settingsDataStore)
         val searchRepository = SearchRepositoryImpl(innerTubeClient, suggestionsClient, searchHistoryDao)
-        val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao)
+        val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
 
         val googleAccountSyncManager = GoogleAccountSyncManager(
             context = applicationContext,

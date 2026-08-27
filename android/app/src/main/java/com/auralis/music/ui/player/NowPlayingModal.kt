@@ -126,6 +126,7 @@ import com.auralis.music.ui.components.PlaylistPickerBottomSheet
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.auralisGlass
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.lyrics.ManualLyricsSearchModal
 import com.auralis.music.ui.lyrics.SyncedLyricsView
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
@@ -188,6 +189,7 @@ fun NowPlayingModal(
     onSleepTimerSelect: (Int) -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
     onLyricsOffsetChange: (Long) -> Unit = {},
+    onSearchLyricsManually: ((String, String) -> Unit)? = null,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onPlayNext: () -> Unit = {},
@@ -237,6 +239,7 @@ fun NowPlayingModal(
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showOffsetControls by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(true) }
+    var showManualLyricsSearch by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.showLyricsView) {
         if (uiState.showLyricsView && currentTab != NowPlayingTab.LYRICS) {
@@ -624,7 +627,8 @@ fun NowPlayingModal(
                             isLoading = uiState.isLoadingLyrics,
                             lyricsMode = com.auralis.music.domain.model.LyricsMode.CINEMA,
                             offsetMs = uiState.lyricsOffsetMs,
-                            onOffsetChange = onLyricsOffsetChange
+                            onOffsetChange = onLyricsOffsetChange,
+                            onSearchManually = { showManualLyricsSearch = true }
                         )
                     }
                 }
@@ -1157,6 +1161,18 @@ fun NowPlayingModal(
                 showSleepDialog = false
             },
             onDismiss = { showSleepDialog = false }
+        )
+    }
+
+    // Manual Lyrics Search Modal
+    if (showManualLyricsSearch) {
+        ManualLyricsSearchModal(
+            initialTitle = track.title,
+            initialArtist = track.artist,
+            onDismiss = { showManualLyricsSearch = false },
+            onSearch = { customTitle, customArtist ->
+                onSearchLyricsManually?.invoke(customTitle, customArtist)
+            }
         )
     }
 }
