@@ -21,11 +21,29 @@ class NewPipeDownloader private constructor(
             cacheDir = cacheDirectory
         }
 
+        private val cookieMap = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, okhttp3.Cookie>>()
+
         val instance: NewPipeDownloader by lazy {
             val builder = OkHttpClient.Builder()
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
                 .followRedirects(true)
+                .cookieJar(object : okhttp3.CookieJar {
+                    override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                        val hostMap = cookieMap.computeIfAbsent(url.host) { java.util.concurrent.ConcurrentHashMap() }
+                        cookies.forEach { hostMap[it.name] = it }
+                    }
+
+                    override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                        val list = mutableListOf<okhttp3.Cookie>()
+                        cookieMap.forEach { (host, cookies) ->
+                            if (url.host.endsWith(host) || host.endsWith(url.host)) {
+                                list.addAll(cookies.values)
+                            }
+                        }
+                        return list
+                    }
+                })
 
             cacheDir?.let { dir ->
                 try {

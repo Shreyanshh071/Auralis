@@ -275,3 +275,18 @@ interface LyricsDao {
     @Query("DELETE FROM lyrics_cache")
     suspend fun clearAllLyrics()
 }
+
+@Dao
+interface NegativeLyricsDao {
+    @Query("SELECT * FROM negative_lyrics_cache WHERE trackKey = :trackKey LIMIT 1")
+    suspend fun getNegativeEntry(trackKey: String): com.auralis.music.data.local.entity.NegativeLyricsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNegativeEntry(entity: com.auralis.music.data.local.entity.NegativeLyricsEntity)
+
+    @Query("DELETE FROM negative_lyrics_cache WHERE trackKey = :trackKey")
+    suspend fun removeNegativeEntry(trackKey: String)
+
+    @Query("DELETE FROM negative_lyrics_cache WHERE cachedAt < :expiryTime")
+    suspend fun cleanExpired(expiryTime: Long)
+}

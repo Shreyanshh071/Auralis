@@ -12,10 +12,12 @@ import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.repository.LyricsRepository
 import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.repository.SettingsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PlayerUiState(
     val currentTrack: Track? = null,
@@ -147,9 +149,7 @@ class PlayerViewModel(
             historyRepository.recordPlay(track)
         }
 
-        lyricsJob = viewModelScope.launch {
-            loadLyrics(track)
-        }
+        loadLyrics(track, requestId)
     }
 
     fun playTrack(
@@ -199,7 +199,11 @@ class PlayerViewModel(
         radioJob?.cancel()
         radioJob = viewModelScope.launch {
             try {
-                val radioTracks = innerTubeClient.getRadioTracks(seedTrack.id)
+                // Defer background radio population slightly so playback stream gets first priority
+                delay(600)
+                val radioTracks = withContext(Dispatchers.IO) {
+                    innerTubeClient.getRadioTracks(seedTrack.id)
+                }
                 if (radioTracks.isNotEmpty()) {
                     val qState = queueManager.appendTracks(radioTracks)
                     _uiState.update {
@@ -475,16 +479,68 @@ class PlayerViewModel(
         }
     }
 
-    private fun loadLyrics(track: Track) {
-        _uiState.update { it.copy(isLoadingLyrics = true, lyrics = null) }
-        viewModelScope.launch {
-            val data = lyricsRepository.getLyrics(
-                title = track.title,
-                artist = track.artist,
-                durationSec = track.duration,
-                videoId = track.id
-            )
-            _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
+    private fun loadLyrics(track: Track, requestId: Long = currentPlaybackRequestId.get()) {
+        lyricsJob?.cancel()
+        lyricsJob = viewModelScope.launch {
+            // 1. Instant check in local cache (memory + Room DB) for 0ms display
+            val cached = withContext(Dispatchers.IO) {
+                lyricsRepository.getCachedLyrics(
+                    title = track.title,
+                    artist = track.artist,
+                    durationSec = track.duration,
+                    videoId = track.id
+                )
+            }
+            if (cached != null) {
+                if (requestId == currentPlaybackRequestId.get()) {
+                    _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
+                }
+                return@launch
+            }
+
+            // 2. Not cached: Clear old lyrics and set loading
+            if (requestId == currentPlaybackRequestId.get()) {
+                _uiState.update { it.copy(isLoadingLyrics = true, lyrics = null) }
+            }
+
+            // 3. Defer network lookup slightly (350ms) so audio stream resolution has exclusive network priority
+            delay(350)
+            if (requestId != currentPlaybackRequestId.get()) return@launch
+
+            // 4. Background network cascade on low-priority dispatcher
+            val data = withContext(Dispatchers.IO) {
+                lyricsRepository.getLyrics(
+                    title = track.title,
+                    artist = track.artist,
+                    durationSec = track.duration,
+                    videoId = track.id
+                )
+            }
+
+            if (requestId == currentPlaybackRequestId.get()) {
+                _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
+            }
+        }
+    }
+
+    fun searchLyricsManually(customTitle: String, customArtist: String) {
+        val track = _uiState.value.currentTrack ?: return
+        val reqId = currentPlaybackRequestId.get()
+        _uiState.update { it.copy(isLoadingLyrics = true) }
+        lyricsJob?.cancel()
+        lyricsJob = viewModelScope.launch {
+            val data = withContext(Dispatchers.IO) {
+                lyricsRepository.getLyrics(
+                    title = customTitle.ifBlank { track.title },
+                    artist = customArtist.ifBlank { track.artist },
+                    durationSec = track.duration,
+                    videoId = track.id,
+                    forceRefresh = true
+                )
+            }
+            if (reqId == currentPlaybackRequestId.get()) {
+                _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
+            }
         }
     }
 

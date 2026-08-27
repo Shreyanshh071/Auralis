@@ -49,11 +49,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     private var streamResolveJob: Job? = null
 
     val exoPlayer: ExoPlayer by lazy {
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+            com.auralis.music.data.network.NetworkClientProvider.okHttpClient
+        )
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-            .setConnectTimeoutMs(8000)
-            .setReadTimeoutMs(8000)
-            .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(
                 mapOf(
                     "Accept" to "*/*"
@@ -88,6 +87,15 @@ class AuralisAudioPlayer private constructor(context: Context) {
                     override fun onIsPlayingChanged(playing: Boolean) {
                         _isPlaying.value = playing
                         Log.d("AuralisPlayback", "[ExoPlayer Listener] onIsPlayingChanged: $playing")
+                        if (playing && isUsingExoPlayer) {
+                            activeTimingTracker?.let { tracker ->
+                                if (tracker.tFirstAudioMs == 0L) {
+                                    tracker.tFirstAudioMs = System.currentTimeMillis()
+                                    tracker.streamEngine = "Native ExoPlayer"
+                                    tracker.logSummary()
+                                }
+                            }
+                        }
                     }
 
                     override fun onPositionDiscontinuity(
@@ -104,10 +112,18 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
-                            Player.STATE_BUFFERING -> _isBuffering.value = true
+                            Player.STATE_BUFFERING -> {
+                                _isBuffering.value = true
+                                activeTimingTracker?.let { tracker ->
+                                    if (tracker.tBufferingMs == 0L) tracker.tBufferingMs = System.currentTimeMillis()
+                                }
+                            }
                             Player.STATE_READY -> {
                                 _isBuffering.value = false
                                 if (duration > 0) _durationMs.value = duration
+                                activeTimingTracker?.let { tracker ->
+                                    if (tracker.tReadyMs == 0L) tracker.tReadyMs = System.currentTimeMillis()
+                                }
                             }
                             Player.STATE_ENDED -> {
                                 _isPlaying.value = false
@@ -198,6 +214,15 @@ class AuralisAudioPlayer private constructor(context: Context) {
             youTubeEngine.isPlaying.collect { playing ->
                 if (!isUsingExoPlayer) {
                     _isPlaying.value = playing
+                    if (playing) {
+                        activeTimingTracker?.let { tracker ->
+                            if (tracker.tFirstAudioMs == 0L) {
+                                tracker.tFirstAudioMs = System.currentTimeMillis()
+                                tracker.streamEngine = "YouTube Web Engine"
+                                tracker.logSummary()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -259,12 +284,55 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     private val currentSessionId = java.util.concurrent.atomic.AtomicLong(0L)
+    private var activeTimingTracker: PlaybackTimingTracker? = null
+
+    data class PlaybackTimingTracker(
+        val requestId: Long,
+        val trackTitle: String,
+        val t0TapMs: Long = System.currentTimeMillis(),
+        var tResolveStartMs: Long = 0L,
+        var tStreamResolvedMs: Long = 0L,
+        var tMediaItemPreparedMs: Long = 0L,
+        var tBufferingMs: Long = 0L,
+        var tReadyMs: Long = 0L,
+        var tFirstAudioMs: Long = 0L,
+        var streamEngine: String = "Unknown"
+    ) {
+        fun logSummary() {
+            val totalMs = if (tFirstAudioMs > 0) tFirstAudioMs - t0TapMs else (System.currentTimeMillis() - t0TapMs)
+            val resolveMs = if (tStreamResolvedMs > 0) tStreamResolvedMs - t0TapMs else -1
+            val prepMs = if (tMediaItemPreparedMs > 0) tMediaItemPreparedMs - t0TapMs else -1
+            val bufferMs = if (tBufferingMs > 0) tBufferingMs - t0TapMs else -1
+            val readyMs = if (tReadyMs > 0) tReadyMs - t0TapMs else -1
+            val audioMs = if (tFirstAudioMs > 0) tFirstAudioMs - t0TapMs else -1
+
+            Log.i("AuralisPlaybackTiming", """
+                ==================== PLAYBACK TIMING [#$requestId] ====================
+                Track:             $trackTitle
+                Engine:            $streamEngine
+                Tap:               0ms
+                Track Resolution:  ${if (resolveMs >= 0) "${resolveMs}ms" else "N/A"}
+                MediaItem/Prepare: ${if (prepMs >= 0) "${prepMs}ms" else "N/A"}
+                Buffering:         ${if (bufferMs >= 0) "${bufferMs}ms" else "N/A"}
+                Ready:             ${if (readyMs >= 0) "${readyMs}ms" else "N/A"}
+                First Audio:       ${if (audioMs >= 0) "${audioMs}ms" else "N/A"}
+                Total Startup:     ${totalMs}ms
+                ========================================================================
+            """.trimIndent())
+        }
+    }
 
     fun play(
         track: Track,
         initialSeekMs: Long = 0L,
         requestId: Long = currentSessionId.incrementAndGet()
     ) {
+        val tracker = PlaybackTimingTracker(
+            requestId = requestId,
+            trackTitle = track.title,
+            t0TapMs = System.currentTimeMillis()
+        )
+        activeTimingTracker = tracker
         currentSessionId.set(requestId)
         streamResolveJob?.cancel()
 
@@ -299,6 +367,7 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
         // Fast-path resolution for native ExoPlayer audio stream (stutter-free native AudioTrack)
         streamResolveJob = scope.launch {
+            tracker.tResolveStartMs = System.currentTimeMillis()
             var directUrl: String? = null
             try {
                 withTimeoutOrNull(12000L) {
@@ -309,12 +378,14 @@ class AuralisAudioPlayer private constructor(context: Context) {
             }
 
             if (currentSessionId.get() != requestId) return@launch
+            tracker.tStreamResolvedMs = System.currentTimeMillis()
 
             if (!directUrl.isNullOrBlank()) {
-                Log.d("AuralisPlayback", "[Audio Engine] Direct native ExoPlayer stream resolved for '${track.title}' ($directUrl)")
+                Log.d("AuralisPlayback", "[Audio Engine] Direct native ExoPlayer stream resolved for '${track.title}' in ${tracker.tStreamResolvedMs - tracker.t0TapMs}ms ($directUrl)")
                 try {
                     youTubeEngine.stop()
                     isUsingExoPlayer = true
+                    tracker.streamEngine = "Native ExoPlayer"
 
                     val highResThumb = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
                     val artworkUri = if (!highResThumb.isNullOrBlank()) Uri.parse(highResThumb) else null
@@ -333,6 +404,7 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
+                    tracker.tMediaItemPreparedMs = System.currentTimeMillis()
                     if (initialSeekMs > 0) {
                         exoPlayer.seekTo(initialSeekMs)
                     }
@@ -344,21 +416,33 @@ class AuralisAudioPlayer private constructor(context: Context) {
             }
 
             // Fallback to hardened YouTube web engine
+            if (currentSessionId.get() != requestId) {
+                Log.d("AuralisPlayback", "[Stale fallback dropped] reqId=$requestId vs active=${currentSessionId.get()}")
+                return@launch
+            }
+
             try {
                 exoPlayer.stop()
                 exoPlayer.clearMediaItems()
             } catch (_: Exception) {}
 
             isUsingExoPlayer = false
+            tracker.streamEngine = "YouTube Web Engine"
             Log.d("AuralisPlayback", "[Audio Engine] Routing to YouTube Web Engine for '${track.title}' (${track.id}) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
             youTubeEngine.loadVideo(track.id, initialSeekMs, requestId)
         }
     }
 
+    private var prefetchJob: Job? = null
+
     fun prefetchTrack(track: Track?) {
         if (track == null) return
-        scope.launch(Dispatchers.IO) {
+        prefetchJob?.cancel()
+        prefetchJob = scope.launch(Dispatchers.IO) {
             try {
+                // Wait for the active track to finish stream resolution first
+                streamResolveJob?.join()
+                delay(1500)
                 if (com.auralis.music.data.network.AudioStreamResolver.getCachedStream(track.id) == null) {
                     Log.d("AuralisPlayback", "[Prefetch] Pre-resolving stream for '${track.title}' (${track.id}) in background...")
                     com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(track.id, track.title, track.artist)

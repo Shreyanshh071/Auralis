@@ -403,10 +403,17 @@ class YouTubePlaylistImporter(
                     if (title.contains(" - ")) {
                         val parts = title.split(" - ", limit = 2)
                         if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
-                            if (artist == "Artist" || artist == "YouTube Music" || artist.isBlank()) {
+                            val p1Lower = parts[1].trim().lowercase()
+                            val isPart1MovieOrSubtitle = p1Lower.startsWith("from ") ||
+                                p1Lower.startsWith("from \"") ||
+                                p1Lower.startsWith("from '") ||
+                                p1Lower.startsWith("ost") ||
+                                TitleCleaner.extractVersion(parts[1]) != null
+
+                            if (!isPart1MovieOrSubtitle && (artist == "Artist" || artist == "YouTube Music" || artist.isBlank())) {
                                 artist = parts[0].trim().replace(Regex("(?i) - Topic$"), "").trim()
+                                title = parts[1].trim()
                             }
-                            title = parts[1].trim()
                         }
                     }
 

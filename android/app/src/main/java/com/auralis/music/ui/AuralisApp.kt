@@ -710,6 +710,7 @@ fun AuralisApp(
                 onToggleFavorite = { playerViewModel.toggleFavorite() },
                 onToggleLyricsView = { playerViewModel.toggleLyricsView() },
                 onLyricsOffsetChange = { playerViewModel.setLyricsOffset(it) },
+                onSearchLyricsManually = { title, artist -> playerViewModel.searchLyricsManually(title, artist) },
                 onSleepTimerSelect = { playerViewModel.setSleepTimer(it) },
                 onSelectQueueTrack = { index ->
                     if (isGuestInRoom) {

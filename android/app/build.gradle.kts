@@ -128,6 +128,7 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.datasource.okhttp)
     implementation("androidx.media:media:1.7.0")
 
     // Room Database
@@ -165,6 +166,9 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.androidx.room.testing)
     testImplementation("org.json:json:20240303")
+
+    // Mozilla Rhino JavaScript engine for high-speed cipher evaluation
+    implementation("org.mozilla:rhino:1.7.15")
 
     // NewPipeExtractor for native YouTube stream extraction and cipher deobfuscation
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5") {
