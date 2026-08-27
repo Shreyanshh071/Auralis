@@ -185,13 +185,13 @@ class YouTubePlaylistImporter(
                 }
             }
 
-            val uniqueTracks = allTracks.distinctBy { it.id }.filter { !it.title.startsWith("Track ") }
-            if (uniqueTracks.isNotEmpty()) {
+            val validTracks = allTracks.filter { it.id.isNotBlank() }
+            if (validTracks.isNotEmpty()) {
                 return@withContext Playlist(
                     id = cleanId,
                     title = playlistTitle,
                     description = "Imported from YouTube Music",
-                    tracks = uniqueTracks
+                    tracks = validTracks
                 )
             }
         } catch (e: Exception) {
@@ -315,7 +315,12 @@ class YouTubePlaylistImporter(
                     val col0 = flexCols?.optJSONObject(0)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
                     val col1 = flexCols?.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
 
-                    var title = col0?.optJSONObject("text")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Track"
+                    val col0Runs = col0?.optJSONObject("text")?.optJSONArray("runs")
+                    var title = if (col0Runs != null && col0Runs.length() > 0) {
+                        (0 until col0Runs.length()).mapNotNull { col0Runs.optJSONObject(it)?.optString("text") }.joinToString("").trim()
+                    } else {
+                        item.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.trim() ?: "Track"
+                    }
 
                     val col1Runs = col1?.optJSONObject("text")?.optJSONArray("runs")
                     var artist = "Artist"
@@ -374,11 +379,23 @@ class YouTubePlaylistImporter(
                             ?.optJSONObject("watchEndpoint")
                             ?.optString("videoId")
                     }
+                    if (videoId.isNullOrBlank()) {
+                        videoId = col0?.optJSONObject("navigationEndpoint")
+                            ?.optJSONObject("watchEndpoint")
+                            ?.optString("videoId")
+                    }
+                    if (videoId.isNullOrBlank()) {
+                        videoId = col0Runs?.optJSONObject(0)
+                            ?.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId")
+                    }
+                    if (videoId.isNullOrBlank()) {
+                        videoId = item.optJSONObject("navigationEndpoint")
+                            ?.optJSONObject("watchEndpoint")?.optString("videoId")
+                    }
 
-                    val isLikelyNonMusicVideo = durationSec > 1800L && (album.isBlank() || album == fallbackAlbum)
-                    val isVideoUnavailable = title.equals("Private video", ignoreCase = true) || title.equals("Deleted video", ignoreCase = true)
+                    val isVideoUnavailable = (title.equals("Private video", ignoreCase = true) || title.equals("Deleted video", ignoreCase = true)) && videoId.isNullOrBlank()
 
-                    if (!videoId.isNullOrBlank() && !title.startsWith("Track ") && title.isNotBlank() && !isLikelyNonMusicVideo && !isVideoUnavailable) {
+                    if (!videoId.isNullOrBlank() && title.isNotBlank() && !isVideoUnavailable) {
                         tracks.add(
                             Track(
                                 id = videoId,
