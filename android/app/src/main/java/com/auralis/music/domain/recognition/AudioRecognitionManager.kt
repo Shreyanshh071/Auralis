@@ -132,15 +132,15 @@ class AudioRecognitionManager(
                         }
 
                         override fun onError(error: Int) {
-                            // If error occurred during start/listen phase and we have retries remaining,
-                            // smoothly retry in background without flashing the error screen to the user
-                            if (retryCount < maxRetries) {
-                                retryCount++
+                            val elapsed = System.currentTimeMillis() - listeningStartTime
+
+                            // Guarantee at least 6.5 seconds of continuous listening before showing error
+                            if (elapsed < 6500L) {
                                 mainHandler.postDelayed({
                                     if (isListening && _state.value.status != RecognitionStatus.SUCCESS) {
                                         restartListeningInternal()
                                     }
-                                }, 350)
+                                }, 300)
                                 return
                             }
 
@@ -169,9 +169,13 @@ class AudioRecognitionManager(
                             if (text.isNotBlank()) {
                                 handleRecognizedQuery(text)
                             } else {
-                                if (retryCount < maxRetries) {
-                                    retryCount++
-                                    restartListeningInternal()
+                                val elapsed = System.currentTimeMillis() - listeningStartTime
+                                if (elapsed < 6500L) {
+                                    mainHandler.postDelayed({
+                                        if (isListening && _state.value.status != RecognitionStatus.SUCCESS) {
+                                            restartListeningInternal()
+                                        }
+                                    }, 300)
                                 } else {
                                     _state.update {
                                         it.copy(
@@ -372,9 +376,10 @@ class AudioRecognitionManager(
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, if (isMusic) 8000L else 4000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, if (isMusic) 6000L else 3000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2500L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 6000L)
+                    putExtra("android.speech.extra.DICTATION_MODE", true)
                 }
 
                 speechRecognizer?.startListening(intent)
