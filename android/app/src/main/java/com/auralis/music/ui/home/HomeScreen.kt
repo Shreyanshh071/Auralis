@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -651,54 +650,30 @@ fun HomeScreen(
         }
 
         // ====================================================================
-        // 9. FLOATING ACTION BUTTONS (MIC & SHUFFLE, BOTTOM RIGHT)
+        // 9. FLOATING ACTION BUTTON (QUICK SHUFFLE, BOTTOM RIGHT)
         // ====================================================================
-        Column(
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 16.dp, end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(bottom = 16.dp, end = 16.dp)
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF4A502E))
+                .clickable {
+                    if (uiState.quickPicks.isNotEmpty()) {
+                        onTrackClick(uiState.quickPicks.shuffled().first(), uiState.quickPicks.shuffled())
+                    } else {
+                        onSurpriseMe()
+                    }
+                },
+            contentAlignment = Alignment.Center
         ) {
-            // Voice / Mic Floating Button
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF383D24))
-                    .clickable { onNavigateToExplore() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice Search",
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            // Quick Shuffle Floating Button
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF4A502E))
-                    .clickable {
-                        if (uiState.quickPicks.isNotEmpty()) {
-                            onTrackClick(uiState.quickPicks.shuffled().first(), uiState.quickPicks.shuffled())
-                        } else {
-                            onSurpriseMe()
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Shuffle,
-                    contentDescription = "Quick Shuffle",
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.Shuffle,
+                contentDescription = "Quick Shuffle",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
         }
     }
 
