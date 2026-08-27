@@ -36,6 +36,8 @@ import com.auralis.music.ui.theme.AuralisSpring
 import com.auralis.music.ui.theme.LocalReducedMotion
 import com.auralis.music.ui.theme.auralisFadeEnter
 import com.auralis.music.ui.theme.auralisFadeExit
+import com.auralis.music.ui.theme.auralisNavigationEnter
+import com.auralis.music.ui.theme.auralisNavigationExit
 import com.auralis.music.ui.theme.auralisPushEnter
 import com.auralis.music.ui.theme.auralisPushExit
 import com.auralis.music.ui.theme.auralisSheetEnter
@@ -730,11 +732,11 @@ fun AuralisApp(
             )
         }
 
-        // Listen Together Sheet with smooth slide animation from the right
+        // Listen Together Sheet with unified navigation transition
         AnimatedVisibility(
             visible = isListenTogetherOpen,
-            enter = auralisPushEnter(),
-            exit = auralisPushExit()
+            enter = auralisNavigationEnter(),
+            exit = auralisNavigationExit()
         ) {
             ListenTogetherSheet(
                 uiState = listenTogetherUiState,
@@ -780,8 +782,8 @@ fun AuralisApp(
         // Profile & YouTube Music Account Sync Modal Sheet
         AnimatedVisibility(
             visible = isProfileOpen,
-            enter = auralisPushEnter(),
-            exit = auralisPushExit()
+            enter = auralisNavigationEnter(),
+            exit = auralisNavigationExit()
         ) {
             val ctx = androidx.compose.ui.platform.LocalContext.current
             ProfileSheet(
@@ -819,8 +821,8 @@ fun AuralisApp(
         // Listening History Modal Sheet
         AnimatedVisibility(
             visible = isHistoryOpen,
-            enter = auralisPushEnter(),
-            exit = auralisPushExit()
+            enter = auralisNavigationEnter(),
+            exit = auralisNavigationExit()
         ) {
             com.auralis.music.ui.history.HistorySheet(
                 history = homeUiState.recentTracks,

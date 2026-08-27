@@ -113,6 +113,7 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.components.TrackOptionsMenu
+import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.AuralisPrimary
 import com.auralis.music.ui.theme.AuralisSurfaceElevated
 import com.auralis.music.ui.theme.GlassBorderHairline
@@ -323,13 +324,22 @@ fun LibraryScreen(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onOpenHistory) {
+                    IconButton(
+                        onClick = onOpenHistory,
+                        modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                    ) {
                         Icon(Icons.Default.History, contentDescription = "History", tint = Color.White.copy(alpha = 0.85f))
                     }
-                    IconButton(onClick = onOpenListenTogether) {
+                    IconButton(
+                        onClick = onOpenListenTogether,
+                        modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                    ) {
                         Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = Color.White.copy(alpha = 0.85f))
                     }
-                    IconButton(onClick = onOpenProfile) {
+                    IconButton(
+                        onClick = onOpenProfile,
+                        modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                    ) {
                         Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = Color.White.copy(alpha = 0.85f))
                     }
                 }

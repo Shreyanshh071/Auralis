@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.TrackOptionsMenu
+import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.HomeUiState
 import com.auralis.music.ui.viewmodel.SpeedDialItem
 import com.auralis.music.ui.viewmodel.SpeedDialType
@@ -136,13 +137,22 @@ fun HomeScreen(
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = onOpenHistory) {
+                        IconButton(
+                            onClick = onOpenHistory,
+                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                        ) {
                             Icon(Icons.Default.History, contentDescription = "History", tint = Color.White.copy(alpha = 0.85f))
                         }
-                        IconButton(onClick = onOpenListenTogether) {
+                        IconButton(
+                            onClick = onOpenListenTogether,
+                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                        ) {
                             Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = Color.White.copy(alpha = 0.85f))
                         }
-                        IconButton(onClick = onOpenProfile) {
+                        IconButton(
+                            onClick = onOpenProfile,
+                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                        ) {
                             Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = Color.White.copy(alpha = 0.85f))
                         }
                     }
