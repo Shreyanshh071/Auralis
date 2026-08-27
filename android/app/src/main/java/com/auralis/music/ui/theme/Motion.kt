@@ -134,6 +134,12 @@ object AuralisSpring {
         stiffness = Spring.StiffnessMediumLow
     )
 
+    /** Immediate tactile response for bottom navigation bar icons. */
+    val NavIcon: SpringSpec<Float> = spring(
+        dampingRatio = 0.80f,
+        stiffness = Spring.StiffnessMedium
+    )
+
     /** Soft settle for larger surfaces. */
     val Gentle: SpringSpec<Float> = spring(
         dampingRatio = 1f,
@@ -279,9 +285,9 @@ fun auralisSheetExit(): ExitTransition {
 fun auralisPushEnter(): EnterTransition {
     if (LocalReducedMotion.current) return EnterTransition.None
     return slideInHorizontally(
-        animationSpec = tween(AuralisDuration.Nav, easing = AuralisEasing.Decelerate),
-        initialOffsetX = { it }
-    ) + fadeIn(tween(AuralisDuration.Standard, easing = AuralisEasing.Standard))
+        animationSpec = tween(AuralisDuration.Quick, easing = AuralisEasing.Decelerate),
+        initialOffsetX = { fullWidth -> fullWidth / 4 }
+    ) + fadeIn(tween(AuralisDuration.Quick, easing = AuralisEasing.Standard))
 }
 
 /** Counterpart to [auralisPushEnter]. */
@@ -289,9 +295,9 @@ fun auralisPushEnter(): EnterTransition {
 fun auralisPushExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
     return slideOutHorizontally(
-        animationSpec = tween(AuralisDuration.NavExit, easing = AuralisEasing.Accelerate),
-        targetOffsetX = { it }
-    ) + fadeOut(tween(AuralisDuration.Quick, easing = AuralisEasing.Standard))
+        animationSpec = tween(AuralisDuration.Quick, easing = AuralisEasing.Accelerate),
+        targetOffsetX = { fullWidth -> fullWidth / 4 }
+    ) + fadeOut(tween(AuralisDuration.Fast, easing = AuralisEasing.Standard))
 }
 
 /**
