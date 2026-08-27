@@ -14,6 +14,10 @@ import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.auralisDetailBackwardEnter
+import com.auralis.music.ui.theme.auralisDetailBackwardExit
+import com.auralis.music.ui.theme.auralisDetailForwardEnter
+import com.auralis.music.ui.theme.auralisDetailForwardExit
 import com.auralis.music.ui.theme.auralisNavigationEnter
 import com.auralis.music.ui.theme.auralisNavigationExit
 import com.auralis.music.ui.theme.motionTween
@@ -204,13 +208,19 @@ fun LibraryScreen(
         }
     }
 
-    val navEnter = auralisNavigationEnter()
-    val navExit = auralisNavigationExit()
+    val detailForwardEnter = auralisDetailForwardEnter()
+    val detailForwardExit = auralisDetailForwardExit()
+    val detailBackwardEnter = auralisDetailBackwardEnter()
+    val detailBackwardExit = auralisDetailBackwardExit()
 
     AnimatedContent(
         targetState = uiState.selectedPlaylist,
         transitionSpec = {
-            navEnter togetherWith navExit
+            if (targetState != null) {
+                detailForwardEnter togetherWith detailForwardExit
+            } else {
+                detailBackwardEnter togetherWith detailBackwardExit
+            }
         },
         label = "PlaylistDetailTransition"
     ) { selectedPl ->
