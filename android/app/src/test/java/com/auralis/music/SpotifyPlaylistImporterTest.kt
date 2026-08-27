@@ -133,7 +133,7 @@ class SpotifyPlaylistImporterTest {
 
         importer.parseApiTrackItems(jsonArray, "Default Playlist", tracksList)
 
-        assertEquals(2, tracksList.size)
+        assertEquals(3, tracksList.size)
 
         val t1 = tracksList[0]
         assertEquals("sp_track_1", t1.id)
@@ -149,6 +149,11 @@ class SpotifyPlaylistImporterTest {
         assertEquals("The Weeknd", t2.artist)
         assertEquals("After Hours", t2.album)
         assertEquals(200L, t2.duration)
+
+        val t3 = tracksList[2]
+        assertEquals("sp_local_track", t3.id)
+        assertEquals("Local Audio", t3.title)
+        assertEquals(120L, t3.duration)
     }
 
     @Test
@@ -351,5 +356,48 @@ class SpotifyPlaylistImporterTest {
         assertEquals("Seven", t2.album)
         assertEquals("https://i.scdn.co/image/seven.jpg", t2.thumbnail)
         assertEquals(184L, t2.duration)
+    }
+
+    @Test
+    fun parsePathfinderPlaylistItems_handlesLocalAndUnlinkedItemsWithoutDropping() {
+        val sampleJsonArray = """
+            [
+              {
+                "uid": "item_local_1",
+                "itemV2": {
+                  "__typename": "LocalTrackResponseWrapper",
+                  "data": {
+                    "__typename": "LocalTrack",
+                    "uri": "spotify:local:::Song+From+Computer:180",
+                    "name": "Song From Computer",
+                    "trackDuration": {
+                      "totalMilliseconds": 180000
+                    },
+                    "artists": {
+                      "items": [
+                        {
+                          "profile": {
+                            "name": "My Band"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+        """.trimIndent()
+
+        val jsonArray = JSONArray(sampleJsonArray)
+        val outList = mutableListOf<Track>()
+        val importer = SpotifyPlaylistImporter()
+
+        importer.parsePathfinderPlaylistItems(jsonArray, "My Album", outList)
+
+        assertEquals(1, outList.size)
+        val t = outList[0]
+        assertEquals("Song From Computer", t.title)
+        assertEquals("My Band", t.artist)
+        assertEquals(180L, t.duration)
     }
 }
