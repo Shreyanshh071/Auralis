@@ -112,6 +112,18 @@ object AuralisEasing {
 }
 
 /**
+ * Synchronized motion specs for the Mini Player <-> Full Player (Now Playing) container transform.
+ * Ensures the shared artwork, text, corner morphing, and surface enter/exit are perfectly locked.
+ */
+object PlayerMotion {
+    const val EnterDuration = 280
+    const val ExitDuration = 240
+
+    val EnterEasing: Easing = AuralisEasing.Decelerate
+    val ExitEasing: Easing = AuralisEasing.Standard
+}
+
+/**
  * Canonical springs. Prefer these over tweens for anything driven directly by
  * touch, where the animation may be interrupted and retargeted mid-flight.
  */
@@ -265,19 +277,19 @@ fun <T> motionSpring(
 fun auralisSheetEnter(): EnterTransition {
     if (LocalReducedMotion.current) return EnterTransition.None
     return slideInVertically(
-        animationSpec = tween(AuralisDuration.Nav, easing = AuralisEasing.Decelerate),
-        initialOffsetY = { it }
-    ) + fadeIn(tween(AuralisDuration.Quick, easing = AuralisEasing.Standard))
+        animationSpec = tween(PlayerMotion.EnterDuration, easing = PlayerMotion.EnterEasing),
+        initialOffsetY = { fullHeight -> fullHeight / 4 }
+    ) + fadeIn(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard))
 }
 
-/** Counterpart to [auralisSheetEnter]. */
+/** Counterpart to [auralisSheetEnter] — fluid contraction toward the mini-player. */
 @Composable
 fun auralisSheetExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
     return slideOutVertically(
-        animationSpec = tween(AuralisDuration.NavExit, easing = AuralisEasing.Accelerate),
-        targetOffsetY = { it }
-    ) + fadeOut(tween(AuralisDuration.Fast, easing = AuralisEasing.Standard))
+        animationSpec = tween(PlayerMotion.ExitDuration, easing = PlayerMotion.ExitEasing),
+        targetOffsetY = { fullHeight -> fullHeight / 4 }
+    ) + fadeOut(tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard))
 }
 
 /**

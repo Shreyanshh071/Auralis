@@ -296,6 +296,7 @@ fun NowPlayingModal(
                 scaleX = 1f - (dragFraction * 0.08f)
                 scaleY = 1f - (dragFraction * 0.08f)
                 alpha = 1f - (dragFraction * 0.35f)
+                clip = true
             }
             .background(Color(0xFF08060C))
             .clickable(
@@ -405,13 +406,16 @@ fun NowPlayingModal(
                                 }
                             },
                             onDragEnd = {
-                                if (dragOffsetY.value > 160f) {
-                                    onDismiss()
+                                if (dragOffsetY.value > 140f) {
+                                    coroutineScope.launch {
+                                        dragOffsetY.snapTo(0f)
+                                        onDismiss()
+                                    }
                                 } else {
                                     coroutineScope.launch {
                                         dragOffsetY.animateTo(
                                             0f,
-                                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
                                         )
                                     }
                                 }
@@ -420,7 +424,7 @@ fun NowPlayingModal(
                                 coroutineScope.launch {
                                     dragOffsetY.animateTo(
                                         0f,
-                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
                                     )
                                 }
                             }
@@ -430,7 +434,12 @@ fun NowPlayingModal(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onDismiss,
+                    onClick = {
+                        coroutineScope.launch {
+                            dragOffsetY.snapTo(0f)
+                            onDismiss()
+                        }
+                    },
                     modifier = Modifier.size(40.dp).tactileBounce(scaleDown = 0.88f)
                 ) {
                     Icon(

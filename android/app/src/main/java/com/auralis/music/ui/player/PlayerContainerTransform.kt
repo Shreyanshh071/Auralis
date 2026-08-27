@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.PlayerMotion
 
 // ============================================================================
 // 🔗 MINI-PLAYER  ->  NOW PLAYING  CONTAINER TRANSFORM
@@ -99,8 +100,8 @@ fun playerSharedTrackInfo(
         Modifier.sharedBounds(
             rememberSharedContentState(key = TrackInfoKey),
             animatedVisibilityScope,
-            enter = fadeIn(tween(AuralisDuration.Fast, easing = AuralisEasing.Standard)),
-            exit = fadeOut(tween(AuralisDuration.Fast, easing = AuralisEasing.Standard)),
+            enter = fadeIn(tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)),
+            exit = fadeOut(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard)),
             boundsTransform = boundsTransform
         )
     }
@@ -125,7 +126,10 @@ fun playerArtworkCorner(
 
     val radius by animatedVisibilityScope.transition.animateDp(
         transitionSpec = {
-            tween(AuralisDuration.Emphasized, easing = AuralisEasing.Decelerate)
+            val isExpanding = targetState == EnterExitState.Visible
+            val duration = if (isExpanding) PlayerMotion.EnterDuration else PlayerMotion.ExitDuration
+            val easing = if (isExpanding) PlayerMotion.EnterEasing else PlayerMotion.ExitEasing
+            tween(duration, easing = easing)
         },
         label = "playerArtworkCorner"
     ) { state ->
@@ -143,7 +147,10 @@ fun playerArtworkCorner(
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun rememberPlayerBoundsTransform(): BoundsTransform = remember {
-    BoundsTransform { _, _ ->
-        tween(AuralisDuration.Emphasized, easing = AuralisEasing.Decelerate)
+    BoundsTransform { initialBounds, targetBounds ->
+        val isExpanding = targetBounds.width > initialBounds.width
+        val duration = if (isExpanding) PlayerMotion.EnterDuration else PlayerMotion.ExitDuration
+        val easing = if (isExpanding) PlayerMotion.EnterEasing else PlayerMotion.ExitEasing
+        tween(duration, easing = easing)
     }
 }
