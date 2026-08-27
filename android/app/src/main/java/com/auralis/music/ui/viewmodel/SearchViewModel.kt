@@ -78,6 +78,7 @@ class SearchViewModel(
 
     fun setRecognitionMode(mode: RecognitionMode) {
         recognitionManager?.setMode(mode)
+        startListening()
     }
 
     fun startListening() {
