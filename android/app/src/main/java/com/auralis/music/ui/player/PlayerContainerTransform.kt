@@ -100,8 +100,8 @@ fun playerSharedTrackInfo(
         Modifier.sharedBounds(
             rememberSharedContentState(key = TrackInfoKey),
             animatedVisibilityScope,
-            enter = fadeIn(tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)),
-            exit = fadeOut(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard)),
+            enter = fadeIn(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard)),
+            exit = fadeOut(tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)),
             boundsTransform = boundsTransform
         )
     }
@@ -126,9 +126,9 @@ fun playerArtworkCorner(
 
     val radius by animatedVisibilityScope.transition.animateDp(
         transitionSpec = {
-            val isExpanding = targetState == EnterExitState.Visible
-            val duration = if (isExpanding) PlayerMotion.EnterDuration else PlayerMotion.ExitDuration
-            val easing = if (isExpanding) PlayerMotion.EnterEasing else PlayerMotion.ExitEasing
+            val isOpening = if (expanded) targetState == EnterExitState.Visible else targetState != EnterExitState.Visible
+            val duration = if (isOpening) PlayerMotion.EnterDuration else PlayerMotion.ExitDuration
+            val easing = if (isOpening) PlayerMotion.EnterEasing else PlayerMotion.ExitEasing
             tween(duration, easing = easing)
         },
         label = "playerArtworkCorner"
