@@ -197,7 +197,14 @@ class YouTubeDataApiClient(
                             if (parts.size == 2) {
                                 val possibleArtist = parts[0].trim().replace(Regex("(?i) - Topic$"), "").trim()
                                 val possibleTitle = parts[1].trim()
-                                if (possibleArtist.isNotBlank() && possibleTitle.isNotBlank()) {
+                                val p1Lower = possibleTitle.lowercase()
+                                val isPart1MovieOrSubtitle = p1Lower.startsWith("from ") ||
+                                    p1Lower.startsWith("from \"") ||
+                                    p1Lower.startsWith("from '") ||
+                                    p1Lower.startsWith("ost") ||
+                                    TitleCleaner.extractVersion(possibleTitle) != null
+
+                                if (!isPart1MovieOrSubtitle && (artist.isBlank() || artist == "YouTube Music" || artist.equals(possibleArtist, ignoreCase = true))) {
                                     title = possibleTitle
                                     if (artist.isBlank() || artist == "YouTube Music") {
                                         artist = possibleArtist

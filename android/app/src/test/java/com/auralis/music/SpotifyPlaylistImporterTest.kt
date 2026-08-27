@@ -209,7 +209,7 @@ class SpotifyPlaylistImporterTest {
         assertEquals(2, playlist.tracks.size)
 
         val t0 = playlist.tracks[0]
-        assertEquals("Seven", t0.title)
+        assertEquals("Seven (feat. Latto)", t0.title)
         assertEquals("Jung Kook, Latto", t0.artist)
         assertEquals(184L, t0.duration)
         assertEquals("sp_4cOdK2wGLETKBW3PvgPWqT", t0.id)
@@ -351,7 +351,7 @@ class SpotifyPlaylistImporterTest {
 
         val t2 = outList[1]
         assertEquals("sp_4cOdK2wGLETKBW3PvgPWqT", t2.id)
-        assertEquals("Seven", t2.title)
+        assertEquals("Seven (feat. Latto)", t2.title)
         assertEquals("Jung Kook, Latto", t2.artist)
         assertEquals("Seven", t2.album)
         assertEquals("https://i.scdn.co/image/seven.jpg", t2.thumbnail)

@@ -736,7 +736,7 @@ class SpotifyPlaylistImporter(
             outList.add(
                 Track(
                     id = "sp_$id",
-                    title = TitleCleaner.cleanTitle(name),
+                    title = name.trim(),
                     artist = artistStr,
                     album = albumName,
                     thumbnail = trackArtwork,
@@ -794,7 +794,7 @@ class SpotifyPlaylistImporter(
             outList.add(
                 Track(
                     id = "sp_$id",
-                    title = TitleCleaner.cleanTitle(name),
+                    title = name.trim(),
                     artist = artistStr,
                     album = albumName,
                     thumbnail = albumCover ?: "",
@@ -1015,7 +1015,7 @@ class SpotifyPlaylistImporter(
 
         val track = Track(
             id = "sp_$trackId",
-            title = TitleCleaner.cleanTitle(title),
+            title = title.trim(),
             artist = artist,
             album = albumName,
             thumbnail = coverUrl ?: "",
@@ -1080,7 +1080,7 @@ class SpotifyPlaylistImporter(
             outList.add(
                 Track(
                     id = "sp_$id",
-                    title = TitleCleaner.cleanTitle(name),
+                    title = name.trim(),
                     artist = artistStr,
                     album = albumName,
                     thumbnail = trackArtwork,
@@ -1127,7 +1127,7 @@ class SpotifyPlaylistImporter(
             outList.add(
                 Track(
                     id = "sp_$id",
-                    title = TitleCleaner.cleanTitle(name),
+                    title = name.trim(),
                     artist = artistStr,
                     album = albumName,
                     thumbnail = albumCover ?: "",
@@ -1149,7 +1149,7 @@ class SpotifyPlaylistImporter(
         val total = tracks.size
         if (total == 0) return@withContext emptyList()
 
-        val semaphore = Semaphore(8)
+        val semaphore = Semaphore(2)
         val completedCounter = AtomicInteger(0)
 
         coroutineScope {
@@ -1157,25 +1157,52 @@ class SpotifyPlaylistImporter(
                 async {
                     semaphore.withPermit {
                         try {
+                            // 0. Cooperative yielding: If user is starting playback, yield network to playback
+                            while (AudioStreamResolver.isPlaybackResolving) {
+                                kotlinx.coroutines.delay(500)
+                            }
+                            kotlinx.coroutines.delay(200)
+
                             val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
-                            val query = "${track.title} $cleanArtist".trim()
-                            val songsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_SONGS).songs
-                            val match = songsResult.firstOrNull() ?: innerTubeClient.search(query).songs.firstOrNull()
+                            val primaryQuery = "${track.title} $cleanArtist".trim()
+
+                            // 1. Search YouTube Music Songs filter
+                            val songsResult = innerTubeClient.search(primaryQuery, InnerTubeClient.FILTER_SONGS).songs
+                            var bestMatch = SpotifyTrackMatcher.findBestMatch(track, songsResult)
+
+                            // 2. Fallback: Search general results if no confident match yet
+                            if (bestMatch == null) {
+                                val generalResult = innerTubeClient.search(primaryQuery).songs
+                                bestMatch = SpotifyTrackMatcher.findBestMatch(track, generalResult)
+                            }
+
+                            // 3. Fallback: Core title query if track contains version tags
+                            if (bestMatch == null && (track.title.contains("(") || track.title.contains("-"))) {
+                                val (coreTokens, _) = SpotifyTrackMatcher.extractCoreTokensAndVersion(track.title)
+                                if (coreTokens.isNotEmpty()) {
+                                    val coreQuery = "${coreTokens.joinToString(" ")} $cleanArtist".trim()
+                                    val coreResult = innerTubeClient.search(coreQuery, InnerTubeClient.FILTER_SONGS).songs
+                                    bestMatch = SpotifyTrackMatcher.findBestMatch(track, coreResult)
+                                }
+                            }
 
                             val count = completedCounter.incrementAndGet()
                             if (count % 10 == 0 || count == total) {
                                 onProgress?.invoke("Importing your playlist to Auralis ($count/$total)...")
                             }
 
-                            if (match != null) {
+                            if (bestMatch != null) {
+                                val matchedCand = bestMatch.candidate
+                                Log.i(TAG, "Matched Spotify track '${track.title}' -> '${matchedCand.id}' (${matchedCand.title}) with ${bestMatch.confidence}% confidence")
                                 track.copy(
-                                    id = match.id,
-                                    thumbnail = match.thumbnail.ifBlank {
-                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${match.id}/hq720.jpg" }
+                                    id = matchedCand.id,
+                                    thumbnail = matchedCand.thumbnail.ifBlank {
+                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${matchedCand.id}/hq720.jpg" }
                                     },
-                                    duration = if (match.duration > 0) match.duration else track.duration
+                                    duration = if (track.duration > 0) track.duration else matchedCand.duration
                                 )
                             } else {
+                                Log.w(TAG, "No confident match for Spotify track '${track.title}' by '${track.artist}' (${track.duration}s). Preserving Spotify identity.")
                                 if (track.thumbnail.contains("mosaic.scdn.co") || track.thumbnail.contains("image-cdn")) {
                                     track.copy(thumbnail = "")
                                 } else {
@@ -1183,6 +1210,7 @@ class SpotifyPlaylistImporter(
                                 }
                             }
                         } catch (e: Exception) {
+                            Log.e(TAG, "Error enriching Spotify track '${track.title}': ${e.message}")
                             track
                         }
                     }
@@ -1254,7 +1282,7 @@ class SpotifyPlaylistImporter(
                     tracks.add(
                         Track(
                             id = "sp_$trId",
-                            title = TitleCleaner.cleanTitle(trTitle),
+                            title = trTitle.trim(),
                             artist = if (trArtist.isBlank()) "Spotify Artist" else trArtist,
                             album = "Spotify Playlist",
                             thumbnail = "",
@@ -1352,7 +1380,7 @@ class SpotifyPlaylistImporter(
                 tracks.add(
                     Track(
                         id = "sp_$trackId",
-                        title = TitleCleaner.cleanTitle(trackTitle),
+                        title = trackTitle.trim(),
                         artist = if (trackSubtitle.isBlank() || trackSubtitle == "Artist") "Spotify Artist" else trackSubtitle,
                         album = title,
                         thumbnail = trackArtwork ?: "",
@@ -1400,7 +1428,7 @@ class SpotifyPlaylistImporter(
                     tracks.add(
                         Track(
                             id = "sp_$trackId",
-                            title = TitleCleaner.cleanTitle(trackTitle),
+                            title = trackTitle.trim(),
                             artist = trackArtist,
                             album = title,
                             thumbnail = "",

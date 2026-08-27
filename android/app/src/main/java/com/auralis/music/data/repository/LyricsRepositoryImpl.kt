@@ -1,7 +1,9 @@
 package com.auralis.music.data.repository
 
 import com.auralis.music.data.local.dao.LyricsDao
+import com.auralis.music.data.local.dao.NegativeLyricsDao
 import com.auralis.music.data.local.entity.LyricsEntity
+import com.auralis.music.data.local.entity.NegativeLyricsEntity
 import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.LyricsRepository
@@ -11,10 +13,41 @@ import java.util.concurrent.ConcurrentHashMap
 
 class LyricsRepositoryImpl(
     private val lyricsClient: LyricsClient,
-    private val lyricsDao: LyricsDao? = null
+    private val lyricsDao: LyricsDao? = null,
+    private val negativeLyricsDao: NegativeLyricsDao? = null
 ) : LyricsRepository {
 
     private val memoryCache = ConcurrentHashMap<String, LyricsData>()
+
+    companion object {
+        private const val NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours TTL
+    }
+
+    override suspend fun getCachedLyrics(
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?
+    ): LyricsData? {
+        val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
+        // 1. Check in-memory cache
+        memoryCache[trackKey]?.let { return it }
+
+        // 2. Check local SQLite Room DB cache (0ms instant display)
+        if (lyricsDao != null) {
+            try {
+                val entity = lyricsDao.getLyrics(trackKey)
+                if (entity != null) {
+                    val domainLyrics = entityToDomain(entity, title, artist)
+                    if (domainLyrics != null) {
+                        memoryCache[trackKey] = domainLyrics
+                        return domainLyrics
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return null
+    }
 
     override suspend fun getLyrics(
         title: String,
@@ -30,7 +63,7 @@ class LyricsRepositoryImpl(
             memoryCache[trackKey]?.let { return it }
         }
 
-        // 2. Check local SQLite Room DB cache
+        // 2. Check local SQLite Room DB cache (0ms instant display)
         if (!forceRefresh && lyricsDao != null) {
             try {
                 val entity = lyricsDao.getLyrics(trackKey)
@@ -44,19 +77,38 @@ class LyricsRepositoryImpl(
             } catch (_: Exception) {}
         }
 
-        // 3. Fetch from Metrolist Multi-Provider Cascade (LRCLIB + KuGou + AMLL)
+        // 3. Check Negative Cache (Skip recent failed lookups to prevent provider rate-limits)
+        if (!forceRefresh && negativeLyricsDao != null) {
+            try {
+                val negEntry = negativeLyricsDao.getNegativeEntry(trackKey)
+                if (negEntry != null && (System.currentTimeMillis() - negEntry.cachedAt) < NEGATIVE_CACHE_TTL_MS) {
+                    return null
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 4. Multi-Provider Cascade (AMLL RichSync -> LRCLIB, JioSaavn, NetEase, KuGou, Musixmatch -> Genius, YouTube)
         val networkResult = lyricsClient.getLyrics(title, artist, durationSec, videoId)
         if (networkResult != null) {
             memoryCache[trackKey] = networkResult
 
-            // 4. Persist into SQLite Room database
+            // Save to SQLite Room database
             if (lyricsDao != null) {
                 try {
                     val entity = domainToEntity(trackKey, networkResult)
                     lyricsDao.insertLyrics(entity)
+                    negativeLyricsDao?.removeNegativeEntry(trackKey)
+                } catch (_: Exception) {}
+            }
+        } else {
+            // Save negative cache entry with TTL
+            if (negativeLyricsDao != null) {
+                try {
+                    negativeLyricsDao.insertNegativeEntry(NegativeLyricsEntity(trackKey = trackKey))
                 } catch (_: Exception) {}
             }
         }
+
         return networkResult
     }
 

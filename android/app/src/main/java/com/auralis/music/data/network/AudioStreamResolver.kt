@@ -3,6 +3,7 @@ package com.auralis.music.data.network
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -20,6 +21,13 @@ import java.util.concurrent.TimeUnit
 object AudioStreamResolver {
 
     private const val TAG = "AuralisPlayback"
+    private fun diagLog(msg: String) {
+        try {
+            Log.d(TAG, msg)
+        } catch (_: Throwable) {}
+        println("[AudioStreamResolver] $msg")
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(3000, TimeUnit.MILLISECONDS)
         .readTimeout(3000, TimeUnit.MILLISECONDS)
@@ -63,7 +71,15 @@ object AudioStreamResolver {
     fun init(context: android.content.Context) {
         try {
             NewPipeDownloader.init(context.cacheDir)
+            PlayerJsCache.init(context)
             ensureNewPipeInitialized()
+            // Asynchronous background warmup so first search/playback doesn't hit cold Rhino JS init
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    ensureNewPipeInitialized()
+                    PlayerJsCache.ensurePlayerJsLoaded()
+                } catch (_: Exception) {}
+            }
         } catch (_: Exception) {}
     }
 
@@ -74,6 +90,10 @@ object AudioStreamResolver {
             return null
         }
         return cached.url
+    }
+
+    fun clearCache() {
+        streamCache.clear()
     }
 
     fun cacheStream(videoId: String, url: String) {
@@ -102,70 +122,68 @@ object AudioStreamResolver {
         }
     }
 
+    @Volatile
+    var isPlaybackResolving: Boolean = false
+        private set
+
     suspend fun resolveAudioStream(videoId: String, title: String, artist: String): String? = withContext(Dispatchers.IO) {
+        val t0Resolve = System.currentTimeMillis()
         // 0. Check in-memory stream cache (instant 0ms resolution)
         val cachedUrl = getCachedStream(videoId)
         if (!cachedUrl.isNullOrBlank()) {
-            Log.d(TAG, "[Resolver] Memory Cache HIT for $videoId ('$title') - 0ms")
+            diagLog("[Diag-Resolver] Memory Cache HIT for $videoId ('$title') - 0ms")
             return@withContext cachedUrl
         }
 
-        // 1. Parallel Resolution: Start fast direct check & NewPipeExtractor concurrently
-        val directDeferred = async(Dispatchers.IO) {
-            try {
-                resolveYouTubePlayerStream(videoId)
-            } catch (_: Exception) { null }
-        }
+        isPlaybackResolving = true
+        try {
+            diagLog("[Diag-Resolver] Starting stream resolution for '$title' ($videoId)")
 
-        val newPipeDeferred = async(Dispatchers.IO) {
+            // 1. Tier 1: Native Stream Extractor (Verified 206 Partial Content without CDN 403 errors)
             try {
+                val tNpStart = System.currentTimeMillis()
                 ensureNewPipeInitialized()
-                val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
-                streamExtractor.fetchPage()
-                val audioStreams = streamExtractor.audioStreams
-                val bestAudio = audioStreams
-                    ?.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
-                    ?.maxByOrNull { it.averageBitrate }
-                bestAudio?.content
+                val nativeStream = withTimeoutOrNull(3500L) {
+                    val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                    streamExtractor.fetchPage()
+                    val audioStreams = streamExtractor.audioStreams
+                    val bestAudio = audioStreams
+                        ?.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
+                        ?.maxByOrNull { it.averageBitrate }
+                    bestAudio?.content
+                }
+                val npMs = System.currentTimeMillis() - tNpStart
+                if (!nativeStream.isNullOrBlank()) {
+                    val totalMs = System.currentTimeMillis() - t0Resolve
+                    diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $videoId ('$title') in ${totalMs}ms (extraction took ${npMs}ms)")
+                    cacheStream(videoId, nativeStream)
+                    return@withContext nativeStream
+                } else {
+                    diagLog("[Diag-Resolver] Native Extractor timed out or returned no stream in ${npMs}ms; proceeding to Tier 2 (Alternative Matcher)")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "[Resolver] NewPipeExtractor notice for $videoId: ${e.message}")
-                null
+                diagLog("[Diag-Resolver] Native Extractor notice for $videoId ('$title'): ${e.message}")
             }
-        }
 
-        // Check if direct stream completes quickly (within 400ms)
-        val fastDirect = withTimeoutOrNull(400L) { directDeferred.await() }
-        if (!fastDirect.isNullOrBlank()) {
-            newPipeDeferred.cancel()
-            Log.d(TAG, "[Resolver] Resolved ultra-fast direct stream for $videoId ('$title')")
-            cacheStream(videoId, fastDirect)
-            return@withContext fastDirect
-        }
+            // 3. Tier 3: Track is unavailable/restricted; auto-recover with official release (bounded 1800ms timeout)
+            val tAltStart = System.currentTimeMillis()
+            diagLog("[Diag-Resolver] Primary resolution tiers failed; attempting alternative search at T+${tAltStart - t0Resolve}ms")
+            val altStream = withTimeoutOrNull(1800L) {
+                resolveNonRestrictedAlternative(title, artist, videoId)
+            }
+            if (!altStream.isNullOrBlank()) {
+                val totalMs = System.currentTimeMillis() - t0Resolve
+                diagLog("[Diag-Resolver] WINNER: Alternative Track for $videoId ('$title') in ${totalMs}ms (alt search took ${System.currentTimeMillis() - tAltStart}ms)")
+                cacheStream(videoId, altStream)
+                return@withContext altStream
+            }
 
-        // Direct stream was not instant; await NewPipe (already calculating in parallel)
-        val newPipeStream = newPipeDeferred.await()
-        if (!newPipeStream.isNullOrBlank()) {
-            Log.d(TAG, "[Resolver] Resolved via NewPipeExtractor for $videoId ('$title')")
-            cacheStream(videoId, newPipeStream)
-            return@withContext newPipeStream
+            // 4. Tier 4: Total native resolution capped at ~4s max before surrender to WebView fallback
+            diagLog("[Diag-Resolver] FAILED all native stream resolution attempts for $videoId ('$title') in ${System.currentTimeMillis() - t0Resolve}ms; routing to WebView Engine")
+            null
+        } finally {
+            isPlaybackResolving = false
         }
-
-        // Fallback to direct stream if it finished late and was valid
-        val lateDirect = directDeferred.await()
-        if (!lateDirect.isNullOrBlank()) {
-            Log.d(TAG, "[Resolver] Resolved via direct stream for $videoId ('$title')")
-            cacheStream(videoId, lateDirect)
-            return@withContext lateDirect
-        }
-
-        // 2. Track is unavailable/restricted; auto-recover with active official release
-        val altStream = resolveNonRestrictedAlternative(title, artist, videoId)
-        if (!altStream.isNullOrBlank()) {
-            cacheStream(videoId, altStream)
-            return@withContext altStream
-        }
-
-        null
     }
 
     private suspend fun resolveNonRestrictedAlternative(title: String, artist: String, originalVideoId: String): String? {
@@ -174,22 +192,27 @@ object AudioStreamResolver {
             val query = if (artist.isNotBlank() && !title.contains(artist, ignoreCase = true)) "$title $artist" else title
             val searchClient = InnerTubeClient()
             val songs = searchClient.search(query, InnerTubeClient.FILTER_SONGS).songs
+            val filteredSongs = songs.filter { it.id != originalVideoId }
 
-            val cleanTitle = title.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
-            val cleanArtist = artist.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
+            val dummyTarget = com.auralis.music.domain.model.Track(
+                id = originalVideoId,
+                title = title,
+                artist = artist
+            )
 
-            val candidates = songs.filter { s ->
-                s.id != originalVideoId &&
-                (cleanArtist.isBlank() || s.artist.lowercase().replace(Regex("[^a-z0-9 ]"), "").contains(cleanArtist)) &&
-                s.title.lowercase().replace(Regex("[^a-z0-9 ]"), "").contains(cleanTitle.take(8))
+            val matchResult = SpotifyTrackMatcher.findBestMatch(dummyTarget, filteredSongs, minConfidence = 65)
+            val candidate = matchResult?.candidate ?: filteredSongs.firstOrNull { s ->
+                val (targetTokens, _) = SpotifyTrackMatcher.extractCoreTokensAndVersion(title)
+                val (candTokens, _) = SpotifyTrackMatcher.extractCoreTokensAndVersion(s.title)
+                targetTokens.isNotEmpty() && targetTokens.intersect(candTokens).isNotEmpty()
             }
 
-            for (candidate in candidates.take(3)) {
+            if (candidate != null) {
                 try {
-                    val direct = resolveYouTubePlayerStream(candidate.id)
-                    if (!direct.isNullOrBlank()) {
-                        Log.d(TAG, "[Resolver] Resolved non-restricted alternative direct stream for '$title' -> ${candidate.id}")
-                        return direct
+                    val directUrl = InnerTubePlayerResolver.resolveStream(candidate.id)
+                    if (!directUrl.isNullOrBlank()) {
+                        diagLog("[Diag-Resolver] Resolved non-restricted alternative via Direct InnerTube for '$title' -> ${candidate.id}")
+                        return directUrl
                     }
                     val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")
                     streamExtractor.fetchPage()
@@ -199,125 +222,15 @@ object AudioStreamResolver {
                         ?.maxByOrNull { it.averageBitrate }
                     val streamUrl = bestAudio?.content
                     if (!streamUrl.isNullOrBlank()) {
-                        Log.d(TAG, "[Resolver] Resolved non-restricted alternative via NewPipe for '$title' -> ${candidate.id}")
+                        diagLog("[Diag-Resolver] Resolved non-restricted alternative via NewPipe for '$title' -> ${candidate.id}")
                         return streamUrl
                     }
                 } catch (_: Exception) {}
             }
             null
         } catch (e: Exception) {
-            Log.w(TAG, "[Resolver] Alternative search failed: ${e.message}")
+            diagLog("[Diag-Resolver] Alternative search failed: ${e.message}")
             null
         }
-    }
-
-    private fun resolveYouTubePlayerStream(videoId: String): String? {
-        // 1. Try ANDROID_VR client (returns direct unencrypted googlevideo audio streams for exact videoId)
-        try {
-            val vrPayload = JSONObject().apply {
-                put("videoId", videoId)
-                put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", "ANDROID_VR")
-                        put("clientVersion", "1.59.19")
-                        put("deviceModel", "Quest 3")
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
-                })
-            }
-
-            val req = Request.Builder()
-                .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-                .post(vrPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Origin", "https://www.youtube.com")
-                .build()
-
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                val body = res.body?.string() ?: ""
-                val json = JSONObject(body)
-                val status = json.optJSONObject("playabilityStatus")?.optString("status")
-                if (status == "OK") {
-                    val streamingData = json.optJSONObject("streamingData")
-                    val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
-                    if (adaptiveFormats != null) {
-                        var bestAudioUrl: String? = null
-                        var bestBitrate = 0
-                        for (i in 0 until adaptiveFormats.length()) {
-                            val fmt = adaptiveFormats.getJSONObject(i)
-                            val mime = fmt.optString("mimeType", "")
-                            if (mime.startsWith("audio/")) {
-                                val directUrl = fmt.optString("url")
-                                val bitrate = fmt.optInt("bitrate", 0)
-                                if (directUrl.isNotBlank() && bitrate > bestBitrate && !isHostBlacklisted(directUrl)) {
-                                    bestBitrate = bitrate
-                                    bestAudioUrl = directUrl
-                                }
-                            }
-                        }
-                        if (!bestAudioUrl.isNullOrBlank()) {
-                            return bestAudioUrl
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        // 2. Fallback: Try IOS client
-        try {
-            val iosPayload = JSONObject().apply {
-                put("videoId", videoId)
-                put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", "IOS")
-                        put("clientVersion", "19.29.1")
-                        put("deviceModel", "iPhone14,3")
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
-                })
-            }
-
-            val req = Request.Builder()
-                .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-                .post(iosPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .header("User-Agent", "com.google.ios.youtube/19.29.1 (iPhone14,3; U; CPU iOS 17_5_1 like Mac OS X; en_US)")
-                .header("Origin", "https://www.youtube.com")
-                .build()
-
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                val body = res.body?.string() ?: ""
-                val json = JSONObject(body)
-                val status = json.optJSONObject("playabilityStatus")?.optString("status")
-                if (status == "OK") {
-                    val streamingData = json.optJSONObject("streamingData")
-                    val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
-                    if (adaptiveFormats != null) {
-                        var bestAudioUrl: String? = null
-                        var bestBitrate = 0
-                        for (i in 0 until adaptiveFormats.length()) {
-                            val fmt = adaptiveFormats.getJSONObject(i)
-                            val mime = fmt.optString("mimeType", "")
-                            if (mime.startsWith("audio/")) {
-                                val directUrl = fmt.optString("url")
-                                val bitrate = fmt.optInt("bitrate", 0)
-                                if (directUrl.isNotBlank() && bitrate > bestBitrate && !isHostBlacklisted(directUrl)) {
-                                    bestBitrate = bitrate
-                                    bestAudioUrl = directUrl
-                                }
-                            }
-                        }
-                        if (!bestAudioUrl.isNullOrBlank()) {
-                            return bestAudioUrl
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        return null
     }
 }

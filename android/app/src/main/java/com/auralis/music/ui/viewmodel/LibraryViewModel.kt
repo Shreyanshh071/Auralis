@@ -122,16 +122,24 @@ class LibraryViewModel(
 
     private suspend fun enrichExistingPlaylistsWithArtwork() {
         try {
+            kotlinx.coroutines.delay(3000) // Delay startup enrichment so initial user playback has 100% priority
             val playlists = libraryRepository.getPlaylists().firstOrNull() ?: return
             for (pl in playlists) {
-                val needsEnrich = pl.tracks.any {
+                while (com.auralis.music.data.network.AudioStreamResolver.isPlaybackResolving) {
+                    kotlinx.coroutines.delay(1000)
+                }
+                val hasCorruptedTitles = pl.tracks.any {
+                    it.title.startsWith("From \"", ignoreCase = true) ||
+                    it.title.startsWith("From '", ignoreCase = true)
+                }
+                val needsEnrich = hasCorruptedTitles || pl.tracks.any {
                     it.thumbnail.contains("mosaic.scdn.co") ||
                     it.thumbnail.contains("image-cdn") ||
                     it.id.startsWith("sp_") ||
                     (!pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
                 }
                 if (needsEnrich && pl.tracks.isNotEmpty()) {
-                    android.util.Log.i("LibraryViewModel", "Auto-enriching playlist '${pl.title}' with official YouTube song artwork...")
+                    android.util.Log.i("LibraryViewModel", "Auto-enriching/repairing playlist '${pl.title}'...")
                     val enriched = spotifyImporter.enrichTracksWithYouTubeData(pl.tracks)
                     libraryRepository.replacePlaylistTracks(pl.id, enriched)
                 }

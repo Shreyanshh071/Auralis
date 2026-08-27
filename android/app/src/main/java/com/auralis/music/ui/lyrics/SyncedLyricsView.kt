@@ -9,9 +9,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,7 +42,7 @@ import com.auralis.music.ui.theme.motionTween
  * Clean, Immersive 60fps Synced Lyrics View:
  * - Line-level and syllable-level highlights
  * - Smooth spring-physics auto-scrolling centering active line
- * - Zero hardcoded clutter or translation overlays
+ * - Explicit states for Loading, Word-Synced, Line-Synced, Plain, Instrumental, and Unavailable
  */
 @Composable
 fun SyncedLyricsView(
@@ -53,7 +53,8 @@ fun SyncedLyricsView(
     isLoading: Boolean = false,
     lyricsMode: LyricsMode = LyricsMode.CINEMA,
     offsetMs: Long = 0,
-    onOffsetChange: ((Long) -> Unit)? = null
+    onOffsetChange: ((Long) -> Unit)? = null,
+    onSearchManually: (() -> Unit)? = null
 ) {
     if (isLoading) {
         Box(
@@ -76,17 +77,70 @@ fun SyncedLyricsView(
         return
     }
 
+    val isInstrumental = lyrics != null && (lyrics.lines.all { it.isInstrumental } || lyrics.plainLyrics == "[Instrumental]")
+
+    if (isInstrumental) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            ) {
+                Text(
+                    text = "🎵",
+                    fontSize = 42.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Instrumental Track",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "This composition appears to have no vocals.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        return
+    }
+
     if (lyrics == null || lyrics.lines.isEmpty()) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "No synced lyrics available for this track",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            ) {
+                Text(
+                    text = "Lyrics aren't available for this song yet",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                if (onSearchManually != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    FilledTonalButton(
+                        onClick = onSearchManually,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Search Lyrics Manually")
+                    }
+                }
+            }
         }
         return
     }
@@ -150,7 +204,6 @@ private fun LyricLineRow(
     onClick: () -> Unit
 ) {
     val dynamicPalette = MaterialTheme.dynamicPalette
-
     val isPlain = syncType == SyncType.PLAIN
 
     val targetAlpha = when {
@@ -190,7 +243,6 @@ private fun LyricLineRow(
                 activeGlow = dynamicPalette.tintA
             )
         } else {
-            // Standard Line-sync text
             Text(
                 text = line.text,
                 fontSize = fontSize,

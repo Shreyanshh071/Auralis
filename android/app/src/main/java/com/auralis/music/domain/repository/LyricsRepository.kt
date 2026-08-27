@@ -3,6 +3,13 @@ package com.auralis.music.domain.repository
 import com.auralis.music.domain.model.LyricsData
 
 interface LyricsRepository {
+    suspend fun getCachedLyrics(
+        title: String,
+        artist: String,
+        durationSec: Long? = null,
+        videoId: String? = null
+    ): LyricsData?
+
     suspend fun getLyrics(
         title: String,
         artist: String,
