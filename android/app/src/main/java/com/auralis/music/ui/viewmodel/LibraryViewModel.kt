@@ -279,11 +279,15 @@ class LibraryViewModel(
         }
     }
 
-    fun selectPlaylist(playlistId: String?) {
+    fun selectPlaylist(playlistId: String?, initialPlaylist: Playlist? = null) {
         selectPlaylistJob?.cancel()
         if (playlistId == null) {
             _uiState.update { it.copy(selectedPlaylist = null, selectedSmartCollection = null) }
             return
+        }
+        val cached = initialPlaylist ?: _uiState.value.playlists.find { it.id == playlistId }
+        if (cached != null) {
+            _uiState.update { it.copy(selectedPlaylist = cached, selectedSmartCollection = null) }
         }
         selectPlaylistJob = viewModelScope.launch {
             libraryRepository.getPlaylist(playlistId).collect { pl ->

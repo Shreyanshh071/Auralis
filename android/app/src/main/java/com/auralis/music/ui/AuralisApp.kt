@@ -606,7 +606,7 @@ fun AuralisApp(
                                             onFilterSelect = { libraryViewModel.setFilter(it) },
                                             onCreatePlaylist = { libraryViewModel.createPlaylist(it) },
                                             onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
-                                            onPlaylistSelect = { libraryViewModel.selectPlaylist(it?.id) },
+                                            onPlaylistSelect = { libraryViewModel.selectPlaylist(it?.id, it) },
                                             onTrackClick = { track, queue ->
                                                 if (isGuestInRoom) notifyGuestControlBlocked()
                                                 else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
