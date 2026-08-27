@@ -3,8 +3,10 @@ package com.auralis.music.ui.explore
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import com.auralis.music.ui.theme.LocalReducedMotion
-import com.auralis.music.ui.theme.auralisNavigationEnter
-import com.auralis.music.ui.theme.auralisNavigationExit
+import com.auralis.music.ui.theme.auralisDetailBackwardEnter
+import com.auralis.music.ui.theme.auralisDetailBackwardExit
+import com.auralis.music.ui.theme.auralisDetailForwardEnter
+import com.auralis.music.ui.theme.auralisDetailForwardExit
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -151,13 +153,19 @@ fun ExploreScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
 
-    val navEnter = auralisNavigationEnter()
-    val navExit = auralisNavigationExit()
+    val detailForwardEnter = auralisDetailForwardEnter()
+    val detailForwardExit = auralisDetailForwardExit()
+    val detailBackwardEnter = auralisDetailBackwardEnter()
+    val detailBackwardExit = auralisDetailBackwardExit()
 
     AnimatedContent(
         targetState = uiState.selectedArtistPage,
         transitionSpec = {
-            navEnter togetherWith navExit
+            if (targetState != null) {
+                detailForwardEnter togetherWith detailForwardExit
+            } else {
+                detailBackwardEnter togetherWith detailBackwardExit
+            }
         },
         label = "ArtistScreenTransition"
     ) { artistPage ->
