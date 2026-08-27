@@ -1693,19 +1693,7 @@ private fun PlaylistDetailView(
                     }
                 )
 
-                // Option 2: Sync
-                PlaylistActionRow(
-                    icon = Icons.Default.Autorenew,
-                    title = "Sync",
-                    subtitle = "Sync this playlist with YouTube Music",
-                    onClick = {
-                        showOptionsMenu = false
-                        Toast.makeText(context, "Syncing '${playlist.title}' with YouTube Music...", Toast.LENGTH_SHORT).show()
-                        onSyncPlaylist?.invoke(playlist)
-                    }
-                )
-
-                // Option 3: Add to queue
+                // Option 2: Add to queue
                 PlaylistActionRow(
                     icon = Icons.Default.PlaylistAdd,
                     title = "Add to queue",
