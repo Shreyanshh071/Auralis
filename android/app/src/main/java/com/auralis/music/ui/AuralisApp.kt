@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.media3.common.util.UnstableApi
@@ -464,7 +465,7 @@ fun AuralisApp(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .zIndex(if (isSelected) 1f else 0f)
+                                    .zIndex(if (isSelected) 10f else 0f)
                                     .graphicsLayer {
                                         alpha = animAlpha
                                         scaleX = animScale
@@ -476,7 +477,8 @@ fun AuralisApp(
                                             Modifier.pointerInput(destination) {
                                                 awaitPointerEventScope {
                                                     while (true) {
-                                                        awaitPointerEvent()
+                                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                        event.changes.forEach { it.consume() }
                                                     }
                                                 }
                                             }
