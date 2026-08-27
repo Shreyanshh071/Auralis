@@ -639,7 +639,7 @@ fun LibraryScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "YouTube",
+                                text = "YT Music",
                                 fontWeight = FontWeight.Bold,
                                 color = if (importMode == 1) Color.White else Color.White.copy(alpha = 0.7f),
                                 fontSize = 12.sp
@@ -673,7 +673,7 @@ fun LibraryScreen(
                         placeholder = {
                             Text(
                                 when (importMode) {
-                                    1 -> "Paste YouTube playlist link"
+                                    1 -> "Paste YouTube Music link (music.youtube.com)"
                                     2 -> "Paste Spotify playlist / album link"
                                     else -> "Playlist title"
                                 },
@@ -695,6 +695,17 @@ fun LibraryScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (importMode == 1) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Tip: Make sure your playlist is set to Public or Unlisted in YouTube Music. Only music.youtube.com links are supported (standard YouTube video playlists are blocked).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.70f),
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
 
                     if (importMode == 2) {
                         Spacer(modifier = Modifier.height(10.dp))
@@ -730,7 +741,7 @@ fun LibraryScreen(
                 ) {
                     Text(
                         text = when (importMode) {
-                            1 -> "Import YouTube"
+                            1 -> "Import YT Music"
                             2 -> "Import Spotify"
                             else -> "Create"
                         },

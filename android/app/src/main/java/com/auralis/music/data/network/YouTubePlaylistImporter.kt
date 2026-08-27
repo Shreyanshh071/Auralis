@@ -21,16 +21,49 @@ class YouTubePlaylistImporter(
         .build()
 ) {
     companion object {
+        fun isYouTubeMusicUrl(input: String): Boolean {
+            val trimmed = input.trim()
+            if (trimmed.isBlank()) return false
+            val normalized = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
+            return try {
+                val uri = URI(normalized)
+                val host = uri.host?.lowercase() ?: ""
+                host == "music.youtube.com"
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun isStandardYouTubeUrl(input: String): Boolean {
+            val trimmed = input.trim()
+            if (trimmed.isBlank()) return false
+            val normalized = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
+            return try {
+                val uri = URI(normalized)
+                val host = uri.host?.lowercase() ?: ""
+                host == "youtube.com" || host == "www.youtube.com" || host == "m.youtube.com" || host == "youtu.be"
+            } catch (_: Exception) {
+                false
+            }
+        }
+
         fun extractPlaylistId(input: String): String? {
             val trimmed = input.trim()
-            if (trimmed.matches(Regex("^[A-Za-z0-9_-]{10,}$")) &&
-                (trimmed.startsWith("PL") || trimmed.startsWith("OL") || trimmed.startsWith("RD") || trimmed.startsWith("FL") || trimmed.startsWith("LL") || trimmed.startsWith("VL"))
-            ) {
-                return if (trimmed.startsWith("VL")) trimmed.substring(2) else trimmed
+            if (trimmed.isBlank()) return null
+
+            // Strictly reject standard YouTube video URLs
+            if (isStandardYouTubeUrl(trimmed)) {
+                return null
+            }
+
+            // Require music.youtube.com domain for URLs
+            if (!isYouTubeMusicUrl(trimmed)) {
+                return null
             }
 
             try {
-                val uri = URI(if (trimmed.startsWith("http")) trimmed else "https://$trimmed")
+                val normalized = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
+                val uri = URI(normalized)
                 val query = uri.query
                 if (!query.isNullOrBlank()) {
                     val params = query.split("&").associate {
@@ -38,29 +71,47 @@ class YouTubePlaylistImporter(
                         if (parts.size == 2) parts[0] to parts[1] else parts[0] to ""
                     }
                     if (params.containsKey("list")) {
-                        return params["list"]
+                        val listId = params["list"]
+                        if (!listId.isNullOrBlank()) return listId
                     }
                 }
 
-                val path = uri.path
+                val path = uri.path ?: ""
                 val match = Regex("/playlist/([A-Za-z0-9_-]+)").find(path)
                 if (match != null) {
                     return match.groupValues[1]
                 }
+                val browseMatch = Regex("/browse/([A-Za-z0-9_-]+)").find(path)
+                if (browseMatch != null) {
+                    val id = browseMatch.groupValues[1]
+                    return if (id.startsWith("VL")) id.substring(2) else id
+                }
             } catch (_: Exception) {}
-
-            val regexMatch = Regex("[?&]list=([A-Za-z0-9_-]+)").find(trimmed)
-            if (regexMatch != null) {
-                return regexMatch.groupValues[1]
-            }
 
             return null
         }
     }
 
     suspend fun importPlaylist(urlOrId: String): Playlist? = withContext(Dispatchers.IO) {
-        val playlistId = extractPlaylistId(urlOrId) ?: urlOrId.trim()
-        val browseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
+        val trimmed = urlOrId.trim()
+        if (isStandardYouTubeUrl(trimmed)) {
+            throw IllegalArgumentException("Only YouTube Music links (music.youtube.com) are supported. Regular YouTube video playlists cannot be imported.")
+        }
+
+        val playlistId = extractPlaylistId(trimmed)
+            ?: if (trimmed.startsWith("OLAK5uy_") || trimmed.startsWith("RDCLAK5uy_") || trimmed.startsWith("PL")) {
+                // Internal ID support for existing playlists
+                trimmed
+            } else {
+                throw IllegalArgumentException("Please use a valid YouTube Music playlist link (music.youtube.com/playlist?list=...)")
+            }
+
+        importPlaylistById(playlistId)
+    }
+
+    suspend fun importPlaylistById(playlistId: String): Playlist? = withContext(Dispatchers.IO) {
+        val cleanId = if (playlistId.startsWith("VL")) playlistId.substring(2) else playlistId
+        val browseId = "VL$cleanId"
 
         try {
             // 1. Fetch via YouTube Music InnerTube Browse
@@ -87,28 +138,14 @@ class YouTubePlaylistImporter(
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: ""
                 val json = JSONObject(body)
-                val parsed = parsePlaylistResponse(json, playlistId)
+                val parsed = parsePlaylistResponse(json, cleanId)
                 if (parsed != null && parsed.tracks.isNotEmpty()) {
                     return@withContext parsed
                 }
             }
-        } catch (_: Exception) {}
-
-        // Fallback: search for playlist tracks by query
-        try {
-            val searchPayload = JSONObject().apply {
-                put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20241028.01.00")
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
-                })
-                put("query", urlOrId)
-            }
-
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            if (e is IllegalArgumentException) throw e
+        }
 
         null
     }
@@ -195,7 +232,10 @@ class YouTubePlaylistImporter(
                             ?.optString("videoId")
                     }
 
-                    if (!videoId.isNullOrBlank() && !title.startsWith("Track ") && title.isNotBlank()) {
+                    val isLikelyNonMusicVideo = durationSec > 1800L && (album.isBlank() || album == playlistTitle)
+                    val isVideoUnavailable = title.equals("Private video", ignoreCase = true) || title.equals("Deleted video", ignoreCase = true)
+
+                    if (!videoId.isNullOrBlank() && !title.startsWith("Track ") && title.isNotBlank() && !isLikelyNonMusicVideo && !isVideoUnavailable) {
                         tracks.add(
                             Track(
                                 id = videoId,

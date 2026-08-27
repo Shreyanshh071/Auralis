@@ -52,26 +52,6 @@ class AuthViewModel(
         }
     }
 
-    fun connectWithGoogleOAuth(activity: android.app.Activity, onSuccess: (() -> Unit)? = null) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true, syncMessage = "Connecting with Google YouTube OAuth...") }
-            try {
-                val helper = GoogleSignInHelper(activity)
-                val token = helper.signInWithGoogleYouTubeOAuth(activity)
-
-                if (!token.isNullOrBlank()) {
-                    syncManager.connectWithOAuthToken(token)
-                    onSuccess?.invoke()
-                    openPlaylistSelectDialog()
-                } else {
-                    _uiState.update { it.copy(isSyncing = false, syncMessage = "Google OAuth cancelled.") }
-                }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, syncMessage = "OAuth error: ${e.localizedMessage ?: e.message}") }
-            }
-        }
-    }
-
     fun signInWithGoogle(activity: android.app.Activity, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, syncMessage = "Signing in with Google...") }

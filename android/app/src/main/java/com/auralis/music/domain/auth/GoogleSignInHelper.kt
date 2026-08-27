@@ -11,11 +11,7 @@ import androidx.credentials.exceptions.GetCredentialException
 import com.auralis.music.BuildConfig
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.OAuthCredential
-import com.google.firebase.auth.OAuthProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 data class GoogleUserAccount(
@@ -30,20 +26,6 @@ class GoogleSignInHelper(
 ) {
     private val credentialManager = CredentialManager.create(context)
     private val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
-
-    /**
-     * Firebase Google OAuth with `https://www.googleapis.com/auth/youtube.readonly` scope.
-     * Launches the Google OAuth 2.0 consent window and retrieves the Bearer access token in-memory.
-     */
-    suspend fun signInWithGoogleYouTubeOAuth(activity: Activity): String? = withContext(Dispatchers.Main) {
-        val provider = OAuthProvider.newBuilder("google.com")
-        provider.scopes = listOf("https://www.googleapis.com/auth/youtube.readonly")
-
-        val auth = FirebaseAuth.getInstance()
-        val result = auth.startActivityForSignInWithProvider(activity, provider.build()).await()
-        val credential = result.credential as? OAuthCredential
-        credential?.accessToken ?: throw IllegalStateException("No access token returned from Google OAuth.")
-    }
 
     /**
      * Authenticates with Google Credential Manager (ID Token).
