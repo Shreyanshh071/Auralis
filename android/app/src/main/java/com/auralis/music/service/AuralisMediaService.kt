@@ -371,8 +371,14 @@ class AuralisMediaService : MediaSessionService() {
             ACTION_TOGGLE_FAVORITE -> audioPlayer.toggleFavorite()
             ACTION_TOGGLE_REPEAT -> audioPlayer.toggleRepeat()
             ACTION_STOP -> {
-                audioPlayer.pause()
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                audioPlayer.stop()
+                try {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } catch (_: Exception) {}
+                try {
+                    val notifManager = NotificationManagerCompat.from(this)
+                    notifManager.cancel(NOTIFICATION_ID)
+                } catch (_: Exception) {}
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -651,7 +657,39 @@ class AuralisMediaService : MediaSessionService() {
         }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered - stopping audio and dismissing media service")
+        try {
+            val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+            audioPlayer.stop()
+        } catch (e: Exception) {
+            Log.w("AuralisPlayback", "[AuralisMediaService] Error stopping audioPlayer on task removed: ${e.message}")
+        }
+
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {}
+
+        try {
+            val notifManager = NotificationManagerCompat.from(this)
+            notifManager.cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
+
+        mediaSession?.run {
+            release()
+            mediaSession = null
+        }
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
+        Log.d("AuralisPlayback", "[AuralisMediaService] onDestroy - releasing all resources")
+        try {
+            val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+            audioPlayer.stop()
+        } catch (_: Exception) {}
+
         serviceScope.cancel()
         mediaSession?.run {
             release()
