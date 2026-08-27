@@ -202,23 +202,64 @@ class YouTubePlaylistImporter(
     }
 
     private fun extractPlaylistTitle(json: JSONObject): String? {
+        // 1. Direct check in microformatDataRenderer (top-level metadata in YouTube Music InnerTube)
+        val microformatTitle = json.optJSONObject("microformat")
+            ?.optJSONObject("microformatDataRenderer")
+            ?.optString("title")
+        if (!microformatTitle.isNullOrBlank()) {
+            return microformatTitle.trim()
+        }
+
+        // 2. Direct check in twoColumnBrowseResultsRenderer tabs
+        val responsiveHeaderTitle = json.optJSONObject("contents")
+            ?.optJSONObject("twoColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
+            ?.optJSONObject(0)?.optJSONObject("musicResponsiveHeaderRenderer")
+            ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+        if (!responsiveHeaderTitle.isNullOrBlank()) {
+            return responsiveHeaderTitle.trim()
+        }
+
+        // 3. Direct check in root header
+        val rootHeader = json.optJSONObject("header")
+        val rootTitle = rootHeader?.optJSONObject("musicDetailHeaderRenderer")
+            ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+            ?: rootHeader?.optJSONObject("musicResponsiveHeaderRenderer")
+                ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+            ?: rootHeader?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+                ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+        if (!rootTitle.isNullOrBlank()) {
+            return rootTitle.trim()
+        }
+
+        // 4. Recursive search across JSON for header title
         fun findHeader(obj: Any?): String? {
             if (obj is JSONObject) {
-                if (obj.has("header")) {
-                    val header = obj.optJSONObject("header")
-                    val titleRun = header?.optJSONObject("musicDetailHeaderRenderer")
+                if (obj.has("musicResponsiveHeaderRenderer")) {
+                    val title = obj.optJSONObject("musicResponsiveHeaderRenderer")
                         ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                        ?: header?.optJSONObject("musicResponsiveHeaderRenderer")
-                            ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                    if (!titleRun.isNullOrBlank()) return titleRun
+                    if (!title.isNullOrBlank()) return title.trim()
+                }
+                if (obj.has("musicDetailHeaderRenderer")) {
+                    val title = obj.optJSONObject("musicDetailHeaderRenderer")
+                        ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                    if (!title.isNullOrBlank()) return title.trim()
                 }
                 val keys = obj.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
-                    if (key != "contents" && key != "continuations") {
+                    if (key != "continuations" && key != "musicPlaylistShelfRenderer") {
                         val title = findHeader(obj.get(key))
                         if (title != null) return title
                     }
+                }
+            } else if (obj is JSONArray) {
+                for (i in 0 until obj.length()) {
+                    val title = findHeader(obj.get(i))
+                    if (title != null) return title
                 }
             }
             return null
