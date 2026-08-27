@@ -6,7 +6,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.ui.graphics.Color
 import androidx.palette.graphics.Palette
-import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Scale
 import com.auralis.music.ui.components.getHighResArtworkUrl
@@ -93,7 +93,10 @@ object ArtworkPaletteCache {
 
         return withContext(Dispatchers.IO) {
             try {
-                val imageLoader = ImageLoader(context)
+                // Use Coil's singleton loader so artwork already fetched for the UI
+                // is served from its memory/disk cache instead of being re-downloaded
+                // and re-decoded. Constructing a loader per call bypasses both.
+                val imageLoader = context.imageLoader
                 var bitmap: Bitmap? = null
 
                 // Try URL candidates in order until bitmap is obtained

@@ -31,9 +31,12 @@ import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsMode
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
+import com.auralis.music.ui.theme.AuralisDuration
+import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.AuralisKaraokeActive
 import com.auralis.music.ui.theme.AuralisKaraokeInactive
 import com.auralis.music.ui.theme.dynamicPalette
+import com.auralis.music.ui.theme.motionTween
 
 /**
  * Clean, Immersive 60fps Synced Lyrics View:
@@ -150,19 +153,6 @@ private fun LyricLineRow(
 
     val isPlain = syncType == SyncType.PLAIN
 
-    // Kinetic blur & opacity animation based on active state
-    val targetBlur = when {
-        isPlain -> 0.dp
-        isCurrent -> 0.dp
-        lyricsMode == LyricsMode.SPICY -> 1.5.dp
-        else -> 0.dp
-    }
-    val animBlur by animateFloatAsState(
-        targetValue = targetBlur.value,
-        animationSpec = tween(400),
-        label = "LyricBlur"
-    )
-
     val targetAlpha = when {
         isPlain -> 0.90f
         isCurrent -> 1.0f
@@ -171,7 +161,7 @@ private fun LyricLineRow(
     }
     val animAlpha by animateFloatAsState(
         targetValue = targetAlpha,
-        animationSpec = tween(400),
+        animationSpec = motionTween(AuralisDuration.Standard, AuralisEasing.Standard),
         label = "LyricAlpha"
     )
 
@@ -190,7 +180,6 @@ private fun LyricLineRow(
                 onClick = onClick
             )
             .alpha(animAlpha)
-            .then(if (animBlur > 0f) Modifier.blur(animBlur.dp) else Modifier)
             .padding(vertical = 4.dp)
     ) {
         if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
