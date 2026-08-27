@@ -88,7 +88,10 @@ val PROFILE_CARD_BG = Color(0xFF1B1D16)
 @Composable
 fun ProfileSheet(
     authUiState: AuthUiState,
-    onConnectWithGoogleOAuth: () -> Unit,
+    onImportYouTubePlaylist: (String) -> Unit = {},
+    onClearYouTubeImportMessage: () -> Unit = {},
+    isImportingYouTube: Boolean = false,
+    youtubeImportMessage: String? = null,
     onOpenPlaylistSelector: () -> Unit,
     onSyncLikedMusic: () -> Unit,
     onDisconnect: () -> Unit,
@@ -106,6 +109,7 @@ fun ProfileSheet(
 ) {
     val context = LocalContext.current
     val profile = authUiState.profile
+    var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
 
     Box(
@@ -240,13 +244,13 @@ fun ProfileSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // ── YOUTUBE PLAYLIST IMPORTER CARD (DARK GLASSMORPHIC) ──
+            // ── YOUTUBE MUSIC PLAYLIST IMPORTER CARD (DARK GLASSMORPHIC) ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
                     .background(Color.White.copy(alpha = 0.05f))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f), RoundedCornerShape(22.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -259,12 +263,12 @@ fun ProfileSheet(
                             Icon(
                                 imageVector = Icons.Default.LibraryMusic,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = Color(0xFFEF4444),
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Import YouTube Playlists",
+                                text = "Import YouTube Music Playlist",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
@@ -272,9 +276,9 @@ fun ProfileSheet(
                             )
                         }
 
-                        if (authUiState.isSyncing) {
+                        if (isImportingYouTube) {
                             CircularProgressIndicator(
-                                color = Color.White,
+                                color = Color(0xFFEF4444),
                                 modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp
                             )
@@ -284,55 +288,115 @@ fun ProfileSheet(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Connect your Google account with read-only YouTube permission to fetch and selectively import your authentic playlists and Liked Music into your library.",
+                        text = "Paste any YouTube Music playlist link (music.youtube.com) to import your favorite songs directly into Auralis. Regular YouTube video playlists are blocked to ensure pure music.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp
                     )
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // ── GLASSY GOOGLE RE-SYNC BUTTON ──
-                    Box(
+                    // YouTube Music Link Input
+                    OutlinedTextField(
+                        value = youtubeUrlInput,
+                        onValueChange = {
+                            youtubeUrlInput = it
+                            onClearYouTubeImportMessage()
+                        },
+                        label = { Text("YouTube Music Link", color = Color.White.copy(alpha = 0.6f)) },
+                        placeholder = { Text("Paste music.youtube.com/playlist?list=...", color = Color.White.copy(alpha = 0.3f)) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFFEF4444),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFFEF4444)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = {
+                            Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFFEF4444))
+                        },
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (youtubeUrlInput.isNotEmpty()) {
+                                    IconButton(onClick = {
+                                        youtubeUrlInput = ""
+                                        onClearYouTubeImportMessage()
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = clipboard.primaryClip
+                                        if (clip != null && clip.itemCount > 0) {
+                                            youtubeUrlInput = clip.getItemAt(0).text.toString().trim()
+                                            onClearYouTubeImportMessage()
+                                            Toast.makeText(context, "Pasted YouTube Music link", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color.White.copy(alpha = 0.7f))
+                                }
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // ── GLASSY YOUTUBE MUSIC IMPORT BUTTON ──
+                    Button(
+                        onClick = {
+                            if (youtubeUrlInput.isNotBlank() && !isImportingYouTube) {
+                                onImportYouTubePlaylist(youtubeUrlInput.trim())
+                            }
+                        },
+                        enabled = youtubeUrlInput.isNotBlank() && !isImportingYouTube,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444),
+                            disabledContainerColor = Color(0xFFEF4444).copy(alpha = 0.22f),
+                            contentColor = Color.White,
+                            disabledContentColor = Color.White.copy(alpha = 0.4f)
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.09f))
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
-                            .tactileBounce(scaleDown = 0.96f) {
-                                if (!authUiState.isSyncing) onConnectWithGoogleOAuth()
-                            },
-                        contentAlignment = Alignment.Center
+                            .height(50.dp)
                     ) {
-                        if (authUiState.isSyncing) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Connecting with Google...",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                            }
+                        if (isImportingYouTube) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Importing Songs...",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
                         } else {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                GoogleLogoIcon(modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Sync with Google",
+                                    text = "Import YT Music Playlist",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
+                                    fontSize = 14.sp
                                 )
                             }
                         }
@@ -340,7 +404,7 @@ fun ProfileSheet(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Helpful YouTube Music login note
+                    // Helpful YouTube Music note
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -353,12 +417,12 @@ fun ProfileSheet(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFF4ADE80),
+                            tint = Color(0xFFEF4444),
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Note: Log in to your YouTube Music account to import playlists and Liked songs.",
+                            text = "Tip: Make sure your playlist is set to Public or Unlisted in YouTube Music. Normal YouTube video links are blocked to keep your library pure music.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.75f),
                             fontSize = 12.sp,
@@ -366,86 +430,14 @@ fun ProfileSheet(
                         )
                     }
 
-                    if (authUiState.syncMessage != null) {
+                    if (youtubeImportMessage != null) {
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = authUiState.syncMessage,
+                            text = youtubeImportMessage,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF4ADE80),
+                            color = if (youtubeImportMessage.startsWith("Imported", ignoreCase = true) || youtubeImportMessage.startsWith("Success", ignoreCase = true)) Color(0xFF4ADE80) else Color(0xFFEF4444),
                             fontSize = 12.sp
                         )
-                    }
-
-                    // Connected Quick Actions (Choose Playlists / Import Liked)
-                    if (profile.accessToken != null || profile.isGoogleConnected) {
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            // Choose Playlists Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color.White.copy(alpha = 0.06f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
-                                    .tactileBounce(scaleDown = 0.95f) { onOpenPlaylistSelector() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LibraryMusic,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Choose Playlists",
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-
-                            // Import Liked Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color.White.copy(alpha = 0.06f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
-                                    .tactileBounce(scaleDown = 0.95f) { onSyncLikedMusic() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Favorite,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Import Liked (LL)",
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
