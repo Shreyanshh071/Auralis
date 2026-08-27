@@ -148,7 +148,7 @@ class YouTubePlaylistImporter(
             allTracks.addAll(extractTracksFromJson(json, playlistTitle))
 
             // 2. Fetch continuations to import all remaining songs (up to 5,000 tracks)
-            var continuationToken = extractContinuationToken(json)
+            var continuationToken = extractPlaylistContinuationToken(json)
             var page = 0
             val maxPages = 50
 
@@ -179,7 +179,7 @@ class YouTubePlaylistImporter(
                     if (newTracks.isEmpty()) break
                     allTracks.addAll(newTracks)
 
-                    continuationToken = extractContinuationToken(contJson)
+                    continuationToken = extractPlaylistContinuationToken(contJson)
                 } catch (_: Exception) {
                     break
                 }
@@ -226,85 +226,82 @@ class YouTubePlaylistImporter(
         return findHeader(json)
     }
 
-    private fun extractContinuationToken(json: JSONObject): String? {
-        // Direct check in continuationContents
-        val continuationContents = json.optJSONObject("continuationContents")
-        if (continuationContents != null) {
-            val shelfCont = continuationContents.optJSONObject("musicPlaylistShelfContinuation")
-                ?: continuationContents.optJSONObject("musicShelfContinuation")
-                ?: continuationContents.optJSONObject("sectionListContinuation")
-
-            if (shelfCont != null) {
-                val continuations = shelfCont.optJSONArray("continuations")
-                if (continuations != null && continuations.length() > 0) {
-                    for (i in 0 until continuations.length()) {
-                        val c = continuations.optJSONObject(i) ?: continue
-                        val token = c.optJSONObject("nextContinuationData")?.optString("continuation")
-                            ?: c.optJSONObject("reloadContinuationData")?.optString("continuation")
-                        if (!token.isNullOrBlank()) return token
-                    }
-                }
-                val contents = shelfCont.optJSONArray("contents")
-                if (contents != null && contents.length() > 0) {
-                    for (i in 0 until contents.length()) {
-                        val item = contents.optJSONObject(i)?.optJSONObject("continuationItemRenderer") ?: continue
-                        val token = item.optJSONObject("continuationEndpoint")
-                            ?.optJSONObject("continuationCommand")
-                            ?.optString("token")
-                        if (!token.isNullOrBlank()) return token
-                    }
-                }
-            }
-        }
-
-        // Recursive search for continuation tokens
-        fun findToken(obj: Any?): String? {
-            if (obj is JSONObject) {
-                if (obj.has("continuationItemRenderer")) {
-                    val item = obj.optJSONObject("continuationItemRenderer")
-                    val token = item?.optJSONObject("continuationEndpoint")
+    private fun extractPlaylistContinuationToken(json: JSONObject): String? {
+        // 1. Check onResponseReceivedActions (modern InnerTube continuation response pages)
+        val actions = json.optJSONArray("onResponseReceivedActions")
+        if (actions != null && actions.length() > 0) {
+            for (i in 0 until actions.length()) {
+                val action = actions.optJSONObject(i) ?: continue
+                val appendAction = action.optJSONObject("appendContinuationItemsAction") ?: continue
+                val contItems = appendAction.optJSONArray("continuationItems") ?: continue
+                if (contItems.length() > 0) {
+                    val lastItem = contItems.optJSONObject(contItems.length() - 1)
+                    val token = lastItem?.optJSONObject("continuationItemRenderer")
+                        ?.optJSONObject("continuationEndpoint")
                         ?.optJSONObject("continuationCommand")
                         ?.optString("token")
                     if (!token.isNullOrBlank()) return token
                 }
-                if (obj.has("continuations")) {
-                    val array = obj.optJSONArray("continuations")
-                    if (array != null && array.length() > 0) {
-                        for (i in 0 until array.length()) {
-                            val cObj = array.optJSONObject(i) ?: continue
-                            val next = cObj.optJSONObject("nextContinuationData")?.optString("continuation")
-                            if (!next.isNullOrBlank()) return next
-                            val reload = cObj.optJSONObject("reloadContinuationData")?.optString("continuation")
-                            if (!reload.isNullOrBlank()) return reload
-                        }
-                    }
-                }
-                if (obj.has("nextContinuationData")) {
-                    val token = obj.optJSONObject("nextContinuationData")?.optString("continuation")
-                    if (!token.isNullOrBlank()) return token
-                }
-                if (obj.has("reloadContinuationData")) {
-                    val token = obj.optJSONObject("reloadContinuationData")?.optString("continuation")
-                    if (!token.isNullOrBlank()) return token
+            }
+        }
+
+        // 2. Check musicPlaylistShelfRenderer in initial page
+        fun findPlaylistShelf(obj: Any?): JSONObject? {
+            if (obj is JSONObject) {
+                if (obj.has("musicPlaylistShelfRenderer")) {
+                    return obj.optJSONObject("musicPlaylistShelfRenderer")
                 }
                 val keys = obj.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
-                    if (key != "chipCloudRenderer" && key != "shelfDivider") {
-                        val token = findToken(obj.get(key))
-                        if (token != null) return token
+                    // Exclude outer continuations to avoid picking up Related Playlists recommendation tokens
+                    if (key != "continuations" && key != "header") {
+                        val res = findPlaylistShelf(obj.get(key))
+                        if (res != null) return res
                     }
                 }
             } else if (obj is JSONArray) {
                 for (i in 0 until obj.length()) {
-                    val token = findToken(obj.get(i))
-                    if (token != null) return token
+                    val res = findPlaylistShelf(obj.get(i))
+                    if (res != null) return res
                 }
             }
             return null
         }
 
-        return findToken(json)
+        val shelf = findPlaylistShelf(json)
+        if (shelf != null) {
+            val shelfContents = shelf.optJSONArray("contents")
+            if (shelfContents != null && shelfContents.length() > 0) {
+                val lastItem = shelfContents.optJSONObject(shelfContents.length() - 1)
+                val token = lastItem?.optJSONObject("continuationItemRenderer")
+                    ?.optJSONObject("continuationEndpoint")
+                    ?.optJSONObject("continuationCommand")
+                    ?.optString("token")
+                if (!token.isNullOrBlank()) return token
+            }
+        }
+
+        // 3. Fallback: check musicPlaylistShelfContinuation (if served via legacy format)
+        val contContents = json.optJSONObject("continuationContents")?.optJSONObject("musicPlaylistShelfContinuation")
+        if (contContents != null) {
+            val items = contContents.optJSONArray("contents")
+            if (items != null && items.length() > 0) {
+                val lastItem = items.optJSONObject(items.length() - 1)
+                val token = lastItem?.optJSONObject("continuationItemRenderer")
+                    ?.optJSONObject("continuationEndpoint")
+                    ?.optJSONObject("continuationCommand")
+                    ?.optString("token")
+                if (!token.isNullOrBlank()) return token
+            }
+            val contArray = contContents.optJSONArray("continuations")
+            if (contArray != null && contArray.length() > 0) {
+                val next = contArray.optJSONObject(0)?.optJSONObject("nextContinuationData")?.optString("continuation")
+                if (!next.isNullOrBlank()) return next
+            }
+        }
+
+        return null
     }
 
     private fun extractTracksFromJson(json: JSONObject, fallbackAlbum: String): List<Track> {
