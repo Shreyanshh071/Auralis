@@ -61,6 +61,7 @@ class AudioRecognitionManager(
     private var isListening = false
     private var retryCount = 0
     private var maxRetries = 5
+    private var listeningStartTime = 0L
 
     init {
         mainHandler.post {
@@ -131,22 +132,21 @@ class AudioRecognitionManager(
                         }
 
                         override fun onError(error: Int) {
-                            if (!isListening) return
-
-                            // If timed out or no speech detected during ambient music listen, auto-retry smoothly
-                            if ((error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) && retryCount < maxRetries) {
+                            // If error occurred during start/listen phase and we have retries remaining,
+                            // smoothly retry in background without flashing the error screen to the user
+                            if (retryCount < maxRetries) {
                                 retryCount++
                                 mainHandler.postDelayed({
                                     if (isListening && _state.value.status != RecognitionStatus.SUCCESS) {
                                         restartListeningInternal()
                                     }
-                                }, 300)
+                                }, 350)
                                 return
                             }
 
                             val isVoice = _state.value.mode == RecognitionMode.VOICE_SEARCH
                             val message = when (error) {
-                                SpeechRecognizer.ERROR_NO_MATCH -> if (isVoice) "No speech detected. Tap to speak." else "No music detected. Tap to retry."
+                                SpeechRecognizer.ERROR_NO_MATCH -> if (isVoice) "No speech detected. Tap to speak." else "Could not detect music. Tap to retry."
                                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> if (isVoice) "Listening timed out. Tap to speak." else "Listening timed out. Tap to retry."
                                 SpeechRecognizer.ERROR_NETWORK -> "Network connection required."
                                 SpeechRecognizer.ERROR_AUDIO -> "Microphone recording error."
@@ -279,12 +279,36 @@ class AudioRecognitionManager(
     }
 
     fun startVoiceSearch() {
-        setMode(RecognitionMode.VOICE_SEARCH)
+        stop()
+        retryCount = 0
+        listeningStartTime = System.currentTimeMillis()
+        _state.update {
+            it.copy(
+                mode = RecognitionMode.VOICE_SEARCH,
+                status = RecognitionStatus.LISTENING,
+                recognizedText = "",
+                identifiedTrack = null,
+                errorMessage = null,
+                statusMessage = "Listening... Speak song or artist name"
+            )
+        }
         startListeningInternal()
     }
 
     fun startMusicIdentification() {
-        setMode(RecognitionMode.MUSIC_IDENTIFY)
+        stop()
+        retryCount = 0
+        listeningStartTime = System.currentTimeMillis()
+        _state.update {
+            it.copy(
+                mode = RecognitionMode.MUSIC_IDENTIFY,
+                status = RecognitionStatus.LISTENING,
+                recognizedText = "",
+                identifiedTrack = null,
+                errorMessage = null,
+                statusMessage = "Listening to music near your phone..."
+            )
+        }
         startListeningInternal()
     }
 
@@ -341,14 +365,16 @@ class AudioRecognitionManager(
                     )
                 }
 
+                val isMusic = _state.value.mode == RecognitionMode.MUSIC_IDENTIFY
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, if (isMusic) 8000L else 4000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, if (isMusic) 6000L else 3000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2500L)
                 }
 
                 speechRecognizer?.startListening(intent)
