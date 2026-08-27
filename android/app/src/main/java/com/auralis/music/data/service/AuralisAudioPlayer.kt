@@ -451,6 +451,16 @@ class AuralisAudioPlayer private constructor(context: Context) {
         seekTo(target)
     }
 
+    fun stop() {
+        streamResolveJob?.cancel()
+        _isPlaying.value = false
+        try {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+        } catch (_: Exception) {}
+        youTubeEngine.stop()
+    }
+
     fun getOrCreateWebView(ctx: Context): View {
         return youTubeEngine.getOrCreateWebView(ctx)
     }
