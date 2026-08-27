@@ -2,6 +2,9 @@ package com.auralis.music.ui.explore
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.auralisNavigationEnter
+import com.auralis.music.ui.theme.auralisNavigationExit
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -148,30 +151,13 @@ fun ExploreScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
 
+    val navEnter = auralisNavigationEnter()
+    val navExit = auralisNavigationExit()
+
     AnimatedContent(
         targetState = uiState.selectedArtistPage,
         transitionSpec = {
-            if (targetState != null) {
-                (slideInHorizontally(
-                    initialOffsetX = { fullWidth -> fullWidth },
-                    animationSpec = tween(300, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f))
-                ) + fadeIn(tween(240))).togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { fullWidth -> -fullWidth / 3 },
-                        animationSpec = tween(260)
-                    ) + fadeOut(tween(180))
-                )
-            } else {
-                (slideInHorizontally(
-                    initialOffsetX = { fullWidth -> -fullWidth / 3 },
-                    animationSpec = tween(260)
-                ) + fadeIn(tween(200))).togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { fullWidth -> fullWidth },
-                        animationSpec = tween(260, easing = CubicBezierEasing(0.32f, 0f, 0.8f, 0.15f))
-                    ) + fadeOut(tween(180))
-                )
-            }
+            navEnter togetherWith navExit
         },
         label = "ArtistScreenTransition"
     ) { artistPage ->
