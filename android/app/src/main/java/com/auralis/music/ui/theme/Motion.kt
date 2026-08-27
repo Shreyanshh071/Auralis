@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.IntOffset
@@ -117,10 +118,11 @@ object AuralisEasing {
  */
 object PlayerMotion {
     const val EnterDuration = 280
-    const val ExitDuration = 240
+    const val ExitDuration = 220
+    const val ControlsExitDuration = 80
 
     val EnterEasing: Easing = AuralisEasing.Decelerate
-    val ExitEasing: Easing = AuralisEasing.Standard
+    val ExitEasing: Easing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1f)
 }
 
 /**
@@ -286,10 +288,16 @@ fun auralisSheetEnter(): EnterTransition {
 @Composable
 fun auralisSheetExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
-    return slideOutVertically(
+    return fadeOut(
+        animationSpec = tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)
+    ) + scaleOut(
+        targetScale = 0.95f,
+        transformOrigin = TransformOrigin(0.5f, 0.95f),
+        animationSpec = tween(PlayerMotion.ExitDuration, easing = PlayerMotion.ExitEasing)
+    ) + slideOutVertically(
         animationSpec = tween(PlayerMotion.ExitDuration, easing = PlayerMotion.ExitEasing),
-        targetOffsetY = { fullHeight -> fullHeight / 4 }
-    ) + fadeOut(tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard))
+        targetOffsetY = { fullHeight -> fullHeight / 10 }
+    )
 }
 
 /**
