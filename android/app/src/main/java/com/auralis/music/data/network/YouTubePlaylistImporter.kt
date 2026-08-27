@@ -114,34 +114,85 @@ class YouTubePlaylistImporter(
         val browseId = "VL$cleanId"
 
         try {
-            // 1. Fetch via YouTube Music InnerTube Browse
-            val payload = JSONObject().apply {
-                put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20241028.01.00")
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
+            val clientContext = JSONObject().apply {
+                put("client", JSONObject().apply {
+                    put("clientName", "WEB_REMIX")
+                    put("clientVersion", "1.20241028.01.00")
+                    put("hl", "en")
+                    put("gl", "US")
                 })
+            }
+
+            // 1. Fetch initial batch via YouTube Music InnerTube Browse
+            val initialPayload = JSONObject().apply {
+                put("context", clientContext)
                 put("browseId", browseId)
             }
 
-            val request = Request.Builder()
-                .url("https://music.youtube.com/youtubei/v1/browse")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            val initialRequest = Request.Builder()
+                .url("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
+                .post(initialPayload.toString().toRequestBody("application/json".toMediaType()))
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+                .header("Referer", "https://music.youtube.com/")
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: ""
-                val json = JSONObject(body)
-                val parsed = parsePlaylistResponse(json, cleanId)
-                if (parsed != null && parsed.tracks.isNotEmpty()) {
-                    return@withContext parsed
+            val initialResponse = client.newCall(initialRequest).execute()
+            if (!initialResponse.isSuccessful) return@withContext null
+
+            val body = initialResponse.body?.string() ?: ""
+            val json = JSONObject(body)
+
+            val playlistTitle = extractPlaylistTitle(json) ?: "Imported Playlist"
+            val allTracks = mutableListOf<Track>()
+            allTracks.addAll(extractTracksFromJson(json, playlistTitle))
+
+            // 2. Fetch continuations to import all remaining songs (up to 5,000 tracks)
+            var continuationToken = extractContinuationToken(json)
+            var page = 0
+            val maxPages = 50
+
+            while (!continuationToken.isNullOrBlank() && page < maxPages) {
+                page++
+                try {
+                    val contPayload = JSONObject().apply {
+                        put("context", clientContext)
+                        put("continuation", continuationToken)
+                    }
+
+                    val contUrl = "https://music.youtube.com/youtubei/v1/browse?continuation=$continuationToken&ctoken=$continuationToken&type=next&prettyPrint=false"
+                    val contRequest = Request.Builder()
+                        .url(contUrl)
+                        .post(contPayload.toString().toRequestBody("application/json".toMediaType()))
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+                        .header("Referer", "https://music.youtube.com/")
+                        .header("Origin", "https://music.youtube.com")
+                        .build()
+
+                    val contResponse = client.newCall(contRequest).execute()
+                    if (!contResponse.isSuccessful) break
+
+                    val contBody = contResponse.body?.string() ?: ""
+                    val contJson = JSONObject(contBody)
+
+                    val newTracks = extractTracksFromJson(contJson, playlistTitle)
+                    if (newTracks.isEmpty()) break
+                    allTracks.addAll(newTracks)
+
+                    continuationToken = extractContinuationToken(contJson)
+                } catch (_: Exception) {
+                    break
                 }
+            }
+
+            val uniqueTracks = allTracks.distinctBy { it.id }.filter { !it.title.startsWith("Track ") }
+            if (uniqueTracks.isNotEmpty()) {
+                return@withContext Playlist(
+                    id = cleanId,
+                    title = playlistTitle,
+                    description = "Imported from YouTube Music",
+                    tracks = uniqueTracks
+                )
             }
         } catch (e: Exception) {
             if (e is IllegalArgumentException) throw e
@@ -150,12 +201,8 @@ class YouTubePlaylistImporter(
         null
     }
 
-    private fun parsePlaylistResponse(json: JSONObject, playlistId: String): Playlist? {
-        val tracks = mutableListOf<Track>()
-        var playlistTitle = "Imported Playlist"
-
-        // Recursively extract musicResponsiveListItemRenderer
-        fun extractItems(obj: Any?) {
+    private fun extractPlaylistTitle(json: JSONObject): String? {
+        fun findHeader(obj: Any?): String? {
             if (obj is JSONObject) {
                 if (obj.has("header")) {
                     val header = obj.optJSONObject("header")
@@ -163,9 +210,108 @@ class YouTubePlaylistImporter(
                         ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
                         ?: header?.optJSONObject("musicResponsiveHeaderRenderer")
                             ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                    if (!titleRun.isNullOrBlank()) playlistTitle = titleRun
+                    if (!titleRun.isNullOrBlank()) return titleRun
                 }
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (key != "contents" && key != "continuations") {
+                        val title = findHeader(obj.get(key))
+                        if (title != null) return title
+                    }
+                }
+            }
+            return null
+        }
+        return findHeader(json)
+    }
 
+    private fun extractContinuationToken(json: JSONObject): String? {
+        // Direct check in continuationContents
+        val continuationContents = json.optJSONObject("continuationContents")
+        if (continuationContents != null) {
+            val shelfCont = continuationContents.optJSONObject("musicPlaylistShelfContinuation")
+                ?: continuationContents.optJSONObject("musicShelfContinuation")
+                ?: continuationContents.optJSONObject("sectionListContinuation")
+
+            if (shelfCont != null) {
+                val continuations = shelfCont.optJSONArray("continuations")
+                if (continuations != null && continuations.length() > 0) {
+                    for (i in 0 until continuations.length()) {
+                        val c = continuations.optJSONObject(i) ?: continue
+                        val token = c.optJSONObject("nextContinuationData")?.optString("continuation")
+                            ?: c.optJSONObject("reloadContinuationData")?.optString("continuation")
+                        if (!token.isNullOrBlank()) return token
+                    }
+                }
+                val contents = shelfCont.optJSONArray("contents")
+                if (contents != null && contents.length() > 0) {
+                    for (i in 0 until contents.length()) {
+                        val item = contents.optJSONObject(i)?.optJSONObject("continuationItemRenderer") ?: continue
+                        val token = item.optJSONObject("continuationEndpoint")
+                            ?.optJSONObject("continuationCommand")
+                            ?.optString("token")
+                        if (!token.isNullOrBlank()) return token
+                    }
+                }
+            }
+        }
+
+        // Recursive search for continuation tokens
+        fun findToken(obj: Any?): String? {
+            if (obj is JSONObject) {
+                if (obj.has("continuationItemRenderer")) {
+                    val item = obj.optJSONObject("continuationItemRenderer")
+                    val token = item?.optJSONObject("continuationEndpoint")
+                        ?.optJSONObject("continuationCommand")
+                        ?.optString("token")
+                    if (!token.isNullOrBlank()) return token
+                }
+                if (obj.has("continuations")) {
+                    val array = obj.optJSONArray("continuations")
+                    if (array != null && array.length() > 0) {
+                        for (i in 0 until array.length()) {
+                            val cObj = array.optJSONObject(i) ?: continue
+                            val next = cObj.optJSONObject("nextContinuationData")?.optString("continuation")
+                            if (!next.isNullOrBlank()) return next
+                            val reload = cObj.optJSONObject("reloadContinuationData")?.optString("continuation")
+                            if (!reload.isNullOrBlank()) return reload
+                        }
+                    }
+                }
+                if (obj.has("nextContinuationData")) {
+                    val token = obj.optJSONObject("nextContinuationData")?.optString("continuation")
+                    if (!token.isNullOrBlank()) return token
+                }
+                if (obj.has("reloadContinuationData")) {
+                    val token = obj.optJSONObject("reloadContinuationData")?.optString("continuation")
+                    if (!token.isNullOrBlank()) return token
+                }
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (key != "chipCloudRenderer" && key != "shelfDivider") {
+                        val token = findToken(obj.get(key))
+                        if (token != null) return token
+                    }
+                }
+            } else if (obj is JSONArray) {
+                for (i in 0 until obj.length()) {
+                    val token = findToken(obj.get(i))
+                    if (token != null) return token
+                }
+            }
+            return null
+        }
+
+        return findToken(json)
+    }
+
+    private fun extractTracksFromJson(json: JSONObject, fallbackAlbum: String): List<Track> {
+        val tracks = mutableListOf<Track>()
+
+        fun extractItems(obj: Any?) {
+            if (obj is JSONObject) {
                 if (obj.has("musicResponsiveListItemRenderer")) {
                     val item = obj.getJSONObject("musicResponsiveListItemRenderer")
                     val flexCols = item.optJSONArray("flexColumns")
@@ -173,10 +319,10 @@ class YouTubePlaylistImporter(
                     val col1 = flexCols?.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
 
                     var title = col0?.optJSONObject("text")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Track"
-                    
+
                     val col1Runs = col1?.optJSONObject("text")?.optJSONArray("runs")
                     var artist = "Artist"
-                    var album = playlistTitle
+                    var album = fallbackAlbum
                     var durationSec = 210L
 
                     if (col1Runs != null && col1Runs.length() > 0) {
@@ -232,7 +378,7 @@ class YouTubePlaylistImporter(
                             ?.optString("videoId")
                     }
 
-                    val isLikelyNonMusicVideo = durationSec > 1800L && (album.isBlank() || album == playlistTitle)
+                    val isLikelyNonMusicVideo = durationSec > 1800L && (album.isBlank() || album == fallbackAlbum)
                     val isVideoUnavailable = title.equals("Private video", ignoreCase = true) || title.equals("Deleted video", ignoreCase = true)
 
                     if (!videoId.isNullOrBlank() && !title.startsWith("Track ") && title.isNotBlank() && !isLikelyNonMusicVideo && !isVideoUnavailable) {
@@ -248,10 +394,9 @@ class YouTubePlaylistImporter(
                             )
                         )
                     }
-                    return // Do not recurse deeper into this item
+                    return
                 }
 
-                // Stop recursion if entering recommendations or related sections
                 val keys = obj.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
@@ -267,17 +412,7 @@ class YouTubePlaylistImporter(
         }
 
         extractItems(json)
-
-        val uniqueTracks = tracks.distinctBy { it.id }.filter { !it.title.startsWith("Track ") }
-
-        return if (uniqueTracks.isNotEmpty()) {
-            Playlist(
-                id = playlistId,
-                title = playlistTitle,
-                description = "Imported from YouTube Music",
-                tracks = uniqueTracks
-            )
-        } else null
+        return tracks
     }
 
     private fun parseDurationToSeconds(timeStr: String): Long {
