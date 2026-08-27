@@ -179,7 +179,6 @@ fun LibraryScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showCreateDialog by remember { mutableStateOf(false) }
-    var showYouTubeImportDialog by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
@@ -190,10 +189,9 @@ fun LibraryScreen(
     }
 
     androidx.activity.compose.BackHandler(
-        enabled = uiState.selectedPlaylist != null || isSearchActive || showSortMenu || showCreateDialog || showYouTubeImportDialog
+        enabled = uiState.selectedPlaylist != null || isSearchActive || showSortMenu || showCreateDialog
     ) {
-        if (showYouTubeImportDialog) showYouTubeImportDialog = false
-        else if (showCreateDialog) showCreateDialog = false
+        if (showCreateDialog) showCreateDialog = false
         else if (showSortMenu) showSortMenu = false
         else if (isSearchActive) {
             isSearchActive = false
@@ -530,7 +528,7 @@ fun LibraryScreen(
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = "New Playlist / Import",
+                contentDescription = "New Playlist",
                 tint = Color.White,
                 modifier = Modifier.size(30.dp)
             )
@@ -580,172 +578,60 @@ fun LibraryScreen(
         )
     }
 
-    // Create / Import Options Dialog
+    // Create New Playlist Dialog
     if (showCreateDialog) {
         var playlistInput by remember { mutableStateOf("") }
-        var importMode by remember { mutableStateOf(0) } // 0: Custom, 1: YouTube, 2: Spotify
 
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
             containerColor = CARD_DARK_BG,
             title = {
                 Text(
-                    text = when (importMode) {
-                        1 -> "Import YouTube Playlist"
-                        2 -> "Import Spotify Playlist"
-                        else -> "New Playlist"
-                    },
+                    text = "New Playlist",
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
             },
             text = {
                 Column {
-                    // Mode Selector Row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.06f))
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Custom Mode Chip
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (importMode == 0) LIME_TEXT else Color.Transparent)
-                                .clickable { importMode = 0 },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Custom",
-                                fontWeight = FontWeight.Bold,
-                                color = if (importMode == 0) Color.Black else Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        // YouTube Mode Chip
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (importMode == 1) Color(0xFFEF4444) else Color.Transparent)
-                                .clickable { importMode = 1 },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "YT Music",
-                                fontWeight = FontWeight.Bold,
-                                color = if (importMode == 1) Color.White else Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        // Spotify Mode Chip
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (importMode == 2) Color(0xFF1DB954) else Color.Transparent)
-                                .clickable { importMode = 2 },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Spotify",
-                                fontWeight = FontWeight.Bold,
-                                color = if (importMode == 2) Color.Black else Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
                     OutlinedTextField(
                         value = playlistInput,
                         onValueChange = { playlistInput = it },
                         placeholder = {
                             Text(
-                                when (importMode) {
-                                    1 -> "Paste YouTube Music link (music.youtube.com)"
-                                    2 -> "Paste Spotify playlist / album link"
-                                    else -> "Playlist title"
-                                },
+                                "Playlist title",
                                 color = Color.White.copy(alpha = 0.4f),
                                 fontSize = 13.sp
                             )
                         },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = when (importMode) {
-                                1 -> Color(0xFFEF4444)
-                                2 -> Color(0xFF1DB954)
-                                else -> LIME_TEXT
-                            },
+                            focusedBorderColor = LIME_TEXT,
                             unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
                             focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            unfocusedTextColor = Color.White,
+                            cursorColor = LIME_TEXT
                         ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
-
-                    if (importMode == 1) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Tip: Make sure your playlist is set to Public or Unlisted in YouTube Music. Only music.youtube.com links are supported (standard YouTube video playlists are blocked).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.70f),
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-
-                    if (importMode == 2) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Tip: If your playlist is private, briefly toggle it to Public in Spotify to import. Once imported, you can make it Private again anytime — your songs stay saved in Auralis forever!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.70f),
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (playlistInput.isNotBlank()) {
-                            when (importMode) {
-                                1 -> onImportYouTubePlaylist(playlistInput.trim())
-                                2 -> onImportSpotifyPlaylist(playlistInput.trim())
-                                else -> onCreatePlaylist(playlistInput.trim())
-                            }
+                            onCreatePlaylist(playlistInput.trim())
                             showCreateDialog = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = when (importMode) {
-                            1 -> Color(0xFFEF4444)
-                            2 -> Color(0xFF1DB954)
-                            else -> LIME_TEXT
-                        }
+                        containerColor = LIME_TEXT
                     )
                 ) {
                     Text(
-                        text = when (importMode) {
-                            1 -> "Import YT Music"
-                            2 -> "Import Spotify"
-                            else -> "Create"
-                        },
-                        color = if (importMode == 1) Color.White else Color.Black,
+                        text = "Create",
+                        color = Color.Black,
                         fontWeight = FontWeight.Bold
                     )
                 }

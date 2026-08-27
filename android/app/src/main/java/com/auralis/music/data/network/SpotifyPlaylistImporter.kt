@@ -546,13 +546,10 @@ class SpotifyPlaylistImporter(
             val items = content.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
-            val initialCount = allTracks.size
             parsePathfinderPlaylistItems(items, title, allTracks)
-            val addedCount = allTracks.size - initialCount
 
             onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
-            if (addedCount == 0) break
             offset += items.length()
             page++
         }
@@ -647,13 +644,10 @@ class SpotifyPlaylistImporter(
             val items = tracksObj.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
-            val initialCount = allTracks.size
             parsePathfinderAlbumItems(items, title, artist, coverUrl, allTracks)
-            val addedCount = allTracks.size - initialCount
 
             onProgress?.invoke("Fetching album tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
-            if (addedCount == 0) break
             offset += items.length()
             page++
         }
@@ -680,15 +674,35 @@ class SpotifyPlaylistImporter(
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
             val itemV2 = item.optJSONObject("itemV2")
-            val trackData = itemV2?.optJSONObject("data") ?: item.optJSONObject("track") ?: item
+            val trackData = itemV2?.optJSONObject("data") 
+                ?: item.optJSONObject("track") 
+                ?: item.optJSONObject("item") 
+                ?: item
 
-            val name = trackData.optString("name")
+            var name = trackData.optString("name").ifBlank { trackData.optString("title") }
+            if (name.isBlank()) {
+                name = trackData.optJSONObject("track")?.optString("name")
+                    ?: trackData.optJSONObject("episode")?.optString("name")
+                    ?: trackData.optJSONObject("data")?.optString("name")
+                    ?: ""
+            }
+
+            if (name.isBlank()) continue
+
             val uri = trackData.optString("uri")
-            val id = if (uri.startsWith("spotify:track:")) uri.substringAfter("spotify:track:") else trackData.optString("id", item.optString("uid"))
-
-            if (name.isBlank() || id.isBlank()) continue
+            var id = if (uri.startsWith("spotify:track:")) {
+                uri.substringAfter("spotify:track:")
+            } else {
+                trackData.optString("id")
+            }
+            if (id.isBlank()) {
+                id = item.optString("uid").ifBlank {
+                    if (uri.isNotBlank()) uri.replace(":", "_") else "sp_track_${outList.size}_$i"
+                }
+            }
 
             val artistsArr = trackData.optJSONObject("artists")?.optJSONArray("items")
+                ?: trackData.optJSONArray("artists")
             val artistsList = mutableListOf<String>()
             if (artistsArr != null) {
                 for (a in 0 until artistsArr.length()) {
@@ -698,13 +712,19 @@ class SpotifyPlaylistImporter(
                     if (!aName.isNullOrBlank()) artistsList.add(aName)
                 }
             }
-            val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else "Spotify Artist"
+            val artistStr = if (artistsList.isNotEmpty()) {
+                artistsList.joinToString(", ")
+            } else {
+                val subtitle = trackData.optString("subtitle")
+                if (subtitle.isNotBlank()) subtitle else "Spotify Artist"
+            }
 
             val albumObj = trackData.optJSONObject("albumOfTrack") ?: trackData.optJSONObject("album")
             val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
 
             val coverSources = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
                 ?: albumObj?.optJSONArray("images")
+                ?: trackData.optJSONObject("coverArt")?.optJSONArray("sources")
             val trackArtwork = coverSources?.optJSONObject(0)?.optString("url") ?: ""
 
             val durationObj = trackData.optJSONObject("trackDuration")
@@ -737,13 +757,18 @@ class SpotifyPlaylistImporter(
     ) {
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
-            val trackData = item.optJSONObject("track") ?: item
+            val trackData = item.optJSONObject("track") ?: item.optJSONObject("item") ?: item
 
-            val name = trackData.optString("name")
+            val name = trackData.optString("name").ifBlank { trackData.optString("title") }
+            if (name.isBlank()) continue
+
             val uri = trackData.optString("uri")
-            val id = if (uri.startsWith("spotify:track:")) uri.substringAfter("spotify:track:") else trackData.optString("id", "track_$i")
-
-            if (name.isBlank() || id.isBlank()) continue
+            var id = if (uri.startsWith("spotify:track:")) uri.substringAfter("spotify:track:") else trackData.optString("id")
+            if (id.isBlank()) {
+                id = item.optString("uid").ifBlank {
+                    if (uri.isNotBlank()) uri.replace(":", "_") else "sp_album_${outList.size}_$i"
+                }
+            }
 
             val artistsArr = trackData.optJSONObject("artists")?.optJSONArray("items")
                 ?: trackData.optJSONArray("artists")
@@ -1009,12 +1034,23 @@ class SpotifyPlaylistImporter(
     fun parseApiTrackItems(items: JSONArray, defaultAlbum: String, outList: MutableList<Track>) {
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
-            val trackObj = item.optJSONObject("track") ?: item
-            val id = trackObj.optString("id")
-            val name = trackObj.optString("name")
-            val isLocal = trackObj.optBoolean("is_local", false)
+            val trackObj = item.optJSONObject("track") 
+                ?: item.optJSONObject("item") 
+                ?: item.optJSONObject("episode") 
+                ?: item
+            val uri = trackObj.optString("uri")
+            var id = trackObj.optString("id")
+            if (id.isBlank() && uri.startsWith("spotify:track:")) {
+                id = uri.substringAfter("spotify:track:")
+            }
+            if (id.isBlank()) {
+                id = item.optString("uid").ifBlank {
+                    if (uri.isNotBlank()) uri.replace(":", "_") else "sp_local_${outList.size}_$i"
+                }
+            }
+            val name = trackObj.optString("name").ifBlank { trackObj.optString("title") }
 
-            if (name.isBlank() || isLocal || id.isBlank()) continue
+            if (name.isBlank()) continue
 
             val artistsArr = trackObj.optJSONArray("artists")
             val artistsList = mutableListOf<String>()
@@ -1024,7 +1060,11 @@ class SpotifyPlaylistImporter(
                     if (!aName.isNullOrBlank()) artistsList.add(aName)
                 }
             }
-            val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else "Spotify Artist"
+            val artistStr = if (artistsList.isNotEmpty()) {
+                artistsList.joinToString(", ")
+            } else {
+                trackObj.optString("subtitle").ifBlank { "Spotify Artist" }
+            }
 
             val albumObj = trackObj.optJSONObject("album")
             val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
@@ -1039,7 +1079,7 @@ class SpotifyPlaylistImporter(
                     artist = artistStr,
                     album = albumName,
                     thumbnail = trackArtwork,
-                    duration = durationMs / 1000L,
+                    duration = if (durationMs > 1000L) durationMs / 1000L else durationMs,
                     source = TrackSource.YOUTUBE
                 )
             )
@@ -1055,9 +1095,16 @@ class SpotifyPlaylistImporter(
     ) {
         for (i in 0 until items.length()) {
             val trackObj = items.optJSONObject(i) ?: continue
-            val id = trackObj.optString("id")
-            val name = trackObj.optString("name")
-            if (name.isBlank() || id.isBlank()) continue
+            val uri = trackObj.optString("uri")
+            var id = trackObj.optString("id")
+            if (id.isBlank() && uri.startsWith("spotify:track:")) {
+                id = uri.substringAfter("spotify:track:")
+            }
+            if (id.isBlank()) {
+                id = if (uri.isNotBlank()) uri.replace(":", "_") else "sp_album_${outList.size}_$i"
+            }
+            val name = trackObj.optString("name").ifBlank { trackObj.optString("title") }
+            if (name.isBlank()) continue
 
             val artistsArr = trackObj.optJSONArray("artists")
             val artistsList = mutableListOf<String>()
@@ -1077,7 +1124,7 @@ class SpotifyPlaylistImporter(
                     artist = artistStr,
                     album = albumName,
                     thumbnail = albumCover ?: "",
-                    duration = durationMs / 1000L,
+                    duration = if (durationMs > 1000L) durationMs / 1000L else durationMs,
                     source = TrackSource.YOUTUBE
                 )
             )
@@ -1263,7 +1310,9 @@ class SpotifyPlaylistImporter(
         if (trackList != null) {
             for (i in 0 until trackList.length()) {
                 val item = trackList.optJSONObject(i) ?: continue
-                val trackTitle = item.optString("title").ifBlank { item.optString("name", "Track $i") }
+                val trackTitle = item.optString("title").ifBlank { item.optString("name") }
+                if (trackTitle.isBlank()) continue
+
                 val trackSubtitle = item.optString("subtitle").ifBlank {
                     val artistsArr = item.optJSONArray("artists")
                     if (artistsArr != null && artistsArr.length() > 0) {
@@ -1283,28 +1332,27 @@ class SpotifyPlaylistImporter(
                 val trackId = if (uri.startsWith("spotify:track:")) {
                     uri.substringAfter("spotify:track:")
                 } else {
-                    item.optString("id", "track_$i")
+                    item.optString("id").ifBlank { "track_${tracks.size}_$i" }
                 }
 
                 var trackArtwork: String? = null
                 val itemArt = item.optJSONObject("album")?.optJSONObject("coverArt")?.optJSONArray("sources")?.optJSONObject(0)?.optString("url")
+                    ?: item.optJSONObject("coverArt")?.optJSONArray("sources")?.optJSONObject(0)?.optString("url")
                 if (!itemArt.isNullOrBlank()) {
                     trackArtwork = itemArt
                 }
 
-                if (trackTitle.isNotBlank() && !trackTitle.startsWith("Track ")) {
-                    tracks.add(
-                        Track(
-                            id = "sp_$trackId",
-                            title = TitleCleaner.cleanTitle(trackTitle),
-                            artist = if (trackSubtitle.isBlank() || trackSubtitle == "Artist") "Spotify Artist" else trackSubtitle,
-                            album = title,
-                            thumbnail = trackArtwork ?: "",
-                            duration = durationSec,
-                            source = TrackSource.YOUTUBE
-                        )
+                tracks.add(
+                    Track(
+                        id = "sp_$trackId",
+                        title = TitleCleaner.cleanTitle(trackTitle),
+                        artist = if (trackSubtitle.isBlank() || trackSubtitle == "Artist") "Spotify Artist" else trackSubtitle,
+                        album = title,
+                        thumbnail = trackArtwork ?: "",
+                        duration = durationSec,
+                        source = TrackSource.YOUTUBE
                     )
-                }
+                )
             }
         }
 
