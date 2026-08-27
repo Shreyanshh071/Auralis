@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -136,6 +137,7 @@ import com.auralis.music.ui.theme.auralisContentEnter
 import com.auralis.music.ui.theme.auralisContentExit
 import com.auralis.music.ui.theme.auralisIconSwapEnter
 import com.auralis.music.ui.theme.auralisIconSwapExit
+import com.auralis.music.ui.theme.PlayerMotion
 import com.auralis.music.ui.theme.dynamicPalette
 import com.auralis.music.ui.theme.motionTween
 import com.auralis.music.ui.viewmodel.PlayerUiState
@@ -287,6 +289,21 @@ fun NowPlayingModal(
     val favoriteEnter = auralisIconSwapEnter()
     val favoriteExit = auralisIconSwapExit()
 
+    // Fast fade for secondary controls (buttons, scrubber, header) on collapse so
+    // only the artwork and title/artist remain visible while contracting into the Mini Player.
+    val controlsAlpha by animatedVisibilityScope?.transition?.animateFloat(
+        transitionSpec = {
+            if (targetState == EnterExitState.Visible) {
+                tween(durationMillis = 200, easing = AuralisEasing.Decelerate)
+            } else {
+                tween(durationMillis = PlayerMotion.ControlsExitDuration, easing = AuralisEasing.Standard)
+            }
+        },
+        label = "nowPlayingControlsAlpha"
+    ) { state ->
+        if (state == EnterExitState.Visible) 1f else 0f
+    } ?: remember { mutableFloatStateOf(1f) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -395,6 +412,7 @@ fun NowPlayingModal(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .graphicsLayer { alpha = controlsAlpha }
                     .padding(top = 6.dp, bottom = 6.dp)
                     .pointerInput(Unit) {
                         detectVerticalDragGestures(
@@ -480,6 +498,7 @@ fun NowPlayingModal(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .graphicsLayer { alpha = controlsAlpha }
                     .shadow(
                         elevation = 14.dp,
                         shape = CircleShape,
@@ -601,6 +620,7 @@ fun NowPlayingModal(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer { alpha = controlsAlpha }
                     ) {
                         SyncedLyricsView(
                             lyrics = uiState.lyrics,
@@ -621,6 +641,7 @@ fun NowPlayingModal(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer { alpha = controlsAlpha }
                     ) {
                         Text(
                             text = "Up Next (${uiState.queue.size} songs)",
@@ -715,6 +736,7 @@ fun NowPlayingModal(
                                 modifier = Modifier
                                     .fillMaxWidth(0.92f)
                                     .aspectRatio(1f)
+                                    .graphicsLayer { alpha = controlsAlpha }
                                     .background(
                                         Brush.radialGradient(
                                             colors = listOf(
@@ -836,6 +858,7 @@ fun NowPlayingModal(
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
+                                    .graphicsLayer { alpha = controlsAlpha }
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.12f))
                                     .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
@@ -856,6 +879,7 @@ fun NowPlayingModal(
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
+                                    .graphicsLayer { alpha = controlsAlpha }
                                     .clip(CircleShape)
                                     .background(Color.White)
                                     .tactileBounce(scaleDown = 0.86f, onClick = onToggleFavorite),
@@ -879,7 +903,7 @@ fun NowPlayingModal(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         // ── TIME SCRUBBER SLIDER & TIMESTAMPS ──
-                        Column(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = controlsAlpha }) {
                             Slider(
                                 value = if (totalDurationMs > 0) (currentPosMs.toFloat() / totalDurationMs).coerceIn(0f, 1f) else 0f,
                                 onValueChange = { frac ->
@@ -935,7 +959,7 @@ fun NowPlayingModal(
 
                         // ── MAIN PLAYBACK CONTROLS (PREVIOUS, WIDE THICK WHITE PLAY/PAUSE PILL, NEXT) ──
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = controlsAlpha },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1043,6 +1067,7 @@ fun NowPlayingModal(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .graphicsLayer { alpha = controlsAlpha }
                                 .padding(bottom = 18.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically

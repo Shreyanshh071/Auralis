@@ -309,7 +309,7 @@ fun AuralisApp(
                                 visible = !isNowPlayingOpen,
                                 // Synchronized with container transform so the pill seamlessly
                                 // dissolves and emerges in lockstep with the artwork flight.
-                                enter = auralisFadeEnter(PlayerMotion.ExitDuration),
+                                enter = auralisFadeEnter(PlayerMotion.ControlsExitDuration),
                                 exit = auralisFadeExit(PlayerMotion.EnterDuration)
                             ) {
                                 MiniPlayer(
