@@ -68,6 +68,7 @@ class SearchViewModel(
 
     fun openRecognitionModal(mode: RecognitionMode = RecognitionMode.VOICE_SEARCH) {
         recognitionManager?.setMode(mode)
+        startListening()
         _uiState.update { it.copy(isRecognitionOpen = true) }
     }
 
