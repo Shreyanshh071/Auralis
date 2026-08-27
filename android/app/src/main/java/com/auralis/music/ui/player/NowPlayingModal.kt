@@ -283,6 +283,9 @@ fun NowPlayingModal(
     val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, colorSpec, label = "animTertiary")
 
     val dragOffsetY = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        dragOffsetY.snapTo(0f)
+    }
 
     // Hoisted: transitionSpec is not a composable scope, so reduced-motion-aware
     // specs have to be built out here and captured.
@@ -425,10 +428,7 @@ fun NowPlayingModal(
                             },
                             onDragEnd = {
                                 if (dragOffsetY.value > 140f) {
-                                    coroutineScope.launch {
-                                        dragOffsetY.snapTo(0f)
-                                        onDismiss()
-                                    }
+                                    onDismiss()
                                 } else {
                                     coroutineScope.launch {
                                         dragOffsetY.animateTo(
@@ -452,12 +452,7 @@ fun NowPlayingModal(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            dragOffsetY.snapTo(0f)
-                            onDismiss()
-                        }
-                    },
+                    onClick = onDismiss,
                     modifier = Modifier.size(40.dp).tactileBounce(scaleDown = 0.88f)
                 ) {
                     Icon(

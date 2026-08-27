@@ -119,7 +119,7 @@ object AuralisEasing {
 object PlayerMotion {
     const val EnterDuration = 280
     const val ExitDuration = 220
-    const val ControlsExitDuration = 80
+    const val ControlsExitDuration = 140
 
     val EnterEasing: Easing = AuralisEasing.Decelerate
     val ExitEasing: Easing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1f)
@@ -284,19 +284,12 @@ fun auralisSheetEnter(): EnterTransition {
     ) + fadeIn(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard))
 }
 
-/** Counterpart to [auralisSheetEnter] — fluid contraction toward the mini-player. */
+/** Counterpart to [auralisSheetEnter] — seamless fade-out while shared elements travel cleanly. */
 @Composable
 fun auralisSheetExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
     return fadeOut(
         animationSpec = tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)
-    ) + scaleOut(
-        targetScale = 0.95f,
-        transformOrigin = TransformOrigin(0.5f, 0.95f),
-        animationSpec = tween(PlayerMotion.ExitDuration, easing = PlayerMotion.ExitEasing)
-    ) + slideOutVertically(
-        animationSpec = tween(PlayerMotion.ExitDuration, easing = PlayerMotion.ExitEasing),
-        targetOffsetY = { fullHeight -> fullHeight / 10 }
     )
 }
 
