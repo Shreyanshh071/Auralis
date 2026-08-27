@@ -333,6 +333,69 @@ fun auralisPushEnter(): EnterTransition = auralisNavigationEnter()
 fun auralisPushExit(): ExitTransition = auralisNavigationExit()
 
 /**
+ * Forward entrance for full-screen detail views (Playlist Detail, Artist Page).
+ * Smoothly elevates and expands into view with subtle vertical lift and scale.
+ */
+@Composable
+fun auralisDetailForwardEnter(): EnterTransition {
+    if (LocalReducedMotion.current) return EnterTransition.None
+    return fadeIn(
+        animationSpec = tween(260, easing = AuralisEasing.Standard)
+    ) + scaleIn(
+        initialScale = 0.95f,
+        animationSpec = tween(260, easing = AuralisEasing.Decelerate)
+    ) + slideInVertically(
+        initialOffsetY = { fullHeight -> (fullHeight * 0.05f).toInt() },
+        animationSpec = tween(260, easing = AuralisEasing.Decelerate)
+    )
+}
+
+/**
+ * Forward exit for the parent background grid when a detail screen is opening over it.
+ */
+@Composable
+fun auralisDetailForwardExit(): ExitTransition {
+    if (LocalReducedMotion.current) return ExitTransition.None
+    return fadeOut(
+        animationSpec = tween(200, easing = AuralisEasing.Standard)
+    ) + scaleOut(
+        targetScale = 0.96f,
+        animationSpec = tween(200, easing = AuralisEasing.Standard)
+    )
+}
+
+/**
+ * Backward entrance for the parent background grid when closing a detail screen.
+ */
+@Composable
+fun auralisDetailBackwardEnter(): EnterTransition {
+    if (LocalReducedMotion.current) return EnterTransition.None
+    return fadeIn(
+        animationSpec = tween(220, easing = AuralisEasing.Standard)
+    ) + scaleIn(
+        initialScale = 0.96f,
+        animationSpec = tween(220, easing = AuralisEasing.Decelerate)
+    )
+}
+
+/**
+ * Backward exit for a detail screen when closing back to the grid.
+ */
+@Composable
+fun auralisDetailBackwardExit(): ExitTransition {
+    if (LocalReducedMotion.current) return ExitTransition.None
+    return fadeOut(
+        animationSpec = tween(200, easing = AuralisEasing.Standard)
+    ) + slideOutVertically(
+        targetOffsetY = { fullHeight -> (fullHeight * 0.05f).toInt() },
+        animationSpec = tween(200, easing = AuralisEasing.Accelerate)
+    ) + scaleOut(
+        targetScale = 0.95f,
+        animationSpec = tween(200, easing = AuralisEasing.Accelerate)
+    )
+}
+
+/**
  * In-place content swap: loading -> results -> empty, tab bodies, inline state.
  * Deliberately motion-light — a short cross-fade with a barely-there lift, so
  * changing content never reads as a whole-screen jump.
