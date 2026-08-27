@@ -10,9 +10,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.auralisNavigationEnter
+import com.auralis.music.ui.theme.auralisNavigationExit
 import com.auralis.music.ui.theme.motionTween
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -201,34 +204,13 @@ fun LibraryScreen(
         }
     }
 
-    val reducedMotion = LocalReducedMotion.current
+    val navEnter = auralisNavigationEnter()
+    val navExit = auralisNavigationExit()
 
     AnimatedContent(
         targetState = uiState.selectedPlaylist,
         transitionSpec = {
-            if (reducedMotion) {
-                EnterTransition.None togetherWith ExitTransition.None
-            } else if (targetState != null) {
-                (slideInHorizontally(
-                    initialOffsetX = { fullWidth -> fullWidth },
-                    animationSpec = tween(AuralisDuration.Nav, easing = AuralisEasing.Decelerate)
-                ) + fadeIn(tween(AuralisDuration.Quick))).togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { fullWidth -> -fullWidth / 3 },
-                        animationSpec = tween(AuralisDuration.NavExit, easing = AuralisEasing.Accelerate)
-                    ) + fadeOut(tween(AuralisDuration.Fast))
-                )
-            } else {
-                (slideInHorizontally(
-                    initialOffsetX = { fullWidth -> -fullWidth / 3 },
-                    animationSpec = tween(AuralisDuration.Nav, easing = AuralisEasing.Decelerate)
-                ) + fadeIn(tween(AuralisDuration.Quick))).togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { fullWidth -> fullWidth },
-                        animationSpec = tween(AuralisDuration.NavExit, easing = AuralisEasing.Accelerate)
-                    ) + fadeOut(tween(AuralisDuration.Fast))
-                )
-            }
+            navEnter togetherWith navExit
         },
         label = "PlaylistDetailTransition"
     ) { selectedPl ->
@@ -662,7 +644,7 @@ private fun SmartLibraryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .tactileBounce(scaleDown = 0.96f, onClick = onClick)
     ) {
         Box(
             modifier = Modifier
@@ -792,7 +774,7 @@ private fun UserPlaylistGridCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .tactileBounce(scaleDown = 0.96f, onClick = onClick)
     ) {
         Box(
             modifier = Modifier
@@ -890,7 +872,7 @@ private fun SmartLibraryListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
-            .clickable(onClick = onClick)
+            .tactileBounce(scaleDown = 0.97f, onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -958,7 +940,7 @@ private fun UserPlaylistListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
-            .clickable(onClick = onClick)
+            .tactileBounce(scaleDown = 0.97f, onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1097,7 +1079,10 @@ private fun PlaylistDetailView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.tactileBounce(scaleDown = 0.88f)
+            ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -1105,7 +1090,10 @@ private fun PlaylistDetailView(
                     modifier = Modifier.size(24.dp)
                 )
             }
-            IconButton(onClick = { isSearchActive = !isSearchActive }) {
+            IconButton(
+                onClick = { isSearchActive = !isSearchActive },
+                modifier = Modifier.tactileBounce(scaleDown = 0.88f)
+            ) {
                 Icon(
                     imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
                     contentDescription = "Search",
