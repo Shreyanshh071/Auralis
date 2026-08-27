@@ -300,7 +300,7 @@ fun AuralisApp(
                     // out — otherwise the Scaffold would relayout the entire screen on
                     // every frame of the transform.
                     if (playerUiState.currentTrack != null) {
-                        val progressFrac = if (!isNowPlayingOpen && playerUiState.durationMs > 0) {
+                        val progressFrac = if (playerUiState.durationMs > 0) {
                             (playerUiState.playbackPositionMs.toFloat() / playerUiState.durationMs).coerceIn(0f, 1f)
                         } else 0f
 
@@ -309,7 +309,7 @@ fun AuralisApp(
                                 visible = !isNowPlayingOpen,
                                 // Synchronized with container transform so the pill seamlessly
                                 // dissolves and emerges in lockstep with the artwork flight.
-                                enter = auralisFadeEnter(PlayerMotion.ControlsExitDuration),
+                                enter = auralisFadeEnter(PlayerMotion.ExitDuration),
                                 exit = auralisFadeExit(PlayerMotion.EnterDuration)
                             ) {
                                 MiniPlayer(
@@ -663,8 +663,7 @@ fun AuralisApp(
         AnimatedVisibility(
             visible = isNowPlayingOpen,
             enter = auralisSheetEnter(),
-            exit = auralisSheetExit(),
-            modifier = Modifier.graphicsLayer { clip = true }
+            exit = auralisSheetExit()
         ) {
             NowPlayingSheet(
                 uiState = playerUiState,
