@@ -280,25 +280,44 @@ fun auralisSheetExit(): ExitTransition {
     ) + fadeOut(tween(AuralisDuration.Fast, easing = AuralisEasing.Standard))
 }
 
-/** A page pushed in from the trailing edge (Listen Together, Profile, History). */
+/**
+ * Unified primary navigation transition used across both top navigation (History, Listen Together, Profile)
+ * and bottom navigation (Home, Search, Library).
+ * Fast, responsive pop/fade: 160ms alpha fade-in + 0.988f -> 1.0f subtle scale lift.
+ */
 @Composable
-fun auralisPushEnter(): EnterTransition {
+fun auralisNavigationEnter(): EnterTransition {
     if (LocalReducedMotion.current) return EnterTransition.None
-    return slideInHorizontally(
-        animationSpec = tween(AuralisDuration.Quick, easing = AuralisEasing.Decelerate),
-        initialOffsetX = { fullWidth -> fullWidth / 4 }
-    ) + fadeIn(tween(AuralisDuration.Quick, easing = AuralisEasing.Standard))
+    return fadeIn(
+        animationSpec = tween(160, easing = AuralisEasing.Standard)
+    ) + scaleIn(
+        initialScale = 0.988f,
+        animationSpec = tween(160, easing = AuralisEasing.Decelerate)
+    )
 }
 
-/** Counterpart to [auralisPushEnter]. */
+/**
+ * Counterpart to [auralisNavigationEnter].
+ * 120ms alpha fade-out + 1.0f -> 0.988f subtle scale settle.
+ */
 @Composable
-fun auralisPushExit(): ExitTransition {
+fun auralisNavigationExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
-    return slideOutHorizontally(
-        animationSpec = tween(AuralisDuration.Quick, easing = AuralisEasing.Accelerate),
-        targetOffsetX = { fullWidth -> fullWidth / 4 }
-    ) + fadeOut(tween(AuralisDuration.Fast, easing = AuralisEasing.Standard))
+    return fadeOut(
+        animationSpec = tween(120, easing = AuralisEasing.Standard)
+    ) + scaleOut(
+        targetScale = 0.988f,
+        animationSpec = tween(120, easing = AuralisEasing.Standard)
+    )
 }
+
+/** A page pushed in from the trailing edge — unified with [auralisNavigationEnter]. */
+@Composable
+fun auralisPushEnter(): EnterTransition = auralisNavigationEnter()
+
+/** Counterpart to [auralisPushEnter] — unified with [auralisNavigationExit]. */
+@Composable
+fun auralisPushExit(): ExitTransition = auralisNavigationExit()
 
 /**
  * In-place content swap: loading -> results -> empty, tab bodies, inline state.
