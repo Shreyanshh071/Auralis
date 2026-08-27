@@ -338,7 +338,7 @@ class LibraryViewModel(
                     _uiState.update {
                         it.copy(
                             isImporting = false,
-                            importMessage = "Could not import playlist. Please check link."
+                            importMessage = "Could not import playlist. Make sure it is Public or Unlisted in YouTube Music."
                         )
                     }
                 }
@@ -351,6 +351,10 @@ class LibraryViewModel(
                 }
             }
         }
+    }
+
+    fun clearYouTubeImportMessage() {
+        _uiState.update { it.copy(importMessage = null) }
     }
 
     fun clearSpotifyImportMessage() {

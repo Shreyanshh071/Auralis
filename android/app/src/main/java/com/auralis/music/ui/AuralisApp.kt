@@ -788,14 +788,10 @@ fun AuralisApp(
             val ctx = androidx.compose.ui.platform.LocalContext.current
             ProfileSheet(
                 authUiState = authUiState,
-                onConnectWithGoogleOAuth = {
-                    val act = ctx.findActivity()
-                    if (act != null) {
-                        authViewModel.connectWithGoogleOAuth(act)
-                    } else {
-                        android.widget.Toast.makeText(ctx, "Activity not found for Google OAuth", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                },
+                onImportYouTubePlaylist = { libraryViewModel.importYouTubePlaylist(it) },
+                onClearYouTubeImportMessage = { libraryViewModel.clearYouTubeImportMessage() },
+                isImportingYouTube = libraryUiState.isImporting,
+                youtubeImportMessage = libraryUiState.importMessage,
                 onOpenPlaylistSelector = { authViewModel.openPlaylistSelectDialog() },
                 onSyncLikedMusic = { authViewModel.syncLikedMusic() },
                 onDisconnect = {
@@ -813,6 +809,7 @@ fun AuralisApp(
                 spotifyImportMessage = libraryUiState.spotifyImportMessage,
                 onDismiss = {
                     libraryViewModel.clearSpotifyImportMessage()
+                    libraryViewModel.clearYouTubeImportMessage()
                     isProfileOpen = false
                 }
             )
