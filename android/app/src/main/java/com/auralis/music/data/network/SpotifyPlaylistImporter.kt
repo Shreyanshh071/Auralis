@@ -687,8 +687,6 @@ class SpotifyPlaylistImporter(
                     ?: ""
             }
 
-            if (name.isBlank()) continue
-
             val uri = trackData.optString("uri")
             var id = if (uri.startsWith("spotify:track:")) {
                 uri.substringAfter("spotify:track:")
@@ -699,6 +697,10 @@ class SpotifyPlaylistImporter(
                 id = item.optString("uid").ifBlank {
                     if (uri.isNotBlank()) uri.replace(":", "_") else "sp_track_${outList.size}_$i"
                 }
+            }
+
+            if (name.isBlank()) {
+                name = if (id.isNotBlank()) "Unavailable Track ($id)" else "Unavailable Track"
             }
 
             val artistsArr = trackData.optJSONObject("artists")?.optJSONArray("items")
@@ -759,15 +761,17 @@ class SpotifyPlaylistImporter(
             val item = items.optJSONObject(i) ?: continue
             val trackData = item.optJSONObject("track") ?: item.optJSONObject("item") ?: item
 
-            val name = trackData.optString("name").ifBlank { trackData.optString("title") }
-            if (name.isBlank()) continue
-
+            var name = trackData.optString("name").ifBlank { trackData.optString("title") }
             val uri = trackData.optString("uri")
             var id = if (uri.startsWith("spotify:track:")) uri.substringAfter("spotify:track:") else trackData.optString("id")
             if (id.isBlank()) {
                 id = item.optString("uid").ifBlank {
                     if (uri.isNotBlank()) uri.replace(":", "_") else "sp_album_${outList.size}_$i"
                 }
+            }
+
+            if (name.isBlank()) {
+                name = if (id.isNotBlank()) "Unavailable Track ($id)" else "Unavailable Track"
             }
 
             val artistsArr = trackData.optJSONObject("artists")?.optJSONArray("items")
@@ -1048,9 +1052,10 @@ class SpotifyPlaylistImporter(
                     if (uri.isNotBlank()) uri.replace(":", "_") else "sp_local_${outList.size}_$i"
                 }
             }
-            val name = trackObj.optString("name").ifBlank { trackObj.optString("title") }
-
-            if (name.isBlank()) continue
+            var name = trackObj.optString("name").ifBlank { trackObj.optString("title") }
+            if (name.isBlank()) {
+                name = if (id.isNotBlank()) "Unavailable Track ($id)" else "Unavailable Track"
+            }
 
             val artistsArr = trackObj.optJSONArray("artists")
             val artistsList = mutableListOf<String>()
@@ -1103,8 +1108,10 @@ class SpotifyPlaylistImporter(
             if (id.isBlank()) {
                 id = if (uri.isNotBlank()) uri.replace(":", "_") else "sp_album_${outList.size}_$i"
             }
-            val name = trackObj.optString("name").ifBlank { trackObj.optString("title") }
-            if (name.isBlank()) continue
+            var name = trackObj.optString("name").ifBlank { trackObj.optString("title") }
+            if (name.isBlank()) {
+                name = if (id.isNotBlank()) "Unavailable Track ($id)" else "Unavailable Track"
+            }
 
             val artistsArr = trackObj.optJSONArray("artists")
             val artistsList = mutableListOf<String>()
