@@ -6,6 +6,7 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class NewPipeDownloader private constructor(
@@ -21,7 +22,18 @@ class NewPipeDownloader private constructor(
             cacheDir = cacheDirectory
         }
 
-        private val cookieMap = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, okhttp3.Cookie>>()
+        private val cookieMap = ConcurrentHashMap<String, ConcurrentHashMap<String, okhttp3.Cookie>>()
+
+        // In-memory token cache for visitor_id (10-minute TTL) to eliminate redundant round-trips
+        private val tokenCache = ConcurrentHashMap<String, Pair<Long, Response>>()
+        private const val TOKEN_CACHE_TTL_MS = 600_000L // 10 minutes
+
+        // Minimal valid JSON body for next endpoint to satisfy NewPipe's parser without downloading 450KB of comments
+        private const val DUMMY_NEXT_JSON = "{\"responseContext\":{},\"contents\":{\"twoColumnWatchNextResults\":{\"results\":{\"results\":{\"contents\":[]}}}}}"
+
+        fun clearTokenCache() {
+            tokenCache.clear()
+        }
 
         val instance: NewPipeDownloader by lazy {
             val builder = OkHttpClient.Builder()
@@ -30,7 +42,7 @@ class NewPipeDownloader private constructor(
                 .followRedirects(true)
                 .cookieJar(object : okhttp3.CookieJar {
                     override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-                        val hostMap = cookieMap.computeIfAbsent(url.host) { java.util.concurrent.ConcurrentHashMap() }
+                        val hostMap = cookieMap.computeIfAbsent(url.host) { ConcurrentHashMap() }
                         cookies.forEach { hostMap[it.name] = it }
                     }
 
@@ -58,8 +70,28 @@ class NewPipeDownloader private constructor(
 
     @Throws(IOException::class)
     override fun execute(request: Request): Response {
-        val httpMethod = request.httpMethod()
         val url = request.url()
+
+        // 1. Bypass heavy 'next' endpoint (comments, recommendations) - saves ~1.15s and 450KB payload
+        if (url.contains("/youtubei/v1/next")) {
+            return Response(
+                200,
+                "OK",
+                emptyMap(),
+                DUMMY_NEXT_JSON,
+                url
+            )
+        }
+
+        // 2. Cache visitor_id token handshakes to eliminate 3x redundant round-trips
+        if (url.contains("/youtubei/v1/visitor_id")) {
+            val cached = tokenCache[url]
+            if (cached != null && System.currentTimeMillis() - cached.first < TOKEN_CACHE_TTL_MS) {
+                return cached.second
+            }
+        }
+
+        val httpMethod = request.httpMethod()
         val headers = request.headers()
         val dataToSend = request.dataToSend()
 
@@ -90,12 +122,19 @@ class NewPipeDownloader private constructor(
             responseHeaders[name] = okResponse.headers.values(name)
         }
 
-        return Response(
+        val res = Response(
             okResponse.code,
             okResponse.message,
             responseHeaders,
             responseBody,
             okResponse.request.url.toString()
         )
+
+        // Save fresh visitor_id response to token cache
+        if (url.contains("/youtubei/v1/visitor_id") && okResponse.code == 200) {
+            tokenCache[url] = System.currentTimeMillis() to res
+        }
+
+        return res
     }
 }

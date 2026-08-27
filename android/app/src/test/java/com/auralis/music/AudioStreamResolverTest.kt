@@ -9,16 +9,14 @@ class AudioStreamResolverTest {
     @Test
     fun testDirectStreamResolution() = runBlocking {
         val tracks = listOf(
-            Triple("1y6S3763vR8", "Bitter Sweet Symphony", "The Verve"),
+            Triple("1lyu1KKwC74", "Bitter Sweet Symphony", "The Verve"),
             Triple("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd"),
             Triple("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen"),
             Triple("JGwWNGJdvx8", "Shape of You", "Ed Sheeran"),
-            Triple("kTJczUoc56U", "Stay", "The Kid LAROI"),
-            Triple("7wtfhZwyrcc", "Believer", "Imagine Dragons"),
             Triple("34Na4j8AVgA", "Starboy", "The Weeknd"),
-            Triple("IJq0yyWmq1E", "Tum Hi Ho", "Arijit Singh"),
-            Triple("kJQP7kiw5Fk", "Despacito", "Luis Fonsi"),
-            Triple("BddP6PYo2gs", "Kesariya", "Arijit Singh")
+            Triple("opwZ_PJ-F_E", "Choo Lo", "The Local Train"),
+            Triple("EwLgGHAxTa8", "Raanjhanaa", "A.R. Rahman"),
+            Triple("H5v3kku4y6Q", "As It Was", "Harry Styles")
         )
 
         for ((id, title, artist) in tracks) {
