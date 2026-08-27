@@ -34,6 +34,7 @@ import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.AuralisSpring
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.PlayerMotion
 import com.auralis.music.ui.theme.auralisFadeEnter
 import com.auralis.music.ui.theme.auralisFadeExit
 import com.auralis.music.ui.theme.auralisNavigationEnter
@@ -299,17 +300,17 @@ fun AuralisApp(
                     // out — otherwise the Scaffold would relayout the entire screen on
                     // every frame of the transform.
                     if (playerUiState.currentTrack != null) {
-                        val progressFrac = if (playerUiState.durationMs > 0) {
+                        val progressFrac = if (!isNowPlayingOpen && playerUiState.durationMs > 0) {
                             (playerUiState.playbackPositionMs.toFloat() / playerUiState.durationMs).coerceIn(0f, 1f)
                         } else 0f
 
                         Box(modifier = Modifier.height(MiniPlayerHeight)) {
                             this@Column.AnimatedVisibility(
                                 visible = !isNowPlayingOpen,
-                                // Matched to the container transform's duration so the pill's
-                                // chrome is gone exactly as the artwork finishes travelling.
-                                enter = auralisFadeEnter(AuralisDuration.Emphasized),
-                                exit = auralisFadeExit(AuralisDuration.Emphasized)
+                                // Synchronized with container transform so the pill seamlessly
+                                // dissolves and emerges in lockstep with the artwork flight.
+                                enter = auralisFadeEnter(PlayerMotion.ExitDuration),
+                                exit = auralisFadeExit(PlayerMotion.EnterDuration)
                             ) {
                                 MiniPlayer(
                                     track = playerUiState.currentTrack!!,
