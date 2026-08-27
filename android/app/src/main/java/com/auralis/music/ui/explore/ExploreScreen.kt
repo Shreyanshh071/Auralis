@@ -82,7 +82,15 @@ import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.search.VoiceAndMusicRecognitionModal
 import com.auralis.music.ui.theme.GlassBorderHairline
 import com.auralis.music.ui.screens.ArtistScreen
+import com.auralis.music.ui.theme.AuralisDuration
+import com.auralis.music.ui.theme.AuralisEasing
+import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.auralisContentEnter
+import com.auralis.music.ui.theme.auralisContentExit
+import com.auralis.music.ui.theme.auralisIconSwapEnter
 import com.auralis.music.ui.viewmodel.SearchUiState
+
+private enum class SearchBodyState { SEARCHING, RESULTS, SUGGESTIONS }
 
 enum class SearchCategory {
     ALL,
@@ -286,33 +294,42 @@ fun ExploreScreen(
                 }
 
                 // Dynamic Trailing Button: Clear Cross when query/results exist; else Microphone button for quick Speak & Search
-                if (uiState.query.isNotEmpty() || hasResults) {
-                    IconButton(
-                        onClick = {
-                            onClearSearch()
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear search",
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = {
-                            onOpenRecognition(RecognitionMode.VOICE_SEARCH)
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Speak to search",
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(22.dp)
-                        )
+                val showClear = uiState.query.isNotEmpty() || hasResults
+                val searchIconEnter = auralisIconSwapEnter()
+                val searchIconExit = auralisContentExit()
+                AnimatedContent(
+                    targetState = showClear,
+                    transitionSpec = { searchIconEnter togetherWith searchIconExit },
+                    label = "searchTrailingIcon"
+                ) { isClear ->
+                    if (isClear) {
+                        IconButton(
+                            onClick = {
+                                onClearSearch()
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                onOpenRecognition(RecognitionMode.VOICE_SEARCH)
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Speak to search",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -320,134 +337,162 @@ fun ExploreScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             // ================================================================
-            // 2. SEARCH PROGRESS SPINNER
+            // 2. SEARCH BODY: SPINNER | RESULTS | LIVE SUGGESTIONS
             // ================================================================
-            if (uiState.isSearching) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 40.dp),
-                    contentAlignment = Alignment.TopCenter
-                ) {
-                    CircularProgressIndicator(
-                        color = Color(0xFFD4E157),
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            } else if (hasResults) {
-                CategoryFilterBar(
-                    selectedCategory = selectedCategory,
-                    onSelectCategory = { selectedCategory = it }
-                )
+            val bodyState = when {
+                uiState.isSearching -> SearchBodyState.SEARCHING
+                hasResults -> SearchBodyState.RESULTS
+                else -> SearchBodyState.SUGGESTIONS
+            }
 
-                SearchResultsView(
-                    category = selectedCategory,
-                    results = uiState.searchResults,
-                    currentTrackId = currentTrackId,
-                    isPlaying = isPlaying,
-                    onTrackClick = { track, list -> onTrackClick(track, list) },
-                    onMenuClick = { track -> selectedTrackForMenu = track },
-                    onArtistClick = { artist -> onOpenArtist(artist) },
-                    onPlaylistClick = { playlist -> onSearch(playlist.title) }
-                )
-            } else {
-                // ============================================================
-                // 4. LIVE SUGGESTIONS & RECENT SEARCHES LIST
-                // ============================================================
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Live Autocomplete Suggestions (while typing)
-                    if (uiState.suggestions.isNotEmpty()) {
-                        items(uiState.suggestions) { suggestion ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        focusManager.clearFocus()
-                                        onSearch(suggestion)
-                                    }
-                                    .padding(vertical = 12.dp, horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.60f),
-                                    modifier = Modifier.size(22.dp)
-                                )
+            val bodyEnter = auralisContentEnter()
+            val bodyExit = auralisContentExit()
 
-                                Spacer(modifier = Modifier.width(16.dp))
-
-                                Text(
-                                    text = suggestion,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-
-                                IconButton(
-                                    onClick = { onQueryChange(suggestion) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    DiagonalInsertArrow()
-                                }
-                            }
+            AnimatedContent(
+                targetState = bodyState,
+                transitionSpec = { bodyEnter togetherWith bodyExit using SizeTransform(clip = false) },
+                modifier = Modifier.fillMaxSize(),
+                label = "searchBodyTransition"
+            ) { targetBody ->
+                when (targetBody) {
+                    SearchBodyState.SEARCHING -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = 40.dp),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color(0xFFD4E157),
+                                modifier = Modifier.size(36.dp)
+                            )
                         }
-                    } else {
-                        // Recent Searches History Items (when input is empty)
-                        items(uiState.recentQueries) { query ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        focusManager.clearFocus()
-                                        onSearch(query)
+                    }
+                    SearchBodyState.RESULTS -> {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            CategoryFilterBar(
+                                selectedCategory = selectedCategory,
+                                onSelectCategory = { selectedCategory = it }
+                            )
+
+                            SearchResultsView(
+                                category = selectedCategory,
+                                results = uiState.searchResults,
+                                currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
+                                onTrackClick = { track, list -> onTrackClick(track, list) },
+                                onMenuClick = { track -> selectedTrackForMenu = track },
+                                onArtistClick = { artist -> onOpenArtist(artist) },
+                                onPlaylistClick = { playlist -> onSearch(playlist.title) }
+                            )
+                        }
+                    }
+                    SearchBodyState.SUGGESTIONS -> {
+                        val animateItems = !LocalReducedMotion.current
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Live Autocomplete Suggestions (while typing)
+                            if (uiState.suggestions.isNotEmpty()) {
+                                items(
+                                    items = uiState.suggestions,
+                                    key = { "sug_$it" }
+                                ) { suggestion ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                            .clickable {
+                                                focusManager.clearFocus()
+                                                onSearch(suggestion)
+                                            }
+                                            .padding(vertical = 12.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.60f),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(16.dp))
+
+                                        Text(
+                                            text = suggestion,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        IconButton(
+                                            onClick = { onQueryChange(suggestion) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            DiagonalInsertArrow()
+                                        }
                                     }
-                                    .padding(vertical = 12.dp, horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = "History",
-                                    tint = Color.White.copy(alpha = 0.65f),
-                                    modifier = Modifier.size(22.dp)
-                                )
-
-                                Spacer(modifier = Modifier.width(16.dp))
-
-                                Text(
-                                    text = query,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-
-                                // Remove from history
-                                IconButton(
-                                    onClick = { onRemoveRecentQuery(query) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove",
-                                        tint = Color.White.copy(alpha = 0.60f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
                                 }
+                            } else {
+                                // Recent Searches History Items (when input is empty)
+                                items(
+                                    items = uiState.recentQueries,
+                                    key = { "recent_$it" }
+                                ) { query ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                            .clickable {
+                                                focusManager.clearFocus()
+                                                onSearch(query)
+                                            }
+                                            .padding(vertical = 12.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.History,
+                                            contentDescription = "History",
+                                            tint = Color.White.copy(alpha = 0.65f),
+                                            modifier = Modifier.size(22.dp)
+                                        )
 
-                                Spacer(modifier = Modifier.width(4.dp))
+                                        Spacer(modifier = Modifier.width(16.dp))
 
-                                // Diagonal insert arrow (↖)
-                                IconButton(
-                                    onClick = { onQueryChange(query) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    DiagonalInsertArrow()
+                                        Text(
+                                            text = query,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        // Remove from history
+                                        IconButton(
+                                            onClick = { onRemoveRecentQuery(query) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove",
+                                                tint = Color.White.copy(alpha = 0.60f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
+
+                                        // Diagonal insert arrow (↖)
+                                        IconButton(
+                                            onClick = { onQueryChange(query) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            DiagonalInsertArrow()
+                                        }
+                                    }
                                 }
                             }
                         }

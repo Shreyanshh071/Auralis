@@ -1,8 +1,6 @@
 package com.auralis.music.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,10 +19,12 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.auralis.music.ui.theme.AuralisSpring
 import com.auralis.music.ui.theme.AuralisSurface
 import com.auralis.music.ui.theme.AuralisSurfaceElevated
 import com.auralis.music.ui.theme.GlassBorderHairline
 import com.auralis.music.ui.theme.GlassBorderHighlight
+import com.auralis.music.ui.theme.LocalReducedMotion
 
 // ============================================================================
 // 💎 AURALIS GLASSMORPHIC MODIFIERS
@@ -105,6 +105,8 @@ fun Modifier.specularHighlight(
  * On release: springs back with bouncy physics and dispatches [onClick] immediately.
  *
  * Uses Compose Native Interaction Source to guarantee ZERO input lag or gesture conflict.
+ * Springs come from [AuralisSpring] and are skipped entirely under reduced motion,
+ * where the click still dispatches identically.
  *
  * @param scaleDown Scale factor on press (default 0.94f)
  * @param enabled Whether interaction is enabled
@@ -117,22 +119,26 @@ fun Modifier.tactileBounce(
 ): Modifier = composed {
     if (!enabled) return@composed this
 
+    val reducedMotion = LocalReducedMotion.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) scaleDown else 1f,
-        animationSpec = spring(
-            dampingRatio = if (isPressed) 0.80f else 0.48f,
-            stiffness = if (isPressed) Spring.StiffnessHigh else Spring.StiffnessMediumLow
-        ),
+        animationSpec = if (isPressed) AuralisSpring.TactilePress else AuralisSpring.TactileRelease,
         label = "tactileBounceScale"
     )
 
     this
-        .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-        }
+        .then(
+            if (reducedMotion) {
+                Modifier
+            } else {
+                Modifier.graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+            }
+        )
         .then(
             if (onClick != null) {
                 Modifier.clickable(

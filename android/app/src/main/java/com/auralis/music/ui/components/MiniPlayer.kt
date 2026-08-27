@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.auralis.music.domain.model.Track
@@ -8,6 +11,7 @@ import com.auralis.music.ui.player.MiniPlayer as PlayerMiniPlayer
 /**
  * Backward-compatible MiniPlayer component delegating to the redesigned PlayerMiniPlayer.
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MiniPlayer(
     track: Track,
@@ -25,6 +29,8 @@ fun MiniPlayer(
     onAddToPlaylist: (() -> Unit)? = null,
     onArtistClick: (() -> Unit)? = null,
     onClick: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
     PlayerMiniPlayer(
@@ -43,6 +49,8 @@ fun MiniPlayer(
         onAddToPlaylist = onAddToPlaylist,
         onArtistClick = onArtistClick,
         onClick = onClick,
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier
     )
 }

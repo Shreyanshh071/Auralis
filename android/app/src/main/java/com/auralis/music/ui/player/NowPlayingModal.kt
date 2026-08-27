@@ -8,6 +8,12 @@ import android.graphics.Color as AndroidColor
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,6 +40,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -103,6 +110,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -117,10 +126,18 @@ import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.auralisGlass
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.lyrics.SyncedLyricsView
+import com.auralis.music.ui.theme.AuralisDuration
+import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.AuralisPrimary
 import com.auralis.music.ui.theme.AuralisSurfaceElevated
 import com.auralis.music.ui.theme.GlassBorderHairline
+import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.auralisContentEnter
+import com.auralis.music.ui.theme.auralisContentExit
+import com.auralis.music.ui.theme.auralisIconSwapEnter
+import com.auralis.music.ui.theme.auralisIconSwapExit
 import com.auralis.music.ui.theme.dynamicPalette
+import com.auralis.music.ui.theme.motionTween
 import com.auralis.music.ui.viewmodel.PlayerUiState
 
 enum class NowPlayingTab {
@@ -147,8 +164,12 @@ private fun boostColorVibrancy(color: Color, minSaturation: Float = 0.65f, targe
 /**
  * Pixel-Perfect Fullscreen Now Playing Modal & Sheet with dynamic fluid aurora background,
  * segmented multi-mode switcher (Lyrics | Queue | Player), sub-header badges, and zero control collision.
+ *
+ * [sharedTransitionScope] / [animatedVisibilityScope] are optional. When supplied, the
+ * artwork and the title/artist block are matched against the mini-player's so the sheet
+ * reads as the pill expanding rather than a new screen appearing. Both null is valid.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun NowPlayingModal(
     uiState: PlayerUiState,
@@ -171,6 +192,8 @@ fun NowPlayingModal(
     onAddToQueue: () -> Unit = {},
     onArtistClick: ((com.auralis.music.domain.model.Artist) -> Unit)? = null,
     onDismiss: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
     val track = uiState.currentTrack ?: return
@@ -233,26 +256,36 @@ fun NowPlayingModal(
             ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.thumbnail)
     }
 
-    var extractedColors by remember(track.id) {
+    var extractedColors by remember {
         mutableStateOf(cachedPalette ?: com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette)
     }
 
     // Async extraction with downsampling and LRU caching on Dispatchers.Default
     LaunchedEffect(track.id, track.thumbnail) {
-        val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
-            context = context,
-            key = track.id,
-            artworkUrl = track.thumbnail
-        )
-        extractedColors = palette
+        if (cachedPalette != null) {
+            extractedColors = cachedPalette
+        } else {
+            val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                context = context,
+                key = track.id,
+                artworkUrl = track.thumbnail
+            )
+            extractedColors = palette
+        }
     }
 
-    // Short 250ms color crossfade executed ONLY on song/palette change, completely static while playing
-    val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedColors.primary, tween(250), label = "animPrimary")
-    val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedColors.secondary, tween(250), label = "animSecondary")
-    val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, tween(250), label = "animTertiary")
+    // Smooth continuous color interpolation executed on song/palette change, completely static while playing
+    val colorSpec = motionTween<Color>(AuralisDuration.Large, AuralisEasing.Standard)
+    val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedColors.primary, colorSpec, label = "animPrimary")
+    val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedColors.secondary, colorSpec, label = "animSecondary")
+    val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, colorSpec, label = "animTertiary")
 
     val dragOffsetY = remember { Animatable(0f) }
+
+    // Hoisted: transitionSpec is not a composable scope, so reduced-motion-aware
+    // specs have to be built out here and captured.
+    val favoriteEnter = auralisIconSwapEnter()
+    val favoriteExit = auralisIconSwapExit()
 
     Box(
         modifier = modifier
@@ -468,31 +501,11 @@ fun NowPlayingModal(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Tab 1: Lyrics
-                val isLyrics = currentTab == NowPlayingTab.LYRICS
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(
-                            if (isLyrics) {
-                                Modifier
-                                    .shadow(
-                                        elevation = 8.dp,
-                                        shape = CircleShape,
-                                        ambientColor = Color.Black.copy(alpha = 0.25f),
-                                        spotColor = Color.Black.copy(alpha = 0.25f)
-                                    )
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            } else {
-                                Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.Transparent)
-                            }
-                        )
-                        .tactileBounce(scaleDown = 0.92f, onClick = { currentTab = NowPlayingTab.LYRICS })
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+                PlayerModeTab(
+                    weight = 1f,
+                    selected = currentTab == NowPlayingTab.LYRICS,
+                    onClick = { currentTab = NowPlayingTab.LYRICS }
+                ) { contentColor, selected ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -500,44 +513,24 @@ fun NowPlayingModal(
                         Icon(
                             imageVector = Icons.Default.Mic,
                             contentDescription = null,
-                            tint = if (isLyrics) Color.Black else Color.White.copy(alpha = 0.75f),
+                            tint = contentColor,
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
                             text = "Lyrics",
-                            fontWeight = if (isLyrics) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                             fontSize = 13.sp,
-                            color = if (isLyrics) Color.Black else Color.White.copy(alpha = 0.75f)
+                            color = contentColor
                         )
                     }
                 }
 
                 // Tab 2: Queue
-                val isQueue = currentTab == NowPlayingTab.QUEUE
-                Box(
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .then(
-                            if (isQueue) {
-                                Modifier
-                                    .shadow(
-                                        elevation = 8.dp,
-                                        shape = CircleShape,
-                                        ambientColor = Color.Black.copy(alpha = 0.25f),
-                                        spotColor = Color.Black.copy(alpha = 0.25f)
-                                    )
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            } else {
-                                Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.Transparent)
-                            }
-                        )
-                        .tactileBounce(scaleDown = 0.92f, onClick = { currentTab = NowPlayingTab.QUEUE })
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+                PlayerModeTab(
+                    weight = 1.1f,
+                    selected = currentTab == NowPlayingTab.QUEUE,
+                    onClick = { currentTab = NowPlayingTab.QUEUE }
+                ) { contentColor, selected ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -545,49 +538,29 @@ fun NowPlayingModal(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
-                            tint = if (isQueue) Color.Black else Color.White.copy(alpha = 0.75f),
+                            tint = contentColor,
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
                             text = "Queue (${uiState.queue.size})",
-                            fontWeight = if (isQueue) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                             fontSize = 13.sp,
-                            color = if (isQueue) Color.Black else Color.White.copy(alpha = 0.75f)
+                            color = contentColor
                         )
                     }
                 }
 
                 // Tab 3: Player
-                val isPlayer = currentTab == NowPlayingTab.PLAYER
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(
-                            if (isPlayer) {
-                                Modifier
-                                    .shadow(
-                                        elevation = 8.dp,
-                                        shape = CircleShape,
-                                        ambientColor = Color.Black.copy(alpha = 0.25f),
-                                        spotColor = Color.Black.copy(alpha = 0.25f)
-                                    )
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            } else {
-                                Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.Transparent)
-                            }
-                        )
-                        .tactileBounce(scaleDown = 0.92f, onClick = { currentTab = NowPlayingTab.PLAYER })
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+                PlayerModeTab(
+                    weight = 1f,
+                    selected = currentTab == NowPlayingTab.PLAYER,
+                    onClick = { currentTab = NowPlayingTab.PLAYER }
+                ) { contentColor, selected ->
                     Text(
                         text = "Player",
-                        fontWeight = if (isPlayer) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                         fontSize = 13.sp,
-                        color = if (isPlayer) Color.Black else Color.White.copy(alpha = 0.75f)
+                        color = contentColor
                     )
                 }
             }
@@ -595,15 +568,30 @@ fun NowPlayingModal(
             Spacer(modifier = Modifier.height(10.dp))
 
             // ── TAB CONTENT (NO COLLISION) ──
-            when (currentTab) {
+            // Wrapped in a single AnimatedContent so switching mode cross-fades in
+            // place instead of hard-cutting. Specs are hoisted because transitionSpec
+            // is not a composable scope. SizeTransform(clip = false) stops the
+            // outgoing body being clipped to the incoming one's bounds mid-swap.
+            val tabBodyEnter = auralisContentEnter()
+            val tabBodyExit = auralisContentExit()
+            AnimatedContent(
+                targetState = currentTab,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                transitionSpec = {
+                    tabBodyEnter togetherWith tabBodyExit using SizeTransform(clip = false)
+                },
+                label = "nowPlayingTabBody"
+            ) { tab ->
+                when (tab) {
                 // ============================================================
                 // 🎤 A. FULL LYRICS VIEW (MATCHING PHOTO 2)
                 // ============================================================
                 NowPlayingTab.LYRICS -> {
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                            .fillMaxSize()
                     ) {
                         SyncedLyricsView(
                             lyrics = uiState.lyrics,
@@ -623,8 +611,7 @@ fun NowPlayingModal(
                 NowPlayingTab.QUEUE -> {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                            .fillMaxSize()
                     ) {
                         Text(
                             text = "Up Next (${uiState.queue.size} songs)",
@@ -634,14 +621,22 @@ fun NowPlayingModal(
                             modifier = Modifier.padding(vertical = 8.dp)
                         )
 
+                        val animateQueueItems = !LocalReducedMotion.current
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            itemsIndexed(uiState.queue) { index, item ->
+                            itemsIndexed(
+                                items = uiState.queue,
+                                // Keys let reorders/removals animate instead of the list
+                                // silently re-binding rows. A queue may legitimately hold
+                                // the same track twice, so the index is part of the key.
+                                key = { index, item -> "${item.id}#$index" }
+                            ) { index, item ->
                                 val isCurrent = index == uiState.currentIndex
                                 Row(
                                     modifier = Modifier
+                                        .then(if (animateQueueItems) Modifier.animateItem() else Modifier)
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
                                         .background(if (isCurrent) Color(0xFFD5E15B).copy(alpha = 0.20f) else Color.White.copy(alpha = 0.08f))
@@ -696,8 +691,7 @@ fun NowPlayingModal(
                 NowPlayingTab.PLAYER -> {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxSize(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // ── CENTER ARTWORK WITH AMBIENT HALO GLOW ──
@@ -739,10 +733,26 @@ fun NowPlayingModal(
                                     .clip(RoundedCornerShape(26.dp))
                             ) { page ->
                                 val pageTrack = if (queue.isNotEmpty() && page in queue.indices) queue[page] else track
+                                // Only the playing page claims the shared key — the pager
+                                // keeps neighbours composed off-screen and two live layouts
+                                // holding one key at once is undefined.
+                                val isCurrentPage = page == currentTrackIndex
                                 ArtworkCard(
                                     url = pageTrack.thumbnail,
-                                    modifier = Modifier.fillMaxSize(),
-                                    cornerRadius = 26.dp,
+                                    modifier = playerSharedArtwork(
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
+                                        enabled = isCurrentPage
+                                    ).fillMaxSize(),
+                                    cornerRadius = playerArtworkCorner(
+                                        animatedVisibilityScope = if (isCurrentPage) animatedVisibilityScope else null,
+                                        expanded = true
+                                    ),
+                                    // The visible drop shadow belongs to the pager above; this
+                                    // one is clipped away by it, and dropping the node keeps a
+                                    // shadow from being re-rasterised on every frame of the
+                                    // container transform.
+                                    elevation = 0.dp,
                                     contentDescription = pageTrack.title
                                 )
                             }
@@ -759,6 +769,15 @@ fun NowPlayingModal(
                             Column(modifier = Modifier.weight(1f)) {
                                 androidx.compose.animation.AnimatedContent(
                                     targetState = track,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .then(
+                                            playerSharedTrackInfo(
+                                                sharedTransitionScope = sharedTransitionScope,
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                                enabled = true
+                                            )
+                                        ),
                                     transitionSpec = {
                                         (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(180)) +
                                                 androidx.compose.animation.slideInVertically(animationSpec = androidx.compose.animation.core.tween(180)) { it / 3 }) togetherWith
@@ -833,12 +852,18 @@ fun NowPlayingModal(
                                     .tactileBounce(scaleDown = 0.86f, onClick = onToggleFavorite),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = if (uiState.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    contentDescription = if (uiState.isFavorite) "Favorited" else "Favorite",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                AnimatedContent(
+                                    targetState = uiState.isFavorite,
+                                    transitionSpec = { favoriteEnter togetherWith favoriteExit },
+                                    label = "nowPlayingFavorite"
+                                ) { favorited ->
+                                    Icon(
+                                        imageVector = if (favorited) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = if (favorited) "Favorited" else "Favorite",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -1024,37 +1049,30 @@ fun NowPlayingModal(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 // 1. Sleep Timer (Crescent Moon)
-                                Icon(
+                                PlayerUtilityIcon(
                                     imageVector = Icons.Default.Bedtime,
                                     contentDescription = "Sleep Timer",
-                                    tint = if (uiState.sleepTimerSeconds > 0) Color(0xFFD5E15B) else Color.White.copy(alpha = 0.70f),
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .tactileBounce(scaleDown = 0.82f, onClick = { showSleepDialog = true })
+                                    active = uiState.sleepTimerSeconds > 0,
+                                    onClick = { showSleepDialog = true }
                                 )
 
                                 // 2. Shuffle
-                                Icon(
+                                PlayerUtilityIcon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = "Shuffle",
-                                    tint = if (uiState.isShuffled) Color(0xFFD5E15B) else Color.White.copy(alpha = 0.70f),
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .tactileBounce(scaleDown = 0.82f, onClick = { onToggleShuffle() })
+                                    active = uiState.isShuffled,
+                                    onClick = { onToggleShuffle() }
                                 )
 
                                 // 3. Repeat
-                                val repeatIcon = when (uiState.repeatMode) {
-                                    RepeatMode.ONE -> Icons.Default.RepeatOne
-                                    else -> Icons.Default.Repeat
-                                }
-                                Icon(
-                                    imageVector = repeatIcon,
+                                PlayerUtilityIcon(
+                                    imageVector = when (uiState.repeatMode) {
+                                        RepeatMode.ONE -> Icons.Default.RepeatOne
+                                        else -> Icons.Default.Repeat
+                                    },
                                     contentDescription = "Repeat",
-                                    tint = if (uiState.repeatMode != RepeatMode.OFF) Color(0xFFD5E15B) else Color.White.copy(alpha = 0.70f),
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .tactileBounce(scaleDown = 0.82f, onClick = { onToggleRepeat() })
+                                    active = uiState.repeatMode != RepeatMode.OFF,
+                                    onClick = { onToggleRepeat() }
                                 )
                             }
 
@@ -1080,6 +1098,7 @@ fun NowPlayingModal(
             }
         }
     }
+}
 
     // Direct Add to Playlist Bottom Sheet (Shows all user playlists + Create new)
     if (showPlaylistPicker) {
@@ -1114,8 +1133,106 @@ fun NowPlayingModal(
 }
 
 /**
+ * One segment of the Lyrics | Queue | Player switcher.
+ *
+ * Extracted so the selection cross-fade recomposes three small lambdas rather than
+ * the whole modal body, which owns the aurora canvas and the artwork pager. The
+ * design is unchanged — only the hard flip between states is now interpolated.
+ */
+@Composable
+private fun RowScope.PlayerModeTab(
+    weight: Float,
+    selected: Boolean,
+    onClick: () -> Unit,
+    content: @Composable (contentColor: Color, selected: Boolean) -> Unit
+) {
+    val colorSpec = motionTween<Color>(AuralisDuration.Fast, AuralisEasing.Standard)
+    val background by androidx.compose.animation.animateColorAsState(
+        // Fading to a transparent *white* rather than Color.Transparent keeps the hue
+        // constant; transparent-black would darken the pill on the way out.
+        targetValue = if (selected) Color.White else Color.White.copy(alpha = 0f),
+        animationSpec = colorSpec,
+        label = "playerModeTabBackground"
+    )
+    val contentColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) Color.Black else Color.White.copy(alpha = 0.75f),
+        animationSpec = colorSpec,
+        label = "playerModeTabContent"
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (selected) 8.dp else 0.dp,
+        animationSpec = motionTween(AuralisDuration.Fast, AuralisEasing.Standard),
+        label = "playerModeTabElevation"
+    )
+
+    Box(
+        modifier = Modifier
+            .weight(weight)
+            // Modifier.shadow is a no-op at 0.dp, so unselected tabs carry no shadow
+            // node at all once the animation has settled.
+            .shadow(
+                elevation = elevation,
+                shape = CircleShape,
+                ambientColor = Color.Black.copy(alpha = 0.25f),
+                spotColor = Color.Black.copy(alpha = 0.25f)
+            )
+            .clip(CircleShape)
+            .background(background)
+            .tactileBounce(scaleDown = 0.92f, onClick = onClick)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        content(contentColor, selected)
+    }
+}
+
+/**
+ * A 20.dp toggle in the bottom utility capsule (sleep timer, shuffle, repeat).
+ *
+ * Owns its own tint animation so a toggle does not recompose the player body, and
+ * cross-fades [imageVector] so Repeat -> RepeatOne reads as one control changing
+ * mode instead of two different icons.
+ */
+@Composable
+private fun PlayerUtilityIcon(
+    imageVector: ImageVector,
+    contentDescription: String,
+    active: Boolean,
+    onClick: () -> Unit
+) {
+    val tint by androidx.compose.animation.animateColorAsState(
+        targetValue = if (active) Color(0xFFD5E15B) else Color.White.copy(alpha = 0.70f),
+        animationSpec = motionTween(AuralisDuration.Fast, AuralisEasing.Standard),
+        label = "playerUtilityTint"
+    )
+    val iconEnter = auralisIconSwapEnter()
+    val iconExit = auralisIconSwapExit()
+
+    Box(
+        modifier = Modifier
+            .size(20.dp)
+            .tactileBounce(scaleDown = 0.82f, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedContent(
+            targetState = imageVector,
+            transitionSpec = { iconEnter togetherWith iconExit },
+            label = "playerUtilityIcon"
+        ) { vector ->
+            Icon(
+                imageVector = vector,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/**
  * Compatibility alias for NowPlayingSheet
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun NowPlayingSheet(
     uiState: PlayerUiState,
@@ -1138,6 +1255,8 @@ fun NowPlayingSheet(
     onAddToQueue: () -> Unit = {},
     onArtistClick: ((com.auralis.music.domain.model.Artist) -> Unit)? = null,
     onDismiss: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
@@ -1161,6 +1280,8 @@ fun NowPlayingSheet(
         onAddToQueue = onAddToQueue,
         onArtistClick = onArtistClick,
         onDismiss = onDismiss,
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier
     )
 }
