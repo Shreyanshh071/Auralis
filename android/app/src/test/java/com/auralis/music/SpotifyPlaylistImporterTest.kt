@@ -400,4 +400,33 @@ class SpotifyPlaylistImporterTest {
         assertEquals("My Band", t.artist)
         assertEquals(180L, t.duration)
     }
+
+    @Test
+    fun testRealPlaylistImport() = kotlinx.coroutines.runBlocking {
+        val client = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        
+        // 1. Fetch Embed HTML
+        val embedUrl = "https://open.spotify.com/embed/playlist/0xiIxAmrgFOSU9lYkGK7Dt"
+        val req = okhttp3.Request.Builder()
+            .url(embedUrl)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+            .build()
+        val resp = client.newCall(req).execute()
+        val html = resp.body?.string() ?: ""
+        
+        val token = SpotifyPlaylistImporter.extractSessionTokenFromEmbed(html)
+        println("Extracted Token: $token")
+        
+        if (!token.isNullOrBlank()) {
+            val importer = SpotifyPlaylistImporter()
+            val pl = importer.fetchPlaylistViaPathfinder("0xiIxAmrgFOSU9lYkGK7Dt", token) {
+                println("PROGRESS: $it")
+            }
+            println("=== PATHFINDER RESULT: title=${pl?.title}, tracksCount=${pl?.tracks?.size} ===")
+            assertEquals(1715, pl?.tracks?.size)
+        }
+    }
 }
