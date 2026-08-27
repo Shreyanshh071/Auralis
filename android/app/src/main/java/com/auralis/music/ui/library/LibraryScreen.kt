@@ -1,5 +1,7 @@
 package com.auralis.music.ui.library
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +10,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import com.auralis.music.ui.theme.AuralisDuration
+import com.auralis.music.ui.theme.AuralisEasing
+import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.motionTween
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -183,7 +189,7 @@ fun LibraryScreen(
     }
 
     androidx.activity.compose.BackHandler(
-        enabled = isSearchActive || showSortMenu || showCreateDialog || showYouTubeImportDialog
+        enabled = uiState.selectedPlaylist != null || isSearchActive || showSortMenu || showCreateDialog || showYouTubeImportDialog
     ) {
         if (showYouTubeImportDialog) showYouTubeImportDialog = false
         else if (showCreateDialog) showCreateDialog = false
@@ -191,73 +197,103 @@ fun LibraryScreen(
         else if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
+        } else if (uiState.selectedPlaylist != null) {
+            onPlaylistSelect(null)
         }
     }
 
-    // If a playlist or smart collection is selected, display detail view
-    if (uiState.selectedPlaylist != null) {
-        val selectedPl = uiState.selectedPlaylist
-        PlaylistDetailView(
-            playlist = selectedPl,
-            currentTrackId = currentTrackId,
-            isPlaying = isPlaying,
-            userName = userName,
-            userAvatarUrl = userAvatarUrl,
-            onBack = { onPlaylistSelect(null) },
-            onPlayTrack = { track, list -> onTrackClick(track, list) },
-            onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
-            onDeletePlaylist = {
-                onDeletePlaylist(selectedPl.id)
-                onPlaylistSelect(null)
-            },
-            onSyncPlaylist = onSyncPlaylist,
-            onEditPlaylist = onEditPlaylist,
-            onAddToQueue = onAddToQueue,
-            onMenuClick = { track -> selectedTrackForMenu = track }
-        )
+    val reducedMotion = LocalReducedMotion.current
 
-        // Render Track Options Menu for playlist tracks
-        selectedTrackForMenu?.let { track ->
-            val isFav = uiState.favorites.any { it.id == track.id }
-            TrackOptionsMenu(
-                track = track,
-                isFavorite = isFav,
-                userPlaylists = uiState.playlists,
-                onToggleFavorite = { onFavoriteToggle(track) },
-                onPlayNext = {
-                    onPlayNext(track)
-                    selectedTrackForMenu = null
+    AnimatedContent(
+        targetState = uiState.selectedPlaylist,
+        transitionSpec = {
+            if (reducedMotion) {
+                EnterTransition.None togetherWith ExitTransition.None
+            } else if (targetState != null) {
+                (slideInHorizontally(
+                    initialOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(AuralisDuration.Nav, easing = AuralisEasing.Decelerate)
+                ) + fadeIn(tween(AuralisDuration.Quick))).togetherWith(
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                        animationSpec = tween(AuralisDuration.NavExit, easing = AuralisEasing.Accelerate)
+                    ) + fadeOut(tween(AuralisDuration.Fast))
+                )
+            } else {
+                (slideInHorizontally(
+                    initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                    animationSpec = tween(AuralisDuration.Nav, easing = AuralisEasing.Decelerate)
+                ) + fadeIn(tween(AuralisDuration.Quick))).togetherWith(
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(AuralisDuration.NavExit, easing = AuralisEasing.Accelerate)
+                    ) + fadeOut(tween(AuralisDuration.Fast))
+                )
+            }
+        },
+        label = "PlaylistDetailTransition"
+    ) { selectedPl ->
+        if (selectedPl != null) {
+            PlaylistDetailView(
+                playlist = selectedPl,
+                currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
+                userName = userName,
+                userAvatarUrl = userAvatarUrl,
+                onBack = { onPlaylistSelect(null) },
+                onPlayTrack = { track, list -> onTrackClick(track, list) },
+                onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
+                onDeletePlaylist = {
+                    onDeletePlaylist(selectedPl.id)
+                    onPlaylistSelect(null)
                 },
-                onAddToQueue = {
-                    onAddToQueueTrack(track)
-                    selectedTrackForMenu = null
-                },
-                onStartRadio = {
-                    onStartRadio(track)
-                    selectedTrackForMenu = null
-                },
-                onGoToArtist = {
-                    onOpenArtist(Artist(id = "", name = track.artist))
-                    selectedTrackForMenu = null
-                },
-                onAddToPlaylist = { playlist ->
-                    onAddToPlaylist(playlist.id, track)
-                    selectedTrackForMenu = null
-                },
-                onCreatePlaylistAndAdd = { title ->
-                    onCreatePlaylist(title)
-                    selectedTrackForMenu = null
-                },
-                isInListenTogetherRoom = isInListenTogetherRoom,
-                onRecommendToRoom = { trk ->
-                    onRecommendToRoom?.invoke(trk)
-                    selectedTrackForMenu = null
-                },
-                onDismiss = { selectedTrackForMenu = null }
+                onSyncPlaylist = onSyncPlaylist,
+                onEditPlaylist = onEditPlaylist,
+                onAddToQueue = onAddToQueue,
+                onMenuClick = { track -> selectedTrackForMenu = track }
             )
-        }
-        return
-    }
+
+            // Render Track Options Menu for playlist tracks
+            selectedTrackForMenu?.let { track ->
+                val isFav = uiState.favorites.any { it.id == track.id }
+                TrackOptionsMenu(
+                    track = track,
+                    isFavorite = isFav,
+                    userPlaylists = uiState.playlists,
+                    onToggleFavorite = { onFavoriteToggle(track) },
+                    onPlayNext = {
+                        onPlayNext(track)
+                        selectedTrackForMenu = null
+                    },
+                    onAddToQueue = {
+                        onAddToQueueTrack(track)
+                        selectedTrackForMenu = null
+                    },
+                    onStartRadio = {
+                        onStartRadio(track)
+                        selectedTrackForMenu = null
+                    },
+                    onGoToArtist = {
+                        onOpenArtist(Artist(id = "", name = track.artist))
+                        selectedTrackForMenu = null
+                    },
+                    onAddToPlaylist = { playlist ->
+                        onAddToPlaylist(playlist.id, track)
+                        selectedTrackForMenu = null
+                    },
+                    onCreatePlaylistAndAdd = { title ->
+                        onCreatePlaylist(title)
+                        selectedTrackForMenu = null
+                    },
+                    isInListenTogetherRoom = isInListenTogetherRoom,
+                    onRecommendToRoom = { trk ->
+                        onRecommendToRoom?.invoke(trk)
+                        selectedTrackForMenu = null
+                    },
+                    onDismiss = { selectedTrackForMenu = null }
+                )
+            }
+        } else {
 
     Box(
         modifier = modifier
@@ -393,61 +429,77 @@ fun LibraryScreen(
             // ================================================================
             // 3. LIBRARY CONTENT (2-COLUMN GRID OR 1-COLUMN LIST)
             // ================================================================
-            if (isGridView) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    if (searchQuery.isBlank()) {
-                        // Default Playlist: Liked
-                        item {
-                            SmartLibraryCard(
-                                title = "Liked",
-                                subtitle = "${uiState.favorites.size} songs",
-                                icon = Icons.Default.FavoriteBorder,
-                                tracks = uiState.favorites,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
-                            )
+            val gridAnimate = !LocalReducedMotion.current
+            val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
+            val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
+            AnimatedContent(
+                targetState = isGridView,
+                transitionSpec = {
+                    gridFadeEnter togetherWith gridFadeExit using SizeTransform(clip = false)
+                },
+                modifier = Modifier.fillMaxSize(),
+                label = "libraryLayoutMode"
+            ) { gridMode ->
+                if (gridMode) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (searchQuery.isBlank()) {
+                            // Default Playlist: Liked
+                            item {
+                                SmartLibraryCard(
+                                    title = "Liked",
+                                    subtitle = "${uiState.favorites.size} songs",
+                                    icon = Icons.Default.FavoriteBorder,
+                                    tracks = uiState.favorites,
+                                    onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
+                                )
+                            }
+                        }
+
+                        // User & Synced Playlists (Imported or Created)
+                        items(displayedPlaylists, key = { it.id }) { playlist ->
+                            Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
+                                UserPlaylistGridCard(
+                                    playlist = playlist,
+                                    onClick = { onPlaylistSelect(playlist) }
+                                )
+                            }
                         }
                     }
-
-                    // User & Synced Playlists (Imported or Created)
-                    items(displayedPlaylists, key = { it.id }) { playlist ->
-                        UserPlaylistGridCard(
-                            playlist = playlist,
-                            onClick = { onPlaylistSelect(playlist) }
-                        )
-                    }
-                }
-            } else {
-                // ============================================================
-                // 📋 1-COLUMN LIST VIEW
-                // ============================================================
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (searchQuery.isBlank()) {
-                        item {
-                            SmartLibraryListRow(
-                                title = "Liked",
-                                subtitle = "${uiState.favorites.size} songs",
-                                icon = Icons.Default.FavoriteBorder,
-                                tracks = uiState.favorites,
-                                onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
-                            )
+                } else {
+                    // ============================================================
+                    // 📋 1-COLUMN LIST VIEW
+                    // ============================================================
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (searchQuery.isBlank()) {
+                            item {
+                                SmartLibraryListRow(
+                                    title = "Liked",
+                                    subtitle = "${uiState.favorites.size} songs",
+                                    icon = Icons.Default.FavoriteBorder,
+                                    tracks = uiState.favorites,
+                                    onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
+                                )
+                            }
                         }
-                    }
 
-                    items(displayedPlaylists, key = { it.id }) { playlist ->
-                        UserPlaylistListRow(
-                            playlist = playlist,
-                            onClick = { onPlaylistSelect(playlist) }
-                        )
+                        items(displayedPlaylists, key = { it.id }) { playlist ->
+                            Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
+                                UserPlaylistListRow(
+                                    playlist = playlist,
+                                    onClick = { onPlaylistSelect(playlist) }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -684,6 +736,8 @@ fun LibraryScreen(
             }
         )
     }
+    }
+}
 }
 
 // ============================================================================

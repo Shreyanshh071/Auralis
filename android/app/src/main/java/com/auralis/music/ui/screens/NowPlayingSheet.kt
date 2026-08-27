@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.auralis.music.domain.model.Artist
@@ -11,6 +14,7 @@ import com.auralis.music.ui.viewmodel.PlayerUiState
 /**
  * Backward-compatible NowPlayingSheet wrapper delegating to the exact Auralis NowPlayingModal.
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun NowPlayingSheet(
     uiState: PlayerUiState,
@@ -30,6 +34,8 @@ fun NowPlayingSheet(
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onArtistClick: ((Artist) -> Unit)? = null,
     onDismiss: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
@@ -49,6 +55,8 @@ fun NowPlayingSheet(
         onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
         onArtistClick = onArtistClick,
         onDismiss = onDismiss,
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier
     )
 }

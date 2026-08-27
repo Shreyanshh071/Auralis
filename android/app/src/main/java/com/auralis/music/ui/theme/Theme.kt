@@ -174,6 +174,9 @@ fun AuralisTheme(
     // Compute dynamic artwork ambient tints
     val dynamicPalette = generateDynamicPalette(artworkDominantColor, isDark = darkTheme)
 
+    // Honour the system "remove animations" accessibility preference app-wide
+    val reducedMotion = rememberReducedMotion()
+
     // Set transparent immersive status/navigation bars for edge-to-edge rendering
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -187,7 +190,8 @@ fun AuralisTheme(
     }
 
     CompositionLocalProvider(
-        LocalAuralisDynamicPalette provides dynamicPalette
+        LocalAuralisDynamicPalette provides dynamicPalette,
+        LocalReducedMotion provides reducedMotion
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

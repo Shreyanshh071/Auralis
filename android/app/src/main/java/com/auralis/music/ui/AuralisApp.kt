@@ -27,7 +27,19 @@ import androidx.media3.common.util.UnstableApi
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.components.MiniPlayer
 import com.auralis.music.ui.profile.ProfileSheet
+import com.auralis.music.ui.player.MiniPlayerHeight
 import com.auralis.music.ui.screens.*
+import com.auralis.music.ui.theme.AuralisDuration
+import com.auralis.music.ui.theme.AuralisEasing
+import com.auralis.music.ui.theme.AuralisSpring
+import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.auralisFadeEnter
+import com.auralis.music.ui.theme.auralisFadeExit
+import com.auralis.music.ui.theme.auralisPushEnter
+import com.auralis.music.ui.theme.auralisPushExit
+import com.auralis.music.ui.theme.auralisSheetEnter
+import com.auralis.music.ui.theme.auralisSheetExit
+import com.auralis.music.ui.theme.motionTween
 import com.auralis.music.ui.viewmodel.*
 import kotlinx.coroutines.launch
 
@@ -37,7 +49,37 @@ enum class AppDestination(val label: String, val icon: ImageVector) {
     LIBRARY("Library", Icons.Default.LibraryMusic)
 }
 
-@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
+/** How much the selected destination icon grows. Deliberately small — this reads as weight, not bounce. */
+private const val SelectedNavIconScale = 1.08f
+
+/**
+ * Bottom-bar icon with a subtle spring on selection, so the tap has a visible
+ * consequence at the point of contact rather than only further up the screen.
+ * The M3 pill indicator and all colours are untouched.
+ */
+@Composable
+private fun AnimatedNavIcon(destination: AppDestination, selected: Boolean) {
+    val reducedMotion = LocalReducedMotion.current
+    val scale by animateFloatAsState(
+        targetValue = if (selected && !reducedMotion) SelectedNavIconScale else 1f,
+        animationSpec = AuralisSpring.Snappy,
+        label = "navIconScale"
+    )
+    Icon(
+        imageVector = destination.icon,
+        contentDescription = destination.label,
+        modifier = if (reducedMotion) {
+            Modifier
+        } else {
+            Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun AuralisApp(
     homeViewModel: HomeViewModel,
@@ -83,19 +125,25 @@ fun AuralisApp(
     var isHistoryOpen by remember { mutableStateOf(false) }
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
 
+    // Single source of truth for top-level destination motion. Every entry point
+    // that changes the visible destination — nav bar, back gesture, deep link from
+    // another screen — funnels through scrollToDestination so they cannot drift apart.
+    val pageScrollSpec = motionTween<Float>(
+        durationMillis = AuralisDuration.Standard,
+        easing = AuralisEasing.Decelerate
+    )
+
+    fun scrollToDestination(dest: AppDestination) {
+        coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            mainPagerState.animateScrollToPage(dest.ordinal, animationSpec = pageScrollSpec)
+        }
+    }
+
     fun navigateToDestination(dest: AppDestination) {
         if (currentDestination != dest) {
             destinationBackStack.add(currentDestination)
             currentDestination = dest
-            coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                mainPagerState.animateScrollToPage(
-                    dest.ordinal,
-                    animationSpec = tween(
-                        durationMillis = 240,
-                        easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                    )
-                )
-            }
+            scrollToDestination(dest)
         }
         isHistoryOpen = false
         isProfileOpen = false
@@ -184,26 +232,10 @@ fun AuralisApp(
         else if (destinationBackStack.isNotEmpty()) {
             val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)
             currentDestination = prevDest
-            coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                mainPagerState.animateScrollToPage(
-                    prevDest.ordinal,
-                    animationSpec = tween(
-                        durationMillis = 240,
-                        easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                    )
-                )
-            }
+            scrollToDestination(prevDest)
         } else if (currentDestination != AppDestination.HOME) {
             currentDestination = AppDestination.HOME
-            coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                mainPagerState.animateScrollToPage(
-                    AppDestination.HOME.ordinal,
-                    animationSpec = tween(
-                        durationMillis = 240,
-                        easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                    )
-                )
-            }
+            scrollToDestination(AppDestination.HOME)
         }
     }
 
@@ -278,76 +310,100 @@ fun AuralisApp(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // One SharedTransitionLayout for the whole app: the mini-player lives in the
+    // Scaffold's bottom bar and Now Playing is a sibling overlay, so the only way the
+    // two can hand the artwork over is through a shared parent that outlives both.
+    // Behaves like a Box (children are stacked), so the existing layering is intact.
+    SharedTransitionLayout(modifier = modifier.fillMaxSize()) {
+        val playerSharedScope = this
+
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             bottomBar = {
-                Column(
-                    modifier = Modifier.graphicsLayer {
-                        // Prevent Scaffold from remeasuring and relayouting the entire screen when NowPlaying opens/closes
-                        alpha = if (isNowPlayingOpen) 0f else 1f
-                    }
-                ) {
-                    // Persistent Mini Player across all tabs
+                Column {
+                    // Persistent Mini Player across all tabs.
+                    // The fixed-height Box sits *outside* the AnimatedVisibility so the
+                    // bottom bar's measured height never changes while the pill fades
+                    // out — otherwise the Scaffold would relayout the entire screen on
+                    // every frame of the transform.
                     if (playerUiState.currentTrack != null) {
                         val progressFrac = if (playerUiState.durationMs > 0) {
                             (playerUiState.playbackPositionMs.toFloat() / playerUiState.durationMs).coerceIn(0f, 1f)
                         } else 0f
 
-                        MiniPlayer(
-                            track = playerUiState.currentTrack!!,
-                            isPlaying = playerUiState.isPlaying,
-                            progress = progressFrac,
-                            queue = playerUiState.queue,
-                            currentIndex = playerUiState.currentIndex,
-                            isFavorite = playerUiState.isFavorite,
-                            userScrollEnabled = !isGuestInRoom && !isNowPlayingOpen,
-                            onPlayPauseClick = {
-                                if (isGuestInRoom) notifyGuestControlBlocked()
-                                else playerViewModel.togglePlayPause()
-                            },
-                            onNextClick = {
-                                if (isGuestInRoom) notifyGuestControlBlocked()
-                                else playerViewModel.next()
-                            },
-                            onPreviousClick = {
-                                if (isGuestInRoom) notifyGuestControlBlocked()
-                                else playerViewModel.previous()
-                            },
-                            onSelectQueueTrack = { index ->
-                                if (isGuestInRoom) {
-                                    notifyGuestControlBlocked()
-                                } else {
-                                    val t = playerUiState.queue.getOrNull(index)
-                                    if (t != null) {
-                                        playerViewModel.playTrack(t, playerUiState.queue, index)
-                                    }
-                                }
-                            },
-                            onFavoriteToggle = { playerViewModel.toggleFavorite() },
-                            onAddToPlaylist = {
-                                showMiniPlayerTrackOptions = true
-                            },
-                            onArtistClick = {
-                                searchViewModel.openArtist(com.auralis.music.domain.model.Artist(id = "", name = playerUiState.currentTrack!!.artist))
-                                navigateToDestination(AppDestination.EXPLORE)
-                            },
-                            onClick = { isNowPlayingOpen = true }
-                        )
+                        Box(modifier = Modifier.height(MiniPlayerHeight)) {
+                            this@Column.AnimatedVisibility(
+                                visible = !isNowPlayingOpen,
+                                // Matched to the container transform's duration so the pill's
+                                // chrome is gone exactly as the artwork finishes travelling.
+                                enter = auralisFadeEnter(AuralisDuration.Emphasized),
+                                exit = auralisFadeExit(AuralisDuration.Emphasized)
+                            ) {
+                                MiniPlayer(
+                                    track = playerUiState.currentTrack!!,
+                                    isPlaying = playerUiState.isPlaying,
+                                    progress = progressFrac,
+                                    queue = playerUiState.queue,
+                                    currentIndex = playerUiState.currentIndex,
+                                    isFavorite = playerUiState.isFavorite,
+                                    userScrollEnabled = !isGuestInRoom && !isNowPlayingOpen,
+                                    onPlayPauseClick = {
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.togglePlayPause()
+                                    },
+                                    onNextClick = {
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.next()
+                                    },
+                                    onPreviousClick = {
+                                        if (isGuestInRoom) notifyGuestControlBlocked()
+                                        else playerViewModel.previous()
+                                    },
+                                    onSelectQueueTrack = { index ->
+                                        if (isGuestInRoom) {
+                                            notifyGuestControlBlocked()
+                                        } else {
+                                            val t = playerUiState.queue.getOrNull(index)
+                                            if (t != null) {
+                                                playerViewModel.playTrack(t, playerUiState.queue, index)
+                                            }
+                                        }
+                                    },
+                                    onFavoriteToggle = { playerViewModel.toggleFavorite() },
+                                    onAddToPlaylist = {
+                                        showMiniPlayerTrackOptions = true
+                                    },
+                                    onArtistClick = {
+                                        searchViewModel.openArtist(com.auralis.music.domain.model.Artist(id = "", name = playerUiState.currentTrack!!.artist))
+                                        navigateToDestination(AppDestination.EXPLORE)
+                                    },
+                                    onClick = { isNowPlayingOpen = true },
+                                    sharedTransitionScope = playerSharedScope,
+                                    animatedVisibilityScope = this@AnimatedVisibility
+                                )
+                            }
+                        }
                     }
 
                     // Bottom Navigation Bar
                     NavigationBar(
+                        modifier = Modifier.graphicsLayer {
+                            // Hidden rather than removed, so the Scaffold never remeasures
+                            // and relayouts the whole screen when NowPlaying opens/closes.
+                            alpha = if (isNowPlayingOpen) 0f else 1f
+                        },
                         containerColor = Color(0xFF0D0E0B),
                         tonalElevation = 8.dp
                     ) {
                         AppDestination.values().forEach { destination ->
+                            val isSelected = currentDestination == destination &&
+                                    !isHistoryOpen && !isProfileOpen && !isListenTogetherOpen
                             NavigationBarItem(
-                                selected = currentDestination == destination && !isHistoryOpen && !isProfileOpen && !isListenTogetherOpen,
+                                selected = isSelected,
                                 onClick = {
                                     navigateToDestination(destination)
                                 },
-                                icon = { Icon(destination.icon, contentDescription = destination.label) },
+                                icon = { AnimatedNavIcon(destination = destination, selected = isSelected) },
                                 label = { Text(destination.label) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = Color(0xFFD4E157),
@@ -516,26 +572,10 @@ fun AuralisApp(
                                                     if (destinationBackStack.isNotEmpty()) {
                                                         val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)
                                                         currentDestination = prevDest
-                                                        coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                                                            mainPagerState.animateScrollToPage(
-                                                                prevDest.ordinal,
-                                                                animationSpec = tween(
-                                                                    durationMillis = 240,
-                                                                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                                                                )
-                                                            )
-                                                        }
+                                                        scrollToDestination(prevDest)
                                                     } else {
                                                         currentDestination = AppDestination.HOME
-                                                        coroutineScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                                                            mainPagerState.animateScrollToPage(
-                                                                AppDestination.HOME.ordinal,
-                                                                animationSpec = tween(
-                                                                    durationMillis = 240,
-                                                                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                                                                )
-                                                            )
-                                                        }
+                                                        scrollToDestination(AppDestination.HOME)
                                                     }
                                                 },
                                                 isInListenTogetherRoom = isGuestInRoom,
@@ -613,20 +653,8 @@ fun AuralisApp(
         // Fullscreen Expandable Now Playing Modal Sheet (Root Overlay, takes 100% of the screen)
         AnimatedVisibility(
             visible = isNowPlayingOpen,
-            enter = slideInVertically(
-                initialOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(
-                    durationMillis = 260,
-                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                )
-            ) + fadeIn(animationSpec = tween(180)),
-            exit = slideOutVertically(
-                targetOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(
-                    durationMillis = 220,
-                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
-                )
-            ) + fadeOut(animationSpec = tween(140)),
+            enter = auralisSheetEnter(),
+            exit = auralisSheetExit(),
             modifier = Modifier.graphicsLayer { clip = true }
         ) {
             NowPlayingSheet(
@@ -690,27 +718,17 @@ fun AuralisApp(
                     searchViewModel.openArtist(artist)
                     navigateToDestination(AppDestination.EXPLORE)
                 },
-                onDismiss = { isNowPlayingOpen = false }
+                onDismiss = { isNowPlayingOpen = false },
+                sharedTransitionScope = playerSharedScope,
+                animatedVisibilityScope = this@AnimatedVisibility
             )
         }
 
         // Listen Together Sheet with smooth slide animation from the right
         AnimatedVisibility(
             visible = isListenTogetherOpen,
-            enter = slideInHorizontally(
-                initialOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(
-                    durationMillis = 260,
-                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                )
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(
-                    durationMillis = 220,
-                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
-                )
-            ) + fadeOut(animationSpec = tween(160))
+            enter = auralisPushEnter(),
+            exit = auralisPushExit()
         ) {
             ListenTogetherSheet(
                 uiState = listenTogetherUiState,
@@ -756,20 +774,8 @@ fun AuralisApp(
         // Profile & YouTube Music Account Sync Modal Sheet
         AnimatedVisibility(
             visible = isProfileOpen,
-            enter = slideInHorizontally(
-                initialOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(
-                    durationMillis = 260,
-                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                )
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(
-                    durationMillis = 220,
-                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
-                )
-            ) + fadeOut(animationSpec = tween(160))
+            enter = auralisPushEnter(),
+            exit = auralisPushExit()
         ) {
             val ctx = androidx.compose.ui.platform.LocalContext.current
             ProfileSheet(
@@ -807,20 +813,8 @@ fun AuralisApp(
         // Listening History Modal Sheet
         AnimatedVisibility(
             visible = isHistoryOpen,
-            enter = slideInHorizontally(
-                initialOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(
-                    durationMillis = 260,
-                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
-                )
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(
-                    durationMillis = 220,
-                    easing = CubicBezierEasing(0.4f, 0.0f, 0.8f, 1.0f)
-                )
-            ) + fadeOut(animationSpec = tween(160))
+            enter = auralisPushEnter(),
+            exit = auralisPushExit()
         ) {
             com.auralis.music.ui.history.HistorySheet(
                 history = homeUiState.recentTracks,
