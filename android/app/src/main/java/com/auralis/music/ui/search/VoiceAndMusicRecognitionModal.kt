@@ -140,7 +140,7 @@ fun VoiceAndMusicRecognitionModal(
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak song, artist, or music name...")
             }
             speechIntentLauncher.launch(intent)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             requestAndStartListening()
         }
     }
@@ -328,15 +328,14 @@ fun VoiceAndMusicRecognitionModal(
                 }
             }
 
-            // Live recognized transcript text with tap-to-search action
+            // ── RECOGNIZED PARTIAL TEXT / QUERY CHIP ──
             if (state.recognizedText.isNotBlank()) {
-                Spacer(modifier = Modifier.height(20.dp))
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xFF1B1D16))
-                        .border(1.dp, RECOG_LIME.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 18.dp, vertical = 10.dp)
+                        .border(1.dp, RECOG_LIME.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
                         .clickable {
                             onSearchQuery(state.recognizedText)
                             onDismiss()
@@ -356,6 +355,39 @@ fun VoiceAndMusicRecognitionModal(
                         contentDescription = "Search",
                         tint = RECOG_LIME,
                         modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            if (state.mode == RecognitionMode.MUSIC_IDENTIFY && state.status != RecognitionStatus.ERROR && state.identifiedTrack == null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val musicSearchIntent = Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(musicSearchIntent)
+                            onDismiss()
+                        } catch (e: Exception) {
+                            launchSystemSpeechRecognizer()
+                        }
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = RECOG_LIME),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.GraphicEq,
+                        contentDescription = null,
+                        tint = RECOG_LIME,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Identify with Google Sound Search",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -457,10 +489,29 @@ fun VoiceAndMusicRecognitionModal(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Google Voice", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
+                    } else {
+                        Button(
+                            onClick = {
+                                try {
+                                    val musicSearchIntent = Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(musicSearchIntent)
+                                    onDismiss()
+                                } catch (e: Exception) {
+                                    launchSystemSpeechRecognizer()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = RECOG_LIME),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sound Search", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         }
     }
 }
-

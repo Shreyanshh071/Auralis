@@ -71,13 +71,28 @@ class AudioRecognitionManager(
     private fun initSpeechRecognizer() {
         try {
             if (speechRecognizer != null) {
-                speechRecognizer?.destroy()
+                try {
+                    speechRecognizer?.destroy()
+                } catch (e: Exception) {}
                 speechRecognizer = null
             }
 
-            if (SpeechRecognizer.isRecognitionAvailable(context)) {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(object : RecognitionListener {
+            speechRecognizer = try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                } else {
+                    SpeechRecognizer.createSpeechRecognizer(context)
+                }
+            } catch (e: Exception) {
+                try {
+                    SpeechRecognizer.createSpeechRecognizer(context)
+                } catch (e2: Exception) {
+                    null
+                }
+            }
+
+            speechRecognizer?.apply {
+                setRecognitionListener(object : RecognitionListener {
                         override fun onReadyForSpeech(params: Bundle?) {
                             isListening = true
                             _state.update {
@@ -183,8 +198,7 @@ class AudioRecognitionManager(
                         override fun onEvent(eventType: Int, params: Bundle?) {}
                     })
                 }
-            }
-        } catch (_: Exception) {}
+            } catch (e: Exception) {}
     }
 
     private fun handleRecognizedQuery(query: String) {
@@ -299,6 +313,21 @@ class AudioRecognitionManager(
             try {
                 if (speechRecognizer == null) {
                     initSpeechRecognizer()
+                } else {
+                    try {
+                        speechRecognizer?.cancel()
+                    } catch (e: Exception) {}
+                }
+
+                if (speechRecognizer == null) {
+                    _state.update {
+                        it.copy(
+                            status = RecognitionStatus.ERROR,
+                            statusMessage = "Speech recognizer unavailable on this device."
+                        )
+                    }
+                    isListening = false
+                    return@post
                 }
 
                 _state.update {
@@ -342,7 +371,7 @@ class AudioRecognitionManager(
             try {
                 speechRecognizer?.stopListening()
                 speechRecognizer?.cancel()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {}
         }
     }
 }
