@@ -88,11 +88,6 @@ class LibraryViewModel(
                 _uiState.update { it.copy(savedAlbums = albums) }
             }
         }
-
-        // Auto-enrich existing Spotify-imported playlist tracks with official YouTube covers
-        viewModelScope.launch {
-            enrichExistingPlaylistsWithArtwork()
-        }
     }
 
     fun enrichPlaylist(playlist: Playlist) {
@@ -301,15 +296,6 @@ class LibraryViewModel(
             libraryRepository.getPlaylist(playlistId).collect { pl ->
                 _uiState.update { it.copy(selectedPlaylist = pl, selectedSmartCollection = null) }
                 if (pl != null) {
-                    val needsEnrich = pl.tracks.any {
-                        it.thumbnail.contains("mosaic.scdn.co") ||
-                        it.thumbnail.contains("image-cdn") ||
-                        it.id.startsWith("sp_") ||
-                        (!pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
-                    }
-                    if (needsEnrich) {
-                        enrichPlaylist(pl)
-                    }
                 }
             }
         }

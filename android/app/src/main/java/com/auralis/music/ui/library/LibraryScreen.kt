@@ -108,6 +108,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -339,42 +342,73 @@ fun LibraryScreen(
             // 2. SORTING & CONTROLS BAR ("Date added ↓", Search & Grid/List Toggle)
             // ================================================================
             if (isSearchActive) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(CARD_DARK_BG)
+                        .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search library...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp) },
-                        singleLine = true,
-                        leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = null, tint = LIME_TEXT, modifier = Modifier.size(18.dp))
-                        },
-                        trailingIcon = {
-                            IconButton(onClick = {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = LIME_TEXT,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Search library...",
+                                    style = TextStyle(
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Normal
+                                ),
+                                cursorBrush = SolidColor(LIME_TEXT),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        IconButton(
+                            onClick = {
                                 if (searchQuery.isNotEmpty()) {
                                     searchQuery = ""
                                 } else {
                                     isSearchActive = false
                                 }
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = CARD_DARK_BG,
-                            unfocusedContainerColor = CARD_DARK_BG,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedIndicatorColor = LIME_TEXT,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.weight(1f).height(50.dp)
-                    )
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                 }
             } else {
                 Row(
@@ -1114,25 +1148,70 @@ private fun PlaylistDetailView(
         }
 
         if (isSearchActive) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search in playlist...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = CARD_DARK_BG,
-                    unfocusedContainerColor = CARD_DARK_BG,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedIndicatorColor = LIME_TEXT,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .height(50.dp)
-            )
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CARD_DARK_BG)
+                    .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Search in playlist...",
+                                style = TextStyle(
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                            )
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            textStyle = TextStyle(
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            cursorBrush = SolidColor(LIME_TEXT),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // ================================================================
@@ -1249,7 +1328,7 @@ private fun PlaylistDetailView(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     // Author Row
-                    val authorName = if (userName.isNotBlank() && userName != "Guest Listener") userName else "You"
+                    val authorName = if (userName.isNotBlank() && !userName.contains("listener", ignoreCase = true)) userName else "You"
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center

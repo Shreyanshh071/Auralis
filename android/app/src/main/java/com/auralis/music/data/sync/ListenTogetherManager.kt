@@ -76,6 +76,18 @@ class ListenTogetherManager(
         return code.toString()
     }
 
+    fun getAuthenticatedDisplayName(): String {
+        val currentUser = auth.currentUser ?: return ""
+        val name = currentUser.displayName?.takeIf { it.isNotBlank() && !isGenericListenerName(it) }
+            ?: currentUser.email?.substringBefore("@")?.takeIf { it.isNotBlank() }
+        return name ?: ""
+    }
+
+    private fun isGenericListenerName(name: String): Boolean {
+        val lower = name.trim().lowercase()
+        return lower == "listener" || lower == "guest listener" || lower == "auralis listener"
+    }
+
     suspend fun createRoom(
         hostDisplayName: String,
         initialTrack: Track?,
@@ -85,7 +97,9 @@ class ListenTogetherManager(
     ): Pair<String, String> {
         val uid = ensureAuthenticated()
         val roomCode = generateRoomCode()
-        val displayName = hostDisplayName.ifBlank { "Host" }
+        val displayName = hostDisplayName.trim().takeIf { it.isNotBlank() && !isGenericListenerName(it) }
+            ?: getAuthenticatedDisplayName().takeIf { it.isNotBlank() }
+            ?: "Host"
 
         val roomDoc = firestore.collection("rooms").document(roomCode)
         val now = System.currentTimeMillis()
@@ -160,7 +174,9 @@ class ListenTogetherManager(
             throw IllegalStateException("This room is no longer active.")
         }
 
-        val displayName = memberDisplayName.ifBlank { "Guest_${uid.take(4)}" }
+        val displayName = memberDisplayName.trim().takeIf { it.isNotBlank() && !isGenericListenerName(it) }
+            ?: getAuthenticatedDisplayName().takeIf { it.isNotBlank() }
+            ?: "User_${uid.take(4)}"
         val now = System.currentTimeMillis()
 
         val memberData = hashMapOf(

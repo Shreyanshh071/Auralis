@@ -10,6 +10,8 @@ import com.auralis.music.data.sync.RoomMember
 import com.auralis.music.data.sync.RoomRecommendation
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
+import com.auralis.music.domain.auth.GoogleAccountSyncManager
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,14 +27,15 @@ data class ListenTogetherUiState(
     val isHost: Boolean = false,
     val isConnecting: Boolean = false,
     val errorMessage: String? = null,
-    val myDisplayName: String = "Listener",
+    val myDisplayName: String = "",
     val isSearchingRecommendations: Boolean = false,
     val recommendationSearchResults: List<Track> = emptyList()
 )
 
 class ListenTogetherViewModel(
     private val manager: ListenTogetherManager = ListenTogetherManager(),
-    private val searchRepository: SearchRepository? = null
+    private val searchRepository: SearchRepository? = null,
+    private val syncManager: GoogleAccountSyncManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ListenTogetherUiState())
@@ -59,12 +62,73 @@ class ListenTogetherViewModel(
     var onHostAddToQueue: ((track: Track) -> Unit)? = null
 
     init {
+        val initialName = resolveAuthenticatedName()
+        if (initialName.isNotBlank()) {
+            _uiState.update { it.copy(myDisplayName = initialName) }
+        }
+
         viewModelScope.launch {
             try {
                 val uid = manager.ensureAuthenticated()
-                _uiState.update { it.copy(currentUserId = uid) }
+                val refreshedName = resolveAuthenticatedName()
+                _uiState.update {
+                    it.copy(
+                        currentUserId = uid,
+                        myDisplayName = if (it.myDisplayName.isBlank() || isGenericListener(it.myDisplayName)) refreshedName else it.myDisplayName
+                    )
+                }
             } catch (_: Exception) {}
         }
+
+        if (syncManager != null) {
+            viewModelScope.launch {
+                syncManager.userProfile.collect { profile ->
+                    val profileName = profile.displayName.takeIf { it.isNotBlank() && !isGenericListener(it) }
+                        ?: profile.email.substringBefore("@").takeIf { it.isNotBlank() && !it.contains("not connected", ignoreCase = true) }
+                    if (!profileName.isNullOrBlank()) {
+                        _uiState.update { current ->
+                            if (current.myDisplayName.isBlank() || isGenericListener(current.myDisplayName)) {
+                                current.copy(myDisplayName = profileName)
+                            } else current
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resolveAuthenticatedName(): String {
+        val profileName = syncManager?.userProfile?.value?.displayName?.takeIf { it.isNotBlank() && !isGenericListener(it) }
+        if (!profileName.isNullOrBlank()) return profileName
+
+        return try {
+            val user = FirebaseAuth.getInstance().currentUser
+            val name = user?.displayName?.takeIf { it.isNotBlank() && !isGenericListener(it) }
+                ?: user?.email?.substringBefore("@")?.takeIf { it.isNotBlank() }
+            name ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    fun getEffectiveDisplayName(): String {
+        val userGiven = _uiState.value.myDisplayName.trim()
+        if (userGiven.isNotBlank() && !isGenericListener(userGiven)) {
+            return userGiven
+        }
+        val resolved = resolveAuthenticatedName()
+        if (resolved.isNotBlank()) {
+            if (_uiState.value.myDisplayName != resolved) {
+                _uiState.update { it.copy(myDisplayName = resolved) }
+            }
+            return resolved
+        }
+        return ""
+    }
+
+    private fun isGenericListener(name: String): Boolean {
+        val lower = name.trim().lowercase()
+        return lower == "listener" || lower == "guest listener" || lower == "auralis listener"
     }
 
     fun setDisplayName(name: String) {
@@ -78,10 +142,11 @@ class ListenTogetherViewModel(
         positionMs: Long = 0L
     ) {
         _uiState.update { it.copy(isConnecting = true, errorMessage = null) }
+        val effectiveName = getEffectiveDisplayName()
         viewModelScope.launch {
             try {
                 val (roomCode, uid) = manager.createRoom(
-                    hostDisplayName = _uiState.value.myDisplayName,
+                    hostDisplayName = effectiveName,
                     initialTrack = initialTrack,
                     queue = queue,
                     isPlaying = isPlaying,
@@ -89,7 +154,7 @@ class ListenTogetherViewModel(
                 )
                 lastSyncedTrackId = initialTrack?.id
                 lastSyncedIsPlaying = isPlaying
-                _uiState.update { it.copy(isHost = true, isConnecting = false, currentUserId = uid) }
+                _uiState.update { it.copy(isHost = true, isConnecting = false, currentUserId = uid, myDisplayName = if (it.myDisplayName.isBlank()) effectiveName else it.myDisplayName) }
                 startObservingRoom(roomCode)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Create Room Failed]: ${e.message}", e)
@@ -101,9 +166,10 @@ class ListenTogetherViewModel(
     fun joinRoom(roomCode: String) {
         if (roomCode.isBlank()) return
         _uiState.update { it.copy(isConnecting = true, errorMessage = null) }
+        val effectiveName = getEffectiveDisplayName()
         viewModelScope.launch {
             try {
-                val initialRoomState = manager.joinRoom(roomCode, _uiState.value.myDisplayName)
+                val initialRoomState = manager.joinRoom(roomCode, effectiveName)
                 val uid = manager.ensureAuthenticated()
                 lastSyncedTrackId = null
                 lastSyncedIsPlaying = null
@@ -112,7 +178,8 @@ class ListenTogetherViewModel(
                         activeRoom = initialRoomState,
                         isHost = false,
                         isConnecting = false,
-                        currentUserId = uid
+                        currentUserId = uid,
+                        myDisplayName = if (it.myDisplayName.isBlank()) effectiveName else it.myDisplayName
                     )
                 }
                 // Perform immediate initial playback sync on join
@@ -201,7 +268,7 @@ class ListenTogetherViewModel(
                     roomCode = roomCode,
                     track = track,
                     note = note,
-                    recommenderName = _uiState.value.myDisplayName
+                    recommenderName = getEffectiveDisplayName()
                 )
             } catch (e: Exception) {
                 Log.e("ListenTogether", "Failed recommending song: ${e.message}", e)

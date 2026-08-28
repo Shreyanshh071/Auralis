@@ -94,7 +94,10 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 val listenTogetherViewModel: ListenTogetherViewModel = viewModel {
-                    ListenTogetherViewModel(searchRepository = searchRepository)
+                    ListenTogetherViewModel(
+                        searchRepository = searchRepository,
+                        syncManager = googleAccountSyncManager
+                    )
                 }
                 val authViewModel: AuthViewModel = viewModel {
                     AuthViewModel(googleAccountSyncManager)

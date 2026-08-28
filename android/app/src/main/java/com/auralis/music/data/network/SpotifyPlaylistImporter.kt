@@ -300,9 +300,8 @@ class SpotifyPlaylistImporter(
                 }
 
                 if (apiPlaylist != null && (apiPlaylist.tracks.isNotEmpty() || apiPlaylist.title.isNotBlank())) {
-                    Log.i(TAG, "Spotify Web API fetched ${apiPlaylist.tracks.size} tracks for '${apiPlaylist.title}'. Enriching with YouTube data...")
-                    val enrichedTracks = enrichTracksWithYouTubeData(apiPlaylist.tracks, onProgress)
-                    return@withContext apiPlaylist.copy(tracks = enrichedTracks)
+                    Log.i(TAG, "Spotify Web API fetched ${apiPlaylist.tracks.size} tracks for '${apiPlaylist.title}'")
+                    return@withContext apiPlaylist
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Spotify Web API Tier failed: ${e.message}. Falling back to Pathfinder GraphQL / Embed tiers...")
@@ -356,9 +355,8 @@ class SpotifyPlaylistImporter(
                 }
 
                 if (pathfinderPlaylist != null && pathfinderPlaylist.tracks.isNotEmpty()) {
-                    Log.i(TAG, "Pathfinder GraphQL successfully fetched ${pathfinderPlaylist.tracks.size} tracks for '${pathfinderPlaylist.title}'. Enriching...")
-                    val enrichedTracks = enrichTracksWithYouTubeData(pathfinderPlaylist.tracks, onProgress)
-                    return@withContext pathfinderPlaylist.copy(tracks = enrichedTracks)
+                    Log.i(TAG, "Pathfinder GraphQL successfully fetched ${pathfinderPlaylist.tracks.size} tracks for '${pathfinderPlaylist.title}' in record time.")
+                    return@withContext pathfinderPlaylist
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Pathfinder GraphQL Tier failed: ${e.message}. Falling back to Embed HTML scraper...")
@@ -371,9 +369,8 @@ class SpotifyPlaylistImporter(
         if (!embedHtml.isNullOrBlank()) {
             val parsed = parseEmbedHtml(embedHtml, id, type)
             if (parsed != null && parsed.tracks.isNotEmpty()) {
-                Log.i(TAG, "Parsed ${parsed.tracks.size} tracks from Embed HTML. Enriching...")
-                val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
-                return@withContext parsed.copy(tracks = enrichedTracks)
+                Log.i(TAG, "Parsed ${parsed.tracks.size} tracks from Embed HTML")
+                return@withContext parsed
             }
         }
 
@@ -401,9 +398,8 @@ class SpotifyPlaylistImporter(
                     }
                     val parsed = parseEmbedHtml(html, id, type)
                     if (parsed != null && parsed.tracks.isNotEmpty()) {
-                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from fallback HTML. Enriching...")
-                        val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
-                        return@withContext parsed.copy(tracks = enrichedTracks)
+                        Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from fallback HTML")
+                        return@withContext parsed
                     }
                 }
             } catch (e: Exception) {
@@ -445,8 +441,7 @@ class SpotifyPlaylistImporter(
                             val ifHtml = ifResp.body?.string() ?: ""
                             val parsed = parseEmbedHtml(ifHtml, id, type)
                             if (parsed != null && parsed.tracks.isNotEmpty()) {
-                                val enrichedTracks = enrichTracksWithYouTubeData(parsed.tracks, onProgress)
-                                return@withContext parsed.copy(tracks = enrichedTracks)
+                                return@withContext parsed
                             }
                         }
                     } catch (e: Exception) {
@@ -546,7 +541,7 @@ class SpotifyPlaylistImporter(
             val items = content.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
-            parsePathfinderPlaylistItems(items, title, allTracks)
+            parsePathfinderPlaylistItems(items, title, allTracks, coverUrl ?: "")
 
             onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
@@ -669,7 +664,8 @@ class SpotifyPlaylistImporter(
     fun parsePathfinderPlaylistItems(
         items: JSONArray,
         defaultAlbum: String,
-        outList: MutableList<Track>
+        outList: MutableList<Track>,
+        defaultCoverUrl: String = ""
     ) {
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
@@ -727,7 +723,12 @@ class SpotifyPlaylistImporter(
             val coverSources = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
                 ?: albumObj?.optJSONArray("images")
                 ?: trackData.optJSONObject("coverArt")?.optJSONArray("sources")
-            val trackArtwork = coverSources?.optJSONObject(0)?.optString("url") ?: ""
+                ?: trackData.optJSONArray("images")
+                ?: trackData.optJSONObject("visuals")?.optJSONObject("avatarImage")?.optJSONArray("sources")
+            var trackArtwork = coverSources?.optJSONObject(0)?.optString("url") ?: ""
+            if (trackArtwork.isBlank() && defaultCoverUrl.isNotBlank()) {
+                trackArtwork = defaultCoverUrl
+            }
 
             val durationObj = trackData.optJSONObject("trackDuration")
             val durationMs = durationObj?.optLong("totalMilliseconds")
