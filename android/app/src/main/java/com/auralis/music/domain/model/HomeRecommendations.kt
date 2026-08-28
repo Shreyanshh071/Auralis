@@ -14,7 +14,9 @@ data class SimilarRecommendation(
     val seedTitle: String,
     val seedThumbnail: String? = null,
     val seedType: RecommendationSeedType = RecommendationSeedType.ARTIST,
-    val items: List<Track> = emptyList()
+    val items: List<Track> = emptyList(),
+    val artistId: String? = null,
+    val artistName: String? = null
 )
 
 enum class RecommendationSeedType {

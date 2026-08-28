@@ -387,12 +387,18 @@ class AuralisAudioPlayer private constructor(context: Context) {
                     isUsingExoPlayer = true
                     tracker.streamEngine = "Native ExoPlayer"
 
-                    val highResThumb = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
+                    val effectiveThumb = if (!track.thumbnail.isNullOrBlank()) {
+                        track.thumbnail
+                    } else {
+                        com.auralis.music.data.network.ArtworkResolver.getArtwork(track) ?: track.thumbnail
+                    }
+                    val highResThumb = getHighResArtworkUrl(effectiveThumb) ?: effectiveThumb
                     val artworkUri = if (!highResThumb.isNullOrBlank()) Uri.parse(highResThumb) else null
+                    val effectiveMediaId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
 
                     val mediaItem = MediaItem.Builder()
                         .setUri(directUrl)
-                        .setMediaId(track.id)
+                        .setMediaId(effectiveMediaId)
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(track.title)
@@ -426,10 +432,17 @@ class AuralisAudioPlayer private constructor(context: Context) {
                 exoPlayer.clearMediaItems()
             } catch (_: Exception) {}
 
-            isUsingExoPlayer = false
-            tracker.streamEngine = "YouTube Web Engine"
-            Log.d("AuralisPlayback", "[Audio Engine] Routing to YouTube Web Engine for '${track.title}' (${track.id}) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
-            youTubeEngine.loadVideo(track.id, initialSeekMs, requestId)
+            val effectiveId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+            if (!effectiveId.startsWith("sp_") && !effectiveId.startsWith("spotify:")) {
+                isUsingExoPlayer = false
+                tracker.streamEngine = "YouTube Web Engine"
+                Log.d("AuralisPlayback", "[Audio Engine] Routing to YouTube Web Engine for '${track.title}' ($effectiveId) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
+                youTubeEngine.loadVideo(effectiveId, initialSeekMs, requestId)
+            } else {
+                Log.e("AuralisPlayback", "[Audio Engine] Failed to resolve playable YouTube stream for Spotify track '${track.title}' (${track.id})")
+                _playbackError.value = "Unable to load stream for '${track.title}'"
+                _isBuffering.value = false
+            }
         }
     }
 
@@ -443,11 +456,32 @@ class AuralisAudioPlayer private constructor(context: Context) {
                 // Wait for the active track to finish stream resolution first
                 streamResolveJob?.join()
                 delay(1500)
-                if (com.auralis.music.data.network.AudioStreamResolver.getCachedStream(track.id) == null) {
+                val isCached = com.auralis.music.data.network.AudioStreamResolver.getCachedStream(track.id) != null ||
+                    com.auralis.music.data.network.AudioStreamResolver.getCachedStreamByFingerprint(
+                        com.auralis.music.data.network.AudioStreamResolver.getSongFingerprintKey(track.title, track.artist)
+                    ) != null
+                if (!isCached) {
                     Log.d("AuralisPlayback", "[Prefetch] Pre-resolving stream for '${track.title}' (${track.id}) in background...")
                     com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(track.id, track.title, track.artist)
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    fun prewarmTracks(tracks: List<Track>) {
+        scope.launch(Dispatchers.IO) {
+            for (t in tracks.take(3)) {
+                try {
+                    val isCached = com.auralis.music.data.network.AudioStreamResolver.getCachedStream(t.id) != null ||
+                        com.auralis.music.data.network.AudioStreamResolver.getCachedStreamByFingerprint(
+                            com.auralis.music.data.network.AudioStreamResolver.getSongFingerprintKey(t.title, t.artist)
+                        ) != null
+                    if (!isCached) {
+                        Log.d("AuralisPlayback", "[Prewarm] Pre-resolving stream for '${t.title}' (${t.id}) in background...")
+                        com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(t.id, t.title, t.artist)
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 

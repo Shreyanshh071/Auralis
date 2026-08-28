@@ -1,26 +1,30 @@
 package com.auralis.music.ui.lyrics
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,8 +39,12 @@ import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.AuralisKaraokeActive
 import com.auralis.music.ui.theme.AuralisKaraokeInactive
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import com.auralis.music.ui.theme.dynamicPalette
 import com.auralis.music.ui.theme.motionTween
+
+
 
 /**
  * Clean, Immersive 60fps Synced Lyrics View:
@@ -111,29 +119,23 @@ fun SyncedLyricsView(
     }
 
     if (lyrics == null || lyrics.lines.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            ) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "Lyrics aren't available for this song yet",
+                    text = if (lyrics?.lines?.isEmpty() == true) "♪ Instrumental ♪" else "Lyrics not available",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     textAlign = TextAlign.Center
                 )
                 if (onSearchManually != null) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    FilledTonalButton(
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
                         onClick = onSearchManually,
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(20.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
-                            contentDescription = null,
+                            contentDescription = "Search",
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -145,46 +147,155 @@ fun SyncedLyricsView(
         return
     }
 
-    val listState = rememberLazyListState()
+    val scrollState = rememberScrollState()
     val isSynced = lyrics.syncType != SyncType.PLAIN
     val activeIndex = remember(currentPositionMs, offsetMs, lyrics.lines, isSynced) {
         if (isSynced) LyricsEngine.findActiveLyricIndex(lyrics.lines, currentPositionMs, offsetMs) else -1
     }
 
-    // Smooth auto-scrolling to keep active lyric line centered
-    LaunchedEffect(activeIndex, isSynced) {
-        if (isSynced && activeIndex >= 0 && activeIndex < lyrics.lines.size) {
-            val targetScroll = (activeIndex - 2).coerceAtLeast(0)
-            listState.animateScrollToItem(
-                index = targetScroll,
-                scrollOffset = 0
-            )
+    // Store LayoutCoordinates references (NOT positions) for window-space measurement
+    var viewportCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    val lyricCoordRefs = remember { mutableMapOf<Int, androidx.compose.ui.layout.LayoutCoordinates>() }
+
+    // Persistent float animatable tracking scroll position and velocity across transitions
+    val scrollAnim = remember { Animatable(scrollState.value.toFloat()) }
+
+    // Clear coordinate refs and sync animatable when song lyrics change
+    LaunchedEffect(lyrics) {
+        lyricCoordRefs.clear()
+        scrollAnim.snapTo(0f)
+    }
+
+    // Human drag detection: pause auto-scrolling during touch gestures, resume after 3.5s
+    var isUserInteracting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(scrollState.interactionSource) {
+        scrollState.interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is DragInteraction.Start -> {
+                    isUserInteracting = true
+                    scrollAnim.snapTo(scrollState.value.toFloat())
+                }
+                is DragInteraction.Stop, is DragInteraction.Cancel -> {
+                    delay(3500)
+                    isUserInteracting = false
+                }
+            }
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 40.dp, bottom = 140.dp, start = 20.dp, end = 20.dp),
+    // Keep scrollAnim in sync during external/user drag
+    LaunchedEffect(isUserInteracting, scrollState.value) {
+        if (isUserInteracting) {
+            scrollAnim.snapTo(scrollState.value.toFloat())
+        }
+    }
+
+    // The viewport container — its window bounds define where the lyrics area is on screen
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .onGloballyPositioned { viewportCoords = it }
+    ) {
+        // Continuous, velocity-preserving auto-scroll:
+        // When activeIndex changes, seamlessly glides from current position & velocity
+        // to the exact viewport center without stopping, stuttering, or restarting from scratch.
+        LaunchedEffect(activeIndex, isSynced, isUserInteracting) {
+            if (!isSynced || activeIndex < 0 || activeIndex >= lyrics.lines.size || isUserInteracting) return@LaunchedEffect
+
+            var lCoords = lyricCoordRefs[activeIndex]
+            if (lCoords == null || !lCoords.isAttached) {
+                withFrameNanos { }
+                lCoords = lyricCoordRefs[activeIndex]
+            }
+
+            val vCoords = viewportCoords
+            if (vCoords == null || lCoords == null || !vCoords.isAttached || !lCoords.isAttached) return@LaunchedEffect
+
+            // Measure both in the SAME coordinate space (window coordinates)
+            val viewportBounds = vCoords.boundsInWindow()
+            val lyricBounds = lCoords.boundsInWindow()
+
+            val viewportCenter = (viewportBounds.top + viewportBounds.bottom) / 2f
+            val lyricCenter = (lyricBounds.top + lyricBounds.bottom) / 2f
+            val delta = lyricCenter - viewportCenter
+
+            val targetScroll = (scrollState.value + delta.roundToInt())
+                .coerceIn(0, scrollState.maxValue)
+
+            val currentScroll = scrollState.value.toFloat()
+            val distance = kotlin.math.abs(targetScroll.toFloat() - currentScroll)
+
+            if (distance > 1f) {
+                // Ensure animatable baseline matches current scroll if out of sync
+                if (kotlin.math.abs(scrollAnim.value - currentScroll) > 2f) {
+                    scrollAnim.snapTo(currentScroll)
+                }
+
+                // Stiffness tuned for natural floating speed with zero bounce (DampingRatioNoBouncy = 1.0f).
+                // Initial velocity is preserved across line transitions so movement continues seamlessly.
+                val stiffness = when {
+                    distance < 300f -> 85f   // Gentle, organic float for adjacent line transitions
+                    distance < 800f -> 130f  // Smooth fluid glide for multi-line shifts
+                    else -> 240f            // Responsive catch-up for manual seek jumps
+                }
+
+                scrollState.scroll {
+                    var lastValue = scrollAnim.value
+                    scrollAnim.animateTo(
+                        targetValue = targetScroll.toFloat(),
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = stiffness,
+                            visibilityThreshold = 0.5f
+                        )
+                    ) {
+                        val deltaPx = value - lastValue
+                        lastValue = value
+                        scrollBy(deltaPx)
+                    }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(
+                    top = if (isSynced) 16.dp else 40.dp,
+                    bottom = if (isSynced) maxHeight / 2 else 140.dp,
+                    start = 20.dp,
+                    end = 20.dp
+                ),
             verticalArrangement = Arrangement.spacedBy(if (lyricsMode == LyricsMode.CINEMA) 26.dp else 18.dp)
         ) {
-            itemsIndexed(
-                items = lyrics.lines,
-                key = { idx, line -> "${line.time}_$idx" }
-            ) { index, line ->
+            lyrics.lines.forEachIndexed { index, line ->
                 val isCurrent = isSynced && index == activeIndex
                 val isPast = isSynced && index < activeIndex
 
-                LyricLineRow(
-                    line = line,
-                    isCurrent = isCurrent,
-                    isPast = isPast,
-                    lyricsMode = lyricsMode,
-                    syncType = lyrics.syncType,
-                    currentTimeMs = currentPositionMs + offsetMs,
-                    onClick = { if (isSynced) onSeekTo(line.time) }
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coords ->
+                            lyricCoordRefs[index] = coords
+                        }
+                ) {
+                    LyricLineRow(
+                        line = line,
+                        isCurrent = isCurrent,
+                        isPast = isPast,
+                        lyricsMode = lyricsMode,
+                        syncType = lyrics.syncType,
+                        currentTimeMs = currentPositionMs + offsetMs,
+                        onClick = {
+                            if (isSynced) {
+                                isUserInteracting = false
+                                onSeekTo(line.time)
+                            }
+                        }
+                    )
+                }
             }
         }
     }

@@ -52,10 +52,19 @@ class SearchRepositoryImpl(
             val officialSongs: List<Track> = songsDeferred.await()
             val generalResults: SearchResults = generalDeferred.await()
 
-            val finalSongs: List<Track> = if (officialSongs.isNotEmpty()) officialSongs else generalResults.songs
+            val allCandidates: List<Track> = (officialSongs + generalResults.songs).distinctBy { it.id }
+
+            // Partition with SearchQueryMatcher:
+            // 1. Matched songs: only songs that actually match the query, ranked by priority tier
+            // 2. Recommendations: non-matching candidate songs, strictly capped at 3 items
+            val (matchedSongs, recommendations) = com.auralis.music.domain.search.SearchQueryMatcher.partitionResults(
+                candidates = allCandidates,
+                query = trimmed,
+                maxRecommendations = 3
+            )
 
             // Automatically extract the artists of the matched songs and include them in results.artists
-            val songArtists: List<String> = finalSongs
+            val songArtists: List<String> = matchedSongs
                 .map { it.artist }
                 .flatMap { it.split(",", "&", "feat.", "ft.", "/").map { a -> a.trim() } }
                 .filter { it.isNotBlank() && it.length > 1 && !it.equals("Spotify Artist", ignoreCase = true) && !it.equals("Various Artists", ignoreCase = true) }
@@ -66,7 +75,7 @@ class SearchRepositoryImpl(
 
             for (artName in songArtists) {
                 if (!existingArtistNames.contains(artName.lowercase())) {
-                    val matchingSongThumb = finalSongs.firstOrNull { it.artist.contains(artName, ignoreCase = true) }?.thumbnail
+                    val matchingSongThumb = matchedSongs.firstOrNull { it.artist.contains(artName, ignoreCase = true) }?.thumbnail
                     missingArtists.add(
                         Artist(
                             id = "yt:$artName",
@@ -80,7 +89,8 @@ class SearchRepositoryImpl(
 
             val enrichedArtists: List<Artist> = (generalResults.artists + missingArtists).distinctBy { it.name.lowercase() }
             SearchResults(
-                songs = finalSongs,
+                recommendations = recommendations,
+                songs = matchedSongs,
                 artists = enrichedArtists,
                 playlists = generalResults.playlists
             )
@@ -91,12 +101,13 @@ class SearchRepositoryImpl(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
 
-        // 1. Try YouTube Music filtered song search
+        // 1. Fetch filtered and general songs
         val filtered = innerTubeClient.search(trimmed, InnerTubeClient.FILTER_SONGS).songs
-        if (filtered.isNotEmpty()) return@withContext filtered
+        val general = innerTubeClient.search(trimmed).songs
+        val candidates = (filtered + general).distinctBy { it.id }
 
-        // 2. Fall back to general YouTube Music search songs
-        innerTubeClient.search(trimmed).songs
+        val (matchedSongs, _) = com.auralis.music.domain.search.SearchQueryMatcher.partitionResults(candidates, trimmed)
+        matchedSongs
     }
 
     override suspend fun searchArtists(query: String): List<Artist> = withContext(Dispatchers.IO) {

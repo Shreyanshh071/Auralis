@@ -2,10 +2,13 @@ package com.auralis.music.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.data.network.InnerTubeClient
+import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.TasteProfile
 import com.auralis.music.domain.recommendations.TasteProfiler
+import com.auralis.music.domain.recommendations.TrackDeduplicator
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Dispatchers
@@ -79,12 +82,7 @@ class HomeViewModel(
     }
 
     private fun isInvalidArtistName(artist: String?): Boolean {
-        if (artist.isNullOrBlank()) return true
-        val lower = artist.trim().lowercase()
-        return lower in listOf(
-            "shreyanshh", "shreyansh", "youtube music", "youtube", "artist",
-            "unknown artist", "various artists", "various", "topic", "guest listener", "admin"
-        ) || lower.startsWith("user_") || lower.startsWith("yt_")
+        return TrackDeduplicator.isInvalidArtistName(artist)
     }
 
     /**
@@ -108,8 +106,9 @@ class HomeViewModel(
                         val profile = TasteProfiler.computeTasteProfile(history, topPlayed)
                         val topTracks = topPlayed.map { it.track }
                         val historyTracks = history.map { it.track }
-                        val speedDial = buildSpeedDialPages(topTracks, historyTracks)
-
+                        val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+                        val heavy = historyRepository.getRecentHeavyRotation()
+                        val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
                         _uiState.update {
                             it.copy(
                                 recentTracks = history,
@@ -119,8 +118,29 @@ class HomeViewModel(
                             )
                         }
 
+                        // Pre-warm audio streams for top 2 visible Speed Dial tracks in background
+                        val firstPageTrackIds = speedDial.firstOrNull()
+                            ?.filter { it.type == SpeedDialType.TRACK }
+                            ?.map { it.id }
+                            ?.take(2) ?: emptyList()
+                        val candidatePool = topTracks + historyTracks + likedSeeds + heavy
+                        val tracksToPrewarm = firstPageTrackIds.mapNotNull { id -> candidatePool.firstOrNull { it.id == id } }
+                        if (tracksToPrewarm.isNotEmpty()) {
+                            launch(Dispatchers.IO) {
+                                for (trk in tracksToPrewarm) {
+                                    try {
+                                        val isCached = AudioStreamResolver.getCachedStream(trk.id) != null ||
+                                            AudioStreamResolver.getCachedStreamByFingerprint(AudioStreamResolver.getSongFingerprintKey(trk.title, trk.artist)) != null
+                                        if (!isCached) {
+                                            AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist)
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        }
+
                         // Asynchronously resolve authentic artist avatar photos for Speed Dial
-                        val artistsToResolve = (topTracks + historyTracks)
+                        val artistsToResolve = (topTracks + historyTracks + likedSeeds + heavy)
                             .map { it.artist }
                             .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
                             .distinct()
@@ -140,8 +160,21 @@ class HomeViewModel(
                                     } catch (_: Exception) {}
                                 }
                                 if (hasUpdates) {
-                                    val updatedPages = buildSpeedDialPages(topTracks, historyTracks)
+                                    val updatedPages = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
                                     _uiState.update { it.copy(speedDialPages = updatedPages) }
+                                }
+                            }
+                        }
+
+                        // Asynchronously resolve missing thumbnails in recent tracks and history
+                        launch(Dispatchers.IO) {
+                            val blankTracks = (historyTracks + topTracks).filter { it.thumbnail.isBlank() }.distinctBy { it.id }
+                            if (blankTracks.isNotEmpty()) {
+                                for (trk in blankTracks) {
+                                    val thumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(trk)
+                                    if (!thumb.isNullOrBlank()) {
+                                        historyRepository.addToHistory(trk.copy(thumbnail = thumb))
+                                    }
                                 }
                             }
                         }
@@ -295,8 +328,10 @@ class HomeViewModel(
             for (artistName in topArtists) {
                 try {
                     val searchResult = searchRepository.search(artistName)
+                    val matchedArtist = searchResult.artists.firstOrNull { it.name.equals(artistName, ignoreCase = true) }
+                        ?: searchResult.artists.firstOrNull()
                     val artistTracks = searchResult.songs.take(10)
-                    val sampleThumb = searchResult.artists.firstOrNull()?.thumbnail
+                    val sampleThumb = matchedArtist?.thumbnail
                         ?: artistTracks.firstOrNull()?.thumbnail
 
                     if (artistTracks.isNotEmpty()) {
@@ -305,7 +340,9 @@ class HomeViewModel(
                                 seedTitle = artistName,
                                 seedThumbnail = sampleThumb,
                                 seedType = RecommendationSeedType.ARTIST,
-                                items = artistTracks
+                                items = artistTracks,
+                                artistId = matchedArtist?.id,
+                                artistName = artistName
                             )
                         )
                     }
@@ -323,7 +360,8 @@ class HomeViewModel(
                                 seedTitle = track.title,
                                 seedThumbnail = track.thumbnail,
                                 seedType = RecommendationSeedType.SONG,
-                                items = related
+                                items = related,
+                                artistName = track.artist
                             )
                         )
                     }
@@ -336,13 +374,17 @@ class HomeViewModel(
                 for (artist in curatedCurations) {
                     try {
                         val res = searchRepository.search(artist)
+                        val matchedArt = res.artists.firstOrNull { it.name.equals(artist, ignoreCase = true) }
+                            ?: res.artists.firstOrNull()
                         if (res.songs.isNotEmpty()) {
                             similarList.add(
                                 SimilarRecommendation(
                                     seedTitle = artist,
-                                    seedThumbnail = res.artists.firstOrNull()?.thumbnail ?: res.songs.firstOrNull()?.thumbnail,
+                                    seedThumbnail = matchedArt?.thumbnail ?: res.songs.firstOrNull()?.thumbnail,
                                     seedType = RecommendationSeedType.ARTIST,
-                                    items = res.songs.take(8)
+                                    items = res.songs.take(8),
+                                    artistId = matchedArt?.id,
+                                    artistName = artist
                                 )
                             )
                         }
@@ -455,7 +497,7 @@ class HomeViewModel(
                     if (pool.isNotEmpty()) {
                         val track = pool.removeAt(0)
                         val count = artistAppearanceCount.getOrDefault(track.artist, 0)
-                        if (count < 3 && seenTrackIds.add(track.id)) {
+                        if (count < 3 && seenTrackIds.add(track.id) && finalQuickPicks.none { TrackDeduplicator.isDuplicateTrack(it, track) }) {
                             finalQuickPicks.add(track)
                             artistAppearanceCount[track.artist] = count + 1
                             anyAdded = true
@@ -470,7 +512,7 @@ class HomeViewModel(
             if (finalQuickPicks.size < 24 && fallbackList.isNotEmpty()) {
                 for (t in fallbackList) {
                     val count = artistAppearanceCount.getOrDefault(t.artist, 0)
-                    if (count < 2 && seenTrackIds.add(t.id)) {
+                    if (count < 2 && seenTrackIds.add(t.id) && finalQuickPicks.none { TrackDeduplicator.isDuplicateTrack(it, t) }) {
                         finalQuickPicks.add(t)
                         artistAppearanceCount[t.artist] = count + 1
                         if (finalQuickPicks.size >= 28) break
@@ -480,6 +522,22 @@ class HomeViewModel(
 
             if (finalQuickPicks.isNotEmpty()) {
                 _uiState.update { it.copy(quickPicks = finalQuickPicks) }
+
+                launch(Dispatchers.IO) {
+                    var updated = false
+                    val resolvedPicks = finalQuickPicks.map { trk ->
+                        if (trk.thumbnail.isBlank()) {
+                            val thumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(trk)
+                            if (!thumb.isNullOrBlank()) {
+                                updated = true
+                                trk.copy(thumbnail = thumb)
+                            } else trk
+                        } else trk
+                    }
+                    if (updated) {
+                        _uiState.update { it.copy(quickPicks = resolvedPicks) }
+                    }
+                }
             }
         } catch (_: Exception) {}
     }
@@ -583,23 +641,27 @@ class HomeViewModel(
 
     /**
      * Builds 3x3 Speed Dial Pages (27 items total = 3 pages of 9).
-     * Filters out invalid user/placeholder artist names so only real music artists and tracks appear.
+     * Strictly deduplicates songs so identical tracks (even with different YouTube IDs,
+     * bracket noise, or artist variations) are never recommended multiple times on Speed Dial.
      */
-    private fun buildSpeedDialPages(
+    fun buildSpeedDialPages(
         topTracks: List<Track>,
-        historyTracks: List<Track>
+        historyTracks: List<Track>,
+        fallbackCandidates: List<Track> = emptyList()
     ): List<List<SpeedDialItem>> {
-        val uniqueTracks = (topTracks + historyTracks).distinctBy { it.id }
+        val candidateTracks = topTracks + historyTracks + fallbackCandidates
+        val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
         if (uniqueTracks.isEmpty()) return emptyList()
 
         val allItems = mutableListOf<SpeedDialItem>()
         for ((idx, t) in uniqueTracks.take(24).withIndex()) {
+            val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
             allItems.add(
                 SpeedDialItem(
                     id = "track-${t.id}-$idx",
-                    name = t.title,
+                    name = displayName,
                     type = SpeedDialType.TRACK,
-                    track = t,
+                    track = t.copy(title = displayName),
                     image = t.thumbnail
                 )
             )

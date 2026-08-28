@@ -417,7 +417,7 @@ fun ListenTogetherSheet(
                         OutlinedTextField(
                             value = uiState.myDisplayName,
                             onValueChange = onNameChange,
-                            label = { Text("Display Nickname", color = Color.White.copy(alpha = 0.6f)) },
+                            label = { Text("Display Name", color = Color.White.copy(alpha = 0.6f)) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = LISTEN_LIME,

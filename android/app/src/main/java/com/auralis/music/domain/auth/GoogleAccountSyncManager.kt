@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 
 data class UserProfile(
     val uid: String = "",
-    val displayName: String = "Guest Listener",
+    val displayName: String = "",
     val email: String = "Not connected",
     val avatarUrl: String? = null,
     val isGoogleConnected: Boolean = false,
@@ -63,7 +63,11 @@ class GoogleAccountSyncManager(
         if (fbUser != null && !fbUser.isAnonymous) {
             val uid = fbUser.uid
             val email = fbUser.email ?: "Authenticated User"
-            val displayName = fbUser.displayName ?: prefs.getString("display_name", "Auralis Listener") ?: "Auralis Listener"
+            val rawPrefName = prefs.getString("display_name", null)
+            val displayName = fbUser.displayName?.takeIf { it.isNotBlank() && !isGenericListener(it) }
+                ?: rawPrefName?.takeIf { it.isNotBlank() && !isGenericListener(it) }
+                ?: fbUser.email?.substringBefore("@")
+                ?: ""
             val token = prefs.getString("access_token", null)
 
             return UserProfile(
@@ -350,7 +354,7 @@ class GoogleAccountSyncManager(
     fun disconnectAccount() {
         val reset = UserProfile(
             uid = "",
-            displayName = "Guest Listener",
+            displayName = "",
             email = "Not connected",
             avatarUrl = null,
             isGoogleConnected = false,
@@ -380,5 +384,12 @@ class GoogleAccountSyncManager(
         val updated = _userProfile.value.copy(syncLikedMusic = enabled)
         _userProfile.value = updated
         persistProfile(updated)
+    }
+
+    companion object {
+        fun isGenericListener(name: String): Boolean {
+            val lower = name.trim().lowercase()
+            return lower == "listener" || lower == "guest listener" || lower == "auralis listener"
+        }
     }
 }

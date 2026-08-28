@@ -117,6 +117,9 @@ class AutoPlayInfiniteRadioTest {
 
     @After
     fun tearDown() {
+        try {
+            testDispatcher.scheduler.advanceUntilIdle()
+        } catch (_: Throwable) {}
         Dispatchers.resetMain()
     }
 

@@ -80,6 +80,7 @@ val OLIVE_CARD_BG = Color(0xFF4A502E)
 @Composable
 fun HomeScreen(
     uiState: HomeUiState,
+    currentTrack: Track? = null,
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),

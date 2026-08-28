@@ -14,8 +14,9 @@ import com.auralis.music.ui.viewmodel.HomeUiState
 @Composable
 fun HomeScreen(
     uiState: HomeUiState,
-    currentTrackId: String?,
-    isPlaying: Boolean,
+    currentTrack: Track? = null,
+    currentTrackId: String? = null,
+    isPlaying: Boolean = false,
     userPlaylists: List<Playlist> = emptyList(),
     favoriteTracks: List<Track> = emptyList(),
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -39,6 +40,7 @@ fun HomeScreen(
 ) {
     PureHomeScreen(
         uiState = uiState,
+        currentTrack = currentTrack,
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,
         userPlaylists = userPlaylists,

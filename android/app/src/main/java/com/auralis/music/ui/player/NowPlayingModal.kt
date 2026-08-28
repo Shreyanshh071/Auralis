@@ -466,7 +466,10 @@ fun NowPlayingModal(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                ) {
                     Text(
                         text = "NOW PLAYING",
                         style = MaterialTheme.typography.labelSmall,
@@ -477,7 +480,7 @@ fun NowPlayingModal(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = track.artist,
+                        text = track.title,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,

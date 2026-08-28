@@ -144,9 +144,21 @@ class PlayerViewModel(
                 Log.d("AuralisPlayback", "[Stale triggerPlayback dropped] reqId=$requestId vs active=${currentPlaybackRequestId.get()}")
                 return@launch
             }
-            audioPlayer?.play(track, initialPositionMs, requestId)
-            historyRepository.addToHistory(track)
-            historyRepository.recordPlay(track)
+            var effectiveTrack = track
+            if (effectiveTrack.thumbnail.isNullOrBlank()) {
+                val resolvedThumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(effectiveTrack)
+                if (!resolvedThumb.isNullOrBlank()) {
+                    effectiveTrack = effectiveTrack.copy(thumbnail = resolvedThumb)
+                    _uiState.update { state ->
+                        if (state.currentTrack?.id == track.id) {
+                            state.copy(currentTrack = effectiveTrack)
+                        } else state
+                    }
+                }
+            }
+            audioPlayer?.play(effectiveTrack, initialPositionMs, requestId)
+            historyRepository.addToHistory(effectiveTrack)
+            historyRepository.recordPlay(effectiveTrack)
         }
 
         loadLyrics(track, requestId)

@@ -15,7 +15,7 @@ object TitleCleaner {
 
     // Extraneous YouTube video, label, resolution, and promotional bracket noise
     private val BRACKET_NOISE_REGEX = Regex(
-        """(?i)[\(\[\{][^)\]\}]*(?:official\s*(?:music)?\s*(?:video|audio)|music\s*video|lyric\s*video|lyrics|audio\s*song|video\s*song|full\s*video(?:\s*song)?|full\s*audio(?:\s*song)?|lyrical(?:\s*video)?|visualizer|remaster(?:ed)?|hd\s*video|4k|hq|prod\.?|ost|special\s*edition|exclusive|bhojpuri\s*video(?:\s*song)?|bhojpuri\s*song(?:\s*\d{4})?|new\s*song\s*\d{4}|hit\s*song)[^)\]\}]*[\)\]\}]"""
+        """(?i)[\(\[\{][^)\]\}]*(?:official\s*(?:music)?\s*(?:video|audio)|\b(?:video|audio)\b|music\s*video|lyric\s*video|lyrics|audio\s*song|video\s*song|full\s*video(?:\s*song)?|full\s*audio(?:\s*song)?|lyrical(?:\s*video)?|visualizer|remaster(?:ed)?|hd\s*video|4k|hq|prod\.?|ost|special\s*edition|exclusive|bhojpuri\s*video(?:\s*song)?|bhojpuri\s*song(?:\s*\d{4})?|new\s*song\s*\d{4}|hit\s*song)[^)\]\}]*[\)\]\}]"""
     )
 
     // Pipe separated label/artist channel spam (common in Indian and regional releases)
