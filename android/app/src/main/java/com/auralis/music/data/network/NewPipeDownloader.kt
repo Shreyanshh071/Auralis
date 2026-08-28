@@ -37,9 +37,12 @@ class NewPipeDownloader private constructor(
 
         val instance: NewPipeDownloader by lazy {
             val builder = OkHttpClient.Builder()
+                .connectionPool(NetworkClientProvider.okHttpClient.connectionPool)
+                .dispatcher(NetworkClientProvider.okHttpClient.dispatcher)
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
                 .followRedirects(true)
+                .retryOnConnectionFailure(true)
                 .cookieJar(object : okhttp3.CookieJar {
                     override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
                         val hostMap = cookieMap.computeIfAbsent(url.host) { ConcurrentHashMap() }

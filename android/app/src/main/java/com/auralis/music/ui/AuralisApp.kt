@@ -489,6 +489,7 @@ fun AuralisApp(
                                     AppDestination.HOME -> {
                                         HomeScreen(
                                             uiState = homeUiState,
+                                            currentTrack = playerUiState.currentTrack,
                                             currentTrackId = playerUiState.currentTrack?.id,
                                             isPlaying = playerUiState.isPlaying,
                                             userPlaylists = libraryUiState.playlists,

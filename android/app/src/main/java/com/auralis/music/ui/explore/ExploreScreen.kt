@@ -389,6 +389,7 @@ fun ExploreScreen(
                             SearchResultsView(
                                 category = selectedCategory,
                                 results = uiState.searchResults,
+                                query = uiState.query,
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
                                 onTrackClick = { track, list -> onTrackClick(track, list) },
@@ -666,6 +667,7 @@ private fun CategoryFilterBar(
 private fun SearchResultsView(
     category: SearchCategory,
     results: com.auralis.music.domain.model.SearchResults,
+    query: String = "",
     currentTrackId: String?,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -678,72 +680,98 @@ private fun SearchResultsView(
         contentPadding = PaddingValues(bottom = 120.dp, start = 16.dp, end = 16.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Songs Header on ALL Tab
-        if (category == SearchCategory.ALL && results.songs.isNotEmpty()) {
+        // ====================================================================
+        // STEP 1 — RECOMMENDATIONS (EXACTLY 3 MAXIMUM, SUPPLEMENTARY)
+        // ====================================================================
+        val recommendations = results.recommendations.take(3)
+        if ((category == SearchCategory.ALL || category == SearchCategory.SONGS) && recommendations.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recommendations",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White.copy(alpha = 0.70f)
+                    )
+                    Text(
+                        text = "${recommendations.size} suggested",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.40f)
+                    )
+                }
+            }
+
+            items(recommendations, key = { "rec_${it.id}" }) { track ->
+                val isCurrent = track.id == currentTrackId
+                TrackRowItem(
+                    track = track,
+                    isCurrent = isCurrent,
+                    isPlaying = isPlaying,
+                    playlist = recommendations,
+                    onTrackClick = onTrackClick,
+                    onMenuClick = onMenuClick
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+        }
+
+        // ====================================================================
+        // STEP 2 — ACTUAL SEARCH RESULTS (REAL QUERY-MATCHED SONGS)
+        // ====================================================================
+        if (category == SearchCategory.ALL || category == SearchCategory.SONGS) {
             item {
                 Text(
-                    text = "Songs",
+                    text = if (category == SearchCategory.ALL) "Songs" else "Matching Songs",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFD4E157),
                     modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
                 )
             }
-        }
 
-        // Songs
-        if (category == SearchCategory.ALL || category == SearchCategory.SONGS) {
-            items(results.songs, key = { it.id }) { track ->
-                val isCurrent = track.id == currentTrackId
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(
-                            onClick = { onTrackClick(track, results.songs) },
-                            onLongClick = { onMenuClick(track) }
-                        )
-                        .padding(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ArtworkCard(
-                        url = track.thumbnail,
-                        modifier = Modifier.size(50.dp),
-                        cornerRadius = 8.dp,
-                        contentDescription = track.title
+            if (results.songs.isNotEmpty()) {
+                items(results.songs, key = { "match_${it.id}" }) { track ->
+                    val isCurrent = track.id == currentTrackId
+                    TrackRowItem(
+                        track = track,
+                        isCurrent = isCurrent,
+                        isPlaying = isPlaying,
+                        playlist = results.songs,
+                        onTrackClick = onTrackClick,
+                        onMenuClick = onMenuClick
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                }
+            } else {
+                // Dedicated empty state: do NOT replace missing songs with recommendations
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp, horizontal = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text(
-                            text = track.title,
+                            text = "No matching songs found",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (query.isNotBlank()) "No songs match \"$query\". Check spelling or try searching another artist or title."
+                            else "No songs found for this search.",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                            color = if (isCurrent) Color(0xFFD4E157) else Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = track.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.6f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    if (isCurrent) {
-                        EqualizerBars(
-                            isPlaying = isPlaying,
-                            modifier = Modifier.size(18.dp),
-                            color = Color(0xFFD4E157)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-                    IconButton(onClick = { onMenuClick(track) }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp)
+                            color = Color.White.copy(alpha = 0.50f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                 }
@@ -913,6 +941,70 @@ private fun SearchResultsView(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrackRowItem(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    playlist: List<Track>,
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onMenuClick: (Track) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = { onTrackClick(track, playlist) },
+                onLongClick = { onMenuClick(track) }
+            )
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ArtworkCard(
+            url = track.thumbnail,
+            modifier = Modifier.size(50.dp),
+            cornerRadius = 8.dp,
+            contentDescription = track.title
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (isCurrent) Color(0xFFD4E157) else Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = track.artist,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.6f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (isCurrent) {
+            EqualizerBars(
+                isPlaying = isPlaying,
+                modifier = Modifier.size(18.dp),
+                color = Color(0xFFD4E157)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        IconButton(onClick = { onMenuClick(track) }) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Options",
+                tint = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }

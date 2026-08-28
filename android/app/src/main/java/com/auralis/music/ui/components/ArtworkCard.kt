@@ -21,6 +21,13 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.auralis.music.ui.theme.LocalReducedMotion
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.auralis.music.data.network.ArtworkResolver
+import com.auralis.music.domain.model.Track
+
 /**
  * Upgrades thumbnail URLs to uncompressed studio master 1200x1200 HD / 720p artwork,
  * eliminating 4:3 letterbox black bars completely.
@@ -61,9 +68,29 @@ fun ArtworkCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
     elevation: Dp = 4.dp,
-    contentDescription: String? = null
+    contentDescription: String? = null,
+    fallbackTrack: Track? = null
 ) {
-    if (url.isNullOrBlank()) {
+    var effectiveUrl by remember(url) { mutableStateOf(url) }
+
+    // Auto-resolve missing or blank artwork on the fly
+    LaunchedEffect(url, fallbackTrack?.id) {
+        if (url.isNullOrBlank() && fallbackTrack != null) {
+            val cached = ArtworkResolver.getArtwork(fallbackTrack)
+            if (!cached.isNullOrBlank()) {
+                effectiveUrl = cached
+            } else {
+                val resolved = ArtworkResolver.resolveArtwork(fallbackTrack)
+                if (!resolved.isNullOrBlank()) {
+                    effectiveUrl = resolved
+                }
+            }
+        } else {
+            effectiveUrl = url
+        }
+    }
+
+    if (effectiveUrl.isNullOrBlank()) {
         Box(
             modifier = modifier
                 .shadow(elevation, RoundedCornerShape(cornerRadius))
@@ -83,12 +110,20 @@ fun ArtworkCard(
     val context = LocalContext.current
     val reducedMotion = LocalReducedMotion.current
 
-    // Built once per URL instead of on every recomposition — an inline builder here
-    // hands Coil a fresh request object each pass, defeating request de-duplication
-    // in lists where these recompose frequently.
-    val request = remember(url, reducedMotion) {
+    val highRes = getHighResArtworkUrl(effectiveUrl)
+    var imageModel by remember(effectiveUrl) { mutableStateOf<Any?>(highRes ?: effectiveUrl) }
+
+    val request = remember(imageModel, reducedMotion) {
         ImageRequest.Builder(context)
-            .data(getHighResArtworkUrl(url) ?: url)
+            .data(imageModel)
+            .listener(
+                onError = { _, _ ->
+                    // Graceful failover: if upgraded high-res 404s (e.g. hq720.jpg missing on YouTube), revert to original URL
+                    if (imageModel == highRes && highRes != effectiveUrl && !effectiveUrl.isNullOrBlank()) {
+                        imageModel = effectiveUrl
+                    }
+                }
+            )
             .crossfade(!reducedMotion)
             .build()
     }
