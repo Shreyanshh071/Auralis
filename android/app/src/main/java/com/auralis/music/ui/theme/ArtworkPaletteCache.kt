@@ -188,14 +188,14 @@ object ArtworkPaletteCache {
             return Color(0xFF282C34)
         }
 
-        val tunedSat = s.coerceIn(0.48f, 0.88f)
-        val tunedLight = targetL.coerceIn(0.32f, 0.58f)
+        val tunedSat = s.coerceIn(0.55f, 0.95f)
+        val tunedLight = targetL.coerceIn(0.35f, 0.60f)
 
         // Convert HSL accurately to Android Color
         val hsv = FloatArray(3)
         hsv[0] = h
         hsv[1] = tunedSat
-        hsv[2] = (tunedLight * (1f + tunedSat * 0.25f)).coerceIn(0.35f, 0.85f)
+        hsv[2] = (tunedLight * (1f + tunedSat * 0.30f)).coerceIn(0.40f, 0.90f)
 
         return Color(android.graphics.Color.HSVToColor(hsv))
     }

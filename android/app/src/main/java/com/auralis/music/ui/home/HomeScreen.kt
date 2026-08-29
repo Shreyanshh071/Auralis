@@ -110,7 +110,7 @@ fun HomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0F0C))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         LazyColumn(
             modifier = Modifier
@@ -132,7 +132,7 @@ fun HomeScreen(
                         text = "Home",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 26.sp
                     )
 
@@ -141,19 +141,19 @@ fun HomeScreen(
                             onClick = onOpenHistory,
                             modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                         ) {
-                            Icon(Icons.Default.History, contentDescription = "History", tint = Color.White.copy(alpha = 0.85f))
+                            Icon(Icons.Default.History, contentDescription = "History", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
                         }
                         IconButton(
                             onClick = onOpenListenTogether,
                             modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                         ) {
-                            Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = Color.White.copy(alpha = 0.85f))
+                            Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
                         }
                         IconButton(
                             onClick = onOpenProfile,
                             modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                         ) {
-                            Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = Color.White.copy(alpha = 0.85f))
+                            Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
                         }
                     }
                 }
@@ -168,16 +168,19 @@ fun HomeScreen(
                         text = "Speed dial",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 20.sp,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                     )
 
                     val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
 
+                    val speedDialThemeKey = MaterialTheme.colorScheme.background.hashCode() xor MaterialTheme.colorScheme.primary.hashCode()
+
                     Column(modifier = Modifier.fillMaxWidth()) {
                         HorizontalPager(
                             state = pagerState,
+                            key = { pageIndex -> "$pageIndex-$speedDialThemeKey" },
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             pageSpacing = 16.dp,
                             modifier = Modifier
@@ -258,7 +261,7 @@ fun HomeScreen(
                                         .padding(horizontal = 4.dp)
                                         .size(if (isCurrent) 7.dp else 5.dp)
                                         .clip(CircleShape)
-                                        .background(if (isCurrent) LIME_ACCENT else Color.White.copy(alpha = 0.3f))
+                                        .background(if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
                                 )
                             }
                         }
@@ -283,14 +286,14 @@ fun HomeScreen(
                             text = "Quick picks",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = LIME_ACCENT,
+                            color = MaterialTheme.colorScheme.primary,
                             fontSize = 20.sp
                         )
 
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                                 .clickable {
                                     if (uiState.quickPicks.isNotEmpty()) {
                                         onTrackClick(uiState.quickPicks.first(), uiState.quickPicks)
@@ -302,69 +305,77 @@ fun HomeScreen(
                                 text = "Play all",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.9f)
+                                color = MaterialTheme.colorScheme.onBackground
                             )
                         }
                     }
 
-                    val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-                    val quickPickRowWidth = (screenWidth - 48.dp).coerceAtLeast(280.dp)
+                    val quickPickPages = remember(uiState.quickPicks) {
+                        uiState.quickPicks.chunked(4)
+                    }
+                    val quickPicksPagerState = rememberPagerState { quickPickPages.size }
+                    val quickPicksThemeKey = MaterialTheme.colorScheme.background.hashCode() xor MaterialTheme.colorScheme.primary.hashCode()
 
-                    // 4-Row Horizontal Grid of Songs (Matching Photo 2)
-                    LazyHorizontalGrid(
-                        rows = GridCells.Fixed(4),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    // 4-Row Snapping Pager of Songs (Eliminates half-scrolled stray 3-dots)
+                    HorizontalPager(
+                        state = quickPicksPagerState,
+                        key = { pageIndex -> "$pageIndex-$quickPicksThemeKey" },
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        pageSpacing = 16.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(265.dp)
-                    ) {
-                        items(uiState.quickPicks, key = { it.id }) { track ->
-                            val isCurrent = track.id == currentTrackId
-                            Row(
-                                modifier = Modifier
-                                    .width(quickPickRowWidth)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .combinedClickable(
-                                        onClick = { onTrackClick(track, uiState.quickPicks) },
-                                        onLongClick = { selectedTrackForMenu = track }
+                    ) { pageIndex ->
+                        val pageTracks = quickPickPages[pageIndex]
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            pageTracks.forEach { track ->
+                                val isCurrent = track.id == currentTrackId
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .combinedClickable(
+                                            onClick = { onTrackClick(track, uiState.quickPicks) },
+                                            onLongClick = { selectedTrackForMenu = track }
+                                        )
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    ArtworkCard(
+                                        url = track.thumbnail,
+                                        modifier = Modifier.size(48.dp),
+                                        cornerRadius = 8.dp,
+                                        contentDescription = track.title
                                     )
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    url = track.thumbnail,
-                                    modifier = Modifier.size(48.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = track.title
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = track.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) LIME_ACCENT else Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(onClick = { selectedTrackForMenu = track }) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Options",
-                                        tint = Color.White.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = track.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = track.artist,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    IconButton(onClick = { selectedTrackForMenu = track }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Options",
+                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -383,7 +394,7 @@ fun HomeScreen(
                         text = "Keep listening",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 20.sp,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                     )
@@ -416,14 +427,14 @@ fun HomeScreen(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = track.artist,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -443,7 +454,7 @@ fun HomeScreen(
                         text = "Trending community playlists",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 20.sp,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                     )
@@ -470,14 +481,14 @@ fun HomeScreen(
                                     text = pl.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = pl.author ?: "Community",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -497,6 +508,17 @@ fun HomeScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    val targetArtistName = simRec.artistName ?: simRec.seedTitle
+                                    val targetArtist = Artist(
+                                        id = simRec.artistId ?: targetArtistName,
+                                        name = targetArtistName,
+                                        thumbnail = simRec.seedThumbnail,
+                                        query = targetArtistName
+                                    )
+                                    onArtistClick(targetArtist)
+                                }
                                 .padding(horizontal = 18.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -515,21 +537,21 @@ fun HomeScreen(
                                     Text(
                                         text = "Similar to",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                                     )
                                     Text(
                                         text = simRec.seedTitle,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = LIME_ACCENT
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
+                                contentDescription = "View Artist Profile",
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
@@ -559,14 +581,14 @@ fun HomeScreen(
                                         text = track.title,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = track.artist,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.6f),
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -579,7 +601,7 @@ fun HomeScreen(
             }
 
             // ================================================================
-            // 7. DYNAMIC YOUTUBE MUSIC CAROUSEL SHELVES (FEmusic_home)
+            // 8. DYNAMIC YOUTUBE MUSIC CAROUSEL SHELVES (FEmusic_home)
             // ================================================================
             uiState.dynamicSections.forEach { section ->
                 if (section.items.isNotEmpty()) {
@@ -589,7 +611,7 @@ fun HomeScreen(
                                 text = section.title,
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = LIME_ACCENT,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontSize = 20.sp,
                                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
                             )
@@ -597,7 +619,7 @@ fun HomeScreen(
                                 Text(
                                     text = it,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
                                 )
                             }
@@ -628,14 +650,14 @@ fun HomeScreen(
                                             text = track.title,
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onBackground,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = track.artist,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.6f),
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -650,32 +672,7 @@ fun HomeScreen(
 
         }
 
-        // ====================================================================
-        // 9. FLOATING ACTION BUTTON (QUICK SHUFFLE, BOTTOM RIGHT)
-        // ====================================================================
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 16.dp, end = 16.dp)
-                .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF4A502E))
-                .clickable {
-                    if (uiState.quickPicks.isNotEmpty()) {
-                        onTrackClick(uiState.quickPicks.shuffled().first(), uiState.quickPicks.shuffled())
-                    } else {
-                        onSurpriseMe()
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Shuffle,
-                contentDescription = "Quick Shuffle",
-                tint = Color.White,
-                modifier = Modifier.size(26.dp)
-            )
-        }
+
     }
 
     // Options Menu Bottom Sheet
@@ -723,7 +720,7 @@ private fun SpeedDialTile(
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF383D24))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(onClick = onClick)
                 .padding(18.dp),
             contentAlignment = Alignment.Center
@@ -738,7 +735,7 @@ private fun SpeedDialTile(
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF1B1D16))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(onClick = onClick)
         ) {
             if (!item.image.isNullOrBlank()) {
@@ -792,7 +789,7 @@ private fun SpeedDialTile(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF1B1D16))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -873,6 +870,6 @@ private fun DiceDot() {
         modifier = Modifier
             .size(10.dp)
             .clip(CircleShape)
-            .background(Color(0xFFDCE775))
+            .background(MaterialTheme.colorScheme.primary)
     )
 }

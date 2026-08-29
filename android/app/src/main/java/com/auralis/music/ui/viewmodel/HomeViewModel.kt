@@ -447,7 +447,7 @@ class HomeViewModel(
                             try {
                                 val seedTrack = userKnownTracks.firstOrNull()
                                 if (seedTrack != null) {
-                                    val radio = innerTubeClient.getRadioTracks(seedTrack.id).take(4)
+                                    val radio = innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title).take(4)
                                     pool.addAll(radio)
                                 } else {
                                     val searchHits = searchRepository.search("$artistName songs").songs.take(4)

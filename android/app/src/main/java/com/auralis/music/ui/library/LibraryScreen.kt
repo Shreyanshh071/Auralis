@@ -99,6 +99,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -131,9 +132,9 @@ import com.auralis.music.ui.viewmodel.LibraryFilter
 import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.SmartCollectionType
 
-val CREAM_ICON_COLOR = Color(0xFFDCE2BD)
-val CARD_DARK_BG = Color(0xFF1B1D16)
-val LIME_TEXT = Color(0xFFD4E157)
+val CREAM_ICON_COLOR: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
+val CARD_DARK_BG: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+val LIME_TEXT: Color @Composable get() = MaterialTheme.colorScheme.primary
 
 enum class PlaylistSortOption(val label: String) {
     CUSTOM("Custom order"),
@@ -183,12 +184,21 @@ fun LibraryScreen(
     onOpenArtist: (Artist) -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    isExternalCreateDialogOpen: Boolean = false,
+    onCloseExternalCreateDialog: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isGridView by remember { mutableStateOf(uiState.isGridView) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showCreateDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isExternalCreateDialogOpen) {
+        if (isExternalCreateDialogOpen) {
+            showCreateDialog = true
+            onCloseExternalCreateDialog()
+        }
+    }
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
@@ -292,7 +302,7 @@ fun LibraryScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0F0C))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
@@ -312,7 +322,7 @@ fun LibraryScreen(
                     text = "Library",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 24.sp
                 )
 
@@ -321,19 +331,19 @@ fun LibraryScreen(
                         onClick = onOpenHistory,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.History, contentDescription = "History", tint = Color.White.copy(alpha = 0.85f))
+                        Icon(Icons.Default.History, contentDescription = "History", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
                     }
                     IconButton(
                         onClick = onOpenListenTogether,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = Color.White.copy(alpha = 0.85f))
+                        Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
                     }
                     IconButton(
                         onClick = onOpenProfile,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = Color.White.copy(alpha = 0.85f))
+                        Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
                     }
                 }
             }
@@ -372,7 +382,7 @@ fun LibraryScreen(
                                 Text(
                                     text = "Search library...",
                                     style = TextStyle(
-                                        color = Color.White.copy(alpha = 0.5f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Normal
                                     )
@@ -382,7 +392,7 @@ fun LibraryScreen(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
                                 textStyle = TextStyle(
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Normal
                                 ),
@@ -404,7 +414,7 @@ fun LibraryScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear",
-                                tint = Color.White.copy(alpha = 0.7f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -439,7 +449,7 @@ fun LibraryScreen(
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = "Search Library",
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -450,7 +460,7 @@ fun LibraryScreen(
                             Icon(
                                 imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
                                 contentDescription = if (isGridView) "Switch to List View" else "Switch to Grid View",
-                                tint = if (isGridView) Color.White else LIME_TEXT,
+                                tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -460,12 +470,17 @@ fun LibraryScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ================================================================
-            // 3. LIBRARY CONTENT (2-COLUMN GRID OR 1-COLUMN LIST)
-            // ================================================================
+            val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
             val gridAnimate = !LocalReducedMotion.current
             val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
             val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
+            
+            val minGridSize = when (appearance.gridCellSize) {
+                "Small" -> 135.dp
+                "Large" -> 195.dp
+                else -> 160.dp
+            }
+
             AnimatedContent(
                 targetState = isGridView,
                 transitionSpec = {
@@ -476,22 +491,50 @@ fun LibraryScreen(
             ) { gridMode ->
                 if (gridMode) {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(minSize = minGridSize),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         if (searchQuery.isBlank()) {
-                            // Default Playlist: Liked
-                            item {
-                                SmartLibraryCard(
-                                    title = "Liked",
-                                    subtitle = "${uiState.favorites.size} songs",
-                                    icon = Icons.Default.FavoriteBorder,
-                                    tracks = uiState.favorites,
-                                    onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
-                                )
+                            // 1. Liked Playlist
+                            if (appearance.showLikedPlaylist) {
+                                item {
+                                    SmartLibraryCard(
+                                        title = "Liked",
+                                        subtitle = "${uiState.favorites.size} songs",
+                                        icon = Icons.Default.FavoriteBorder,
+                                        tracks = uiState.favorites,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
+                                    )
+                                }
+                            }
+
+                            // 2. Top Most Played Playlist
+                            if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
+                                item {
+                                    SmartLibraryCard(
+                                        title = "Top Most Played",
+                                        subtitle = "${uiState.top50Tracks.size} songs",
+                                        icon = Icons.Default.Leaderboard,
+                                        tracks = uiState.top50Tracks,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) }
+                                    )
+                                }
+                            }
+
+                            // 3. Cached Playlist
+                            if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
+                                item {
+                                    SmartLibraryCard(
+                                        title = "Cached Streamed",
+                                        subtitle = "${uiState.cachedTracks.size} songs",
+                                        icon = Icons.Default.CloudDownload,
+                                        tracks = uiState.cachedTracks,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) }
+                                    )
+                                }
                             }
                         }
 
@@ -515,14 +558,40 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (searchQuery.isBlank()) {
-                            item {
-                                SmartLibraryListRow(
-                                    title = "Liked",
-                                    subtitle = "${uiState.favorites.size} songs",
-                                    icon = Icons.Default.FavoriteBorder,
-                                    tracks = uiState.favorites,
-                                    onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
-                                )
+                            if (appearance.showLikedPlaylist) {
+                                item {
+                                    SmartLibraryListRow(
+                                        title = "Liked",
+                                        subtitle = "${uiState.favorites.size} songs",
+                                        icon = Icons.Default.FavoriteBorder,
+                                        tracks = uiState.favorites,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
+                                    )
+                                }
+                            }
+
+                            if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
+                                item {
+                                    SmartLibraryListRow(
+                                        title = "Top Most Played",
+                                        subtitle = "${uiState.top50Tracks.size} songs",
+                                        icon = Icons.Default.Leaderboard,
+                                        tracks = uiState.top50Tracks,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) }
+                                    )
+                                }
+                            }
+
+                            if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
+                                item {
+                                    SmartLibraryListRow(
+                                        title = "Cached Streamed",
+                                        subtitle = "${uiState.cachedTracks.size} songs",
+                                        icon = Icons.Default.CloudDownload,
+                                        tracks = uiState.cachedTracks,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) }
+                                    )
+                                }
                             }
                         }
 
@@ -538,27 +607,6 @@ fun LibraryScreen(
                 }
             }
         }
-
-        // ====================================================================
-        // 4. FLOATING ACTION BUTTON '+' (BOTTOM RIGHT)
-        // ====================================================================
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = 28.dp)
-                .size(62.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF535D31))
-                .clickable { showCreateDialog = true },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "New Playlist",
-                tint = Color.White,
-                modifier = Modifier.size(30.dp)
-            )
-        }
     }
 
     // Sort Options Dialog
@@ -566,7 +614,7 @@ fun LibraryScreen(
         val sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
         AlertDialog(
             onDismissRequest = { showSortMenu = false },
-            title = { Text("Sort Playlists By", fontWeight = FontWeight.Bold, color = Color.White) },
+            title = { Text("Sort Playlists By", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
             containerColor = CARD_DARK_BG,
             text = {
                 Column {
@@ -587,7 +635,7 @@ fun LibraryScreen(
                                 text = opt,
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) LIME_TEXT else Color.White,
+                                color = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.weight(1f)
                             )
                             if (isSelected) {
@@ -599,7 +647,7 @@ fun LibraryScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showSortMenu = false }) { Text("Cancel", color = Color.White.copy(alpha = 0.8f)) }
+                TextButton(onClick = { showSortMenu = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         )
     }
@@ -615,7 +663,7 @@ fun LibraryScreen(
                 Text(
                     text = "New Playlist",
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onBackground
                 )
             },
             text = {
@@ -626,16 +674,16 @@ fun LibraryScreen(
                         placeholder = {
                             Text(
                                 "Playlist title",
-                                color = Color.White.copy(alpha = 0.4f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 13.sp
                             )
                         },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = LIME_TEXT,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
+                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                             cursorColor = LIME_TEXT
                         ),
                         shape = RoundedCornerShape(12.dp),
@@ -664,7 +712,7 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.7f))
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -788,7 +836,7 @@ private fun SmartLibraryCard(
             text = title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 15.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -799,7 +847,7 @@ private fun SmartLibraryCard(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.6f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp
             )
         }
@@ -882,7 +930,7 @@ private fun UserPlaylistGridCard(
             text = playlist.title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 15.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -893,7 +941,7 @@ private fun UserPlaylistGridCard(
         Text(
             text = "${playlist.tracks.size} songs",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp
         )
     }
@@ -924,7 +972,7 @@ private fun SmartLibraryListRow(
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF25281E)),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
         ) {
             if (tracks.isNotEmpty()) {
@@ -938,7 +986,7 @@ private fun SmartLibraryListRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = CREAM_ICON_COLOR,
+                    tint = LIME_TEXT,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -949,7 +997,7 @@ private fun SmartLibraryListRow(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 15.sp,
                 maxLines = 1
             )
@@ -957,14 +1005,14 @@ private fun SmartLibraryListRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.6f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp
             )
         }
         Icon(
             imageVector = Icons.Default.ChevronRight,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.4f),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -1000,7 +1048,7 @@ private fun UserPlaylistListRow(
                 text = playlist.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1009,14 +1057,14 @@ private fun UserPlaylistListRow(
             Text(
                 text = "${playlist.tracks.size} songs",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.6f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp
             )
         }
         Icon(
             imageVector = Icons.Default.ChevronRight,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.4f),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -1111,7 +1159,7 @@ private fun PlaylistDetailView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0F0C))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // ================================================================
         // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
@@ -1178,7 +1226,7 @@ private fun PlaylistDetailView(
                             Text(
                                 text = "Search in playlist...",
                                 style = TextStyle(
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Normal
                                 )
@@ -1188,7 +1236,7 @@ private fun PlaylistDetailView(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
                             textStyle = TextStyle(
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Normal
                             ),
@@ -1205,7 +1253,7 @@ private fun PlaylistDetailView(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear",
-                                tint = Color.White.copy(alpha = 0.7f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -1311,7 +1359,7 @@ private fun PlaylistDetailView(
                         text = playlist.title,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 24.sp
                     )
 
@@ -1321,7 +1369,7 @@ private fun PlaylistDetailView(
                     Text(
                         text = "${playlist.tracks.size} songs $durationFormatted",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
 
@@ -1337,7 +1385,7 @@ private fun PlaylistDetailView(
                             modifier = Modifier
                                 .size(22.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF2E3324)),
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
                             if (!userAvatarUrl.isNullOrBlank()) {
@@ -1361,7 +1409,7 @@ private fun PlaylistDetailView(
                             text = authorName,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontSize = 14.sp
                         )
                     }
@@ -1372,7 +1420,7 @@ private fun PlaylistDetailView(
                         Text(
                             text = playlist.description,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.55f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             lineHeight = 16.sp
                         )
@@ -1589,7 +1637,7 @@ private fun PlaylistDetailView(
                             Text(
                                 text = subtitleText,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1609,7 +1657,7 @@ private fun PlaylistDetailView(
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Options",
-                            tint = Color.White.copy(alpha = 0.6f),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1624,7 +1672,7 @@ private fun PlaylistDetailView(
     if (showOptionsMenu) {
         ModalBottomSheet(
             onDismissRequest = { showOptionsMenu = false },
-            containerColor = Color(0xFF141610),
+            containerColor = CARD_DARK_BG,
             dragHandle = {
                 Box(
                     modifier = Modifier
@@ -1632,7 +1680,7 @@ private fun PlaylistDetailView(
                         .width(40.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.3f))
+                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f))
                 )
             }
         ) {
@@ -1726,14 +1774,14 @@ private fun PlaylistDetailView(
     if (showEditDialog) {
         AlertDialog(
             onDismissRequest = { showEditDialog = false },
-            containerColor = Color(0xFF1E2117),
+            containerColor = CARD_DARK_BG,
             shape = RoundedCornerShape(24.dp),
             title = {
                 Text(
                     text = "Edit Playlist",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 20.sp
                 )
             },
@@ -1750,8 +1798,8 @@ private fun PlaylistDetailView(
                         modifier = Modifier
                             .size(120.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF13150F))
-                            .border(1.5.dp, if (editCoverUrl.isNotBlank()) LIME_TEXT else Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(1.5.dp, if (editCoverUrl.isNotBlank()) LIME_TEXT else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
                             .clickable { photoPickerLauncher.launch("image/*") },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1809,7 +1857,7 @@ private fun PlaylistDetailView(
                             TextButton(
                                 onClick = { editCoverUrl = "" }
                             ) {
-                                Text("Reset Photo", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                                Text("Reset Photo", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                             }
                         }
                     }
@@ -1818,14 +1866,14 @@ private fun PlaylistDetailView(
                     OutlinedTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        label = { Text("Playlist Name", color = Color.White.copy(alpha = 0.6f)) },
+                        label = { Text("Playlist Name", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF13150F),
-                            unfocusedContainerColor = Color(0xFF13150F),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                             focusedIndicatorColor = LIME_TEXT,
-                            unfocusedIndicatorColor = Color.White.copy(alpha = 0.15f)
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
                         ),
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true,
@@ -1836,14 +1884,14 @@ private fun PlaylistDetailView(
                     OutlinedTextField(
                         value = editDesc,
                         onValueChange = { editDesc = it },
-                        label = { Text("Description (optional)", color = Color.White.copy(alpha = 0.6f)) },
+                        label = { Text("Description (optional)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF13150F),
-                            unfocusedContainerColor = Color(0xFF13150F),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                             focusedIndicatorColor = LIME_TEXT,
-                            unfocusedIndicatorColor = Color.White.copy(alpha = 0.15f)
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
                         ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1867,7 +1915,7 @@ private fun PlaylistDetailView(
             },
             dismissButton = {
                 TextButton(onClick = { showEditDialog = false }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -1879,14 +1927,14 @@ private fun PlaylistDetailView(
     if (showExportDialog) {
         AlertDialog(
             onDismissRequest = { showExportDialog = false },
-            containerColor = Color(0xFF1E2117),
+            containerColor = CARD_DARK_BG,
             shape = RoundedCornerShape(24.dp),
             title = {
                 Text(
                     text = "Export playlist",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 20.sp
                 )
             },
@@ -1904,7 +1952,7 @@ private fun PlaylistDetailView(
                         Icon(
                             imageVector = if (selectedExportFormat == "CSV") Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
                             contentDescription = null,
-                            tint = if (selectedExportFormat == "CSV") LIME_TEXT else Color.White.copy(alpha = 0.6f),
+                            tint = if (selectedExportFormat == "CSV") LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(14.dp))
@@ -1912,7 +1960,7 @@ private fun PlaylistDetailView(
                             text = "Export as CSV",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                     }
 
@@ -1928,7 +1976,7 @@ private fun PlaylistDetailView(
                         Icon(
                             imageVector = if (selectedExportFormat == "M3U") Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
                             contentDescription = null,
-                            tint = if (selectedExportFormat == "M3U") LIME_TEXT else Color.White.copy(alpha = 0.6f),
+                            tint = if (selectedExportFormat == "M3U") LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(14.dp))
@@ -1936,7 +1984,7 @@ private fun PlaylistDetailView(
                             text = "Export as M3U",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 }
@@ -2031,14 +2079,14 @@ private fun PlaylistDetailView(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            containerColor = Color(0xFF1E2117),
+            containerColor = CARD_DARK_BG,
             shape = RoundedCornerShape(24.dp),
             title = {
                 Text(
                     text = "Delete Playlist",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 20.sp
                 )
             },
@@ -2046,7 +2094,7 @@ private fun PlaylistDetailView(
                 Text(
                     text = "Are you sure you want to delete '${playlist.title}'?",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 15.sp
                 )
             },
@@ -2092,7 +2140,7 @@ private fun PlaylistActionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF1B1E15))
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2100,7 +2148,7 @@ private fun PlaylistActionRow(
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = Color.White,
+            tint = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
@@ -2109,7 +2157,7 @@ private fun PlaylistActionRow(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 16.sp
             )
             if (!subtitle.isNullOrBlank()) {
@@ -2117,7 +2165,7 @@ private fun PlaylistActionRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp
                 )
             }

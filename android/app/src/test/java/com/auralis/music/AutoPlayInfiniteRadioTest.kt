@@ -104,6 +104,10 @@ class AutoPlayInfiniteRadioTest {
         override val settingsFlow: Flow<PlayerSettings> = flowOf(PlayerSettings())
         override suspend fun updateSettings(settings: PlayerSettings) {}
         override suspend fun setThemeMode(mode: ThemeMode) {}
+        override suspend fun setAudioQuality(quality: AudioQuality) {}
+        override suspend fun setGaplessPlayback(enabled: Boolean) {}
+        override suspend fun setSkipSilence(enabled: Boolean) {}
+        override suspend fun setSpatialAudio(enabled: Boolean) {}
         override suspend fun setVolume(volume: Float) {}
         override suspend fun setPlaybackRate(rate: Float) {}
     }
