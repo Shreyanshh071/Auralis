@@ -31,6 +31,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Button
@@ -76,8 +78,10 @@ import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.AuthUiState
 
-val PROFILE_LIME = Color(0xFFD4E157)
-val PROFILE_CARD_BG = Color(0xFF1B1D16)
+val PROFILE_LIME: Color
+    @Composable get() = MaterialTheme.colorScheme.primary
+val PROFILE_CARD_BG: Color
+    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 
 /**
  * Pure YouTube Playlist Importer & Account Sheet.
@@ -104,18 +108,41 @@ fun ProfileSheet(
     onClearSpotifyImportMessage: () -> Unit = {},
     isImportingSpotify: Boolean = false,
     spotifyImportMessage: String? = null,
+    playerSettings: com.auralis.music.domain.model.PlayerSettings = com.auralis.music.domain.model.PlayerSettings(),
+    onThemeModeChange: (com.auralis.music.domain.model.ThemeMode) -> Unit = {},
+    onAudioQualityChange: (com.auralis.music.domain.model.AudioQuality) -> Unit = {},
+    onToggleGaplessPlayback: (Boolean) -> Unit = {},
+    onToggleSkipSilence: (Boolean) -> Unit = {},
+    onToggleSpatialAudio: (Boolean) -> Unit = {},
+    onClearCache: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val profile = authUiState.profile
+    var isSettingsOpen by remember { mutableStateOf(false) }
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
+
+    if (isSettingsOpen) {
+        com.auralis.music.ui.screens.SettingsScreen(
+            settings = playerSettings,
+            onThemeModeChange = onThemeModeChange,
+            onAudioQualityChange = onAudioQualityChange,
+            onToggleGaplessPlayback = onToggleGaplessPlayback,
+            onToggleSkipSilence = onToggleSkipSilence,
+            onToggleSpatialAudio = onToggleSpatialAudio,
+            onClearCache = onClearCache,
+            onNavigateToAccount = { isSettingsOpen = false },
+            onDismiss = { isSettingsOpen = false }
+        )
+        return
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0C0C0E))
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -129,37 +156,53 @@ fun ProfileSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 20.dp),
+                    .padding(top = 16.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Account & Playlists",
+                    text = "Profile & Account",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 22.sp
                 )
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(24.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { isSettingsOpen = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 
-            // ── USER PROFILE CARD (DARK GLASSMORPHIC) ──
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // ── USER PROFILE CARD ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
                     .padding(20.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -169,7 +212,7 @@ fun ProfileSheet(
                             modifier = Modifier
                                 .size(56.dp)
                                 .clip(CircleShape)
-                                .border(1.5.dp, Color.White.copy(alpha = 0.20f), CircleShape),
+                                .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                             cornerRadius = 28.dp,
                             contentDescription = profile.displayName
                         )
@@ -178,14 +221,14 @@ fun ProfileSheet(
                             modifier = Modifier
                                 .size(56.dp)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.08f))
-                                .border(1.5.dp, Color.White.copy(alpha = 0.15f), CircleShape),
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccountCircle,
                                 contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.75f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(36.dp)
                             )
                         }
@@ -198,7 +241,7 @@ fun ProfileSheet(
                             text = profile.displayName,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontSize = 18.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -207,7 +250,7 @@ fun ProfileSheet(
                         Text(
                             text = profile.email,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.55f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -218,21 +261,21 @@ fun ProfileSheet(
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF1B382B))
+                                    .background(Color(0xFF16A34A).copy(alpha = 0.15f))
                                     .padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = null,
-                                    tint = Color(0xFF4ADE80),
+                                    tint = Color(0xFF16A34A),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(5.dp))
                                 Text(
                                     text = "Connected (youtube.readonly)",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFF4ADE80),
+                                    color = Color(0xFF16A34A),
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 11.sp
                                 )
@@ -242,15 +285,66 @@ fun ProfileSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ── SETTINGS ENTRY CARD ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+                    .clickable { isSettingsOpen = true }
+                    .padding(horizontal = 18.dp, vertical = 16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Settings",
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Appearance, player and audio, Auralis, storage",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(18.dp))
 
-            // ── YOUTUBE MUSIC PLAYLIST IMPORTER CARD (DARK GLASSMORPHIC) ──
+            // ── YOUTUBE MUSIC PLAYLIST IMPORTER CARD ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f), RoundedCornerShape(22.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -271,7 +365,7 @@ fun ProfileSheet(
                                 text = "Import YouTube Music Playlist",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 fontSize = 16.sp
                             )
                         }
@@ -290,7 +384,7 @@ fun ProfileSheet(
                     Text(
                         text = "Paste any YouTube Music playlist link (music.youtube.com) to import your favorite songs directly into Auralis. Regular YouTube video playlists are blocked to ensure pure music.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         lineHeight = 19.sp
                     )
@@ -304,14 +398,14 @@ fun ProfileSheet(
                             youtubeUrlInput = it
                             onClearYouTubeImportMessage()
                         },
-                        label = { Text("YouTube Music Link", color = Color.White.copy(alpha = 0.6f)) },
-                        placeholder = { Text("Paste music.youtube.com/playlist?list=...", color = Color.White.copy(alpha = 0.3f)) },
+                        label = { Text("YouTube Music Link", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        placeholder = { Text("Paste music.youtube.com/playlist?list=...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color(0xFFEF4444),
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                             cursorColor = Color(0xFFEF4444)
                         ),
                         shape = RoundedCornerShape(12.dp),
@@ -326,7 +420,7 @@ fun ProfileSheet(
                                         youtubeUrlInput = ""
                                         onClearYouTubeImportMessage()
                                     }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                                     }
                                 }
                                 IconButton(
@@ -340,7 +434,7 @@ fun ProfileSheet(
                                         }
                                     }
                                 ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color.White.copy(alpha = 0.7f))
+                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -409,8 +503,8 @@ fun ProfileSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
-                            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -424,7 +518,7 @@ fun ProfileSheet(
                         Text(
                             text = "Tip: Make sure your playlist is set to Public or Unlisted in YouTube Music. Normal YouTube video links are blocked to keep your library pure music.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.75f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             lineHeight = 17.sp
                         )
@@ -435,7 +529,7 @@ fun ProfileSheet(
                         Text(
                             text = youtubeImportMessage,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (youtubeImportMessage.startsWith("Imported", ignoreCase = true) || youtubeImportMessage.startsWith("Success", ignoreCase = true)) Color(0xFF4ADE80) else Color(0xFFEF4444),
+                            color = if (youtubeImportMessage.startsWith("Imported", ignoreCase = true) || youtubeImportMessage.startsWith("Success", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEF4444),
                             fontSize = 12.sp
                         )
                     }
@@ -444,13 +538,13 @@ fun ProfileSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // ── SPOTIFY PLAYLIST IMPORTER CARD (EXACTLY BELOW YOUTUBE CARD) ──
+            // ── SPOTIFY PLAYLIST IMPORTER CARD ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .border(1.dp, Color(0xFF1DB954).copy(alpha = 0.20f), RoundedCornerShape(22.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, Color(0xFF1DB954).copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -466,7 +560,7 @@ fun ProfileSheet(
                                 text = "Import Spotify Playlist",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 fontSize = 16.sp
                             )
                         }
@@ -485,7 +579,7 @@ fun ProfileSheet(
                     Text(
                         text = "Paste any Spotify playlist, album, or track link to import songs directly into your Auralis library.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         lineHeight = 19.sp
                     )
@@ -499,14 +593,14 @@ fun ProfileSheet(
                             spotifyUrlInput = it
                             onClearSpotifyImportMessage()
                         },
-                        label = { Text("Spotify Link", color = Color.White.copy(alpha = 0.6f)) },
-                        placeholder = { Text("Paste open.spotify.com/playlist/...", color = Color.White.copy(alpha = 0.3f)) },
+                        label = { Text("Spotify Link", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        placeholder = { Text("Paste open.spotify.com/playlist/...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color(0xFF1DB954),
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                             cursorColor = Color(0xFF1DB954)
                         ),
                         shape = RoundedCornerShape(12.dp),
@@ -521,7 +615,7 @@ fun ProfileSheet(
                                         spotifyUrlInput = ""
                                         onClearSpotifyImportMessage()
                                     }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                                     }
                                 }
                                 IconButton(
@@ -535,7 +629,7 @@ fun ProfileSheet(
                                         }
                                     }
                                 ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color.White.copy(alpha = 0.7f))
+                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -604,7 +698,7 @@ fun ProfileSheet(
                         Text(
                             text = spotifyImportMessage,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (spotifyImportMessage.contains("fail", ignoreCase = true) || spotifyImportMessage.contains("could not", ignoreCase = true)) Color(0xFFF87171) else Color(0xFF4ADE80),
+                            color = if (spotifyImportMessage.contains("fail", ignoreCase = true) || spotifyImportMessage.contains("could not", ignoreCase = true)) Color(0xFFEF4444) else Color(0xFF16A34A),
                             fontSize = 12.sp
                         )
                     }
@@ -617,6 +711,7 @@ fun ProfileSheet(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color(0xFF1DB954).copy(alpha = 0.08f))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -630,7 +725,7 @@ fun ProfileSheet(
                         Text(
                             text = "Tip: If your playlist is private, briefly toggle it to Public in Spotify to import. Once imported, you can make it Private again anytime — your songs stay saved in Auralis forever!",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.75f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             lineHeight = 17.sp
                         )
@@ -640,14 +735,14 @@ fun ProfileSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // ── DISCONNECT BUTTON (DARK GLASS DANGER) ──
+            // ── DISCONNECT BUTTON ──
             if (profile.isGoogleConnected || profile.accessToken != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF261214))
+                        .background(Color(0xFFEF4444).copy(alpha = 0.12f))
                         .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), RoundedCornerShape(14.dp))
                         .tactileBounce(scaleDown = 0.96f) { onDisconnect() },
                     contentAlignment = Alignment.Center
@@ -659,13 +754,13 @@ fun ProfileSheet(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                             contentDescription = null,
-                            tint = Color(0xFFF87171),
+                            tint = Color(0xFFEF4444),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Disconnect Account",
-                            color = Color(0xFFF87171),
+                            color = Color(0xFFEF4444),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -673,9 +768,10 @@ fun ProfileSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
-        }
+
+        Spacer(modifier = Modifier.height(96.dp))
     }
+}
 
     // ── SELECT YOUTUBE PLAYLISTS TO IMPORT DIALOG ──
     if (authUiState.showPlaylistSelectDialog) {
@@ -706,8 +802,8 @@ fun ProfileSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(28.dp))
-                        .background(Color(0xFF141416))
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(28.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(28.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -734,7 +830,7 @@ fun ProfileSheet(
                                         text = "Import Playlists",
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         fontSize = 20.sp
                                     )
                                 }
@@ -746,7 +842,7 @@ fun ProfileSheet(
                                         "Select playlists to import"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.55f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 12.sp
                                 )
                             }
@@ -803,7 +899,7 @@ fun ProfileSheet(
                                         Text(
                                             text = "Loading your YouTube playlists...",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = Color.White.copy(alpha = 0.6f)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -821,12 +917,12 @@ fun ProfileSheet(
                                                 .clip(RoundedCornerShape(16.dp))
                                                 .background(
                                                     if (isChecked) PROFILE_LIME.copy(alpha = 0.12f)
-                                                    else Color.White.copy(alpha = 0.04f)
+                                                    else MaterialTheme.colorScheme.surfaceVariant
                                                 )
                                                 .border(
                                                     width = 1.dp,
                                                     color = if (isChecked) PROFILE_LIME.copy(alpha = 0.45f)
-                                                    else Color.White.copy(alpha = 0.06f),
+                                                    else MaterialTheme.colorScheme.outlineVariant,
                                                     shape = RoundedCornerShape(16.dp)
                                                 )
                                                 .tactileBounce(scaleDown = 0.97f) {
@@ -847,7 +943,7 @@ fun ProfileSheet(
                                                     .border(
                                                         width = 1.5.dp,
                                                         color = if (isChecked) PROFILE_LIME
-                                                        else Color.White.copy(alpha = 0.30f),
+                                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                                         shape = CircleShape
                                                     ),
                                                 contentAlignment = Alignment.Center
@@ -856,7 +952,7 @@ fun ProfileSheet(
                                                     Icon(
                                                         imageVector = Icons.Default.Check,
                                                         contentDescription = null,
-                                                        tint = Color.Black,
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                 }
@@ -882,7 +978,7 @@ fun ProfileSheet(
                                                     text = playlist.title,
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onBackground,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     fontSize = 14.sp
@@ -891,7 +987,7 @@ fun ProfileSheet(
                                                 Text(
                                                     text = "${playlist.trackCount} songs",
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Color.White.copy(alpha = 0.50f),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontSize = 12.sp
                                                 )
                                             }
@@ -914,14 +1010,14 @@ fun ProfileSheet(
                                     .weight(1f)
                                     .height(48.dp)
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White.copy(alpha = 0.08f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                                     .tactileBounce(scaleDown = 0.95f) { onClosePlaylistSelector() },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "Cancel",
-                                    color = Color.White.copy(alpha = 0.85f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 14.sp
                                 )
@@ -947,7 +1043,7 @@ fun ProfileSheet(
                                 if (authUiState.isSyncing) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),
-                                        color = Color.Black,
+                                        color = MaterialTheme.colorScheme.onPrimary,
                                         strokeWidth = 2.dp
                                     )
                                 } else {
@@ -958,13 +1054,13 @@ fun ProfileSheet(
                                         Icon(
                                             imageVector = Icons.Default.Download,
                                             contentDescription = null,
-                                            tint = if (isEnabled) Color.Black else Color.White.copy(alpha = 0.40f),
+                                            tint = if (isEnabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = if (selectedCount > 0) "Import ($selectedCount)" else "Import (0)",
-                                            color = if (isEnabled) Color.Black else Color.White.copy(alpha = 0.40f),
+                                            color = if (isEnabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )

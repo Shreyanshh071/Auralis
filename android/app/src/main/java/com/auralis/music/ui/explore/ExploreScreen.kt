@@ -137,6 +137,8 @@ fun ExploreScreen(
     onOpenRecognition: (RecognitionMode) -> Unit = {},
     onCloseRecognition: () -> Unit = {},
     onModeSelect: (RecognitionMode) -> Unit = {},
+    savedArtists: List<com.auralis.music.domain.model.SavedArtist> = emptyList(),
+    onToggleSubscribe: (com.auralis.music.domain.model.SavedArtist) -> Unit = {},
     onStartListening: () -> Unit = {},
     onStopListening: () -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
@@ -177,6 +179,8 @@ fun ExploreScreen(
                 isPlaying = isPlaying,
                 userPlaylists = userPlaylists,
                 favoriteTracks = favoriteTracks,
+                savedArtists = savedArtists,
+                onToggleSubscribe = onToggleSubscribe,
                 onTrackClick = onTrackClick,
                 onFavoriteToggle = onFavoriteToggle,
                 onAddToPlaylist = onAddToPlaylist,
@@ -211,7 +215,7 @@ fun ExploreScreen(
             Box(
                 modifier = modifier
                     .fillMaxSize()
-                    .background(Color(0xFF0E0F0C))
+                    .background(MaterialTheme.colorScheme.background)
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
@@ -251,7 +255,7 @@ fun ExploreScreen(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -274,7 +278,7 @@ fun ExploreScreen(
                         Text(
                             text = "Search Auralis...",
                             style = TextStyle(
-                                color = Color.White.copy(alpha = 0.50f),
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Normal
                             )
@@ -285,11 +289,11 @@ fun ExploreScreen(
                         value = uiState.query,
                         onValueChange = onQueryChange,
                         textStyle = TextStyle(
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Normal
                         ),
-                        cursorBrush = SolidColor(Color(0xFFD4E157)),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
                             onSearch = {
@@ -323,7 +327,7 @@ fun ExploreScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear search",
-                                tint = Color.White.copy(alpha = 0.8f),
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -337,7 +341,7 @@ fun ExploreScreen(
                             Icon(
                                 imageVector = Icons.Default.Mic,
                                 contentDescription = "Speak to search",
-                                tint = Color.White.copy(alpha = 0.8f),
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -374,7 +378,7 @@ fun ExploreScreen(
                             contentAlignment = Alignment.TopCenter
                         ) {
                             CircularProgressIndicator(
-                                color = Color(0xFFD4E157),
+                                color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(36.dp)
                             )
                         }
@@ -392,7 +396,7 @@ fun ExploreScreen(
                                 query = uiState.query,
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
-                                onTrackClick = { track, list -> onTrackClick(track, list) },
+                                onTrackClick = { track, _ -> onTrackClick(track, listOf(track)) },
                                 onMenuClick = { track -> selectedTrackForMenu = track },
                                 onArtistClick = { artist -> onOpenArtist(artist) },
                                 onPlaylistClick = { playlist -> onSearch(playlist.title) }
@@ -426,7 +430,7 @@ fun ExploreScreen(
                                         Icon(
                                             imageVector = Icons.Default.Search,
                                             contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.60f),
+                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                                             modifier = Modifier.size(22.dp)
                                         )
 
@@ -435,7 +439,7 @@ fun ExploreScreen(
                                         Text(
                                             text = suggestion,
                                             style = MaterialTheme.typography.bodyLarge,
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onBackground,
                                             fontSize = 16.sp,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -468,7 +472,7 @@ fun ExploreScreen(
                                         Icon(
                                             imageVector = Icons.Default.History,
                                             contentDescription = "History",
-                                            tint = Color.White.copy(alpha = 0.65f),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(22.dp)
                                         )
 
@@ -477,7 +481,7 @@ fun ExploreScreen(
                                         Text(
                                             text = query,
                                             style = MaterialTheme.typography.bodyLarge,
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onBackground,
                                             fontSize = 16.sp,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -490,7 +494,7 @@ fun ExploreScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Close,
                                                 contentDescription = "Remove",
-                                                tint = Color.White.copy(alpha = 0.60f),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
@@ -502,7 +506,7 @@ fun ExploreScreen(
                                             onClick = { onQueryChange(query) },
                                             modifier = Modifier.size(32.dp)
                                         ) {
-                                            DiagonalInsertArrow()
+                                            DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
@@ -511,50 +515,6 @@ fun ExploreScreen(
                     }
                 }
             }
-        }
-
-        // ====================================================================
-        // 5. FLOATING VOICE SEARCH & MUSIC RECOGNITION BUTTON (BOTTOM RIGHT)
-        // ====================================================================
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = 28.dp)
-                .size(62.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF535D31))
-                .tactileBounce(scaleDown = 0.88f) {
-                    onOpenRecognition(RecognitionMode.VOICE_SEARCH)
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "Voice Search & Music Recognition",
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
-        }
-
-        // ====================================================================
-        // 6. FULLSCREEN VOICE & MUSIC RECOGNITION MODAL
-        // ====================================================================
-        if (uiState.isRecognitionOpen) {
-            VoiceAndMusicRecognitionModal(
-                state = recognitionState,
-                onModeSelect = onModeSelect,
-                onStartListening = onStartListening,
-                onStopListening = onStopListening,
-                onPlayIdentifiedTrack = { track ->
-                    onTrackClick(track, listOf(track))
-                    onCloseRecognition()
-                },
-                onSearchQuery = { query ->
-                    onSearch(query)
-                    onCloseRecognition()
-                },
-                onDismiss = onCloseRecognition
-            )
         }
     }
 }
@@ -638,10 +598,10 @@ private fun CategoryFilterBar(
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(if (isSelected) Color(0xFFD4E157) else Color(0xFF1E201A))
+                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
                     .border(
                         1.dp,
-                        if (isSelected) Color(0xFFD4E157) else GlassBorderHairline,
+                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                         CircleShape
                     )
                     .clickable { onSelectCategory(category) }
@@ -652,7 +612,7 @@ private fun CategoryFilterBar(
                     text = category.name.lowercase().replaceFirstChar { it.uppercase() },
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f)
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -697,12 +657,12 @@ private fun SearchResultsView(
                         text = "Recommendations",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.70f)
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
                         text = "${recommendations.size} suggested",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.40f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -733,7 +693,7 @@ private fun SearchResultsView(
                     text = if (category == SearchCategory.ALL) "Songs" else "Matching Songs",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD4E157),
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
                 )
             }
@@ -763,14 +723,14 @@ private fun SearchResultsView(
                             text = "No matching songs found",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.85f)
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (query.isNotBlank()) "No songs match \"$query\". Check spelling or try searching another artist or title."
                             else "No songs found for this search.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.50f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
@@ -801,7 +761,7 @@ private fun SearchResultsView(
                             text = artist.name,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -809,7 +769,7 @@ private fun SearchResultsView(
                         Text(
                             text = "Artist",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -823,7 +783,7 @@ private fun SearchResultsView(
                     text = "Artists",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD4E157),
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                 )
             }
@@ -848,7 +808,7 @@ private fun SearchResultsView(
                                 text = artist.name,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -881,7 +841,7 @@ private fun SearchResultsView(
                             text = pl.title,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -889,7 +849,7 @@ private fun SearchResultsView(
                         Text(
                             text = pl.author ?: "Playlist",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -900,7 +860,7 @@ private fun SearchResultsView(
                     text = "Albums & Playlists",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD4E157),
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                 )
             }
@@ -924,7 +884,7 @@ private fun SearchResultsView(
                                 text = pl.title,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -932,7 +892,7 @@ private fun SearchResultsView(
                                 Text(
                                     text = auth,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -978,14 +938,14 @@ private fun TrackRowItem(
                 text = track.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (isCurrent) Color(0xFFD4E157) else Color.White,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = track.artist,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.6f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -994,7 +954,7 @@ private fun TrackRowItem(
             EqualizerBars(
                 isPlaying = isPlaying,
                 modifier = Modifier.size(18.dp),
-                color = Color(0xFFD4E157)
+                color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(4.dp))
         }
@@ -1002,7 +962,7 @@ private fun TrackRowItem(
             Icon(
                 imageVector = Icons.Default.MoreVert,
                 contentDescription = "Options",
-                tint = Color.White.copy(alpha = 0.6f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
         }

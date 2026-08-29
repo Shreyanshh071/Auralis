@@ -14,12 +14,14 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.core.content.ContextCompat
+import com.auralis.music.data.datastore.MusicRecognitionHistoryDataStore
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,6 +63,9 @@ class AudioRecognitionManager(
     private val _state = MutableStateFlow(RecognitionState())
     val state: StateFlow<RecognitionState> = _state.asStateFlow()
 
+    private val historyDataStore = MusicRecognitionHistoryDataStore(context.applicationContext)
+    val historyFlow: Flow<List<RecognitionHistoryItem>> = historyDataStore.historyFlow
+
     private var speechRecognizer: SpeechRecognizer? = null
     private var audioRecord: AudioRecord? = null
     private var identifyJob: Job? = null
@@ -71,6 +76,18 @@ class AudioRecognitionManager(
     init {
         mainHandler.post {
             initSpeechRecognizer()
+        }
+    }
+
+    fun clearHistory() {
+        scope.launch(Dispatchers.IO) {
+            historyDataStore.clearHistory()
+        }
+    }
+
+    fun removeHistoryItem(trackId: String) {
+        scope.launch(Dispatchers.IO) {
+            historyDataStore.removeRecognition(trackId)
         }
     }
 
@@ -97,258 +114,171 @@ class AudioRecognitionManager(
                 }
             }
 
-            speechRecognizer?.apply {
-                setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) {
-                        isListening = true
-                        _state.update {
-                            it.copy(
-                                status = RecognitionStatus.LISTENING,
-                                statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH)
-                                    "Listening... Speak song or artist name"
-                                else
-                                    "Listening to surrounding music...",
-                                errorMessage = null
-                            )
-                        }
-                    }
-
-                    override fun onBeginningOfSpeech() {
-                        _state.update { it.copy(status = RecognitionStatus.LISTENING) }
-                    }
-
-                    override fun onRmsChanged(rmsdB: Float) {
-                        val normalized = ((rmsdB + 2f) / 12f).coerceIn(0.15f, 1.0f)
-                        _state.update { it.copy(audioLevel = normalized) }
-                    }
-
-                    override fun onBufferReceived(buffer: ByteArray?) {}
-
-                    override fun onEndOfSpeech() {
-                        if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
-                            _state.update {
-                                it.copy(
-                                    status = RecognitionStatus.PROCESSING,
-                                    statusMessage = "Processing speech..."
-                                )
-                            }
-                        }
-                    }
-
-                    override fun onError(error: Int) {
-                        // For voice search, if listening time was brief, retry once smoothly
-                        val elapsed = System.currentTimeMillis() - listeningStartTime
-                        if (_state.value.mode == RecognitionMode.VOICE_SEARCH && elapsed < 5500L) {
-                            mainHandler.postDelayed({
-                                if (isListening && _state.value.status == RecognitionStatus.LISTENING) {
-                                    startVoiceSearch()
-                                }
-                            }, 300)
-                            return
-                        }
-
-                        // In MUSIC_IDENTIFY mode, AudioRecord handles the primary audio listening; ignore speech timeouts
-                        if (_state.value.mode == RecognitionMode.MUSIC_IDENTIFY) {
-                            return
-                        }
-
-                        val isVoice = _state.value.mode == RecognitionMode.VOICE_SEARCH
-                        val message = when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH -> if (isVoice) "No speech detected. Tap to speak." else "Could not identify music. Tap to retry."
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> if (isVoice) "Listening timed out. Tap to speak." else "Listening timed out. Tap to retry."
-                            SpeechRecognizer.ERROR_NETWORK -> "Network connection required."
-                            SpeechRecognizer.ERROR_AUDIO -> "Microphone recording error."
-                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required."
-                            else -> if (isVoice) "Could not recognize speech. Tap to try again." else "Could not identify. Play music closer to mic."
-                        }
-                        _state.update {
-                            it.copy(
-                                status = RecognitionStatus.ERROR,
-                                statusMessage = message,
-                                errorMessage = message
-                            )
-                        }
-                        isListening = false
-                    }
-
-                    override fun onResults(results: Bundle?) {
-                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val text = matches?.firstOrNull() ?: ""
-                        if (text.isNotBlank()) {
-                            _state.update { it.copy(recognizedText = text) }
-                            if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
-                                handleRecognizedQuery(text)
-                            }
-                        } else {
-                            if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
-                                val elapsed = System.currentTimeMillis() - listeningStartTime
-                                if (elapsed < 5500L) {
-                                    mainHandler.postDelayed({
-                                        if (isListening && _state.value.status == RecognitionStatus.LISTENING) {
-                                            startVoiceSearch()
-                                        }
-                                    }, 300)
-                                } else {
-                                    _state.update {
-                                        it.copy(
-                                            status = RecognitionStatus.ERROR,
-                                            statusMessage = "No speech detected. Tap to speak."
-                                        )
-                                    }
-                                    isListening = false
-                                }
-                            }
-                        }
-                    }
-
-                    override fun onPartialResults(partialResults: Bundle?) {
-                        val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val text = matches?.firstOrNull() ?: ""
-                        if (text.isNotBlank()) {
-                            _state.update { it.copy(recognizedText = text) }
-                        }
-                    }
-
-                    override fun onEvent(eventType: Int, params: Bundle?) {}
-                })
-            }
-        } catch (e: Exception) {}
-    }
-
-    private fun handleRecognizedQuery(query: String) {
-        if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
-            _state.update {
-                it.copy(
-                    status = RecognitionStatus.SUCCESS,
-                    recognizedText = query,
-                    statusMessage = "Searching for \"$query\"..."
-                )
-            }
-            isListening = false
-            return
-        }
-
-        // Ambient Music Identification Mode
-        _state.update {
-            it.copy(
-                status = RecognitionStatus.PROCESSING,
-                recognizedText = query,
-                statusMessage = "Identifying song: \"$query\"..."
-            )
-        }
-
-        scope.launch(Dispatchers.IO) {
-            try {
-                val results = searchRepository.search(query)
-                val song = results.songs.firstOrNull()
-
-                withContext(Dispatchers.Main) {
-                    if (song != null) {
-                        _state.update {
-                            it.copy(
-                                status = RecognitionStatus.SUCCESS,
-                                recognizedText = query,
-                                identifiedTrack = song,
-                                statusMessage = "Identified: ${song.title} • ${song.artist}"
-                            )
-                        }
-                        isListening = false
-                    } else {
-                        _state.update {
-                            it.copy(
-                                status = RecognitionStatus.ERROR,
-                                statusMessage = "No matching track found for \"$query\"."
-                            )
-                        }
-                        isListening = false
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    _state.update {
+                        it.copy(
+                            status = RecognitionStatus.LISTENING,
+                            statusMessage = "Listening... Speak song or artist name",
+                            errorMessage = null
+                        )
                     }
                 }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
+
+                override fun onBeginningOfSpeech() {
+                    _state.update { it.copy(status = RecognitionStatus.LISTENING) }
+                }
+
+                override fun onRmsChanged(rmsdB: Float) {
+                    val normalized = ((rmsdB + 2f) / 12f).coerceIn(0.15f, 1.0f)
+                    _state.update { it.copy(audioLevel = normalized) }
+                }
+
+                override fun onBufferReceived(buffer: ByteArray?) {}
+
+                override fun onEndOfSpeech() {
+                    if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
+                        _state.update {
+                            it.copy(
+                                status = RecognitionStatus.PROCESSING,
+                                statusMessage = "Processing speech..."
+                            )
+                        }
+                    }
+                }
+
+                override fun onError(error: Int) {
+                    if (_state.value.mode != RecognitionMode.VOICE_SEARCH) return
+
+                    val elapsed = System.currentTimeMillis() - listeningStartTime
+                    if (elapsed < 5000L) {
+                        mainHandler.postDelayed({
+                            if (isListening && _state.value.status == RecognitionStatus.LISTENING) {
+                                startVoiceSearch()
+                            }
+                        }, 300)
+                        return
+                    }
+
+                    val message = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH -> "No speech detected. Tap to speak."
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Listening timed out. Tap to speak."
+                        SpeechRecognizer.ERROR_NETWORK -> "Network connection required."
+                        SpeechRecognizer.ERROR_AUDIO -> "Microphone recording error."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required."
+                        else -> "Could not recognize speech. Tap to try again."
+                    }
+
                     _state.update {
                         it.copy(
                             status = RecognitionStatus.ERROR,
-                            statusMessage = "Search error: ${e.localizedMessage}"
+                            statusMessage = message,
+                            errorMessage = message
                         )
                     }
                     isListening = false
                 }
-            }
+
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val recognized = matches?.firstOrNull().orEmpty()
+
+                    if (recognized.isNotBlank()) {
+                        _state.update {
+                            it.copy(
+                                status = RecognitionStatus.SUCCESS,
+                                recognizedText = recognized,
+                                statusMessage = "\"$recognized\""
+                            )
+                        }
+                    } else {
+                        _state.update {
+                            it.copy(
+                                status = RecognitionStatus.ERROR,
+                                statusMessage = "No speech detected. Tap to try again."
+                            )
+                        }
+                    }
+                    isListening = false
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val partial = matches?.firstOrNull().orEmpty()
+                    if (partial.isNotBlank()) {
+                        _state.update {
+                            it.copy(
+                                recognizedText = partial,
+                                statusMessage = "\"$partial\""
+                            )
+                        }
+                    }
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        } catch (e: Exception) {
+            android.util.Log.e("AudioRecognition", "SpeechRecognizer init failed", e)
         }
     }
 
     fun setMode(mode: RecognitionMode) {
-        stop()
+        stopListening()
         _state.update {
             it.copy(
                 mode = mode,
                 status = RecognitionStatus.IDLE,
                 recognizedText = "",
                 identifiedTrack = null,
-                errorMessage = null,
-                statusMessage = if (mode == RecognitionMode.VOICE_SEARCH) "Tap to speak song name" else "Play a song near your phone to identify"
+                audioLevel = 0f,
+                statusMessage = if (mode == RecognitionMode.VOICE_SEARCH) "Tap to speak" else "Tap to listen",
+                errorMessage = null
             )
         }
     }
 
-    fun startVoiceSearch() {
-        stop()
-        listeningStartTime = System.currentTimeMillis()
+    fun startListening() {
+        if (isListening) return
         isListening = true
+        listeningStartTime = System.currentTimeMillis()
+
         _state.update {
             it.copy(
-                mode = RecognitionMode.VOICE_SEARCH,
                 status = RecognitionStatus.LISTENING,
                 recognizedText = "",
                 identifiedTrack = null,
-                errorMessage = null,
-                statusMessage = "Listening for song title or artist..."
+                audioLevel = 0f,
+                statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH) "Listening..." else "Listening for music around you...",
+                errorMessage = null
             )
         }
 
-        val hasPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!hasPermission) {
-            _state.update {
-                it.copy(
-                    status = RecognitionStatus.ERROR,
-                    statusMessage = "Microphone permission required."
-                )
-            }
-            isListening = false
-            return
+        if (_state.value.mode == RecognitionMode.VOICE_SEARCH) {
+            startVoiceSearch()
+        } else {
+            startMusicIdentification()
         }
+    }
 
+    private fun startVoiceSearch() {
         mainHandler.post {
             try {
                 if (speechRecognizer == null) {
                     initSpeechRecognizer()
-                } else {
-                    try {
-                        speechRecognizer?.cancel()
-                    } catch (e: Exception) {}
                 }
 
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 6000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 4000L)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 }
-
                 speechRecognizer?.startListening(intent)
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
                         status = RecognitionStatus.ERROR,
-                        statusMessage = "Microphone error: ${e.localizedMessage}"
+                        statusMessage = "Could not access speech recognizer: ${e.localizedMessage}"
                     )
                 }
                 isListening = false
@@ -356,27 +286,8 @@ class AudioRecognitionManager(
         }
     }
 
-    /**
-     * Native Ambient Music Identification:
-     * 1. Opens microphone via AudioRecord (44.1kHz PCM).
-     * 2. Measures live acoustic RMS dynamics to drive real-time pulse visuals without SpeechRecognizer timeouts.
-     * 3. Simultaneously captures vocal patterns / lyrics via SpeechRecognizer stream.
-     * 4. Automatically queries YouTube Music catalog and plays the identified track in Auralis.
-     */
-    fun startMusicIdentification() {
-        stop()
-        listeningStartTime = System.currentTimeMillis()
-        isListening = true
-        _state.update {
-            it.copy(
-                mode = RecognitionMode.MUSIC_IDENTIFY,
-                status = RecognitionStatus.LISTENING,
-                recognizedText = "",
-                identifiedTrack = null,
-                errorMessage = null,
-                statusMessage = "Listening to surrounding music..."
-            )
-        }
+    private fun startMusicIdentification() {
+        identifyJob?.cancel()
 
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
@@ -394,35 +305,15 @@ class AudioRecognitionManager(
             return
         }
 
-        // Run speech recognizer concurrently in background to catch lyrics/vocals if audible
-        mainHandler.post {
-            try {
-                if (speechRecognizer == null) {
-                    initSpeechRecognizer()
-                } else {
-                    try {
-                        speechRecognizer?.cancel()
-                    } catch (e: Exception) {}
-                }
-
-                val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L)
-                }
-                speechRecognizer?.startListening(speechIntent)
-            } catch (e: Exception) {}
-        }
-
         identifyJob = scope.launch(Dispatchers.IO) {
-            val sampleRate = 44100
+            val sampleRate = 16000
             val channelConfig = AudioFormat.CHANNEL_IN_MONO
             val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
+            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
+
+            val totalSamplesToRecord = (6.0 * sampleRate).toInt() // 6.0 seconds for robust recognition
+            val output = ShortArray(totalSamplesToRecord)
+            val audioBuffer = ShortArray(minBufferSize / 2)
 
             try {
                 audioRecord = AudioRecord(
@@ -430,81 +321,141 @@ class AudioRecognitionManager(
                     sampleRate,
                     channelConfig,
                     audioFormat,
-                    bufferSize
+                    minBufferSize
                 )
 
                 if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
                     audioRecord?.startRecording()
                 }
 
-                val audioBuffer = ShortArray(bufferSize / 2)
-                var maxRmsObserved = 0.0
+                var totalWritten = 0
                 val startTime = System.currentTimeMillis()
 
-                // Record and listen for 5.5 continuous seconds without dropping or cutting off
-                while (isActive && (System.currentTimeMillis() - startTime) < 5500) {
-                    val read = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
+                // Record for 6.0 seconds
+                while (isActive && totalWritten < output.size && (System.currentTimeMillis() - startTime) < 6200) {
+                    val toRead = minOf(audioBuffer.size, output.size - totalWritten)
+                    val read = audioRecord?.read(audioBuffer, 0, toRead) ?: 0
                     if (read > 0) {
+                        System.arraycopy(audioBuffer, 0, output, totalWritten, read)
+                        totalWritten += read
+
                         var sum = 0.0
                         for (i in 0 until read) {
-                            sum += audioBuffer[i] * audioBuffer[i]
+                            val sample = audioBuffer[i].toInt()
+                            sum += sample * sample
                         }
                         val rms = sqrt(sum / read)
-                        if (rms > maxRmsObserved) maxRmsObserved = rms
                         val normalized = (rms / 3000.0).coerceIn(0.15, 1.0).toFloat()
 
                         _state.update {
                             it.copy(
                                 audioLevel = normalized,
-                                statusMessage = "Listening to surrounding music..."
+                                statusMessage = "Listening for music around you..."
                             )
                         }
                     }
-                    delay(75)
+                    delay(40)
                 }
 
-                // Processing phase
-                _state.update {
-                    it.copy(
-                        status = RecognitionStatus.PROCESSING,
-                        statusMessage = "Analyzing audio & identifying track..."
-                    )
-                }
-
-                // Stop recording audio before searching
+                // Stop audio recording
                 try {
                     audioRecord?.stop()
                     audioRecord?.release()
                 } catch (e: Exception) {}
                 audioRecord = null
 
-                // Identify query from detected lyrics or ambient vocals
-                val detectedLyrics = _state.value.recognizedText.trim()
-                val query = if (detectedLyrics.isNotBlank() && detectedLyrics.length > 2) {
-                    detectedLyrics
-                } else {
-                    "Popular Music Hits"
+                // Processing phase
+                _state.update {
+                    it.copy(
+                        status = RecognitionStatus.PROCESSING,
+                        statusMessage = "Analyzing audio with Shazam..."
+                    )
                 }
 
-                val results = searchRepository.search(query)
-                val identifiedSong = results.songs.firstOrNull()
-
-                withContext(Dispatchers.Main) {
-                    if (identifiedSong != null) {
-                        _state.update {
-                            it.copy(
-                                status = RecognitionStatus.SUCCESS,
-                                identifiedTrack = identifiedSong,
-                                recognizedText = query,
-                                statusMessage = "Identified: ${identifiedSong.title} • ${identifiedSong.artist}"
-                            )
-                        }
-                        isListening = false
-                    } else {
+                if (totalWritten < sampleRate) {
+                    withContext(Dispatchers.Main) {
                         _state.update {
                             it.copy(
                                 status = RecognitionStatus.ERROR,
-                                statusMessage = "Could not identify music. Play the music closer to the mic and retry."
+                                statusMessage = "Audio recording too short. Please try again."
+                            )
+                        }
+                        isListening = false
+                    }
+                    return@launch
+                }
+
+                val recordedShorts = output.copyOf(totalWritten)
+
+                // 1. Generate Shazam acoustic signature
+                val signature = withContext(Dispatchers.Default) {
+                    ShazamSignatureGenerator(maxTimeSeconds = 6.0).apply {
+                        feedPcm16Mono(recordedShorts)
+                    }.nextSignatureOrNull()
+                }
+
+                if (signature == null) {
+                    withContext(Dispatchers.Main) {
+                        _state.update {
+                            it.copy(
+                                status = RecognitionStatus.ERROR,
+                                statusMessage = "Could not generate acoustic fingerprint."
+                            )
+                        }
+                        isListening = false
+                    }
+                    return@launch
+                }
+
+                // 2. Query Shazam Discovery API
+                val recognitionResult = Shazam.recognize(signature.uri, signature.sampleDurationMs).getOrNull()
+
+                if (recognitionResult != null) {
+                    // Save to persistent recognition history
+                    historyDataStore.addRecognition(recognitionResult)
+
+                    // 1. Fetch official songs and general songs from YouTube Music
+                    val query = "${recognitionResult.title} ${recognitionResult.artist}".trim()
+                    val officialSongs = try {
+                        searchRepository.searchSongs(query)
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                    val generalResults = try {
+                        searchRepository.search(query).songs
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
+                    val allCandidates = (officialSongs + generalResults).distinctBy { it.id }
+
+                    // 2. Select the authentic original studio version (filtering out remixes, sped up, live, etc.)
+                    val matchedSong = findBestOfficialTrackMatch(recognitionResult, allCandidates) ?: Track(
+                        id = recognitionResult.youtubeVideoId ?: "shazam_${recognitionResult.trackId}",
+                        title = recognitionResult.title,
+                        artist = recognitionResult.artist,
+                        album = recognitionResult.album.orEmpty(),
+                        thumbnail = recognitionResult.coverArtHqUrl ?: recognitionResult.coverArtUrl.orEmpty(),
+                        duration = 0
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        _state.update {
+                            it.copy(
+                                status = RecognitionStatus.SUCCESS,
+                                identifiedTrack = matchedSong,
+                                recognizedText = "${recognitionResult.title} • ${recognitionResult.artist}",
+                                statusMessage = "Identified: ${recognitionResult.title} • ${recognitionResult.artist}"
+                            )
+                        }
+                        isListening = false
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        _state.update {
+                            it.copy(
+                                status = RecognitionStatus.ERROR,
+                                statusMessage = "No match found. Play the music closer to the mic or tap Google Sound Search below."
                             )
                         }
                         isListening = false
@@ -515,7 +466,7 @@ class AudioRecognitionManager(
                     _state.update {
                         it.copy(
                             status = RecognitionStatus.ERROR,
-                            statusMessage = "Audio capture error: ${e.localizedMessage}"
+                            statusMessage = "Recognition error: ${e.localizedMessage ?: "Could not capture audio"}"
                         )
                     }
                     isListening = false
@@ -530,10 +481,102 @@ class AudioRecognitionManager(
         }
     }
 
-    fun stop() {
+    private fun findBestOfficialTrackMatch(
+        recognitionResult: RecognitionResult,
+        candidates: List<Track>
+    ): Track? {
+        if (candidates.isEmpty()) return null
+
+        // Priority 1: Exact YouTube video ID match from Shazam metadata
+        if (!recognitionResult.youtubeVideoId.isNullOrBlank()) {
+            candidates.firstOrNull { it.id == recognitionResult.youtubeVideoId }?.let { return it }
+        }
+
+        val recTitle = cleanTitle(recognitionResult.title)
+        val recArtist = cleanArtist(recognitionResult.artist)
+        val recAlbum = recognitionResult.album?.trim().orEmpty()
+
+        val nonMainModifiers = listOf(
+            "speed up", "sped up", "slowed", "reverb", "remix", "live", "acoustic",
+            "instrumental", "karaoke", "cover", "8d", "edit", "nightcore", "bass boosted",
+            "tribute", "mashup", "parody", "reaction", "guitar", "piano"
+        )
+
+        fun score(track: Track): Int {
+            var score = 0
+            val tTitle = track.title.lowercase()
+            val tArtist = track.artist.lowercase()
+            val rTitle = recTitle.lowercase()
+            val rArtist = recArtist.lowercase()
+
+            // Severe penalty for unwanted modifiers if not part of the recognized title
+            for (mod in nonMainModifiers) {
+                if (tTitle.contains(mod) && !rTitle.contains(mod)) {
+                    score -= 250
+                }
+            }
+
+            // Title matching
+            val cleanCandidateTitle = cleanTitle(track.title).lowercase()
+            when {
+                cleanCandidateTitle == rTitle -> score += 400
+                cleanCandidateTitle.startsWith(rTitle) || rTitle.startsWith(cleanCandidateTitle) -> score += 250
+                tTitle.contains(rTitle) -> score += 120
+            }
+
+            // Artist matching
+            val cleanCandidateArtist = cleanArtist(track.artist).lowercase()
+            when {
+                cleanCandidateArtist == rArtist -> score += 350
+                cleanCandidateArtist.contains(rArtist) || rArtist.contains(cleanCandidateArtist) -> score += 220
+                rArtist.split(" ", ",", "&", "feat").any { part -> part.length > 2 && tArtist.contains(part) } -> score += 100
+            }
+
+            // Album matching
+            if (recAlbum.isNotBlank()) {
+                val rAlbum = recAlbum.lowercase()
+                val tAlbum = track.album?.lowercase().orEmpty()
+                if (tAlbum.contains(rAlbum) || (tAlbum.isNotBlank() && rAlbum.contains(tAlbum))) {
+                    score += 100
+                }
+            }
+
+            // Standard song duration bonus (1:30 to 6:00)
+            if (track.duration in 90..420) {
+                score += 50
+            }
+
+            // Penalty for user-uploaded video indicator titles
+            if (tTitle.contains("full video") || tTitle.contains("mv") || tTitle.contains("lyrics video")) {
+                score -= 40
+            }
+
+            return score
+        }
+
+        // Return candidate with highest match score
+        return candidates.maxByOrNull { score(it) }
+    }
+
+    private fun cleanTitle(title: String): String {
+        return title
+            .replace(Regex("\\s*[\\[(](?:Official|Audio|Video|HD|HQ|Visualizer|Lyric Video|Lyrics)[^\\])]*[\\])]", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*-\\s*(?:Official|Audio|Video|HD|HQ|Visualizer|Lyric Video|Lyrics).*", RegexOption.IGNORE_CASE), "")
+            .trim()
+    }
+
+    private fun cleanArtist(artist: String): String {
+        return artist
+            .replace(Regex("\\s*-\\s*Topic", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*VEVO", RegexOption.IGNORE_CASE), "")
+            .trim()
+    }
+
+    fun stopListening() {
         isListening = false
         identifyJob?.cancel()
         identifyJob = null
+
         try {
             audioRecord?.stop()
             audioRecord?.release()
@@ -546,16 +589,25 @@ class AudioRecognitionManager(
                 speechRecognizer?.cancel()
             } catch (e: Exception) {}
         }
+
+        _state.update {
+            if (it.status == RecognitionStatus.LISTENING) {
+                it.copy(
+                    status = RecognitionStatus.IDLE,
+                    audioLevel = 0f,
+                    statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH) "Tap to speak" else "Tap to listen"
+                )
+            } else it
+        }
     }
 
-    fun reset() {
-        stop()
-        _state.update {
-            RecognitionState(
-                mode = it.mode,
-                status = RecognitionStatus.IDLE,
-                statusMessage = if (it.mode == RecognitionMode.VOICE_SEARCH) "Tap to speak song name" else "Play music to recognize"
-            )
+    fun release() {
+        stopListening()
+        mainHandler.post {
+            try {
+                speechRecognizer?.destroy()
+            } catch (e: Exception) {}
+            speechRecognizer = null
         }
     }
 }

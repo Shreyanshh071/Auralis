@@ -28,3 +28,13 @@ Thumbs.db
 .env.*
 !.env.example
 secrets.properties
+
+# Scratch & Temporary Test Media
+*.mp4
+*.wav
+*.mp3
+*.ogg
+*.tar.gz
+shazam_pkg/
+nomatune_src/
+

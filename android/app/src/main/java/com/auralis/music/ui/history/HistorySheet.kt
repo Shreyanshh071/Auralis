@@ -59,8 +59,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-val HISTORY_LIME = Color(0xFFD4E157)
-val HISTORY_CARD_BG = Color(0xFF1B1D16)
+val HISTORY_LIME: Color
+    @Composable get() = MaterialTheme.colorScheme.primary
+val HISTORY_CARD_BG: Color
+    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 
 /**
  * Fullscreen Listening History Sheet opened from the top header history button.
@@ -83,7 +85,7 @@ fun HistorySheet(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0F0C))
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -106,7 +108,7 @@ fun HistorySheet(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -114,7 +116,7 @@ fun HistorySheet(
                         text = "Listening History",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 22.sp
                     )
                 }
@@ -127,7 +129,7 @@ fun HistorySheet(
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "Clear History",
-                            tint = Color.White.copy(alpha = 0.75f),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -146,7 +148,7 @@ fun HistorySheet(
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF1B1D16)),
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -161,13 +163,13 @@ fun HistorySheet(
                             text = "No listening history yet",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Tracks you listen to will appear here",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.5f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -177,14 +179,14 @@ fun HistorySheet(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {
                         Text(
                             text = "${history.size} recently played songs",
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.5f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                         )
                     }
@@ -200,7 +202,7 @@ fun HistorySheet(
                                 .background(if (isCurrent) HISTORY_LIME.copy(alpha = 0.12f) else HISTORY_CARD_BG)
                                 .border(
                                     1.dp,
-                                    if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.04f),
+                                    if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
                                     RoundedCornerShape(14.dp)
                                 )
                                 .clickable { onTrackClick(track, trackList) }
@@ -221,7 +223,7 @@ fun HistorySheet(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                    color = if (isCurrent) HISTORY_LIME else Color.White,
+                                    color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -230,7 +232,7 @@ fun HistorySheet(
                                     Text(
                                         text = track.artist,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false)
@@ -238,7 +240,7 @@ fun HistorySheet(
                                     Text(
                                         text = " • ${timeFormat.format(Date(entry.playedAt))}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.4f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 11.sp
                                     )
                                 }
@@ -260,7 +262,7 @@ fun HistorySheet(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove",
-                                    tint = Color.White.copy(alpha = 0.5f),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -275,14 +277,14 @@ fun HistorySheet(
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            containerColor = Color(0xFF1E2117),
+            containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(24.dp),
             title = {
                 Text(
                     text = "Clear Listening History?",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 20.sp
                 )
             },
@@ -290,7 +292,7 @@ fun HistorySheet(
                 Text(
                     text = "This will remove all played tracks from your listening history.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 15.sp
                 )
             },
@@ -314,7 +316,7 @@ fun HistorySheet(
                     onClick = { showClearDialog = false },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Cancel", color = Color(0xFFD4E157), fontWeight = FontWeight.SemiBold)
+                    Text("Cancel", color = HISTORY_LIME, fontWeight = FontWeight.SemiBold)
                 }
             }
         )

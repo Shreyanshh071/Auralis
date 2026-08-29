@@ -90,6 +90,17 @@ class LibraryViewModel(
         }
     }
 
+    fun toggleSaveArtist(artist: SavedArtist) {
+        viewModelScope.launch {
+            val isSaved = _uiState.value.savedArtists.any { it.id == artist.id || it.name.equals(artist.name, ignoreCase = true) }
+            if (isSaved) {
+                libraryRepository.removeArtist(artist.id)
+            } else {
+                libraryRepository.saveArtist(artist)
+            }
+        }
+    }
+
     fun enrichPlaylist(playlist: Playlist) {
         viewModelScope.launch {
             try {

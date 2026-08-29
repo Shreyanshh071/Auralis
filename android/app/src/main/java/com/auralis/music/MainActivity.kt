@@ -1,11 +1,20 @@
 package com.auralis.music
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
+import com.auralis.music.data.datastore.AppearanceSettingsDataStore
 import com.auralis.music.data.datastore.SettingsDataStore
 import com.auralis.music.data.local.AuralisDatabase
 import com.auralis.music.data.network.InnerTubeClient
@@ -16,6 +25,7 @@ import com.auralis.music.data.network.YouTubePlaylistImporter
 import com.auralis.music.data.repository.*
 import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.auth.GoogleAccountSyncManager
+import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.AuralisApp
 import com.auralis.music.ui.theme.AuralisTheme
 import com.auralis.music.ui.viewmodel.AuthViewModel
@@ -33,7 +43,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // Request POST_NOTIFICATIONS permission for Android 13+ (API 33+)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
             }
@@ -42,6 +52,7 @@ class MainActivity : ComponentActivity() {
         // Initialize Core Singletons / Repositories
         val db = AuralisDatabase.getInstance(applicationContext)
         val settingsDataStore = SettingsDataStore(applicationContext)
+        val appearanceDataStore = AppearanceSettingsDataStore(applicationContext)
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
 
         val trackDao = db.trackDao()
@@ -72,7 +83,36 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            AuralisTheme {
+            val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(
+                initial = AppearanceSettings()
+            )
+
+            // Dynamic High Refresh Rate Enforcer (120Hz / 144Hz / 90Hz)
+            LaunchedEffect(appearanceSettings.highRefreshRate) {
+                val lp = window.attributes
+                if (appearanceSettings.highRefreshRate) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val maxDisplayMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
+                        lp.preferredDisplayModeId = maxDisplayMode?.modeId ?: 0
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val maxRate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 120f
+                        } else 120f
+                        lp.preferredRefreshRate = maxRate
+                    }
+                } else {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        lp.preferredDisplayModeId = 0
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        lp.preferredRefreshRate = 0f
+                    }
+                }
+                window.attributes = lp
+            }
+
+            AuralisTheme(appearanceSettings = appearanceSettings) {
                 val homeViewModel: HomeViewModel = viewModel {
                     HomeViewModel(historyRepository, searchRepository, innerTubeClient)
                 }
@@ -103,14 +143,22 @@ class MainActivity : ComponentActivity() {
                     AuthViewModel(googleAccountSyncManager)
                 }
 
-                AuralisApp(
-                    homeViewModel = homeViewModel,
-                    searchViewModel = searchViewModel,
-                    libraryViewModel = libraryViewModel,
-                    playerViewModel = playerViewModel,
-                    listenTogetherViewModel = listenTogetherViewModel,
-                    authViewModel = authViewModel
-                )
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                ) {
+                    AuralisApp(
+                        homeViewModel = homeViewModel,
+                        searchViewModel = searchViewModel,
+                        libraryViewModel = libraryViewModel,
+                        playerViewModel = playerViewModel,
+                        listenTogetherViewModel = listenTogetherViewModel,
+                        authViewModel = authViewModel,
+                        googleAccountSyncManager = googleAccountSyncManager,
+                        appearanceSettings = appearanceSettings
+                    )
+                }
             }
         }
     }

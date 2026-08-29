@@ -49,6 +49,10 @@ interface SettingsRepository {
     val settingsFlow: Flow<PlayerSettings>
     suspend fun updateSettings(settings: PlayerSettings)
     suspend fun setThemeMode(mode: ThemeMode)
+    suspend fun setAudioQuality(quality: AudioQuality)
+    suspend fun setGaplessPlayback(enabled: Boolean)
+    suspend fun setSkipSilence(enabled: Boolean)
+    suspend fun setSpatialAudio(enabled: Boolean)
     suspend fun setVolume(volume: Float)
     suspend fun setPlaybackRate(rate: Float)
 }

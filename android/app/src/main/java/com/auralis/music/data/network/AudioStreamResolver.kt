@@ -156,13 +156,21 @@ object AudioStreamResolver {
     var isPlaybackResolving: Boolean = false
         private set
 
-    suspend fun resolveAudioStream(videoId: String, title: String, artist: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolveAudioStream(
+        videoId: String,
+        title: String = "",
+        artist: String = "",
+        quality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO,
+        context: android.content.Context? = null
+    ): String? = withContext(Dispatchers.IO) {
         val t0Resolve = System.currentTimeMillis()
-        // 0. Check in-memory stream cache by videoId (instant 0ms resolution)
-        val cachedUrl = getCachedStream(videoId)
-        if (!cachedUrl.isNullOrBlank()) {
-            diagLog("[Diag-Resolver] Memory Cache HIT for $videoId ('$title') - 0ms")
-            return@withContext cachedUrl
+        val cacheKey = "${videoId}_${quality.name}"
+
+        // Memory Cache Check
+        val memCached = getCachedStream(cacheKey) ?: getCachedStream(videoId)
+        if (!memCached.isNullOrBlank()) {
+            diagLog("[Diag-Resolver] Memory Cache HIT for $videoId ('$title') [$quality] - 0ms")
+            return@withContext memCached
         }
 
         // Check fingerprint cache by title & artist (instant 0ms cross-session/cross-ID resolution)
@@ -200,16 +208,15 @@ object AudioStreamResolver {
                     val nativeStream = withTimeoutOrNull(5500L) {
                         val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
                         streamExtractor.fetchPage()
-                        val audioStreams = streamExtractor.audioStreams
-                        val bestAudio = audioStreams
-                            ?.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
-                            ?.maxByOrNull { it.averageBitrate }
-                        bestAudio?.content
+                        val audioStreams = streamExtractor.audioStreams ?: emptyList()
+                        val selectedAudio = selectStreamForQuality(audioStreams, quality, context)
+                        selectedAudio?.content
                     }
                     val npMs = System.currentTimeMillis() - tNpStart
                     if (!nativeStream.isNullOrBlank()) {
                         val totalMs = System.currentTimeMillis() - t0Resolve
-                        diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $videoId ('$title') in ${totalMs}ms (extraction took ${npMs}ms)")
+                        diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $videoId ('$title') in ${totalMs}ms [$quality, extraction took ${npMs}ms]")
+                        cacheStream(cacheKey, nativeStream, title, artist)
                         cacheStream(videoId, nativeStream, title, artist)
                         return@withContext nativeStream
                     } else {
@@ -227,11 +234,12 @@ object AudioStreamResolver {
             val altTimeoutMs = if (isSpotifyId) 5500L else 4000L
             diagLog("[Diag-Resolver] Attempting alternative search at T+${tAltStart - t0Resolve}ms (timeout=${altTimeoutMs}ms)")
             val altStream = withTimeoutOrNull(altTimeoutMs) {
-                resolveNonRestrictedAlternative(title, artist, videoId)
+                resolveNonRestrictedAlternative(title, artist, videoId, quality, context)
             }
             if (!altStream.isNullOrBlank()) {
                 val totalMs = System.currentTimeMillis() - t0Resolve
-                diagLog("[Diag-Resolver] WINNER: Alternative Track for $videoId ('$title') in ${totalMs}ms (alt search took ${System.currentTimeMillis() - tAltStart}ms)")
+                diagLog("[Diag-Resolver] WINNER: Alternative Track for $videoId ('$title') in ${totalMs}ms [$quality, alt search took ${System.currentTimeMillis() - tAltStart}ms]")
+                cacheStream(cacheKey, altStream, title, artist)
                 cacheStream(videoId, altStream, title, artist)
                 return@withContext altStream
             }
@@ -243,7 +251,13 @@ object AudioStreamResolver {
         }
     }
 
-    private suspend fun resolveNonRestrictedAlternative(title: String, artist: String, originalVideoId: String): String? {
+    private suspend fun resolveNonRestrictedAlternative(
+        title: String,
+        artist: String,
+        originalVideoId: String,
+        quality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO,
+        context: android.content.Context? = null
+    ): String? {
         if (title.isBlank()) return null
         return try {
             val query = if (artist.isNotBlank() && !artist.equals("Spotify Artist", ignoreCase = true) && !title.contains(artist, ignoreCase = true)) {
@@ -289,13 +303,13 @@ object AudioStreamResolver {
                     ensureNewPipeInitialized()
                     val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")
                     streamExtractor.fetchPage()
-                    val audioStreams = streamExtractor.audioStreams
-                    val bestAudio = audioStreams
-                        ?.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
-                        ?.maxByOrNull { it.averageBitrate }
-                    val streamUrl = bestAudio?.content
+                    val audioStreams = streamExtractor.audioStreams ?: emptyList()
+                    val selectedAudio = selectStreamForQuality(audioStreams, quality, context)
+                    val streamUrl = selectedAudio?.content
                     if (!streamUrl.isNullOrBlank()) {
-                        diagLog("[Diag-Resolver] Resolved alternative via NewPipe for '$title' by '$artist' -> ${candidate.id} ('${candidate.title}' by '${candidate.artist}')")
+                        diagLog("[Diag-Resolver] Resolved alternative via NewPipe for '$title' by '$artist' -> ${candidate.id} ('${candidate.title}' by '${candidate.artist}') [$quality]")
+                        val cacheKey = "${candidate.id}_${quality.name}"
+                        cacheStream(cacheKey, streamUrl, candidate.title, candidate.artist)
                         cacheStream(candidate.id, streamUrl, candidate.title, candidate.artist)
                         cacheStream(originalVideoId, streamUrl, title, artist)
                         return streamUrl
@@ -309,5 +323,50 @@ object AudioStreamResolver {
             diagLog("[Diag-Resolver] Alternative search failed: ${e.message}")
             null
         }
+    }
+
+    /**
+     * Selects optimal AudioStream according to the user's AudioQuality preference.
+     */
+    fun selectStreamForQuality(
+        audioStreams: List<org.schabi.newpipe.extractor.stream.AudioStream>,
+        quality: com.auralis.music.domain.model.AudioQuality,
+        context: android.content.Context? = null
+    ): org.schabi.newpipe.extractor.stream.AudioStream? {
+        val validStreams = audioStreams.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
+        if (validStreams.isEmpty()) return null
+
+        val isWifi = context?.let { ctx ->
+            try {
+                val cm = ctx.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                val network = cm?.activeNetwork
+                val caps = cm?.getNetworkCapabilities(network)
+                caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+            } catch (_: Exception) {
+                true
+            }
+        } ?: true
+
+        return when (quality) {
+            com.auralis.music.domain.model.AudioQuality.LOW -> {
+                // Minimum bitrate for mobile data saving (~48-64 kbps Opus/AAC)
+                validStreams.minByOrNull { it.averageBitrate }
+            }
+            com.auralis.music.domain.model.AudioQuality.STANDARD -> {
+                // Target ~128 kbps (AAC itag 140 or Opus itag 250)
+                validStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - 128_000) }
+            }
+            com.auralis.music.domain.model.AudioQuality.HIGH -> {
+                // Highest bitrate available (~160 kbps Opus)
+                validStreams.maxByOrNull { it.averageBitrate }
+            }
+            com.auralis.music.domain.model.AudioQuality.AUTO -> {
+                if (isWifi) {
+                    validStreams.maxByOrNull { it.averageBitrate }
+                } else {
+                    validStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - 128_000) }
+                }
+            }
+        } ?: validStreams.firstOrNull()
     }
 }

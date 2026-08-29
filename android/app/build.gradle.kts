@@ -62,7 +62,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -174,6 +175,10 @@ dependencies {
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5") {
         exclude(group = "com.google.protobuf")
     }
+
+    // High-performance live backdrop blur (Frosted Glass like Photo 2)
+    implementation("dev.chrisbanes.haze:haze:1.3.1")
+    implementation("dev.chrisbanes.haze:haze-materials:1.3.1")
 
     // Android Instrumented Testing
     androidTestImplementation(libs.androidx.junit)

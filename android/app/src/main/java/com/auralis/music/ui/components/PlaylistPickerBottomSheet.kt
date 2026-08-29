@@ -50,14 +50,14 @@ fun PlaylistPickerBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF141414),
+        containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = {
             Box(
                 modifier = Modifier
                     .padding(top = 12.dp, bottom = 8.dp)
                     .size(width = 38.dp, height = 4.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.25f))
+                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
             )
         }
     ) {
@@ -82,12 +82,12 @@ fun PlaylistPickerBottomSheet(
                         text = "Add to playlist",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
                         text = "${track.title} • ${track.artist}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -99,7 +99,7 @@ fun PlaylistPickerBottomSheet(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color.White.copy(alpha = 0.7f)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -112,7 +112,7 @@ fun PlaylistPickerBottomSheet(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .clickable { showCreateDialog = true },
-                color = Color(0xFFD4E157).copy(alpha = 0.15f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Row(
@@ -125,13 +125,13 @@ fun PlaylistPickerBottomSheet(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFD4E157)),
+                            .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "New Playlist",
-                            tint = Color.Black,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -140,7 +140,7 @@ fun PlaylistPickerBottomSheet(
                         text = "New Playlist",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFD4E157)
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -159,19 +159,19 @@ fun PlaylistPickerBottomSheet(
                         Icon(
                             imageVector = Icons.Default.PlaylistAdd,
                             contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.35f),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.size(40.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "No custom playlists yet",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = "Tap 'New Playlist' above to create your first!",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.4f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -195,7 +195,7 @@ fun PlaylistPickerBottomSheet(
                                     recentlyAddedId = playlist.id
                                     onAddToPlaylist(playlist)
                                 },
-                            color = if (alreadyInPlaylist || isAdded) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.04f),
+                            color = if (alreadyInPlaylist || isAdded) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(14.dp)
                         ) {
                             Row(
@@ -217,13 +217,13 @@ fun PlaylistPickerBottomSheet(
                                         modifier = Modifier
                                             .size(44.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFF2A2A2A)),
+                                            .background(MaterialTheme.colorScheme.surface),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.QueueMusic,
                                             contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.6f),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
@@ -236,14 +236,14 @@ fun PlaylistPickerBottomSheet(
                                         text = playlist.title,
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "${playlist.tracks.size} tracks",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.5f)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
@@ -251,7 +251,7 @@ fun PlaylistPickerBottomSheet(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "Added",
-                                        tint = Color(0xFFD4E157),
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(22.dp)
                                     )
                                 }
@@ -275,8 +275,8 @@ fun PlaylistPickerBottomSheet(
                     label = { Text("Playlist Name") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFFD4E157),
-                        focusedLabelColor = Color(0xFFD4E157)
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -290,19 +290,19 @@ fun PlaylistPickerBottomSheet(
                             showCreateDialog = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4E157), contentColor = Color.Black)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
                 ) {
                     Text("Create & Add", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.7f))
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
-            containerColor = Color(0xFF1E1E1E),
-            titleContentColor = Color.White,
-            textContentColor = Color.White
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onBackground,
+            textContentColor = MaterialTheme.colorScheme.onBackground
         )
     }
 }

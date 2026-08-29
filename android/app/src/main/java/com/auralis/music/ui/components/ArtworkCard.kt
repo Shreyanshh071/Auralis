@@ -27,10 +27,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.auralis.music.data.network.ArtworkResolver
 import com.auralis.music.domain.model.Track
+import com.auralis.music.util.MasterArtworkResolver
 
 /**
  * Upgrades thumbnail URLs to uncompressed studio master 1200x1200 HD / 720p artwork,
- * eliminating 4:3 letterbox black bars completely.
+ * eliminating letterbox bars and low-res artifacts completely.
  */
 fun getHighResArtworkUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
@@ -43,16 +44,16 @@ fun getHighResArtworkUrl(url: String?): String? {
         cleaned = cleaned.replace(Regex("""=w\d+-h\d+.*"""), "=w1200-h1200-l90-rj")
             .replace(Regex("""=s\d+.*"""), "=s1200-c")
     }
-    // YouTube video thumbnail: upgrade 480x360 hqdefault (with black letterbox bars) to 1280x720 HD hq720
+    // YouTube video thumbnail: upgrade 480x360 hqdefault to 1280x720 HD hq720
     if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com")) {
         cleaned = cleaned.replace("hqdefault.jpg", "hq720.jpg")
             .replace("mqdefault.jpg", "hq720.jpg")
             .replace("sddefault.jpg", "hq720.jpg")
             .replace("default.jpg", "hq720.jpg")
     }
-    // iTunes / Apple Music artwork: 100x100bb -> 1200x1200bb
+    // iTunes / Apple Music artwork: 100x100bb -> 1400x1400bb
     if (cleaned.contains("mzstatic.com")) {
-        cleaned = cleaned.replace(Regex("""\d+x\d+bb"""), "1200x1200bb")
+        cleaned = cleaned.replace(Regex("""\d+x\d+bb"""), "1400x1400bb")
     }
     // Spotify artwork:
     if (cleaned.contains("i.scdn.co/image/ab67616d00004851") || cleaned.contains("i.scdn.co/image/ab67616d00001e02")) {
@@ -69,21 +70,32 @@ fun ArtworkCard(
     cornerRadius: Dp = 8.dp,
     elevation: Dp = 4.dp,
     contentDescription: String? = null,
-    fallbackTrack: Track? = null
+    fallbackTrack: Track? = null,
+    contentScale: ContentScale = ContentScale.Crop
 ) {
     var effectiveUrl by remember(url) { mutableStateOf(url) }
 
-    // Auto-resolve missing or blank artwork on the fly
+    // Auto-resolve missing or video-still artwork on the fly
     LaunchedEffect(url, fallbackTrack?.id) {
-        if (url.isNullOrBlank() && fallbackTrack != null) {
-            val cached = ArtworkResolver.getArtwork(fallbackTrack)
+        val targetTrack = fallbackTrack
+        if (targetTrack != null) {
+            val cached = ArtworkResolver.getArtwork(targetTrack)
             if (!cached.isNullOrBlank()) {
                 effectiveUrl = cached
-            } else {
-                val resolved = ArtworkResolver.resolveArtwork(fallbackTrack)
-                if (!resolved.isNullOrBlank()) {
-                    effectiveUrl = resolved
+            } else if (url.isNullOrBlank() || url.contains("i.ytimg.com") || url.contains("img.youtube.com")) {
+                val master = MasterArtworkResolver.resolveMasterArtworkUrl(
+                    targetTrack.title,
+                    targetTrack.artist,
+                    url
+                )
+                if (!master.isNullOrBlank()) {
+                    effectiveUrl = master
+                    ArtworkResolver.cacheArtwork(targetTrack, master)
+                } else {
+                    effectiveUrl = url
                 }
+            } else {
+                effectiveUrl = url
             }
         } else {
             effectiveUrl = url
@@ -118,7 +130,7 @@ fun ArtworkCard(
             .data(imageModel)
             .listener(
                 onError = { _, _ ->
-                    // Graceful failover: if upgraded high-res 404s (e.g. hq720.jpg missing on YouTube), revert to original URL
+                    // Graceful failover: if upgraded high-res 404s, revert to original URL
                     if (imageModel == highRes && highRes != effectiveUrl && !effectiveUrl.isNullOrBlank()) {
                         imageModel = effectiveUrl
                     }
@@ -138,7 +150,7 @@ fun ArtworkCard(
         AsyncImage(
             model = request,
             contentDescription = contentDescription,
-            contentScale = ContentScale.Crop,
+            contentScale = contentScale,
             modifier = Modifier.fillMaxSize()
         )
     }

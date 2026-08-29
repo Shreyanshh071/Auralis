@@ -118,14 +118,28 @@ open class InnerTubeClient(
     }
 
     /**
-     * Fetches radio / autoplay tracks for a given videoId from YouTube Music Next endpoint.
-     * Extracts tracks from the playlist panel, and falls back to Related browse shelf if needed.
+     * Fetches smart radio / autoplay tracks for a given seed track.
+     * Generates a curated, genre-matching radio queue with:
+     * - Top hits from the same artist (3-4 tracks)
+     * - Top hits from other artists in the exact same genre & vibe (10-15 tracks)
+     * - Collaborations and related releases
      */
-    open suspend fun getRadioTracks(videoId: String): List<Track> = withContext(Dispatchers.IO) {
+    open suspend fun getRadioTracks(
+        videoId: String,
+        artist: String? = null,
+        title: String? = null
+    ): List<Track> = withContext(Dispatchers.IO) {
         val tracks = mutableListOf<Track>()
+
+        val primaryArtist = artist?.split("&", ",", "feat.", "ft.", "Feat.", "Ft.", "with")?.firstOrNull()?.trim()
+            ?.ifBlank { null } ?: artist?.trim()?.ifBlank { null }
+        val cleanTitle = if (!title.isNullOrBlank()) TitleCleaner.cleanTitle(title) else null
+
+        // ── STRATEGY 1: Official YouTube Music Next / Radio Playlist Panel ──
         try {
             val requestBody = JSONObject().apply {
                 put("videoId", videoId)
+                put("playlistId", "RDAMVM$videoId")
                 put("enablePersistentPlaylistPanel", true)
                 put("isAudioOnly", true)
                 put("context", createClientContext())
@@ -143,26 +157,79 @@ open class InnerTubeClient(
                 val body = response.body?.string()
                 if (!body.isNullOrBlank()) {
                     val json = JSONObject(body)
-                    tracks.addAll(parseRadioFromNextResponse(json, videoId))
-
-                    // If playlist panel yielded fewer than 5 tracks, try related endpoint in the same response
-                    if (tracks.size < 5) {
-                        val (browseId, params) = extractRelatedEndpointFromNextJson(json)
-                        if (browseId != null || params != null) {
-                            val relatedTracks = getRelated(browseId, params)
-                            tracks.addAll(relatedTracks)
-                        }
-                    }
+                    val parsed = parseRadioFromNextResponse(json, videoId)
+                    tracks.addAll(parsed)
                 }
             }
         } catch (_: Exception) {}
 
-        // Fallback: If still empty, attempt to fetch related using getNextAndRelatedEndpoint
+        // ── STRATEGY 2: Smart Multi-Tier Genre & Artist Recommendations ──
+        if (tracks.size < 10 && (!primaryArtist.isNullOrBlank() || !cleanTitle.isNullOrBlank())) {
+            try {
+                val seenIds = mutableSetOf(videoId)
+                seenIds.addAll(tracks.map { it.id })
+
+                // 1. Same Artist Top Hits
+                val sameArtistHits = if (!primaryArtist.isNullOrBlank()) {
+                    search(primaryArtist, FILTER_SONGS).songs.filter { it.id !in seenIds }
+                } else emptyList()
+
+                // Take 2-3 top tracks from the same artist
+                val selectedSameArtist = sameArtistHits.take(3)
+                selectedSameArtist.forEach { seenIds.add(it.id) }
+
+                // 2. Song + Artist Specific Radio & Collaborators (e.g. "Winning Speech Karan Aujla")
+                val songSpecificHits = if (!cleanTitle.isNullOrBlank() && !primaryArtist.isNullOrBlank()) {
+                    search("$cleanTitle $primaryArtist", FILTER_SONGS).songs.filter { it.id !in seenIds }
+                } else if (!cleanTitle.isNullOrBlank()) {
+                    search(cleanTitle, FILTER_SONGS).songs.filter { it.id !in seenIds }
+                } else emptyList()
+                songSpecificHits.forEach { seenIds.add(it.id) }
+
+                // 3. Same Genre & Vibe Mix from Other Artists (e.g. "Karan Aujla mix radio" -> Diljit, Sidhu Moose Wala, AP Dhillon, etc.)
+                val genreMixHits = if (!primaryArtist.isNullOrBlank()) {
+                    search("$primaryArtist mix radio", FILTER_SONGS).songs.filter { it.id !in seenIds }
+                } else emptyList()
+                genreMixHits.forEach { seenIds.add(it.id) }
+
+                // Blend together:
+                val resultList = mutableListOf<Track>()
+                resultList.addAll(tracks.take(3))
+                resultList.addAll(selectedSameArtist)
+                val otherPool = (songSpecificHits + genreMixHits + sameArtistHits.drop(3)).distinctBy { it.id }
+                resultList.addAll(otherPool)
+
+                val finalTracks = resultList.filter { it.id != videoId }.distinctBy { it.id }.take(25)
+                if (finalTracks.isNotEmpty()) {
+                    return@withContext finalTracks
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Fallback: If still empty, attempt without RDAMVM or fetch related
         if (tracks.isEmpty()) {
             try {
-                val (bId, p) = getNextAndRelatedEndpoint(videoId)
-                if (bId != null || p != null) {
-                    tracks.addAll(getRelated(bId, p))
+                val requestBody = JSONObject().apply {
+                    put("videoId", videoId)
+                    put("enablePersistentPlaylistPanel", true)
+                    put("isAudioOnly", true)
+                    put("context", createClientContext())
+                }
+
+                val request = Request.Builder()
+                    .url("$YT_MUSIC_API/next?prettyPrint=false")
+                    .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .header("Referer", "https://music.youtube.com/")
+                    .header("Origin", "https://music.youtube.com")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = JSONObject(body)
+                        tracks.addAll(parseRadioFromNextResponse(json, videoId))
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -571,7 +638,7 @@ open class InnerTubeClient(
                         val parsedPlaylists = mutableListOf<PlaylistResult>()
                         parseMusicListItem(itemResp, parsedSongs, parsedArtists, parsedPlaylists)
 
-                        if (shelfTitle.contains("song") || i == 0) {
+                        if (shelfTitle.contains("song") || (i == 0 && !shelfTitle.contains("album") && !shelfTitle.contains("single"))) {
                             topSongs.addAll(parsedSongs)
                         } else if (shelfTitle.contains("album")) {
                             albums.addAll(parsedPlaylists)
@@ -579,8 +646,6 @@ open class InnerTubeClient(
                             singles.addAll(parsedPlaylists)
                         } else if (shelfTitle.contains("fan") || shelfTitle.contains("like") || shelfTitle.contains("similar")) {
                             similarArtists.addAll(parsedArtists)
-                        } else {
-                            topSongs.addAll(parsedSongs)
                         }
                     }
 
@@ -602,17 +667,38 @@ open class InnerTubeClient(
                             val artNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val artThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
                             similarArtists.add(Artist(id = artNav ?: "yt:$artName", name = artName, thumbnail = artThumb.ifBlank { null }))
-                        } else if (parsedTrack != null) {
+                        } else if (parsedTrack != null && shelfTitle.contains("song")) {
                             topSongs.add(parsedTrack)
                         }
                     }
                 }
             }
 
-            // Fallback top tracks if parsed list is empty
-            if (topSongs.isEmpty()) {
-                val searchHits = search("${artist.name} top songs")
-                topSongs.addAll(searchHits.songs)
+            // Strictly filter top tracks so only official songs by this artist are included
+            val targetName = artistName.lowercase().trim()
+            val filteredOfficial = topSongs.filter { trk ->
+                val trkArtist = trk.artist.lowercase()
+                val isMatchingArtist = trkArtist.contains(targetName) || targetName.contains(trkArtist) || trk.artist.contains("YouTube Artist", ignoreCase = true)
+                val isCoverOrFanEdit = trk.title.contains("cover", ignoreCase = true) ||
+                        trk.title.contains("remake", ignoreCase = true) ||
+                        trk.title.contains("karaoke", ignoreCase = true) ||
+                        trk.title.contains("instrumental", ignoreCase = true) ||
+                        trk.title.contains("reaction", ignoreCase = true) ||
+                        trk.title.contains("tutorial", ignoreCase = true) ||
+                        trk.title.contains("parody", ignoreCase = true)
+                isMatchingArtist && !isCoverOrFanEdit
+            }.distinctBy { it.id }
+
+            val resolvedTopSongs = if (filteredOfficial.isNotEmpty()) {
+                filteredOfficial
+            } else {
+                val searchHits = search(artistName, FILTER_SONGS)
+                searchHits.songs.filter { trk ->
+                    val trkArtist = trk.artist.lowercase()
+                    (trkArtist.contains(targetName) || targetName.contains(trkArtist)) &&
+                    !trk.title.contains("cover", ignoreCase = true) &&
+                    !trk.title.contains("karaoke", ignoreCase = true)
+                }.ifEmpty { searchHits.songs }
             }
 
             val finalArtist = artist.copy(
@@ -627,7 +713,7 @@ open class InnerTubeClient(
                 bannerUrl = bannerUrl,
                 description = description,
                 subscribers = subscribers,
-                topSongs = topSongs.distinctBy { it.id },
+                topSongs = resolvedTopSongs.distinctBy { it.id },
                 albums = albums.distinctBy { it.id },
                 singles = singles.distinctBy { it.id },
                 similarArtists = similarArtists.distinctBy { it.id },

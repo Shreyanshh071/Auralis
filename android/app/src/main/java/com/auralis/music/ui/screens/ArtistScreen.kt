@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.Playlist
@@ -43,9 +45,12 @@ import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
 
-private val LIME_ACCENT = Color(0xFFD4E157)
-private val DARK_BG = Color(0xFF0E0F0C)
-private val PILL_BG = Color(0xFF1B1D16)
+private val LIME_ACCENT: Color
+    @Composable get() = MaterialTheme.colorScheme.primary
+private val DARK_BG: Color
+    @Composable get() = MaterialTheme.colorScheme.background
+private val PILL_BG: Color
+    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 
 /**
  * Pure Jetpack Compose Artist Screen matching the exact YouTube Music layout:
@@ -65,6 +70,8 @@ fun ArtistScreen(
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
     favoriteTracks: List<Track> = emptyList(),
+    savedArtists: List<com.auralis.music.domain.model.SavedArtist> = emptyList(),
+    onToggleSubscribe: (com.auralis.music.domain.model.SavedArtist) -> Unit = {},
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
@@ -79,7 +86,7 @@ fun ArtistScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var isSubscribed by remember { mutableStateOf(false) }
+    val isSubscribed = savedArtists.any { it.id == artistPage.artist.id || it.name.equals(artistPage.artist.name, ignoreCase = true) }
     var isBioExpanded by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
@@ -105,10 +112,13 @@ fun ArtistScreen(
                         .fillMaxWidth()
                         .height(340.dp)
                 ) {
-                    val imageUrl = artistPage.bannerUrl ?: (if (artistPage.artist.id.startsWith("UC") && !artistPage.artist.thumbnail.isNullOrBlank() && !artistPage.artist.thumbnail.contains("i.ytimg.com")) artistPage.artist.thumbnail else null)
-                    if (!imageUrl.isNullOrBlank()) {
+                    val banner = artistPage.bannerUrl ?: artistPage.artist.thumbnail
+                    if (!banner.isNullOrBlank()) {
                         AsyncImage(
-                            model = imageUrl,
+                            model = ImageRequest.Builder(context)
+                                .data(getHighResArtworkUrl(banner))
+                                .crossfade(true)
+                                .build(),
                             contentDescription = artistPage.artist.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -117,43 +127,43 @@ fun ArtistScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF202319))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(MaterialTheme.colorScheme.primaryContainer, DARK_BG)
+                                    )
+                                )
                         )
                     }
 
-                    // Scrim gradient overlay (Fade to black at bottom)
+                    // Multi-stop cinema gradient scrim to melt photo into page background
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.45f),
-                                        Color.Transparent,
-                                        DARK_BG.copy(alpha = 0.85f),
-                                        DARK_BG
-                                    ),
-                                    startY = 0f,
-                                    endY = Float.POSITIVE_INFINITY
+                                    0.0f to Color.Transparent,
+                                    0.45f to Color.Black.copy(alpha = 0.35f),
+                                    0.80f to Color.Black.copy(alpha = 0.85f),
+                                    1.0f to DARK_BG
                                 )
                             )
                     )
 
-                    // Top Action Bar Overlay
+                    // Top navigation bar (Back + Share)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
                             onClick = onBack,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(42.dp)
                                 .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.35f))
+                                .background(Color.Black.copy(alpha = 0.45f))
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -164,36 +174,35 @@ fun ArtistScreen(
 
                         IconButton(
                             onClick = {
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, artistPage.artist.name)
+                                val sendIntent = android.content.Intent().apply {
+                                    action = android.content.Intent.ACTION_SEND
                                     putExtra(
-                                        Intent.EXTRA_TEXT,
-                                        "Check out ${artistPage.artist.name} on YouTube Music: https://music.youtube.com/channel/${artistPage.artist.id}"
+                                        android.content.Intent.EXTRA_TEXT,
+                                        "Listen to ${artistPage.artist.name} on Auralis: https://music.youtube.com/channel/${artistPage.artist.id}"
                                     )
+                                    type = "text/plain"
                                 }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Artist"))
+                                context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Artist"))
                             },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(42.dp)
                                 .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.35f))
+                                .background(Color.Black.copy(alpha = 0.45f))
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = "Share",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                tint = Color.White
                             )
                         }
                     }
 
-                    // Artist Title positioned at the bottom of the hero image
+                    // Artist Name Title (Anchored at bottom-left of hero portrait)
                     Text(
                         text = artistPage.artist.name,
                         style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
                         color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 32.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -215,32 +224,49 @@ fun ArtistScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Subscribe / Follow Button
+                    // Subscribe / Follow Button (Synced with Library)
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(24.dp))
-                            .background(if (isSubscribed) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.08f))
-                            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
-                            .clickable { isSubscribed = !isSubscribed }
+                            .background(if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
+                            .clickable {
+                                onToggleSubscribe(
+                                    com.auralis.music.domain.model.SavedArtist(
+                                        id = artistPage.artist.id,
+                                        name = artistPage.artist.name,
+                                        thumbnail = artistPage.bannerUrl ?: artistPage.artist.thumbnail,
+                                        subscribers = artistPage.subscribers ?: artistPage.artist.subscribers
+                                    )
+                                )
+                            }
                             .padding(horizontal = 20.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = if (isSubscribed) "Subscribed" else "Subscribe",
+                            text = if (isSubscribed) "✓ Subscribed" else "+ Subscribe",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
                         )
                     }
 
-                    // Radio Button
+                    // Radio Button (Starts official artist radio mix)
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(24.dp))
-                            .background(Color.White.copy(alpha = 0.08f))
-                            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
                             .clickable {
                                 if (artistPage.topSongs.isNotEmpty()) {
-                                    onTrackClick(artistPage.topSongs.first(), artistPage.topSongs.shuffled())
+                                    onStartRadio(artistPage.topSongs.first())
+                                } else {
+                                    val dummySeed = Track(
+                                        id = artistPage.artist.id,
+                                        title = "${artistPage.artist.name} Radio",
+                                        artist = artistPage.artist.name,
+                                        thumbnail = artistPage.bannerUrl ?: artistPage.artist.thumbnail ?: ""
+                                    )
+                                    onStartRadio(dummySeed)
                                 }
                             }
                             .padding(horizontal = 20.dp, vertical = 10.dp)
@@ -249,7 +275,7 @@ fun ArtistScreen(
                             Icon(
                                 imageVector = Icons.Default.GraphicEq,
                                 contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.85f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -257,7 +283,7 @@ fun ArtistScreen(
                                 text = "Radio",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onBackground
                             )
                         }
                     }
@@ -269,7 +295,7 @@ fun ArtistScreen(
                         modifier = Modifier
                             .size(46.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFD4E157))
+                            .background(MaterialTheme.colorScheme.primary)
                             .tactileBounce(scaleDown = 0.90f) {
                                 if (artistPage.topSongs.isNotEmpty()) {
                                     val shuffled = artistPage.topSongs.shuffled()
@@ -281,7 +307,7 @@ fun ArtistScreen(
                         Icon(
                             imageVector = Icons.Default.Shuffle,
                             contentDescription = "Shuffle",
-                            tint = Color.Black,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -304,7 +330,7 @@ fun ArtistScreen(
                             text = "About",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontSize = 17.sp
                         )
 
@@ -314,7 +340,7 @@ fun ArtistScreen(
                             Text(
                                 text = it,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.70f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 14.sp
                             )
                         }
@@ -323,7 +349,7 @@ fun ArtistScreen(
                             Text(
                                 text = it,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.55f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 13.sp
                             )
                         }
@@ -333,7 +359,7 @@ fun ArtistScreen(
                             Text(
                                 text = bio,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.75f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = if (isBioExpanded) 20 else 3,
                                 overflow = TextOverflow.Ellipsis,
                                 lineHeight = 20.sp,
@@ -381,7 +407,7 @@ fun ArtistScreen(
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.6f),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -413,7 +439,7 @@ fun ArtistScreen(
                         Text(
                             text = "No songs found for this artist.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -445,7 +471,7 @@ fun ArtistScreen(
                                 text = track.title,
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isCurrent) LIME_ACCENT else Color.White,
+                                color = if (isCurrent) LIME_ACCENT else MaterialTheme.colorScheme.onBackground,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -461,7 +487,7 @@ fun ArtistScreen(
                             Text(
                                 text = "${track.artist}$durationStr",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -471,7 +497,7 @@ fun ArtistScreen(
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Options",
-                                tint = Color.White.copy(alpha = 0.6f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -518,14 +544,14 @@ fun ArtistScreen(
                                     text = album.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = album.author ?: "Album",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -568,14 +594,14 @@ fun ArtistScreen(
                                     text = single.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = single.author ?: "Single",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -625,7 +651,7 @@ fun ArtistScreen(
                                     text = similar.name,
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
