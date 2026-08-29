@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import com.auralis.music.ui.components.getHighResArtworkUrl
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterExitState
@@ -122,6 +123,7 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.AuralisPlayerSlider
 import com.auralis.music.ui.components.PlaylistPickerBottomSheet
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.auralisGlass
@@ -310,6 +312,46 @@ fun NowPlayingModal(
         if (state == EnterExitState.Visible) 1f else 0f
     } ?: remember { mutableFloatStateOf(1f) }
 
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    val normalizedBackgroundStyle = when (appearance.playerBackgroundStyle) {
+        "Follow theme" -> "Follow theme"
+        "Blur", "Frosted Glass / Blur", "Dynamic Blurred Artwork" -> "Blur"
+        else -> "Gradient"
+    }
+
+    // Metrolist-grade full-bleed gradient colors derived directly from artwork dominant hue
+    val gradientTopColor = remember(animatedPrimaryColor) {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(animatedPrimaryColor.toArgb(), hsv)
+        val hue = hsv[0]
+        val sat = hsv[1].coerceIn(0.50f, 0.92f)
+        val value = 0.32f
+        Color.hsv(hue, sat, value)
+    }
+
+    val gradientBottomColor = remember(animatedPrimaryColor) {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(animatedPrimaryColor.toArgb(), hsv)
+        val hue = hsv[0]
+        val sat = hsv[1].coerceIn(0.55f, 0.95f)
+        val value = 0.14f
+        Color.hsv(hue, sat, value)
+    }
+
+    val buttonTint = when (appearance.playerButtonColors) {
+        "Accent Color" -> Color(0xFFEBA671)
+        "Dynamic Artwork Vibrant" -> animatedPrimaryColor
+        "Monochrome" -> Color(0xFFE0E0E0)
+        else -> Color.White
+    }
+
+    val playPillBg = when (appearance.playerButtonColors) {
+        "Accent Color" -> Color(0xFFEBA671)
+        "Dynamic Artwork Vibrant" -> animatedPrimaryColor
+        "Monochrome" -> Color(0xFFE0E0E0)
+        else -> Color.White
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -321,7 +363,7 @@ fun NowPlayingModal(
                 alpha = 1f - (dragFraction * 0.35f)
                 clip = true
             }
-            .background(Color(0xFF08060C))
+            .background(if (normalizedBackgroundStyle == "Follow theme") MaterialTheme.colorScheme.background else gradientBottomColor)
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
@@ -329,78 +371,72 @@ fun NowPlayingModal(
             )
     ) {
         // ====================================================================
-        // 1. STATIC HIGH-VIBRANCY AURORA MESH BACKGROUND (SYNCED WITH COVER)
+        // 1. DYNAMIC BACKGROUND RENDERING (Follow theme, Gradient, Blur)
         // ====================================================================
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
-
-            // Base dark tone
-            drawRect(color = Color(0xFF0C0912))
-
-            // Layer 1: Primary Radiant Orb (Upper Right / Center Bloom)
-            val center1 = Offset(width * 0.75f, height * 0.22f)
-            val radius1 = width * 1.30f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        animatedPrimaryColor.copy(alpha = 0.82f),
-                        animatedPrimaryColor.copy(alpha = 0.45f),
-                        animatedPrimaryColor.copy(alpha = 0.15f),
-                        Color.Transparent
-                    ),
-                    center = center1,
-                    radius = radius1
-                ),
-                center = center1,
-                radius = radius1
-            )
-
-            // Layer 2: Secondary Harmonic Orb (Left-Center Bloom)
-            val center2 = Offset(width * 0.15f, height * 0.52f)
-            val radius2 = width * 1.20f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        animatedSecondaryColor.copy(alpha = 0.70f),
-                        animatedSecondaryColor.copy(alpha = 0.35f),
-                        animatedSecondaryColor.copy(alpha = 0.10f),
-                        Color.Transparent
-                    ),
-                    center = center2,
-                    radius = radius2
-                ),
-                center = center2,
-                radius = radius2
-            )
-
-            // Layer 3: Tertiary Deep Anchor Orb (Bottom Anchor)
-            val center3 = Offset(width * 0.50f, height * 0.85f)
-            val radius3 = width * 1.10f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        animatedTertiaryColor.copy(alpha = 0.60f),
-                        animatedTertiaryColor.copy(alpha = 0.25f),
-                        Color.Transparent
-                    ),
-                    center = center3,
-                    radius = radius3
-                ),
-                center = center3,
-                radius = radius3
-            )
-
-            // Layer 4: Atmospheric Contrast Vignette for Header & Bottom Controls
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0.00f to Color.Black.copy(alpha = 0.25f),
-                    0.18f to Color.Transparent,
-                    0.58f to Color.Transparent,
-                    0.82f to Color.Black.copy(alpha = 0.35f),
-                    1.00f to Color.Black.copy(alpha = 0.65f)
+        when (normalizedBackgroundStyle) {
+            "Follow theme" -> {
+                // Photo 1: Clean Solid Theme Background
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
                 )
-            )
+            }
+            "Blur" -> {
+                // Photo 3: Fullscreen Vivid Album Artwork Blur
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF040608))
+                ) {
+                    if (!track.thumbnail.isNullOrBlank()) {
+                        coil.compose.AsyncImage(
+                            model = coil.request.ImageRequest.Builder(context)
+                                .data(getHighResArtworkUrl(track.thumbnail))
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = 1.15f
+                                    scaleY = 1.15f
+                                    alpha = 0.88f
+                                }
+                                .blur(radius = 40.dp)
+                        )
+                    }
+                    // Soft vignette overlay so text & controls pop while allowing full spectrum of artwork colors to shine
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0.00f to Color.Black.copy(alpha = 0.18f),
+                                    0.40f to Color.Black.copy(alpha = 0.28f),
+                                    0.75f to Color.Black.copy(alpha = 0.48f),
+                                    1.00f to Color.Black.copy(alpha = 0.62f)
+                                )
+                            )
+                    )
+                }
+            }
+            else -> {
+                // Photo 2: Metrolist-grade full-bleed gradient derived from artwork's authentic dominant hue
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    gradientTopColor,
+                                    gradientBottomColor
+                                )
+                            )
+                        )
+                )
+            }
         }
 
         // ====================================================================
@@ -671,7 +707,7 @@ fun NowPlayingModal(
                                         .then(if (animateQueueItems) Modifier.animateItem() else Modifier)
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(if (isCurrent) Color(0xFFD5E15B).copy(alpha = 0.20f) else Color.White.copy(alpha = 0.08f))
+                                        .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.08f))
                                         .clickable {
                                             onSelectQueueTrack(index)
                                             currentTab = NowPlayingTab.PLAYER
@@ -691,7 +727,7 @@ fun NowPlayingModal(
                                             text = item.title,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                            color = if (isCurrent) Color(0xFFD5E15B) else Color.White,
+                                            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -707,7 +743,7 @@ fun NowPlayingModal(
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
                                             contentDescription = "Playing",
-                                            tint = Color(0xFFD5E15B),
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
@@ -754,6 +790,7 @@ fun NowPlayingModal(
                             // Main Album Artwork Carousel (Native Jetpack Compose Horizontal Pager)
                             HorizontalPager(
                                 state = pagerState,
+                                userScrollEnabled = appearance.enableSwipeToChangeSong,
                                 modifier = Modifier
                                     .fillMaxWidth(0.88f)
                                     .aspectRatio(1f)
@@ -770,24 +807,46 @@ fun NowPlayingModal(
                                 // keeps neighbours composed off-screen and two live layouts
                                 // holding one key at once is undefined.
                                 val isCurrentPage = page == currentTrackIndex
-                                ArtworkCard(
-                                    url = pageTrack.thumbnail,
-                                    modifier = playerSharedArtwork(
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        enabled = isCurrentPage
-                                    ).fillMaxSize(),
-                                    cornerRadius = playerArtworkCorner(
-                                        animatedVisibilityScope = if (isCurrentPage) animatedVisibilityScope else null,
-                                        expanded = true
-                                    ),
-                                    // The visible drop shadow belongs to the pager above; this
-                                    // one is clipped away by it, and dropping the node keeps a
-                                    // shadow from being re-rasterised on every frame of the
-                                    // container transform.
-                                    elevation = 0.dp,
-                                    contentDescription = pageTrack.title
-                                )
+                                if (appearance.hidePlayerThumbnail) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.radialGradient(
+                                                    listOf(
+                                                        Color(0xFFEBA671).copy(alpha = 0.35f),
+                                                        Color(0xFF221E1A),
+                                                        Color(0xFF141210)
+                                                    )
+                                                )
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color(0xFFEBA671),
+                                            modifier = Modifier.size(68.dp)
+                                        )
+                                    }
+                                } else {
+                                    ArtworkCard(
+                                        url = pageTrack.thumbnail,
+                                        fallbackTrack = pageTrack,
+                                        modifier = playerSharedArtwork(
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            enabled = isCurrentPage
+                                        ).fillMaxSize(),
+                                        cornerRadius = playerArtworkCorner(
+                                            animatedVisibilityScope = if (isCurrentPage) animatedVisibilityScope else null,
+                                            expanded = true
+                                        ),
+                                        elevation = 0.dp,
+                                        contentDescription = pageTrack.title,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                }
                             }
                         }
 
@@ -904,58 +963,29 @@ fun NowPlayingModal(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // ── TIME SCRUBBER SLIDER & TIMESTAMPS ──
-                        Column(modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = controlsAlpha }) {
-                            Slider(
-                                value = if (totalDurationMs > 0) (currentPosMs.toFloat() / totalDurationMs).coerceIn(0f, 1f) else 0f,
-                                onValueChange = { frac ->
-                                    isScrubbing = true
-                                    scrubPositionMs = frac * totalDurationMs
-                                },
-                                onValueChangeFinished = {
-                                    isScrubbing = false
-                                    onSeekTo(scrubPositionMs.toLong())
-                                },
-                                thumb = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .shadow(2.dp, CircleShape)
-                                            .clip(CircleShape)
-                                            .background(Color.White)
-                                    )
-                                },
-                                track = { sliderState ->
-                                    SliderDefaults.Track(
-                                        sliderState = sliderState,
-                                        colors = SliderDefaults.colors(
-                                            activeTrackColor = Color.White.copy(alpha = 0.60f),
-                                            inactiveTrackColor = Color.White.copy(alpha = 0.18f)
-                                        ),
-                                        modifier = Modifier.height(4.dp)
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = formatTime(currentPosMs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.65f),
-                                    fontSize = 12.sp
-                                )
-                                Text(
-                                    text = formatTime(totalDurationMs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.65f),
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
+                        // ── TIME SCRUBBER SLIDER & TIMESTAMPS (SQUIGGLY WAVEFORM) ──
+                        AuralisPlayerSlider(
+                            value = if (totalDurationMs > 0) (currentPosMs.toFloat() / totalDurationMs).coerceIn(0f, 1f) else 0f,
+                            onValueChange = { frac ->
+                                isScrubbing = true
+                                scrubPositionMs = frac * totalDurationMs
+                            },
+                            onValueChangeFinished = {
+                                isScrubbing = false
+                                onSeekTo(scrubPositionMs.toLong())
+                            },
+                            isPlaying = uiState.isPlaying,
+                            currentPosMs = currentPosMs,
+                            totalDurationMs = totalDurationMs,
+                            sliderStyle = appearance.playerSliderStyle,
+                            activeTrackColor = Color.White,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+                            thumbColor = Color.White,
+                            textColor = Color.White.copy(alpha = 0.70f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer { alpha = controlsAlpha }
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -967,100 +997,100 @@ fun NowPlayingModal(
                         ) {
                             // Previous Button (Circular Dark Glass)
                             Box(
-                                modifier = Modifier
-                                    .size(58.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                    .tactileBounce(scaleDown = 0.84f, onClick = {
-                                        coroutineScope.launch {
-                                            if (pagerState.currentPage > 0) {
-                                                pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                                            } else {
-                                                onPreviousClick()
-                                            }
-                                        }
-                                    }),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SkipPrevious,
-                                    contentDescription = "Previous",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
+                                 modifier = Modifier
+                                     .size(58.dp)
+                                     .clip(CircleShape)
+                                     .background(Color.White.copy(alpha = 0.12f))
+                                     .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                                     .tactileBounce(scaleDown = 0.84f, onClick = {
+                                         coroutineScope.launch {
+                                             if (pagerState.currentPage > 0) {
+                                                 pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                             } else {
+                                                 onPreviousClick()
+                                             }
+                                         }
+                                     }),
+                                 contentAlignment = Alignment.Center
+                             ) {
+                                 Icon(
+                                     imageVector = Icons.Default.SkipPrevious,
+                                     contentDescription = "Previous",
+                                     tint = buttonTint,
+                                     modifier = Modifier.size(30.dp)
+                                 )
+                             }
 
-                            // Wide Thick White Play/Pause Button Pill with Bouncy Feedback
-                            Box(
-                                modifier = Modifier
-                                    .height(66.dp)
-                                    .fillMaxWidth(0.72f)
-                                    .shadow(
-                                        elevation = 16.dp,
-                                        shape = CircleShape,
-                                        ambientColor = Color.Black.copy(alpha = 0.40f),
-                                        spotColor = Color.Black.copy(alpha = 0.40f)
-                                    )
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                                    .tactileBounce(scaleDown = 0.86f, onClick = onPlayPauseClick),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AnimatedContent(
-                                    targetState = uiState.isPlaying,
-                                    transitionSpec = {
-                                        (fadeIn(animationSpec = tween(180)) + scaleIn(initialScale = 0.80f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)))
-                                            .togetherWith(fadeOut(animationSpec = tween(120)) + scaleOut(targetScale = 0.80f, animationSpec = tween(120)))
-                                    },
-                                    label = "PlayPauseButtonAnimation"
-                                ) { isPlaying ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = if (isPlaying) "Pause" else "Play",
-                                            tint = Color.Black,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = if (isPlaying) "Pause" else "Play",
-                                            color = Color.Black,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 17.sp
-                                        )
-                                    }
-                                }
-                            }
+                             // Wide Thick Play/Pause Button Pill with Bouncy Feedback
+                             Box(
+                                 modifier = Modifier
+                                     .height(66.dp)
+                                     .fillMaxWidth(0.72f)
+                                     .shadow(
+                                         elevation = 16.dp,
+                                         shape = CircleShape,
+                                         ambientColor = Color.Black.copy(alpha = 0.40f),
+                                         spotColor = Color.Black.copy(alpha = 0.40f)
+                                     )
+                                     .clip(CircleShape)
+                                     .background(playPillBg)
+                                     .tactileBounce(scaleDown = 0.86f, onClick = onPlayPauseClick),
+                                 contentAlignment = Alignment.Center
+                             ) {
+                                 AnimatedContent(
+                                     targetState = uiState.isPlaying,
+                                     transitionSpec = {
+                                         (fadeIn(animationSpec = tween(180)) + scaleIn(initialScale = 0.80f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)))
+                                             .togetherWith(fadeOut(animationSpec = tween(120)) + scaleOut(targetScale = 0.80f, animationSpec = tween(120)))
+                                     },
+                                     label = "PlayPauseButtonAnimation"
+                                 ) { isPlaying ->
+                                     Row(
+                                         verticalAlignment = Alignment.CenterVertically,
+                                         horizontalArrangement = Arrangement.Center
+                                     ) {
+                                         Icon(
+                                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                             contentDescription = if (isPlaying) "Pause" else "Play",
+                                             tint = if (playPillBg == Color.White) Color.Black else Color.Black,
+                                             modifier = Modifier.size(28.dp)
+                                         )
+                                         Spacer(modifier = Modifier.width(8.dp))
+                                         Text(
+                                             text = if (isPlaying) "Pause" else "Play",
+                                             color = Color.Black,
+                                             fontWeight = FontWeight.ExtraBold,
+                                             fontSize = 17.sp
+                                         )
+                                     }
+                                 }
+                             }
 
-                            // Next Button (Circular Dark Glass)
-                            Box(
-                                modifier = Modifier
-                                    .size(58.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                    .tactileBounce(scaleDown = 0.84f, onClick = {
-                                        coroutineScope.launch {
-                                            if (pagerState.currentPage < pageCount - 1) {
-                                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                                            } else {
-                                                onNextClick()
-                                            }
-                                        }
-                                    }),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SkipNext,
-                                    contentDescription = "Next",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
+                             // Next Button (Circular Dark Glass)
+                             Box(
+                                 modifier = Modifier
+                                     .size(58.dp)
+                                     .clip(CircleShape)
+                                     .background(Color.White.copy(alpha = 0.12f))
+                                     .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                                     .tactileBounce(scaleDown = 0.84f, onClick = {
+                                         coroutineScope.launch {
+                                             if (pagerState.currentPage < pageCount - 1) {
+                                                 pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                             } else {
+                                                 onNextClick()
+                                             }
+                                         }
+                                     }),
+                                 contentAlignment = Alignment.Center
+                             ) {
+                                 Icon(
+                                     imageVector = Icons.Default.SkipNext,
+                                     contentDescription = "Next",
+                                     tint = buttonTint,
+                                     modifier = Modifier.size(30.dp)
+                                 )
+                             }
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))

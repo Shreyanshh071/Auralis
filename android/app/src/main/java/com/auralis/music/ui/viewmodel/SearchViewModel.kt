@@ -8,14 +8,17 @@ import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.recognition.AudioRecognitionManager
+import com.auralis.music.domain.recognition.RecognitionHistoryItem
 import com.auralis.music.domain.recognition.RecognitionMode
 import com.auralis.music.domain.recognition.RecognitionState
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -45,6 +48,21 @@ class SearchViewModel(
     val recognitionState: StateFlow<RecognitionState> =
         recognitionManager?.state ?: MutableStateFlow(RecognitionState()).asStateFlow()
 
+    val recognitionHistory: StateFlow<List<RecognitionHistoryItem>> =
+        recognitionManager?.historyFlow?.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        ) ?: MutableStateFlow<List<RecognitionHistoryItem>>(emptyList()).asStateFlow()
+
+    fun clearRecognitionHistory() {
+        recognitionManager?.clearHistory()
+    }
+
+    fun removeRecognitionHistoryItem(trackId: String) {
+        recognitionManager?.removeHistoryItem(trackId)
+    }
+
     private var debounceJob: Job? = null
 
     init {
@@ -68,31 +86,26 @@ class SearchViewModel(
 
     fun openRecognitionModal(mode: RecognitionMode = RecognitionMode.VOICE_SEARCH) {
         recognitionManager?.setMode(mode)
-        startListening()
+        recognitionManager?.startListening()
         _uiState.update { it.copy(isRecognitionOpen = true) }
     }
 
     fun closeRecognitionModal() {
-        recognitionManager?.stop()
+        recognitionManager?.stopListening()
         _uiState.update { it.copy(isRecognitionOpen = false) }
     }
 
     fun setRecognitionMode(mode: RecognitionMode) {
         recognitionManager?.setMode(mode)
-        startListening()
+        recognitionManager?.startListening()
     }
 
     fun startListening() {
-        val currentMode = recognitionState.value.mode
-        if (currentMode == RecognitionMode.VOICE_SEARCH) {
-            recognitionManager?.startVoiceSearch()
-        } else {
-            recognitionManager?.startMusicIdentification()
-        }
+        recognitionManager?.startListening()
     }
 
     fun stopListening() {
-        recognitionManager?.stop()
+        recognitionManager?.stopListening()
     }
 
     fun onQueryChange(newQuery: String) {

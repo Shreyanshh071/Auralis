@@ -233,6 +233,22 @@ class SettingsRepositoryImpl(
         settingsDataStore.setThemeMode(mode)
     }
 
+    override suspend fun setAudioQuality(quality: AudioQuality) {
+        settingsDataStore.setAudioQuality(quality)
+    }
+
+    override suspend fun setGaplessPlayback(enabled: Boolean) {
+        settingsDataStore.setGaplessPlayback(enabled)
+    }
+
+    override suspend fun setSkipSilence(enabled: Boolean) {
+        settingsDataStore.setSkipSilence(enabled)
+    }
+
+    override suspend fun setSpatialAudio(enabled: Boolean) {
+        settingsDataStore.setSpatialAudio(enabled)
+    }
+
     override suspend fun setVolume(volume: Float) {
         settingsDataStore.setVolume(volume)
     }

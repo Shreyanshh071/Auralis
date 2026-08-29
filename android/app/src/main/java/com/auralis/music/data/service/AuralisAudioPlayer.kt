@@ -39,7 +39,15 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     private val appContext = context.applicationContext
     val youTubeEngine = YouTubeAudioEngine(appContext)
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val spatialAudioController = SpatialAudioController()
+
+    var isGaplessEnabled: Boolean = true
+        private set
+    var currentAudioQuality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO
+        private set
+    private var enqueuedNextTrack: Track? = null
+    private var onGaplessTransitionCallback: ((Track) -> Unit)? = null
 
     init {
         com.auralis.music.data.network.AudioStreamResolver.init(appContext)
@@ -138,6 +146,27 @@ class AuralisAudioPlayer private constructor(context: Context) {
                             }
                             Player.STATE_IDLE -> _isBuffering.value = false
                         }
+                    }
+
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem != null) {
+                            val nextId = mediaItem.mediaId
+                            Log.d("AuralisPlayback", "[Gapless Auto-Transition] Seamlessly crossed boundary into next track: $nextId (0ms delay)")
+                            val nextTrack = enqueuedNextTrack
+                            if (nextTrack != null && (nextTrack.id == nextId || AudioStreamResolver.getMatchedVideoId(nextTrack.id) == nextId)) {
+                                _currentTrack.value = nextTrack
+                                _durationMs.value = nextTrack.duration * 1000L
+                                _playbackPositionMs.value = 0L
+                                enqueuedNextTrack = null
+                                onGaplessTransitionCallback?.invoke(nextTrack)
+                            } else {
+                                dispatchTrackCompleted()
+                            }
+                        }
+                    }
+
+                    override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                        spatialAudioController.attachAudioSession(audioSessionId)
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -371,7 +400,13 @@ class AuralisAudioPlayer private constructor(context: Context) {
             var directUrl: String? = null
             try {
                 withTimeoutOrNull(12000L) {
-                    directUrl = AudioStreamResolver.resolveAudioStream(track.id, track.title, track.artist)
+                    directUrl = AudioStreamResolver.resolveAudioStream(
+                        videoId = track.id,
+                        title = track.title,
+                        artist = track.artist,
+                        quality = currentAudioQuality,
+                        context = appContext
+                    )
                 }
             } catch (e: Exception) {
                 Log.w("AuralisPlayback", "[Resolver] Stream resolve notice: ${e.message}")
@@ -455,18 +490,84 @@ class AuralisAudioPlayer private constructor(context: Context) {
             try {
                 // Wait for the active track to finish stream resolution first
                 streamResolveJob?.join()
-                delay(1500)
-                val isCached = com.auralis.music.data.network.AudioStreamResolver.getCachedStream(track.id) != null ||
-                    com.auralis.music.data.network.AudioStreamResolver.getCachedStreamByFingerprint(
-                        com.auralis.music.data.network.AudioStreamResolver.getSongFingerprintKey(track.title, track.artist)
-                    ) != null
-                if (!isCached) {
-                    Log.d("AuralisPlayback", "[Prefetch] Pre-resolving stream for '${track.title}' (${track.id}) in background...")
-                    com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(track.id, track.title, track.artist)
+                delay(1200)
+                Log.d("AuralisPlayback", "[Prefetch] Pre-resolving stream for '${track.title}' (${track.id}) [$currentAudioQuality] in background...")
+                val streamUrl = com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(
+                    videoId = track.id,
+                    title = track.title,
+                    artist = track.artist,
+                    quality = currentAudioQuality,
+                    context = appContext
+                )
+
+                // 🚀 TRUE GAPLESS PLAYBACK PRE-BUFFERING
+                if (!streamUrl.isNullOrBlank() && isGaplessEnabled && isUsingExoPlayer) {
+                    withContext(Dispatchers.Main) {
+                        if (exoPlayer.mediaItemCount == 1 && _isPlaying.value) {
+                            val effectiveThumb = if (!track.thumbnail.isNullOrBlank()) {
+                                track.thumbnail
+                            } else {
+                                com.auralis.music.data.network.ArtworkResolver.getArtwork(track) ?: track.thumbnail
+                            }
+                            val highResThumb = getHighResArtworkUrl(effectiveThumb) ?: effectiveThumb
+                            val artworkUri = if (!highResThumb.isNullOrBlank()) Uri.parse(highResThumb) else null
+                            val effectiveMediaId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+
+                            val nextMediaItem = MediaItem.Builder()
+                                .setUri(streamUrl)
+                                .setMediaId(effectiveMediaId)
+                                .setMediaMetadata(
+                                    MediaMetadata.Builder()
+                                        .setTitle(track.title)
+                                        .setArtist(track.artist)
+                                        .setArtworkUri(artworkUri)
+                                        .build()
+                                )
+                                .build()
+
+                            enqueuedNextTrack = track
+                            exoPlayer.addMediaItem(nextMediaItem)
+                            Log.d("AuralisPlayback", "[Gapless Queue] Successfully queued next track '${track.title}' into ExoPlayer for 0ms transition")
+                        }
+                    }
                 }
             } catch (_: Exception) {}
         }
     }
+
+    fun setOnGaplessTransitionCallback(callback: (Track) -> Unit) {
+        onGaplessTransitionCallback = callback
+    }
+
+    fun setAudioQuality(quality: com.auralis.music.domain.model.AudioQuality) {
+        currentAudioQuality = quality
+        Log.d("AuralisPlayback", "[Settings] Audio quality updated to: $quality")
+    }
+
+    fun setGaplessEnabled(enabled: Boolean) {
+        isGaplessEnabled = enabled
+        Log.d("AuralisPlayback", "[Settings] Gapless playback set to: $enabled")
+        if (!enabled && isUsingExoPlayer) {
+            if (exoPlayer.mediaItemCount > 1) {
+                exoPlayer.removeMediaItem(1)
+                enqueuedNextTrack = null
+            }
+        }
+    }
+
+    fun setSkipSilenceEnabled(enabled: Boolean) {
+        if (isUsingExoPlayer) {
+            exoPlayer.skipSilenceEnabled = enabled
+            Log.d("AuralisPlayback", "[Settings] Skip silence set to: $enabled")
+        }
+    }
+
+    fun setSpatialAudioEnabled(enabled: Boolean) {
+        spatialAudioController.setSpatialAudioEnabled(enabled)
+        Log.d("AuralisPlayback", "[Settings] Spatial Audio set to: $enabled")
+    }
+
+    fun isSpatialAudioEnabled(): Boolean = spatialAudioController.isSpatialAudioEnabled()
 
     fun prewarmTracks(tracks: List<Track>) {
         scope.launch(Dispatchers.IO) {

@@ -117,10 +117,15 @@ fun ListenTogetherSheet(
     var joinCodeInput by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Join, 1 = Host
 
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onBackground = MaterialTheme.colorScheme.onBackground
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0F0C))
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
     ) {
         Column(
@@ -145,13 +150,13 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(LISTEN_LIME.copy(alpha = 0.15f)),
+                            .background(primaryColor.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Groups,
                             contentDescription = null,
-                            tint = LISTEN_LIME,
+                            tint = primaryColor,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -159,7 +164,7 @@ fun ListenTogetherSheet(
                         text = "Listen Together",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = onBackground,
                         fontSize = 22.sp
                     )
                 }
@@ -171,7 +176,7 @@ fun ListenTogetherSheet(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color.White.copy(alpha = 0.85f),
+                        tint = onBackground,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -188,8 +193,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(LISTEN_CARD_BG)
-                        .border(1.dp, LISTEN_LIME.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                        .background(surfaceVariant)
+                        .border(1.dp, primaryColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
                         .padding(20.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -197,7 +202,7 @@ fun ListenTogetherSheet(
                             Icon(
                                 imageVector = Icons.Default.Radio,
                                 contentDescription = null,
-                                tint = LISTEN_LIME,
+                                tint = primaryColor,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -205,7 +210,7 @@ fun ListenTogetherSheet(
                                 text = if (uiState.isHost) "BROADCASTING AS HOST" else "SYNCED WITH HOST",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = LISTEN_LIME,
+                                color = primaryColor,
                                 letterSpacing = 1.sp
                             )
                         }
@@ -216,8 +221,8 @@ fun ListenTogetherSheet(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(LISTEN_OLIVE_DARK)
-                                .border(1.dp, LISTEN_LIME, RoundedCornerShape(16.dp))
+                                .background(primaryColor.copy(alpha = 0.15f))
+                                .border(1.dp, primaryColor, RoundedCornerShape(16.dp))
                                 .clickable {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Room Code", room.code))
@@ -231,14 +236,14 @@ fun ListenTogetherSheet(
                                     fontSize = 28.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 4.sp,
-                                    color = LISTEN_LIME
+                                    color = primaryColor
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "Copy",
                                     modifier = Modifier.size(20.dp),
-                                    tint = LISTEN_LIME
+                                    tint = primaryColor
                                 )
                             }
                         }
@@ -247,7 +252,7 @@ fun ListenTogetherSheet(
                         Text(
                             text = "Tap code to copy and invite friends",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.5f)
+                            color = onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -259,8 +264,8 @@ fun ListenTogetherSheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF141610))
-                                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
+                                    .background(primaryColor.copy(alpha = 0.08f))
+                                    .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -276,7 +281,7 @@ fun ListenTogetherSheet(
                                         text = syncedTrack.title,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White,
+                                        color = onBackground,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -284,7 +289,7 @@ fun ListenTogetherSheet(
                                     Text(
                                         text = syncedTrack.artist,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f),
+                                        color = onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -292,7 +297,7 @@ fun ListenTogetherSheet(
                                 EqualizerBars(
                                     isPlaying = room.isPlaying,
                                     modifier = Modifier.size(16.dp),
-                                    color = LISTEN_LIME
+                                    color = primaryColor
                                 )
                             }
                         }
@@ -300,15 +305,14 @@ fun ListenTogetherSheet(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                Spacer(modifier = Modifier.height(16.dp))
 
                 // Connected Participants List
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(LISTEN_CARD_BG)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .background(surfaceVariant)
+                        .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
                         .padding(18.dp)
                 ) {
                     Column {
@@ -316,7 +320,7 @@ fun ListenTogetherSheet(
                             text = "Connected Listeners (${uiState.members.size})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = onBackground
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -332,7 +336,7 @@ fun ListenTogetherSheet(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF24271C))
+                                        .background(primaryColor.copy(alpha = 0.08f))
                                         .padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -340,13 +344,13 @@ fun ListenTogetherSheet(
                                         modifier = Modifier
                                             .size(36.dp)
                                             .clip(CircleShape)
-                                            .background(if (member.isHost) LISTEN_LIME else Color(0xFF3B402B)),
+                                            .background(if (member.isHost) primaryColor else primaryColor.copy(alpha = 0.25f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = member.name.take(1).uppercase(),
                                             fontWeight = FontWeight.Bold,
-                                            color = if (member.isHost) Color.Black else Color.White
+                                            color = if (member.isHost) Color.Black else onBackground
                                         )
                                     }
 
@@ -356,7 +360,7 @@ fun ListenTogetherSheet(
                                         text = member.name,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
+                                        color = onBackground,
                                         modifier = Modifier.weight(1f)
                                     )
 
@@ -364,7 +368,7 @@ fun ListenTogetherSheet(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(LISTEN_LIME)
+                                                .background(primaryColor)
                                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                                         ) {
                                             Text(
@@ -401,8 +405,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(LISTEN_CARD_BG)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .background(surfaceVariant)
+                        .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
                         .padding(18.dp)
                 ) {
                     Column {
@@ -410,24 +414,24 @@ fun ListenTogetherSheet(
                             text = "Your Identity",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = onBackground
                         )
                         Spacer(modifier = Modifier.height(10.dp))
 
                         OutlinedTextField(
                             value = uiState.myDisplayName,
                             onValueChange = onNameChange,
-                            label = { Text("Display Name", color = Color.White.copy(alpha = 0.6f)) },
+                            label = { Text("Display Name", color = onSurfaceVariant) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = LISTEN_LIME,
-                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
+                                focusedBorderColor = primaryColor,
+                                unfocusedBorderColor = onBackground.copy(alpha = 0.15f),
+                                focusedTextColor = onBackground,
+                                unfocusedTextColor = onBackground
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth(),
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = LISTEN_LIME) }
+                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = primaryColor) }
                         )
                     }
                 }
@@ -439,8 +443,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(CircleShape)
-                        .background(LISTEN_CARD_BG)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
+                        .background(surfaceVariant)
+                        .border(1.dp, onBackground.copy(alpha = 0.08f), CircleShape)
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -448,7 +452,7 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .weight(1f)
                             .clip(CircleShape)
-                            .background(if (selectedTab == 0) LISTEN_LIME else Color.Transparent)
+                            .background(if (selectedTab == 0) primaryColor else Color.Transparent)
                             .clickable { selectedTab = 0 }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -457,7 +461,7 @@ fun ListenTogetherSheet(
                             text = "Join Room",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (selectedTab == 0) Color.Black else Color.White
+                            color = if (selectedTab == 0) Color.Black else onBackground
                         )
                     }
 
@@ -465,7 +469,7 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .weight(1f)
                             .clip(CircleShape)
-                            .background(if (selectedTab == 1) LISTEN_LIME else Color.Transparent)
+                            .background(if (selectedTab == 1) primaryColor else Color.Transparent)
                             .clickable { selectedTab = 1 }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -474,7 +478,7 @@ fun ListenTogetherSheet(
                             text = "Host Room",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (selectedTab == 1) Color.Black else Color.White
+                            color = if (selectedTab == 1) Color.Black else onBackground
                         )
                     }
                 }
@@ -487,8 +491,8 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(20.dp))
-                            .background(LISTEN_CARD_BG)
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                            .background(surfaceVariant)
+                            .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
                             .padding(18.dp)
                     ) {
                         Column {
@@ -496,30 +500,30 @@ fun ListenTogetherSheet(
                                 text = "Enter Room Code",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = onBackground
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Enter the 6-character room code provided by your host:",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(12.dp))
 
                             OutlinedTextField(
                                 value = joinCodeInput,
                                 onValueChange = { if (it.length <= 6) joinCodeInput = it.uppercase() },
-                                placeholder = { Text("AUR921", color = Color.White.copy(alpha = 0.3f)) },
+                                placeholder = { Text("AUR921", color = onSurfaceVariant.copy(alpha = 0.5f)) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = LISTEN_LIME,
-                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
+                                    focusedBorderColor = primaryColor,
+                                    unfocusedBorderColor = onBackground.copy(alpha = 0.15f),
+                                    focusedTextColor = onBackground,
+                                    unfocusedTextColor = onBackground
                                 ),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth(),
-                                leadingIcon = { Icon(Icons.Default.Pin, contentDescription = null, tint = LISTEN_LIME) }
+                                leadingIcon = { Icon(Icons.Default.Pin, contentDescription = null, tint = primaryColor) }
                             )
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -528,7 +532,7 @@ fun ListenTogetherSheet(
                                 onClick = { onJoinRoom(joinCodeInput) },
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = joinCodeInput.length >= 4 && !uiState.isConnecting,
-                                colors = ButtonDefaults.buttonColors(containerColor = LISTEN_LIME),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 if (uiState.isConnecting) {
@@ -547,8 +551,8 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(20.dp))
-                            .background(LISTEN_CARD_BG)
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                            .background(surfaceVariant)
+                            .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
                             .padding(18.dp)
                     ) {
                         Column {
@@ -556,13 +560,13 @@ fun ListenTogetherSheet(
                                 text = "Start Live Broadcast",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = onBackground
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Start a listening room and stream your queue with sub-millisecond precision to all connected friends.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = onSurfaceVariant
                             )
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -571,7 +575,7 @@ fun ListenTogetherSheet(
                                 onClick = { onCreateRoom(currentTrack, queue, isPlaying, playbackPositionMs) },
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !uiState.isConnecting,
-                                colors = ButtonDefaults.buttonColors(containerColor = LISTEN_LIME),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 if (uiState.isConnecting) {

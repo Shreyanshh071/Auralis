@@ -275,67 +275,90 @@ object ArtworkProcessor {
     }
 
     /**
-     * Fast scan to detect and strip solid black letterbox/pillarbox bars from video stills.
+     * Fast, high-precision scan to detect and strip solid black & dark-grey letterbox/pillarbox bars from video stills.
+     * Preserves 100% studio master pixel clarity.
      */
     fun stripBlackBars(bitmap: Bitmap): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
         if (width < 32 || height < 32) return bitmap
 
-        fun isDarkPixel(color: Int): Boolean {
+        // 1. YouTube 4:3 letterbox check: 480x360 with 16:9 video frame in center (top ~12.5% and bottom ~12.5% bars)
+        val aspectRatio = width.toFloat() / height.toFloat()
+        var workingBitmap = bitmap
+        if (aspectRatio in 1.25f..1.42f) {
+            val topBarHeight = (height * 0.125f).toInt()
+            val bottomBarHeight = (height * 0.125f).toInt()
+            val activeHeight = height - topBarHeight - bottomBarHeight
+            if (activeHeight > 64) {
+                try {
+                    workingBitmap = Bitmap.createBitmap(bitmap, 0, topBarHeight, width, activeHeight)
+                } catch (_: Exception) {}
+            }
+        }
+
+        val w = workingBitmap.width
+        val h = workingBitmap.height
+
+        fun isNeutralOrDark(color: Int): Boolean {
+            val a = Color.alpha(color)
+            if (a < 15) return true
             val r = Color.red(color)
             val g = Color.green(color)
             val b = Color.blue(color)
-            return r < 20 && g < 20 && b < 20
+            val max = maxOf(r, maxOf(g, b))
+            val min = minOf(r, minOf(g, b))
+            // Detect black, dark grey (RGB < 55), or neutral dark border artifacts (low saturation delta < 18)
+            return (max < 55 && (max - min) < 18) || (max < 28)
         }
 
-        fun isRowDark(y: Int): Boolean {
-            val step = (width / 16).coerceAtLeast(1)
-            for (x in 0 until width step step) {
-                if (!isDarkPixel(bitmap.getPixel(x, y))) return false
+        fun isRowBar(y: Int): Boolean {
+            val step = (w / 20).coerceAtLeast(1)
+            for (x in 0 until w step step) {
+                if (!isNeutralOrDark(workingBitmap.getPixel(x, y))) return false
             }
             return true
         }
 
-        fun isColDark(x: Int): Boolean {
-            val step = (height / 16).coerceAtLeast(1)
-            for (y in 0 until height step step) {
-                if (!isDarkPixel(bitmap.getPixel(x, y))) return false
+        fun isColBar(x: Int): Boolean {
+            val step = (h / 20).coerceAtLeast(1)
+            for (y in 0 until h step step) {
+                if (!isNeutralOrDark(workingBitmap.getPixel(x, y))) return false
             }
             return true
         }
 
         var top = 0
-        while (top < height / 4 && isRowDark(top)) {
+        while (top < (h * 0.35f).toInt() && isRowBar(top)) {
             top++
         }
 
-        var bottom = height - 1
-        while (bottom > (height * 3) / 4 && isRowDark(bottom)) {
+        var bottom = h - 1
+        while (bottom > (h * 0.65f).toInt() && isRowBar(bottom)) {
             bottom--
         }
 
         var left = 0
-        while (left < width / 4 && isColDark(left)) {
+        while (left < (w * 0.35f).toInt() && isColBar(left)) {
             left++
         }
 
-        var right = width - 1
-        while (right > (width * 3) / 4 && isColDark(right)) {
+        var right = w - 1
+        while (right > (w * 0.65f).toInt() && isColBar(right)) {
             right--
         }
 
         val cropWidth = right - left + 1
         val cropHeight = bottom - top + 1
 
-        if (cropWidth <= 0 || cropHeight <= 0 || (cropWidth == width && cropHeight == height)) {
-            return bitmap
+        if (cropWidth <= 32 || cropHeight <= 32 || (cropWidth == w && cropHeight == h)) {
+            return workingBitmap
         }
 
         return try {
-            Bitmap.createBitmap(bitmap, left, top, cropWidth, cropHeight)
+            Bitmap.createBitmap(workingBitmap, left, top, cropWidth, cropHeight)
         } catch (_: Exception) {
-            bitmap
+            workingBitmap
         }
     }
 
