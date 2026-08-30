@@ -159,7 +159,9 @@ class AuralisMediaService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_TO_NEXT)
                     .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                     .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+                    .add(Player.COMMAND_GET_METADATA)
                     .add(Player.COMMAND_PLAY_PAUSE)
+                    .add(Player.COMMAND_STOP)
                     .add(Player.COMMAND_GET_TIMELINE)
                     .build()
             }
@@ -170,7 +172,9 @@ class AuralisMediaService : MediaSessionService() {
                     Player.COMMAND_SEEK_TO_NEXT,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                     Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_GET_METADATA,
                     Player.COMMAND_PLAY_PAUSE,
+                    Player.COMMAND_STOP,
                     Player.COMMAND_GET_TIMELINE -> true
                     else -> super.isCommandAvailable(command)
                 }
@@ -232,6 +236,10 @@ class AuralisMediaService : MediaSessionService() {
                 return currentActiveMetadata ?: super.getMediaMetadata()
             }
 
+            override fun getPlaylistMetadata(): androidx.media3.common.MediaMetadata {
+                return currentActiveMetadata ?: super.getPlaylistMetadata()
+            }
+
             override fun isCurrentMediaItemSeekable(): Boolean = true
             override fun isCurrentMediaItemDynamic(): Boolean = false
             override fun isCurrentMediaItemLive(): Boolean = false
@@ -275,6 +283,25 @@ class AuralisMediaService : MediaSessionService() {
             }
         }
 
+        // 3. Keep MediaSession callback synced with current audio playback states
+        serviceScope.launch {
+            audioPlayer.isPlaying.collectLatest { isPlaying ->
+                val track = audioPlayer.currentTrack.value
+                val isFav = audioPlayer.isFavorite.value
+                updateNotification(track, isPlaying, isFav)
+                dispatchPlaybackState(isPlaying)
+            }
+        }
+
+        serviceScope.launch {
+            audioPlayer.isFavorite.collectLatest { isFav ->
+                val track = audioPlayer.currentTrack.value
+                val isPlaying = audioPlayer.isPlaying.value
+                updateNotification(track, isPlaying, isFav)
+                mediaSession?.setCustomLayout(buildCustomLayout(isFav))
+            }
+        }
+
         // Observe track changes to update notification and system MediaSession dynamically
         serviceScope.launch {
             audioPlayer.currentTrack.collectLatest { track ->
@@ -282,10 +309,14 @@ class AuralisMediaService : MediaSessionService() {
                     val rawUrl = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
                     val cachedBitmap = if (!rawUrl.isNullOrBlank()) {
                         imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(rawUrl))?.bitmap
+                            ?: imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(track.thumbnail ?: ""))?.bitmap
                     } else null
 
+                    var localArtworkUri: android.net.Uri? = null
                     if (cachedBitmap != null) {
-                        currentArtworkBitmap = ArtworkProcessor.processForMediaNotification(cachedBitmap, targetSize = 800)
+                        val processed = ArtworkProcessor.processForMediaNotification(cachedBitmap, targetSize = 600)
+                        currentArtworkBitmap = processed
+                        localArtworkUri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, processed)
                     } else {
                         currentArtworkBitmap = null
                     }
@@ -293,8 +324,9 @@ class AuralisMediaService : MediaSessionService() {
                     val isOfficialCdn = !rawUrl.isNullOrBlank() &&
                             (rawUrl.contains("googleusercontent.com") || rawUrl.contains("ggpht.com") ||
                              rawUrl.contains("mzstatic.com") || rawUrl.contains("scdn.co") ||
-                             rawUrl.contains("jiosaavn.com") || rawUrl.contains("saavncdn.com"))
-                    val initialArtworkUri = if (isOfficialCdn) android.net.Uri.parse(rawUrl) else null
+                             rawUrl.contains("jiosaavn.com") || rawUrl.contains("saavncdn.com") ||
+                             rawUrl.contains("ytimg.com") || rawUrl.contains("youtube.com"))
+                    val initialArtworkUri = localArtworkUri ?: if (isOfficialCdn) android.net.Uri.parse(rawUrl) else null
 
                     val initialMetaBuilder = androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(track.title)
@@ -303,7 +335,7 @@ class AuralisMediaService : MediaSessionService() {
 
                     if (currentArtworkBitmap != null) {
                         initialMetaBuilder.setArtworkData(
-                            ArtworkProcessor.toByteArray(currentArtworkBitmap!!, quality = 95),
+                            ArtworkProcessor.toByteArray(currentArtworkBitmap!!, quality = 92),
                             androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER
                         )
                     }
@@ -327,6 +359,7 @@ class AuralisMediaService : MediaSessionService() {
                         for (listener in sessionListeners) {
                             try {
                                 listener.onMediaMetadataChanged(initialMeta)
+                                listener.onPlaylistMetadataChanged(initialMeta)
                                 listener.onMediaItemTransition(initialItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
                             } catch (_: Exception) {}
                         }
@@ -554,15 +587,18 @@ class AuralisMediaService : MediaSessionService() {
                     }
 
                     if (loadedBitmap != null && track != null) {
-                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap, targetSize = 800)
+                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap, targetSize = 600)
                         currentArtworkBitmap = processed
-                        val artworkBytes = ArtworkProcessor.toByteArray(processed, quality = 95)
+                        val artworkBytes = ArtworkProcessor.toByteArray(processed, quality = 92)
+                        val localContentUri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, processed)
 
                         val isHighResCdn = resolvedUrl.isNotBlank() && !resolvedUrl.contains("hqdefault.jpg") && !resolvedUrl.contains("mqdefault.jpg")
+                        val finalUri = localContentUri ?: if (isHighResCdn) android.net.Uri.parse(resolvedUrl) else null
+
                         val updatedMeta = androidx.media3.common.MediaMetadata.Builder()
                             .setTitle(track.title)
                             .setArtist(track.artist)
-                            .setArtworkUri(if (isHighResCdn) android.net.Uri.parse(resolvedUrl) else null)
+                            .setArtworkUri(finalUri)
                             .setArtworkData(artworkBytes, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                             .build()
                         val updatedItem = androidx.media3.common.MediaItem.Builder()
@@ -576,8 +612,6 @@ class AuralisMediaService : MediaSessionService() {
                         // Update MediaSession with artworkData byte array and URI for studio clarity in Android 13/14/15 Quick Settings & Lockscreen
                         withContext(Dispatchers.Main) {
                             try {
-                                mediaSession?.player?.setMediaItem(updatedItem)
-
                                 for (listener in sessionListeners) {
                                     try {
                                         listener.onMediaMetadataChanged(updatedMeta)

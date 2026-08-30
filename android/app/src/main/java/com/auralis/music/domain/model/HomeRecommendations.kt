@@ -1,8 +1,11 @@
 package com.auralis.music.domain.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Model definitions for Home recommendations matching Metrolist architecture.
  */
+@Serializable
 data class DailyDiscoverItem(
     val seed: Track,
     val recommendation: Track,
@@ -10,6 +13,7 @@ data class DailyDiscoverItem(
     val params: String? = null
 )
 
+@Serializable
 data class SimilarRecommendation(
     val seedTitle: String,
     val seedThumbnail: String? = null,
@@ -19,6 +23,7 @@ data class SimilarRecommendation(
     val artistName: String? = null
 )
 
+@Serializable
 enum class RecommendationSeedType {
     ARTIST, SONG, ALBUM
 }

@@ -38,6 +38,7 @@ fun ProfileSettingsView(
     val context = LocalContext.current
     var showQualityDialog by remember { mutableStateOf(false) }
     var showAppearanceScreen by remember { mutableStateOf(false) }
+    var showUpdaterScreen by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -112,12 +113,10 @@ fun ProfileSettingsView(
         SettingsSectionHeader(title = "Updater", icon = Icons.Default.SystemUpdate)
 
         SettingsClickableCard(
-            title = "Check for Updates",
-            subtitle = "Auralis Native v2.1.0-stable (Up to date)",
-            icon = Icons.Default.CheckCircleOutline,
-            onClick = {
-                Toast.makeText(context, "Auralis is up to date (v2.1.0-stable)", Toast.LENGTH_SHORT).show()
-            }
+            title = "Updater",
+            subtitle = "Check for updates and configure auto-update settings",
+            icon = Icons.Default.SystemUpdate,
+            onClick = { showUpdaterScreen = true }
         )
 
         // ── 7. AURALIS SECTION ──
@@ -126,6 +125,13 @@ fun ProfileSettingsView(
         AuralisHubView(
             onNavigateToAccount = onNavigateToAccount
         )
+    }
+
+    if (showUpdaterScreen) {
+        com.auralis.music.ui.screens.UpdaterScreen(
+            onDismiss = { showUpdaterScreen = false }
+        )
+        return
     }
 
     // ── QUALITY DIALOG ──
@@ -316,11 +322,23 @@ fun SettingsSwitchCard(
             Switch(
                 checked = isChecked,
                 onCheckedChange = onCheckedChange,
+                thumbContent = if (isChecked) {
+                    {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                } else null,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.Black,
-                    checkedTrackColor = primaryColor,
-                    uncheckedThumbColor = onSurfaceVariant.copy(alpha = 0.70f),
-                    uncheckedTrackColor = onSurfaceVariant.copy(alpha = 0.15f)
+                    checkedThumbColor = primaryColor,
+                    checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                    checkedBorderColor = primaryColor,
+                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
                 )
             )
         }

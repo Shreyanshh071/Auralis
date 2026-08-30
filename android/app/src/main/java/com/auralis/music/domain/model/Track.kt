@@ -1,11 +1,17 @@
 package com.auralis.music.domain.model
 
+import androidx.compose.runtime.Immutable
+import kotlinx.serialization.Serializable
+
+@Serializable
 enum class TrackSource {
     YOUTUBE,
     LOCAL,
     CURATED
 }
 
+@Immutable
+@Serializable
 data class Track(
     val id: String = "",
     val title: String = "",

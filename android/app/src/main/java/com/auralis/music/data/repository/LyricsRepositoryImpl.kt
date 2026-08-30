@@ -92,19 +92,12 @@ class LyricsRepositoryImpl(
         if (networkResult != null) {
             memoryCache[trackKey] = networkResult
 
-            // Save to SQLite Room database
-            if (lyricsDao != null) {
+            // Save to SQLite Room database only if synced (RichSync or Line-Synced)
+            if (lyricsDao != null && networkResult.syncType != com.auralis.music.domain.model.SyncType.PLAIN) {
                 try {
                     val entity = domainToEntity(trackKey, networkResult)
                     lyricsDao.insertLyrics(entity)
                     negativeLyricsDao?.removeNegativeEntry(trackKey)
-                } catch (_: Exception) {}
-            }
-        } else {
-            // Save negative cache entry with TTL
-            if (negativeLyricsDao != null) {
-                try {
-                    negativeLyricsDao.insertNegativeEntry(NegativeLyricsEntity(trackKey = trackKey))
                 } catch (_: Exception) {}
             }
         }
@@ -174,9 +167,11 @@ class LyricsRepositoryImpl(
                 lines.add(LyricLine(time = time, text = text, words = words, isInstrumental = isInst))
             }
 
+            val resolvedLines = lines
+
             return LyricsData(
                 syncType = syncType,
-                lines = lines,
+                lines = resolvedLines,
                 plainLyrics = entity.plainLyrics,
                 provider = provider,
                 trackName = fallbackTitle,

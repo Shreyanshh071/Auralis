@@ -95,7 +95,16 @@ object IndicScriptNormalizer {
      * Transliterates an Indic string into phonetic Latin Romanization tokens with proper schwa handling.
      */
     fun transliterateToPhoneticLatin(text: String): String {
-        if (!containsIndicScript(text)) return toPhoneticCanonical(text)
+        return transliterateToReadableHinglish(text)
+    }
+
+    /**
+     * Converts Indic text (Hindi, Bhojpuri, Punjabi, Bengali, etc.) into clean, natural,
+     * human-readable Hinglish / Romanized Latin phonetic lyrics with proper schwa deletion and capitalization.
+     */
+    fun transliterateToReadableHinglish(text: String): String {
+        if (text.isBlank()) return text
+        if (!containsIndicScript(text)) return text
 
         val normalized = normalizeIndicText(text)
         val sb = StringBuilder()
@@ -128,7 +137,14 @@ object IndicScriptNormalizer {
                         i += 2
                         continue
                     } else if (CONSONANT_MAP.containsKey(nextStr)) {
-                        sb.append("a")
+                        val charAfterNext = if (i + 2 < normalized.length) normalized[i + 2] else null
+                        if (charAfterNext != null && !isVirama(charAfterNext) && (MATRA_MAP.containsKey(charAfterNext.toString()) || CONSONANT_MAP.containsKey(charAfterNext.toString()))) {
+                            sb.append("a")
+                        } else if (charAfterNext == null || charAfterNext.isWhitespace() || charAfterNext in ".,!?:;\"'()[]") {
+                            // Schwa deletion at word final consonant in Hindi/Bhojpuri
+                        } else {
+                            sb.append("a")
+                        }
                     }
                 }
                 i++
@@ -148,7 +164,13 @@ object IndicScriptNormalizer {
             i++
         }
 
-        return toPhoneticCanonical(sb.toString())
+        val raw = sb.toString()
+            .replace("  ", " ")
+            .trim()
+
+        return raw.split(" ").joinToString(" ") { word ->
+            if (word.isNotEmpty()) word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } else ""
+        }
     }
 
     /**
@@ -158,6 +180,11 @@ object IndicScriptNormalizer {
         return text.lowercase()
             .replace(Regex("""(?i)\bsingh\b"""), "sing")
             .replace(Regex("""(?i)\bsinh\b"""), "sing")
+            .replace("pawn", "pavn")
+            .replace("pawan", "pavn")
+            .replace("pavan", "pavn")
+            .replace("dilwa", "dilva")
+            .replace("dilava", "dilva")
             .replace("w", "v")
             .replace("ee", "i")
             .replace("oo", "u")

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -73,6 +74,10 @@ fun ThemeAndColorsScreen(
     val context = LocalContext.current
     val systemInDark = isSystemInDarkTheme()
     val scrollState = rememberScrollState()
+
+    androidx.activity.compose.BackHandler(enabled = true) {
+        onBack()
+    }
 
     val currentPalette = remember(settings.colorPalette) {
         getPaletteById(settings.colorPalette)
@@ -152,7 +157,8 @@ fun ThemeAndColorsScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(surfaceVariant)
+                        .background(surfaceColor)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
                         .clickable { onBack() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -269,10 +275,9 @@ fun ThemeAndColorsScreen(
             // ── BOTTOM CONFIGURATION CARD (THEME MODE + COLOR PALETTE) ──
             Surface(
                 shape = RoundedCornerShape(26.dp),
-                color = surfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(26.dp))
+                color = surfaceColor,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier

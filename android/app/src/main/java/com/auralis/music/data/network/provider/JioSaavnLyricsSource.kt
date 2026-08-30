@@ -33,9 +33,9 @@ class JioSaavnLyricsSource(
         val cleanTitle = TitleCleaner.cleanTitle(query.title)
         val cleanArtist = TitleCleaner.cleanArtist(query.artist)
 
-        // Try primary query first, fallback to title-only if artist is ambiguous
+        // Try primary query first, fallback to title-only if artist is ambiguous or omitted
         val candidate = searchJioSaavn("$cleanTitle $cleanArtist", query)
-            ?: (if (cleanTitle != query.title) searchJioSaavn(cleanTitle, query) else null)
+            ?: searchJioSaavn(cleanTitle, query)
 
         candidate
     }

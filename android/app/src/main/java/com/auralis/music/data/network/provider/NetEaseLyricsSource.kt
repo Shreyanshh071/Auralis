@@ -4,6 +4,7 @@ import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.parser.LrcParser
 import com.auralis.music.data.parser.LyricsMatcher
+import com.auralis.music.data.parser.YrcParser
 import com.auralis.music.domain.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,7 +14,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 /**
- * NetEase Cloud Music Provider: High-coverage open synchronized (.lrc) database
+ * NetEase Cloud Music Provider: High-coverage open synchronized (.lrc and .yrc) database
  * for global pop, K-pop, J-pop, EDM, Anime, Latin, and international catalog.
  */
 class NetEaseLyricsSource(
@@ -21,7 +22,7 @@ class NetEaseLyricsSource(
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.NETEASE
-    override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.LINE_SYNC, SyncType.PLAIN)
+    override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC, SyncType.PLAIN)
 
     companion object {
         private const val SEARCH_URL = "http://music.163.com/api/search/get/web"
@@ -81,8 +82,9 @@ class NetEaseLyricsSource(
                 )
 
                 if (confidence >= 50 && confidence > bestConfidence) {
-                    val lyricsData = fetchLyricsBySongId(songId, songName, artistName)
-                    if (lyricsData != null && lyricsData.lines.isNotEmpty()) {
+                    val rawLyrics = fetchLyricsBySongId(songId, songName, artistName)
+                    if (rawLyrics != null && rawLyrics.lines.isNotEmpty()) {
+                        val lyricsData = LyricsMatcher.autoAlignLyrics(rawLyrics, query.durationSec, durationSec)
                         bestConfidence = confidence
                         bestCandidate = LyricsCandidate(
                             lyricsData = lyricsData,
@@ -90,6 +92,9 @@ class NetEaseLyricsSource(
                             syncType = lyricsData.syncType,
                             provider = LyricsProvider.NETEASE
                         )
+                        if (lyricsData.syncType == SyncType.RICHSYNC && confidence >= 65) {
+                            return bestCandidate
+                        }
                         if (lyricsData.syncType == SyncType.LINE_SYNC && confidence >= 80) {
                             return bestCandidate
                         }
@@ -105,7 +110,7 @@ class NetEaseLyricsSource(
 
     private fun fetchLyricsBySongId(songId: Long, trackName: String, artistName: String): LyricsData? {
         try {
-            val url = "$LYRIC_URL?os=pc&id=$songId&lv=-1&kv=-1&tv=-1"
+            val url = "$LYRIC_URL?os=pc&id=$songId&lv=-1&kv=-1&tv=-1&yv=-1&rv=-1"
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", USER_AGENT)
@@ -119,6 +124,16 @@ class NetEaseLyricsSource(
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
 
+            // 1. Try YRC (Word-by-word / Syllable-level RichSync)
+            val rawYrc = json.optJSONObject("yrc")?.optString("lyric") ?: ""
+            if (rawYrc.isNotBlank() && !rawYrc.contains("纯音乐")) {
+                val parsedYrc = YrcParser.parse(rawYrc, LyricsProvider.NETEASE, trackName, artistName)
+                if (parsedYrc != null && parsedYrc.lines.isNotEmpty() && parsedYrc.syncType == SyncType.RICHSYNC) {
+                    return parsedYrc
+                }
+            }
+
+            // 2. Try Standard LRC
             val rawLrc = json.optJSONObject("lrc")?.optString("lyric") ?: ""
             if (rawLrc.isBlank() || rawLrc.contains("纯音乐，请欣赏") || rawLrc.contains("没有填词")) {
                 // Check if track is flagged as purely instrumental
@@ -145,3 +160,4 @@ class NetEaseLyricsSource(
         }
     }
 }
+

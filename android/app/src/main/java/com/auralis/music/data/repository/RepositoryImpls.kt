@@ -182,6 +182,7 @@ class HistoryRepositoryImpl(
 
     override suspend fun clearHistory() {
         historyDao.clearHistory()
+        playCountDao.clearPlayCounts()
     }
 
     override fun getTopPlayedTracks(): Flow<List<PlayCountEntry>> {

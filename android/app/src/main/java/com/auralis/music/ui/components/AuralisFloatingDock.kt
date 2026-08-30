@@ -102,6 +102,7 @@ fun AuralisFloatingDock(
     currentDestination: AppDestination,
     hazeState: HazeState? = null,
     artworkUrl: String? = null,
+    isPlaylistDetailOpen: Boolean = false,
     onDestinationClick: (AppDestination) -> Unit,
     onToggleHomeMenu: () -> Unit,
     onCreatePlaylist: () -> Unit,
@@ -171,6 +172,7 @@ fun AuralisFloatingDock(
                         ),
                         shape = pillShape
                     )
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
             ) {
                 // Inner Navigation Tabs Row
                 Row(
@@ -203,8 +205,9 @@ fun AuralisFloatingDock(
                 }
             }
 
-            // Right Action Button (••• on HOME, + on LIBRARY) - Matching Frosted Glass Theme
-            val showRightButton = currentDestination == AppDestination.HOME || currentDestination == AppDestination.LIBRARY
+            // Right Action Button (••• on HOME, + on LIBRARY when not inside a playlist)
+            val showRightButton = (currentDestination == AppDestination.HOME) ||
+                    (currentDestination == AppDestination.LIBRARY && !isPlaylistDetailOpen)
             AnimatedVisibility(
                 visible = showRightButton,
                 enter = fadeIn(tween(160)) + expandHorizontally(tween(200)),

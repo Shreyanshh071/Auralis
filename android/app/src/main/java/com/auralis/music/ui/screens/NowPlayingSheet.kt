@@ -18,6 +18,7 @@ import com.auralis.music.ui.viewmodel.PlayerUiState
 @Composable
 fun NowPlayingSheet(
     uiState: PlayerUiState,
+    playbackPositionMs: Long = uiState.playbackPositionMs,
     userPlaylists: List<Playlist> = emptyList(),
     onPlayPauseClick: () -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -41,6 +42,7 @@ fun NowPlayingSheet(
 ) {
     NowPlayingModal(
         uiState = uiState,
+        playbackPositionMs = playbackPositionMs,
         userPlaylists = userPlaylists,
         onPlayPauseClick = onPlayPauseClick,
         onSeekTo = onSeekTo,

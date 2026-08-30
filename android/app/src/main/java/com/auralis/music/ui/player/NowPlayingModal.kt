@@ -64,6 +64,8 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GTranslate
@@ -79,6 +81,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,6 +92,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -178,6 +182,7 @@ private fun boostColorVibrancy(color: Color, minSaturation: Float = 0.65f, targe
 @Composable
 fun NowPlayingModal(
     uiState: PlayerUiState,
+    playbackPositionMs: Long = uiState.playbackPositionMs,
     playbackSpeed: Float = 1.0f,
     userPlaylists: List<Playlist> = emptyList(),
     onPlayPauseClick: () -> Unit,
@@ -252,7 +257,7 @@ fun NowPlayingModal(
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubPositionMs by remember { mutableFloatStateOf(0f) }
 
-    val currentPosMs = if (isScrubbing) scrubPositionMs.toLong() else uiState.playbackPositionMs
+    val currentPosMs = if (isScrubbing) scrubPositionMs.toLong() else playbackPositionMs
     val totalDurationMs = if (uiState.durationMs > 0) uiState.durationMs else (track.duration * 1000L)
 
     val context = LocalContext.current
@@ -390,11 +395,14 @@ fun NowPlayingModal(
                         .background(Color(0xFF040608))
                 ) {
                     if (!track.thumbnail.isNullOrBlank()) {
-                        coil.compose.AsyncImage(
-                            model = coil.request.ImageRequest.Builder(context)
+                        val blurImageRequest = remember(track.thumbnail) {
+                            coil.request.ImageRequest.Builder(context)
                                 .data(getHighResArtworkUrl(track.thumbnail))
                                 .crossfade(true)
-                                .build(),
+                                .build()
+                        }
+                        coil.compose.AsyncImage(
+                            model = blurImageRequest,
                             contentDescription = null,
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             modifier = Modifier
@@ -667,7 +675,8 @@ fun NowPlayingModal(
                             lyricsMode = com.auralis.music.domain.model.LyricsMode.CINEMA,
                             offsetMs = uiState.lyricsOffsetMs,
                             onOffsetChange = onLyricsOffsetChange,
-                            onSearchManually = { showManualLyricsSearch = true }
+                            onSearchManually = { showManualLyricsSearch = true },
+                            track = uiState.currentTrack
                         )
                     }
                 }
@@ -772,7 +781,7 @@ fun NowPlayingModal(
                             // Ambient Radial Halo directly behind artwork
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.92f)
+                                    .fillMaxWidth(1.04f)
                                     .aspectRatio(1f)
                                     .graphicsLayer { alpha = controlsAlpha }
                                     .background(
@@ -792,15 +801,15 @@ fun NowPlayingModal(
                                 state = pagerState,
                                 userScrollEnabled = appearance.enableSwipeToChangeSong,
                                 modifier = Modifier
-                                    .fillMaxWidth(0.88f)
+                                    .fillMaxWidth(0.98f)
                                     .aspectRatio(1f)
                                     .shadow(
                                         elevation = 32.dp,
-                                        shape = RoundedCornerShape(26.dp),
+                                        shape = RoundedCornerShape(28.dp),
                                         ambientColor = animatedPrimaryColor,
                                         spotColor = animatedPrimaryColor
                                     )
-                                    .clip(RoundedCornerShape(26.dp))
+                                    .clip(RoundedCornerShape(28.dp))
                             ) { page ->
                                 val pageTrack = if (queue.isNotEmpty() && page in queue.indices) queue[page] else track
                                 // Only the playing page claims the shared key — the pager
@@ -913,50 +922,112 @@ fun NowPlayingModal(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
-                            // Add to Playlist Button (Circular Dark Glass)
-                            Box(
+                            // ── TRI-SEGMENTED CAPSULE PILL (PLAYLIST + DOWNLOAD + LIKE) ──
+                            val downloadedIds by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
+                            val isDownloaded = track.id in downloadedIds
+                            val activeDownloads by com.auralis.music.data.download.AuralisDownloadManager.activeDownloads.collectAsState()
+                            val isDownloading = track.id in activeDownloads
+                            val showDownload = appearance.showDownloadButton
+
+                            Row(
                                 modifier = Modifier
-                                    .size(48.dp)
-                                    .graphicsLayer { alpha = controlsAlpha }
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                    .tactileBounce(scaleDown = 0.86f, onClick = { showPlaylistPicker = true }),
-                                contentAlignment = Alignment.Center
+                                    .height(38.dp)
+                                    .graphicsLayer { alpha = controlsAlpha },
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                                    contentDescription = "Add to Playlist",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            // Like Heart Button (Circular Solid White)
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .graphicsLayer { alpha = controlsAlpha }
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                                    .tactileBounce(scaleDown = 0.86f, onClick = onToggleFavorite),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AnimatedContent(
-                                    targetState = uiState.isFavorite,
-                                    transitionSpec = { favoriteEnter togetherWith favoriteExit },
-                                    label = "nowPlayingFavorite"
-                                ) { favorited ->
+                                // 1. Left Segment: Add to Playlist (Pill curved on left)
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 38.dp)
+                                        .clip(RoundedCornerShape(topStart = 19.dp, bottomStart = 19.dp, topEnd = 5.dp, bottomEnd = 5.dp))
+                                        .background(Color.White)
+                                        .tactileBounce(scaleDown = 0.86f, onClick = { showPlaylistPicker = true }),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
-                                        imageVector = if (favorited) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = if (favorited) "Favorited" else "Favorite",
+                                        imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                        contentDescription = "Add to Playlist",
                                         tint = Color.Black,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(19.dp)
                                     )
+                                }
+
+                                Spacer(modifier = Modifier.width(3.dp))
+
+                                // 2. Middle Segment: Download Button (Rectangularish with soft corners)
+                                if (showDownload) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 38.dp, height = 38.dp)
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(Color.White)
+                                            .tactileBounce(
+                                                scaleDown = 0.86f,
+                                                onClick = {
+                                                    if (isDownloaded) {
+                                                        com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
+                                                        Toast.makeText(context, "Download removed", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        com.auralis.music.data.download.AuralisDownloadManager.downloadTrack(track)
+                                                        Toast.makeText(context, "Downloading song...", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        AnimatedContent(
+                                            targetState = if (isDownloading) 1 else if (isDownloaded) 2 else 0,
+                                            transitionSpec = { favoriteEnter togetherWith favoriteExit },
+                                            label = "nowPlayingDownload"
+                                        ) { state ->
+                                            when (state) {
+                                                1 -> CircularProgressIndicator(
+                                                    modifier = Modifier.size(15.dp),
+                                                    color = Color.Black,
+                                                    strokeWidth = 1.8.dp
+                                                )
+                                                2 -> Icon(
+                                                    imageVector = Icons.Default.DownloadDone,
+                                                    contentDescription = "Downloaded",
+                                                    tint = Color.Black,
+                                                    modifier = Modifier.size(19.dp)
+                                                )
+                                                else -> Icon(
+                                                    imageVector = Icons.Default.Download,
+                                                    contentDescription = "Download Song",
+                                                    tint = Color.Black,
+                                                    modifier = Modifier.size(19.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                }
+
+                                // 3. Right Segment: Like Heart Button (Pill curved on right)
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 38.dp)
+                                        .clip(RoundedCornerShape(topStart = 5.dp, bottomStart = 5.dp, topEnd = 19.dp, bottomEnd = 19.dp))
+                                        .background(Color.White)
+                                        .tactileBounce(scaleDown = 0.86f, onClick = onToggleFavorite),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AnimatedContent(
+                                        targetState = uiState.isFavorite,
+                                        transitionSpec = { favoriteEnter togetherWith favoriteExit },
+                                        label = "nowPlayingFavorite"
+                                    ) { favorited ->
+                                        Icon(
+                                            imageVector = if (favorited) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                            contentDescription = if (favorited) "Favorited" else "Favorite",
+                                            tint = if (favorited) Color(0xFFFF4081) else Color.Black,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1314,6 +1385,7 @@ private fun PlayerUtilityIcon(
 @Composable
 fun NowPlayingSheet(
     uiState: PlayerUiState,
+    playbackPositionMs: Long = uiState.playbackPositionMs,
     playbackSpeed: Float = 1.0f,
     userPlaylists: List<Playlist> = emptyList(),
     onPlayPauseClick: () -> Unit,
@@ -1339,6 +1411,7 @@ fun NowPlayingSheet(
 ) {
     NowPlayingModal(
         uiState = uiState,
+        playbackPositionMs = playbackPositionMs,
         playbackSpeed = playbackSpeed,
         userPlaylists = userPlaylists,
         onPlayPauseClick = onPlayPauseClick,
