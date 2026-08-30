@@ -11,7 +11,7 @@ data class AppearanceSettings(
 
     // ── Mini-player ──
     val newMiniPlayerDesign: Boolean = true,
-    val miniPlayerBackgroundStyle: String = "Gradient",
+    val miniPlayerBackgroundStyle: String = "Blur",
 
     // ── Player ──
     val newPlayerDesign: Boolean = true,
@@ -20,6 +20,7 @@ data class AppearanceSettings(
     val cropAlbumArt: Boolean = false,
     val playerButtonColors: String = "Default",
     val playerSliderStyle: String = "Default",
+    val showDownloadButton: Boolean = true,
     val enableSwipeToChangeSong: Boolean = true,
     val miniPlayerSwipeSensitivity: Int = 73,
 

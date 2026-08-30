@@ -10,6 +10,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +40,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -48,11 +51,11 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Multi-Mode Player Slider Engine supporting Metrolist-identical styles:
- * 1. "Default": Thick solid pill bar with vertical divider playhead, gap separation, and endpoint dot.
- * 2. "Wavy": Smooth sinusoidal wave animating when playing, flattens to straight line when paused, with circular thumb.
- * 3. "Slim": Continuous ultra-sleek minimalist thin rounded bar without protruding thumb.
- * 4. "Squiggly": Expressive squiggly waveform animating when playing, flattens when paused, with capsule divider playhead.
+ * Authentic AOSP/Metrolist-Grade Multi-Mode Player Slider Engine:
+ * 1. "Default": Thick solid pill bar with vertical divider playhead, symmetric gap, and endpoint dot.
+ * 2. "Wavy": Native AOSP Cubic Bézier sinusoidal wave with circular thumb, seamless clipping, and pause flattening.
+ * 3. "Slim": Continuous ultra-sleek minimalist rounded bar without protruding thumb.
+ * 4. "Squiggly": Native AOSP Material You squiggly waveform with capsule divider playhead.
  */
 @Composable
 fun AuralisPlayerSlider(
@@ -87,25 +90,23 @@ fun AuralisPlayerSlider(
 
     val isWaveStyle = normalizedStyle == "Wavy" || normalizedStyle == "Squiggly"
 
-    // Infinite phase animation while playing (responsive, lively wave motion)
+    // Infinite phase progress (0f..1f) for the Bézier wave cycle
     val infiniteTransition = rememberInfiniteTransition(label = "sliderWaveTransition")
-    val wavePhase by infiniteTransition.animateFloat(
+    val wavePhaseFraction by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (normalizedStyle == "Squiggly") 1300 else 1700, easing = LinearEasing),
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "sliderWavePhase"
     )
 
-    // Wave amplitude animation: flattens to 0.dp when paused, gentle 2.6.dp when playing (smooth and subtle)
+    // Wave amplitude animation: flattens to 0.dp when paused, balanced 2.8.dp when playing
     val targetAmplitude = if (!isWaveStyle || !isPlaying) {
         0.dp
-    } else if (normalizedStyle == "Squiggly") {
-        2.8.dp
     } else {
-        2.6.dp
+        2.8.dp
     }
     val animatedAmplitude by animateDpAsState(
         targetValue = targetAmplitude,
@@ -115,10 +116,14 @@ fun AuralisPlayerSlider(
 
     // Animated thumb dimensions
     val animatedThumbRadius by animateDpAsState(
-        targetValue = if (isDragging) 8.5.dp else 6.5.dp,
+        targetValue = if (isDragging) 10.5.dp else 8.5.dp,
         animationSpec = tween(durationMillis = 150),
         label = "thumbRadiusAnim"
     )
+
+    val cachedWavePath = remember { Path() }
+    val cachedActiveDefaultPath = remember { Path() }
+    val cachedInactiveDefaultPath = remember { Path() }
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -127,46 +132,43 @@ fun AuralisPlayerSlider(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(44.dp)
                 .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            val width = size.width.toFloat()
-                            val newProgress = (offset.x / width).coerceIn(0f, 1f)
-                            dragProgress = newProgress
-                            onValueChange(newProgress)
-                            tryAwaitRelease()
-                            onValueChangeFinished()
-                        }
-                    )
-                }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset ->
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val width = size.width.toFloat()
+                        if (width > 0f) {
                             isDragging = true
-                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            val width = size.width.toFloat()
-                            val newProgress = (offset.x / width).coerceIn(0f, 1f)
-                            dragProgress = newProgress
-                            onValueChange(newProgress)
-                        },
-                        onHorizontalDrag = { change, _ ->
-                            change.consume()
-                            val width = size.width.toFloat()
-                            val newProgress = (change.position.x / width).coerceIn(0f, 1f)
-                            dragProgress = newProgress
-                            onValueChange(newProgress)
-                        },
-                        onDragEnd = {
+                            val initialProgress = (down.position.x / width).coerceIn(0f, 1f)
+                            dragProgress = initialProgress
+                            onValueChange(initialProgress)
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+
+                            val pointerId = down.id
+                            down.consume()
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pointerChange = event.changes.firstOrNull { it.id == pointerId } ?: break
+
+                                if (pointerChange.pressed) {
+                                    val newProgress = (pointerChange.position.x / width).coerceIn(0f, 1f)
+                                    if (newProgress != dragProgress) {
+                                        dragProgress = newProgress
+                                        onValueChange(newProgress)
+                                    }
+                                    pointerChange.consume()
+                                } else {
+                                    pointerChange.consume()
+                                    break
+                                }
+                            }
+
                             isDragging = false
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onValueChangeFinished()
-                        },
-                        onDragCancel = {
-                            isDragging = false
                         }
-                    )
+                    }
                 }
         ) {
             Canvas(
@@ -190,46 +192,43 @@ fun AuralisPlayerSlider(
                         // Inactive Track (Right) with straight cut on left and rounded right cap
                         val inactiveLeft = (thumbX + gapPx).coerceAtMost(endX + r)
                         if (inactiveLeft < endX) {
-                            val inactivePath = Path().apply {
-                                moveTo(inactiveLeft, centerY - r)
-                                lineTo(endX, centerY - r)
-                                arcTo(
-                                    rect = Rect(endX - r, centerY - r, endX + r, centerY + r),
-                                    startAngleDegrees = -90f,
-                                    sweepAngleDegrees = 180f,
-                                    forceMoveTo = false
-                                )
-                                lineTo(inactiveLeft, centerY + r)
-                                close()
-                            }
-                            drawPath(inactivePath, inactiveTrackColor)
+                            cachedInactiveDefaultPath.reset()
+                            cachedInactiveDefaultPath.moveTo(inactiveLeft, centerY - r)
+                            cachedInactiveDefaultPath.lineTo(endX, centerY - r)
+                            cachedInactiveDefaultPath.arcTo(
+                                rect = Rect(endX - r, centerY - r, endX + r, centerY + r),
+                                startAngleDegrees = -90f,
+                                sweepAngleDegrees = 180f,
+                                forceMoveTo = false
+                            )
+                            cachedInactiveDefaultPath.lineTo(inactiveLeft, centerY + r)
+                            cachedInactiveDefaultPath.close()
+                            drawPath(cachedInactiveDefaultPath, inactiveTrackColor)
                         }
 
                         // Endpoint Accent Dot at far right inside the inactive track
                         drawCircle(
                             color = activeTrackColor,
-                            radius = with(density) { 2.2.dp.toPx() },
+                            radius = with(density) { 2.5.dp.toPx() },
                             center = Offset(endX, centerY)
                         )
 
                         // Active Track (Left) with rounded left cap and straight cut on right
                         val activeRight = (thumbX - gapPx).coerceAtLeast(startX - r)
                         if (activeRight > startX) {
-                            val activePath = Path().apply {
-                                moveTo(activeRight, centerY - r)
-                                lineTo(startX, centerY - r)
-                                arcTo(
-                                    rect = Rect(startX - r, centerY - r, startX + r, centerY + r),
-                                    startAngleDegrees = -90f,
-                                    sweepAngleDegrees = -180f,
-                                    forceMoveTo = false
-                                )
-                                lineTo(activeRight, centerY + r)
-                                close()
-                            }
-                            drawPath(activePath, activeTrackColor)
+                            cachedActiveDefaultPath.reset()
+                            cachedActiveDefaultPath.moveTo(activeRight, centerY - r)
+                            cachedActiveDefaultPath.lineTo(startX, centerY - r)
+                            cachedActiveDefaultPath.arcTo(
+                                rect = Rect(startX - r, centerY - r, startX + r, centerY + r),
+                                startAngleDegrees = -90f,
+                                sweepAngleDegrees = -180f,
+                                forceMoveTo = false
+                            )
+                            cachedActiveDefaultPath.lineTo(activeRight, centerY + r)
+                            cachedActiveDefaultPath.close()
+                            drawPath(cachedActiveDefaultPath, activeTrackColor)
                         } else if (activeRight >= startX - r) {
-                            // Very small progress: draw partial circle
                             drawCircle(
                                 color = activeTrackColor,
                                 radius = r,
@@ -250,54 +249,68 @@ fun AuralisPlayerSlider(
                     }
 
                     "Wavy" -> {
-                        // ── 2. WAVY STYLE (Silky smooth sinusoidal wave when playing / flat when paused + circle thumb + endpoint dot) ──
-                        val startX = with(density) { 8.dp.toPx() }
-                        val endX = width - with(density) { 8.dp.toPx() }
+                        // ── 2. WAVY STYLE (Metrolist-Identical Silky Wave + 8.5dp Circle Thumb + 3dp Accent Dot) ──
+                        val strokePx = with(density) { 5.dp.toPx() }
+                        val r = strokePx / 2f
+                        val startX = r
+                        val endX = width - r
                         val trackWidth = (endX - startX).coerceAtLeast(1f)
                         val thumbX = (startX + trackWidth * effectiveProgress).coerceIn(startX, endX)
-                        val strokePx = with(density) { 3.2.dp.toPx() }
                         val ampPx = with(density) { animatedAmplitude.toPx() }
-                        val wavelengthPx = with(density) { 46.dp.toPx() }
+                        val waveLengthPx = with(density) { 40.dp.toPx() }
+                        val radiusPx = with(density) { animatedThumbRadius.toPx() }
+                        val gapPx = with(density) { 8.dp.toPx() }
 
-                        // Inactive Track (Straight Line)
-                        if (thumbX < endX) {
+                        // Inactive Track (Thick Straight Line starting after a clean gap from the thumb dot)
+                        val inactiveStart = (thumbX + radiusPx + gapPx).coerceAtMost(endX)
+                        if (inactiveStart < endX) {
                             drawLine(
                                 color = inactiveTrackColor,
-                                start = Offset(thumbX, centerY),
+                                start = Offset(inactiveStart, centerY),
                                 end = Offset(endX, centerY),
                                 strokeWidth = strokePx,
                                 cap = StrokeCap.Round
                             )
                         }
 
-                        // Endpoint Accent Dot
+                        // Endpoint Accent Dot at Far-Right
                         drawCircle(
                             color = activeTrackColor,
-                            radius = with(density) { 2.dp.toPx() },
+                            radius = with(density) { 3.dp.toPx() },
                             center = Offset(endX, centerY)
                         )
 
-                        // Active Track (Sine Wave or Flat Line)
+                        // Active Track (Smooth Continuous Wave with organic envelope curve into the thumb)
                         if (thumbX > startX) {
-                            if (ampPx > 0.4f) {
-                                val startAngle = -wavePhase
+                            if (ampPx > 0.2f) {
+                                val totalSpan = (thumbX - startX).coerceAtLeast(1f)
+                                val endTransitionLength = (waveLengthPx * 0.9f).coerceAtMost(totalSpan * 0.6f).coerceAtLeast(1f)
+                                val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
                                 val startY = centerY + sin(startAngle) * ampPx
-                                val wavePath = Path().apply {
-                                    moveTo(startX, startY)
-                                    var x = startX + 1f
-                                    val step = 1f
-                                    while (x <= thumbX) {
-                                        val distFromEnd = thumbX - x
-                                        val taper = (distFromEnd / (wavelengthPx * 0.35f)).coerceIn(0f, 1f)
-                                        val angle = ((x - startX) / wavelengthPx) * (2 * PI).toFloat() - wavePhase
-                                        val y = centerY + sin(angle) * ampPx * taper
-                                        lineTo(x, y)
-                                        x += step
-                                    }
-                                    lineTo(thumbX, centerY)
+
+                                cachedWavePath.reset()
+                                cachedWavePath.moveTo(startX, startY)
+
+                                var currentX = startX
+                                val step = 1.0f
+                                while (currentX <= thumbX) {
+                                    val distFromStart = currentX - startX
+                                    val distFromEnd = thumbX - currentX
+
+                                    val endEnvelope = if (distFromEnd < endTransitionLength) {
+                                        val v = (distFromEnd / endTransitionLength).coerceIn(0f, 1f)
+                                        0.5f * (1f - kotlin.math.cos(v * PI.toFloat()))
+                                    } else 1.0f
+
+                                    val angle = (distFromStart / waveLengthPx) * (2 * PI).toFloat() + startAngle
+                                    val y = centerY + sin(angle) * ampPx * endEnvelope
+                                    cachedWavePath.lineTo(currentX, y)
+                                    currentX += step
                                 }
+                                cachedWavePath.lineTo(thumbX, centerY)
+
                                 drawPath(
-                                    path = wavePath,
+                                    path = cachedWavePath,
                                     color = activeTrackColor,
                                     style = Stroke(
                                         width = strokePx,
@@ -316,12 +329,11 @@ fun AuralisPlayerSlider(
                             }
                         }
 
-                        // Circle Thumb
-                        val radiusPx = with(density) { animatedThumbRadius.toPx() }
+                        // 8.5dp Circle Thumb with subtle shadow
                         drawCircle(
-                            color = Color.Black.copy(alpha = 0.20f),
+                            color = Color.Black.copy(alpha = 0.25f),
                             radius = radiusPx + with(density) { 1.5.dp.toPx() },
-                            center = Offset(thumbX, centerY + with(density) { 0.5.dp.toPx() })
+                            center = Offset(thumbX, centerY + with(density) { 0.8.dp.toPx() })
                         )
                         drawCircle(
                             color = thumbColor,
@@ -363,54 +375,67 @@ fun AuralisPlayerSlider(
                     }
 
                     "Squiggly" -> {
-                        // ── 4. SQUIGGLY STYLE (Material You squiggly waveform when playing / flat when paused + vertical capsule divider + endpoint dot) ──
-                        val startX = with(density) { 8.dp.toPx() }
-                        val endX = width - with(density) { 8.dp.toPx() }
+                        // ── 4. SQUIGGLY STYLE (Wavy-Identical Wave Physics + Thickened Vertical Capsule Pill Thumb) ──
+                        val strokePx = with(density) { 5.dp.toPx() }
+                        val r = strokePx / 2f
+                        val startX = r
+                        val endX = width - r
                         val trackWidth = (endX - startX).coerceAtLeast(1f)
                         val thumbX = (startX + trackWidth * effectiveProgress).coerceIn(startX, endX)
-                        val strokePx = with(density) { 3.2.dp.toPx() }
                         val ampPx = with(density) { animatedAmplitude.toPx() }
-                        val wavelengthPx = with(density) { 24.dp.toPx() }
+                        val waveLengthPx = with(density) { 40.dp.toPx() }
 
-                        // Inactive Track (Straight Line)
-                        if (thumbX < endX) {
+                        // Thickened vertical capsule pill thumb bar
+                        val pillWidthPx = with(density) { (if (isDragging) 6.dp else 4.5.dp).toPx() }
+                        val pillHeightPx = with(density) { (if (isDragging) 26.dp else 20.dp).toPx() }
+                        val pillRadiusPx = pillWidthPx / 2f
+
+                        // Clamped boundary to ensure wave round cap NEVER seeps past the vertical bar
+                        val waveEndX = (thumbX - r).coerceAtLeast(startX)
+                        val inactiveStartX = (thumbX + r).coerceAtMost(endX)
+
+                        // Inactive Track (Clean straight line starting right at the bar)
+                        if (inactiveStartX < endX) {
                             drawLine(
                                 color = inactiveTrackColor,
-                                start = Offset(thumbX, centerY),
+                                start = Offset(inactiveStartX, centerY),
                                 end = Offset(endX, centerY),
                                 strokeWidth = strokePx,
                                 cap = StrokeCap.Round
                             )
                         }
 
-                        // Endpoint Accent Dot
-                        drawCircle(
-                            color = activeTrackColor,
-                            radius = with(density) { 2.dp.toPx() },
-                            center = Offset(endX, centerY)
-                        )
-
-                        // Active Track (Squiggly Wave or Flat Line)
-                        if (thumbX > startX) {
-                            if (ampPx > 0.4f) {
-                                val startAngle = -wavePhase
+                        // Active Track (Silky continuous wave stopping cleanly inside the vertical bar)
+                        if (waveEndX > startX) {
+                            if (ampPx > 0.2f) {
+                                val totalSpan = (waveEndX - startX).coerceAtLeast(1f)
+                                val endTransitionLength = (waveLengthPx * 0.9f).coerceAtMost(totalSpan * 0.6f).coerceAtLeast(1f)
+                                val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
                                 val startY = centerY + sin(startAngle) * ampPx
-                                val wavePath = Path().apply {
-                                    moveTo(startX, startY)
-                                    var x = startX + 1f
-                                    val step = 1f
-                                    while (x <= thumbX) {
-                                        val distFromEnd = thumbX - x
-                                        val taper = (distFromEnd / (wavelengthPx * 0.35f)).coerceIn(0f, 1f)
-                                        val angle = ((x - startX) / wavelengthPx) * (2 * PI).toFloat() - wavePhase
-                                        val y = centerY + sin(angle) * ampPx * taper
-                                        lineTo(x, y)
-                                        x += step
-                                    }
-                                    lineTo(thumbX, centerY)
+
+                                cachedWavePath.reset()
+                                cachedWavePath.moveTo(startX, startY)
+
+                                var currentX = startX
+                                val step = 1.0f
+                                while (currentX <= waveEndX) {
+                                    val distFromStart = currentX - startX
+                                    val distFromEnd = waveEndX - currentX
+
+                                    val endEnvelope = if (distFromEnd < endTransitionLength) {
+                                        val v = (distFromEnd / endTransitionLength).coerceIn(0f, 1f)
+                                        0.5f * (1f - kotlin.math.cos(v * PI.toFloat()))
+                                    } else 1.0f
+
+                                    val angle = (distFromStart / waveLengthPx) * (2 * PI).toFloat() + startAngle
+                                    val y = centerY + sin(angle) * ampPx * endEnvelope
+                                    cachedWavePath.lineTo(currentX, y)
+                                    currentX += step
                                 }
+                                cachedWavePath.lineTo(waveEndX, centerY)
+
                                 drawPath(
-                                    path = wavePath,
+                                    path = cachedWavePath,
                                     color = activeTrackColor,
                                     style = Stroke(
                                         width = strokePx,
@@ -422,23 +447,14 @@ fun AuralisPlayerSlider(
                                 drawLine(
                                     color = activeTrackColor,
                                     start = Offset(startX, centerY),
-                                    end = Offset(thumbX, centerY),
+                                    end = Offset(waveEndX, centerY),
                                     strokeWidth = strokePx,
                                     cap = StrokeCap.Round
                                 )
                             }
                         }
 
-                        // Vertical Rounded Capsule Divider Thumb
-                        val pillWidthPx = with(density) { (if (isDragging) 3.5.dp else 2.8.dp).toPx() }
-                        val pillHeightPx = with(density) { (if (isDragging) 28.dp else 24.dp).toPx() }
-                        val pillRadiusPx = pillWidthPx / 2f
-                        drawRoundRect(
-                            color = Color.Black.copy(alpha = 0.20f),
-                            topLeft = Offset(thumbX - pillRadiusPx - 0.5f, centerY - pillHeightPx / 2f + 0.5f),
-                            size = Size(pillWidthPx + 1f, pillHeightPx + 1f),
-                            cornerRadius = CornerRadius(pillRadiusPx + 0.5f, pillRadiusPx + 0.5f)
-                        )
+                        // Vertical Rounded Capsule Divider Thumb Bar (Rendered on top)
                         drawRoundRect(
                             color = thumbColor,
                             topLeft = Offset(thumbX - pillRadiusPx, centerY - pillHeightPx / 2f),

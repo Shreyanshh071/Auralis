@@ -127,6 +127,19 @@ fun AuralisApp(
     }
     var currentDestination by remember { mutableStateOf(initialDestination) }
     val destinationBackStack = remember { androidx.compose.runtime.mutableStateListOf<AppDestination>() }
+    var hasAppliedDefaultTab by remember { mutableStateOf(false) }
+
+    LaunchedEffect(appearanceSettings.defaultOpenTab) {
+        val target = when (appearanceSettings.defaultOpenTab) {
+            "Explore" -> AppDestination.EXPLORE
+            "Library" -> AppDestination.LIBRARY
+            else -> AppDestination.HOME
+        }
+        if (!hasAppliedDefaultTab || destinationBackStack.isEmpty()) {
+            currentDestination = target
+            hasAppliedDefaultTab = true
+        }
+    }
 
     var isNowPlayingOpen by remember { mutableStateOf(false) }
 
@@ -253,7 +266,7 @@ fun AuralisApp(
             playerViewModel.seekTo(pos)
         }
         listenTogetherViewModel.onGetLocalPosition = {
-            playerViewModel.uiState.value.playbackPositionMs
+            playerViewModel.getPlaybackPosition()
         }
         listenTogetherViewModel.onGetLocalIsPlaying = {
             playerViewModel.uiState.value.isPlaying
@@ -287,7 +300,7 @@ fun AuralisApp(
                 listenTogetherViewModel.broadcastHostPlayback(
                     currentTrack = track,
                     isPlaying = playerUiState.isPlaying,
-                    playbackPositionMs = playerUiState.playbackPositionMs,
+                    playbackPositionMs = playerViewModel.getPlaybackPosition(),
                     queue = playerUiState.queue
                 )
 
@@ -299,7 +312,7 @@ fun AuralisApp(
                         listenTogetherViewModel.broadcastHostPlayback(
                             currentTrack = curTrack,
                             isPlaying = true,
-                            playbackPositionMs = playerViewModel.uiState.value.playbackPositionMs,
+                            playbackPositionMs = playerViewModel.getPlaybackPosition(),
                             queue = playerViewModel.uiState.value.queue
                         )
                     }
@@ -341,6 +354,7 @@ fun AuralisApp(
                             currentDestination = currentDestination,
                             hazeState = hazeState,
                             artworkUrl = playerUiState.currentTrack?.thumbnail,
+                            isPlaylistDetailOpen = libraryUiState.selectedPlaylist != null,
                             onDestinationClick = { destination ->
                                 isHomeMenuOpen = false
                                 navigateToDestination(destination)
@@ -689,6 +703,9 @@ fun AuralisApp(
             exit = auralisNavigationExit()
         ) {
             val ctx = androidx.compose.ui.platform.LocalContext.current
+            val db = remember { com.auralis.music.data.local.AuralisDatabase.getInstance(ctx) }
+            val hRepo = remember { com.auralis.music.data.repository.HistoryRepositoryImpl(db.trackDao(), db.historyDao(), db.playCountDao()) }
+            val sRepo = remember { com.auralis.music.data.repository.SearchRepositoryImpl(com.auralis.music.data.network.InnerTubeClient(), com.auralis.music.data.network.SearchSuggestionsClient(), db.searchHistoryDao()) }
             ProfileSheet(
                 authUiState = authUiState,
                 playerSettings = playerSettings,
@@ -724,7 +741,9 @@ fun AuralisApp(
                     libraryViewModel.clearSpotifyImportMessage()
                     libraryViewModel.clearYouTubeImportMessage()
                     isProfileOpen = false
-                }
+                },
+                historyRepository = hRepo,
+                searchRepository = sRepo
             )
         }
 
@@ -754,8 +773,10 @@ fun AuralisApp(
             enter = auralisSheetEnter(),
             exit = auralisSheetExit()
         ) {
+            val modalPositionMs by playerViewModel.playbackPositionMs.collectAsState()
             NowPlayingSheet(
                 uiState = playerUiState,
+                playbackPositionMs = modalPositionMs,
                 userPlaylists = libraryUiState.playlists,
                 onPlayPauseClick = {
                     if (isGuestInRoom) notifyGuestControlBlocked()
@@ -824,9 +845,13 @@ fun AuralisApp(
 
         // Truly Floating Mini Player shown EVERYWHERE across all screens (Home, Explore, Library, Profile, Settings, Appearance, History, Listen Together)
         if (playerUiState.currentTrack != null) {
-            val progressFrac = if (playerUiState.durationMs > 0) {
-                (playerUiState.playbackPositionMs.toFloat() / playerUiState.durationMs).coerceIn(0f, 1f)
-            } else 0f
+            val durationMs = playerUiState.durationMs
+            val miniProgressProvider = remember(playerViewModel, durationMs) {
+                {
+                    val cur = playerViewModel.getPlaybackPosition()
+                    if (durationMs > 0) (cur.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+                }
+            }
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen
             val miniPlayerBottomPadding = if (isSubScreenOpen) {
                 10.dp
@@ -849,7 +874,7 @@ fun AuralisApp(
                     MiniPlayer(
                         track = playerUiState.currentTrack!!,
                         isPlaying = playerUiState.isPlaying,
-                        progress = progressFrac,
+                        progressProvider = miniProgressProvider,
                         queue = playerUiState.queue,
                         currentIndex = playerUiState.currentIndex,
                         isFavorite = playerUiState.isFavorite,

@@ -31,13 +31,16 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 
-val OPTIONS_BG = Color(0xFF181A12)
-val OPTIONS_LIME = Color(0xFFD4E157)
-val OPTIONS_CARD_BG = Color(0xFF22251B)
+val OPTIONS_BG: Color
+    @Composable get() = MaterialTheme.colorScheme.surface
+val OPTIONS_LIME: Color
+    @Composable get() = MaterialTheme.colorScheme.primary
+val OPTIONS_CARD_BG: Color
+    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 
 /**
  * YouTube Music & Spotify style Expandable Modal Bottom Sheet for Track Options.
- * Supports partial drag preview and pull-up expansion with all fully functional actions.
+ * Supports partial drag preview and pull-up expansion with dynamic theme styling.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +62,10 @@ fun TrackOptionsMenu(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val dynamicPrimary = MaterialTheme.colorScheme.primary
+    val dynamicSurface = MaterialTheme.colorScheme.surface
+    val dynamicSurfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
@@ -67,8 +74,8 @@ fun TrackOptionsMenu(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = OPTIONS_BG,
-        contentColor = Color.White,
+        containerColor = dynamicSurface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         modifier = modifier
@@ -178,7 +185,7 @@ fun TrackOptionsMenu(
                                 putExtra(Intent.EXTRA_SUBJECT, track.title)
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    "Listen to ${track.title} by ${track.artist} on Auralis Music: https://music.youtube.com/watch?v=${track.id}"
+                                    "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
                                 )
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
@@ -236,6 +243,24 @@ fun TrackOptionsMenu(
                         onClick = { showPlaylistPicker = true }
                     )
 
+                    // 4. Download Song / Remove Download
+                    val isDownloaded = com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(track.id)
+                    val isDownloading = com.auralis.music.data.download.AuralisDownloadManager.isDownloading(track.id)
+                    TrackOptionItem(
+                        icon = if (isDownloaded) Icons.Default.DownloadDone else if (isDownloading) Icons.Default.CloudDownload else Icons.Default.Download,
+                        label = if (isDownloaded) "Remove download" else if (isDownloading) "Downloading..." else "Download song",
+                        iconTint = if (isDownloaded) OPTIONS_LIME else Color.White.copy(alpha = 0.85f),
+                        labelColor = if (isDownloaded) OPTIONS_LIME else Color.White,
+                        onClick = {
+                            if (isDownloaded) {
+                                com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
+                            } else {
+                                com.auralis.music.data.download.AuralisDownloadManager.downloadTrack(track)
+                            }
+                            onDismiss()
+                        }
+                    )
+
                     // 4. Favorite / Liked Songs Toggle
                     TrackOptionItem(
                         icon = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -278,7 +303,7 @@ fun TrackOptionsMenu(
                                 putExtra(Intent.EXTRA_SUBJECT, track.title)
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    "Listen to ${track.title} by ${track.artist} on Auralis Music: https://music.youtube.com/watch?v=${track.id}"
+                                    "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
                                 )
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
@@ -371,7 +396,7 @@ fun TrackOptionsMenu(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF2E3224)),
+                                        .background(dynamicPrimary.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(

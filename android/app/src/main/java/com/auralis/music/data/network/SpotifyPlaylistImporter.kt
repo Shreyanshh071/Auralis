@@ -1150,7 +1150,7 @@ class SpotifyPlaylistImporter(
         val total = tracks.size
         if (total == 0) return@withContext emptyList()
 
-        val semaphore = Semaphore(2)
+        val semaphore = Semaphore(16)
         val completedCounter = AtomicInteger(0)
 
         coroutineScope {
@@ -1158,49 +1158,70 @@ class SpotifyPlaylistImporter(
                 async {
                     semaphore.withPermit {
                         try {
-                            // 0. Cooperative yielding: If user is starting playback, yield network to playback
+                            // Yield briefly only if user is actively resolving current live playback
                             while (AudioStreamResolver.isPlaybackResolving) {
-                                kotlinx.coroutines.delay(500)
+                                kotlinx.coroutines.delay(100)
                             }
-                            kotlinx.coroutines.delay(200)
 
                             val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
-                            val primaryQuery = "${track.title} $cleanArtist".trim()
+                            val primaryArtist = if (cleanArtist.isNotBlank()) {
+                                cleanArtist.split(Regex("[,&/]|\\b(feat|ft|with)\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanArtist
+                            } else ""
+                            val cleanedTitle = TitleCleaner.cleanTitle(track.title)
+                            val cleanTitle = cleanedTitle.replace(Regex("\\(.*\\)|\\[.*\\]|(?i)- (from|original|remix|audio).*"), "").trim().ifBlank { track.title }
+                            val primaryQuery = if (primaryArtist.isNotBlank()) "${cleanTitle} $primaryArtist".trim() else cleanTitle
 
-                            // 1. Search YouTube Music Songs filter
+                            // 1. Ultra-fast single-pass search: YouTube Music Songs filter with primary artist
                             val songsResult = innerTubeClient.search(primaryQuery, InnerTubeClient.FILTER_SONGS).songs
-                            var bestMatch = SpotifyTrackMatcher.findBestMatch(track, songsResult)
-
-                            // 2. Fallback: Search general results if no confident match yet
-                            if (bestMatch == null) {
-                                val generalResult = innerTubeClient.search(primaryQuery).songs
-                                bestMatch = SpotifyTrackMatcher.findBestMatch(track, generalResult)
-                            }
-
-                            // 3. Fallback: Core title query if track contains version tags
-                            if (bestMatch == null && (track.title.contains("(") || track.title.contains("-"))) {
-                                val (coreTokens, _) = SpotifyTrackMatcher.extractCoreTokensAndVersion(track.title)
-                                if (coreTokens.isNotEmpty()) {
-                                    val coreQuery = "${coreTokens.joinToString(" ")} $cleanArtist".trim()
-                                    val coreResult = innerTubeClient.search(coreQuery, InnerTubeClient.FILTER_SONGS).songs
-                                    bestMatch = SpotifyTrackMatcher.findBestMatch(track, coreResult)
+                            
+                            // Check if candidate #0 is the top official match from YouTube Music
+                            var topMatch: Track? = null
+                            if (songsResult.isNotEmpty()) {
+                                val cand0 = songsResult[0]
+                                val normCand0Title = TitleCleaner.cleanTitle(cand0.title).lowercase()
+                                val normCleanTarget = cleanTitle.lowercase()
+                                val isDerivative = listOf("remix", "lofi", "slowed", "dj", "cover", "status", "ringtone", "mashup").any { normCand0Title.contains(it) && !normCleanTarget.contains(it) }
+                                if (!isDerivative && (normCand0Title.contains(normCleanTarget) || normCleanTarget.contains(normCand0Title) || normCand0Title.split(" ").any { it.length > 2 && normCleanTarget.contains(it) })) {
+                                    topMatch = cand0
                                 }
                             }
 
-                            val count = completedCounter.incrementAndGet()
-                            if (count % 10 == 0 || count == total) {
-                                onProgress?.invoke("Importing your playlist to Auralis ($count/$total)...")
+                            if (topMatch == null) {
+                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, songsResult)
                             }
 
-                            if (bestMatch != null) {
-                                val matchedCand = bestMatch.candidate
-                                Log.i(TAG, "Matched Spotify track '${track.title}' -> '${matchedCand.id}' (${matchedCand.title}) with ${bestMatch.confidence}% confidence")
+                            // 2. Fallback: Search with full composite artist if multi-artist query
+                            if (topMatch == null && cleanArtist != primaryArtist && cleanArtist.isNotBlank()) {
+                                val fullArtistQuery = "${cleanTitle} $cleanArtist".trim()
+                                val fullArtistSongs = innerTubeClient.search(fullArtistQuery, InnerTubeClient.FILTER_SONGS).songs
+                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, fullArtistSongs)
+                            }
+
+                            // 3. Fallback: Search with cleanTitle alone
+                            if (topMatch == null && cleanTitle.isNotBlank()) {
+                                val titleSongsResult = innerTubeClient.search(cleanTitle, InnerTubeClient.FILTER_SONGS).songs
+                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, titleSongsResult)
+                            }
+
+                            // 4. Fallback: Search general results if Songs filter didn't produce a high-confidence match
+                            if (topMatch == null) {
+                                val generalResult = innerTubeClient.search(primaryQuery).songs
+                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, generalResult)
+                            }
+
+                            val count = completedCounter.incrementAndGet()
+                            if (count % 5 == 0 || count == total) {
+                                onProgress?.invoke("Matching tracks to official audio ($count/$total)...")
+                            }
+
+                            if (topMatch != null) {
+                                Log.i(TAG, "Matched Spotify track '${track.title}' -> '${topMatch.id}' (${topMatch.title})")
                                 track.copy(
-                                    id = matchedCand.id,
-                                    thumbnail = matchedCand.thumbnail.ifBlank {
-                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${matchedCand.id}/hq720.jpg" }
+                                    id = topMatch.id,
+                                    thumbnail = topMatch.thumbnail.ifBlank {
+                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${topMatch.id}/hq720.jpg" }
                                     },
-                                    duration = if (track.duration > 0) track.duration else matchedCand.duration
+                                    duration = if (track.duration > 0) track.duration else topMatch.duration
                                 )
                             } else {
                                 Log.w(TAG, "No confident match for Spotify track '${track.title}' by '${track.artist}' (${track.duration}s). Preserving Spotify identity.")

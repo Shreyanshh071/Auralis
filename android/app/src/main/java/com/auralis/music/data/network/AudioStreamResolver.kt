@@ -29,8 +29,8 @@ object AudioStreamResolver {
     }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(3000, TimeUnit.MILLISECONDS)
-        .readTimeout(3000, TimeUnit.MILLISECONDS)
+        .connectTimeout(8000, TimeUnit.MILLISECONDS)
+        .readTimeout(8000, TimeUnit.MILLISECONDS)
         .followRedirects(true)
         .build()
 
@@ -67,12 +67,11 @@ object AudioStreamResolver {
 
     private data class CachedStream(val url: String, val expiresAtMs: Long)
     private val streamCache = ConcurrentHashMap<String, CachedStream>()
-    private val fingerprintCache = ConcurrentHashMap<String, CachedStream>()
 
     fun getSongFingerprintKey(title: String, artist: String): String {
-        val normTitle = TitleCleaner.cleanTitle(title).lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
-        val normArtist = TitleCleaner.cleanArtist(artist).lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
-        return if (normTitle.isNotBlank()) "$normTitle|$normArtist" else ""
+        val cleanT = TitleCleaner.cleanTitle(title).lowercase().trim()
+        val cleanA = TitleCleaner.cleanArtist(artist).lowercase().trim()
+        return if (cleanT.isNotBlank() && cleanA.isNotBlank()) "fp:${cleanA}_${cleanT}" else ""
     }
 
     fun init(context: android.content.Context) {
@@ -104,17 +103,12 @@ object AudioStreamResolver {
 
     fun getCachedStreamByFingerprint(fingerprintKey: String): String? {
         if (fingerprintKey.isBlank()) return null
-        val cached = fingerprintCache[fingerprintKey] ?: return null
-        if (System.currentTimeMillis() >= (cached.expiresAtMs - 60_000L)) {
-            fingerprintCache.remove(fingerprintKey)
-            return null
-        }
-        return cached.url
+        return getCachedStream(fingerprintKey)
     }
 
     fun clearCache() {
         streamCache.clear()
-        fingerprintCache.clear()
+        matchedVideoIdCache.clear()
     }
 
     fun cacheStream(videoId: String, url: String, title: String = "", artist: String = "") {
@@ -128,11 +122,11 @@ object AudioStreamResolver {
         streamCache[videoId] = entry
         val fpKey = getSongFingerprintKey(title, artist)
         if (fpKey.isNotBlank()) {
-            fingerprintCache[fpKey] = entry
+            streamCache[fpKey] = entry
         }
     }
 
-    private fun ensureNewPipeInitialized() {
+    fun ensureNewPipeInitialized() {
         if (!isNewPipeInitialized) {
             synchronized(this) {
                 if (!isNewPipeInitialized) {
@@ -166,19 +160,19 @@ object AudioStreamResolver {
         val t0Resolve = System.currentTimeMillis()
         val cacheKey = "${videoId}_${quality.name}"
 
-        // Memory Cache Check
+        // 1. Memory Cache Check by exact video ID
         val memCached = getCachedStream(cacheKey) ?: getCachedStream(videoId)
         if (!memCached.isNullOrBlank()) {
             diagLog("[Diag-Resolver] Memory Cache HIT for $videoId ('$title') [$quality] - 0ms")
             return@withContext memCached
         }
 
-        // Check fingerprint cache by title & artist (instant 0ms cross-session/cross-ID resolution)
+        // 2. Fingerprint Cache Check (by song title + artist)
         val fpKey = getSongFingerprintKey(title, artist)
         if (fpKey.isNotBlank()) {
-            val fpCached = getCachedStreamByFingerprint(fpKey)
+            val fpCached = getCachedStream(fpKey)
             if (!fpCached.isNullOrBlank()) {
-                diagLog("[Diag-Resolver] Memory Fingerprint HIT for '$title' by '$artist' ($videoId) - 0ms")
+                diagLog("[Diag-Resolver] Fingerprint Cache HIT for '$title' by '$artist' - 0ms")
                 cacheStream(videoId, fpCached, title, artist)
                 return@withContext fpCached
             }
@@ -200,12 +194,12 @@ object AudioStreamResolver {
 
             val isSpotifyId = videoId.startsWith("sp_") || videoId.startsWith("spotify:")
 
-            // 1. Tier 1: Native Stream Extractor for YouTube IDs
+            // 1. Tier 1: Native Stream Extractor for exact YouTube ID
             if (!isSpotifyId) {
                 try {
                     val tNpStart = System.currentTimeMillis()
                     ensureNewPipeInitialized()
-                    val nativeStream = withTimeoutOrNull(5500L) {
+                    val nativeStream = withTimeoutOrNull(2200L) {
                         val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
                         streamExtractor.fetchPage()
                         val audioStreams = streamExtractor.audioStreams ?: emptyList()
@@ -220,32 +214,36 @@ object AudioStreamResolver {
                         cacheStream(videoId, nativeStream, title, artist)
                         return@withContext nativeStream
                     } else {
-                        diagLog("[Diag-Resolver] Native Extractor timed out or returned no stream in ${npMs}ms; proceeding to Tier 2 (Alternative Matcher)")
+                        diagLog("[Diag-Resolver] Native Extractor returned no direct stream for $videoId; trying fast alternative release...")
+                        val altStream = withTimeoutOrNull(1500L) {
+                            resolveNonRestrictedAlternative(title, artist, videoId, quality, context)
+                        }
+                        if (!altStream.isNullOrBlank()) return@withContext altStream
+                        return@withContext null
                     }
                 } catch (e: Exception) {
-                    diagLog("[Diag-Resolver] Native Extractor notice for $videoId ('$title'): ${e.javaClass.simpleName} - ${e.message}")
+                    diagLog("[Diag-Resolver] Native Extractor exception for $videoId ('$title'): ${e.javaClass.simpleName} - ${e.message}; trying alternative release...")
+                    val altStream = withTimeoutOrNull(1500L) {
+                        resolveNonRestrictedAlternative(title, artist, videoId, quality, context)
+                    }
+                    if (!altStream.isNullOrBlank()) return@withContext altStream
+                    return@withContext null
                 }
             } else {
-                diagLog("[Diag-Resolver] Spotify Track ID detected ($videoId) - skipping YouTube ID extractor and resolving official release")
+                diagLog("[Diag-Resolver] Spotify Track ID detected ($videoId) - resolving official YouTube release")
+                val tAltStart = System.currentTimeMillis()
+                val altStream = withTimeoutOrNull(2500L) {
+                    resolveNonRestrictedAlternative(title, artist, videoId, quality, context)
+                }
+                if (!altStream.isNullOrBlank()) {
+                    val totalMs = System.currentTimeMillis() - t0Resolve
+                    diagLog("[Diag-Resolver] WINNER: Alternative Track for $videoId ('$title') in ${totalMs}ms [$quality]")
+                    cacheStream(cacheKey, altStream, title, artist)
+                    cacheStream(videoId, altStream, title, artist)
+                    return@withContext altStream
+                }
+                return@withContext null
             }
-
-            // 2. Tier 2: Search official release / non-restricted alternative
-            val tAltStart = System.currentTimeMillis()
-            val altTimeoutMs = if (isSpotifyId) 5500L else 4000L
-            diagLog("[Diag-Resolver] Attempting alternative search at T+${tAltStart - t0Resolve}ms (timeout=${altTimeoutMs}ms)")
-            val altStream = withTimeoutOrNull(altTimeoutMs) {
-                resolveNonRestrictedAlternative(title, artist, videoId, quality, context)
-            }
-            if (!altStream.isNullOrBlank()) {
-                val totalMs = System.currentTimeMillis() - t0Resolve
-                diagLog("[Diag-Resolver] WINNER: Alternative Track for $videoId ('$title') in ${totalMs}ms [$quality, alt search took ${System.currentTimeMillis() - tAltStart}ms]")
-                cacheStream(cacheKey, altStream, title, artist)
-                cacheStream(videoId, altStream, title, artist)
-                return@withContext altStream
-            }
-
-            diagLog("[Diag-Resolver] FAILED all native stream resolution attempts for $videoId ('$title') in ${System.currentTimeMillis() - t0Resolve}ms; routing to WebView Engine")
-            null
         } finally {
             isPlaybackResolving = false
         }
@@ -260,23 +258,20 @@ object AudioStreamResolver {
     ): String? {
         if (title.isBlank()) return null
         return try {
-            val query = if (artist.isNotBlank() && !artist.equals("Spotify Artist", ignoreCase = true) && !title.contains(artist, ignoreCase = true)) {
-                "$title $artist"
+            val cleanedTitle = TitleCleaner.cleanTitle(title)
+            val cleanCoreTitle = cleanedTitle.replace(Regex("\\(.*\\)|\\[.*\\]|(?i)- (from|original|remix|audio).*"), "").trim()
+            val cleanedArtist = TitleCleaner.cleanArtist(artist)
+            val primaryArtist = if (cleanedArtist.isNotBlank() && !cleanedArtist.equals("Spotify Artist", ignoreCase = true)) {
+                cleanedArtist.split(Regex("[,&/]|\\b(feat|ft|with)\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanedArtist
+            } else ""
+            val primaryQuery = if (primaryArtist.isNotBlank() && !cleanCoreTitle.contains(primaryArtist, ignoreCase = true)) {
+                "$cleanCoreTitle $primaryArtist"
             } else {
-                title
+                cleanCoreTitle
             }
             val searchClient = InnerTubeClient()
-            var songs = searchClient.search(query, InnerTubeClient.FILTER_SONGS).songs
-            if (songs.isEmpty() && artist.isNotBlank() && !artist.equals("Spotify Artist", ignoreCase = true)) {
-                songs = searchClient.search("$title $artist").songs
-            }
-            if (songs.isEmpty()) {
-                songs = searchClient.search(title).songs
-            }
-
-            val isSpotifyId = originalVideoId.startsWith("sp_") || originalVideoId.startsWith("spotify:")
-            val filteredSongs = if (isSpotifyId) songs else songs.filter { it.id != originalVideoId }
-            if (filteredSongs.isEmpty()) return null
+            val songs = searchClient.search(primaryQuery, InnerTubeClient.FILTER_SONGS).songs
+            val allCandidates = songs.distinctBy { it.id }
 
             val dummyTarget = com.auralis.music.domain.model.Track(
                 id = originalVideoId,
@@ -284,30 +279,33 @@ object AudioStreamResolver {
                 artist = if (artist.equals("Spotify Artist", ignoreCase = true)) "" else artist
             )
 
-            val matchResult = SpotifyTrackMatcher.findBestMatch(dummyTarget, filteredSongs, minConfidence = 60)
-            val candidate = matchResult?.candidate ?: run {
-                val targetLower = title.lowercase().trim()
-                val artistLower = artist.lowercase().trim()
-                filteredSongs.firstOrNull { s ->
-                    val candTitleLower = s.title.lowercase().trim()
-                    val candArtistLower = s.artist.lowercase().trim()
-                    val titleMatches = candTitleLower == targetLower || candTitleLower.contains(targetLower) || targetLower.contains(candTitleLower)
-                    val artistMatches = artistLower.isNotBlank() && (candArtistLower.contains(artistLower) || artistLower.contains(candArtistLower))
-                    titleMatches && (artistMatches || artistLower.isBlank() || artistLower == "spotify artist")
+            val scoredCandidates = allCandidates
+                .filter { it.id != originalVideoId }
+                .mapNotNull { cand ->
+                    val score = com.auralis.music.domain.search.SearchQueryMatcher.scoreTrackCandidate(dummyTarget, cand)
+                    if (score >= 30.0) cand to score else null
                 }
+                .sortedByDescending { it.second }
+                .map { it.first }
+
+            if (scoredCandidates.isEmpty()) {
+                diagLog("[Diag-Resolver] No high-confidence match found for track '$title' by '$artist'")
+                return null
             }
 
-            if (candidate != null) {
-                matchedVideoIdCache[originalVideoId] = candidate.id
+            ensureNewPipeInitialized()
+            for (candidate in scoredCandidates.take(2)) {
                 try {
-                    ensureNewPipeInitialized()
-                    val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")
-                    streamExtractor.fetchPage()
-                    val audioStreams = streamExtractor.audioStreams ?: emptyList()
-                    val selectedAudio = selectStreamForQuality(audioStreams, quality, context)
-                    val streamUrl = selectedAudio?.content
+                    val streamUrl = withTimeoutOrNull(1000L) {
+                        val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")
+                        streamExtractor.fetchPage()
+                        val audioStreams = streamExtractor.audioStreams ?: emptyList()
+                        val selectedAudio = selectStreamForQuality(audioStreams, quality, context)
+                        selectedAudio?.content
+                    }
                     if (!streamUrl.isNullOrBlank()) {
                         diagLog("[Diag-Resolver] Resolved alternative via NewPipe for '$title' by '$artist' -> ${candidate.id} ('${candidate.title}' by '${candidate.artist}') [$quality]")
+                        matchedVideoIdCache[originalVideoId] = candidate.id
                         val cacheKey = "${candidate.id}_${quality.name}"
                         cacheStream(cacheKey, streamUrl, candidate.title, candidate.artist)
                         cacheStream(candidate.id, streamUrl, candidate.title, candidate.artist)
@@ -315,9 +313,10 @@ object AudioStreamResolver {
                         return streamUrl
                     }
                 } catch (e: Exception) {
-                    diagLog("[Diag-Resolver] Alternative NewPipe extraction failed for ${candidate.id}: ${e.message}")
+                    diagLog("[Diag-Resolver] Candidate ${candidate.id} ('${candidate.title}') failed: ${e.message}; trying next candidate...")
                 }
             }
+
             null
         } catch (e: Exception) {
             diagLog("[Diag-Resolver] Alternative search failed: ${e.message}")

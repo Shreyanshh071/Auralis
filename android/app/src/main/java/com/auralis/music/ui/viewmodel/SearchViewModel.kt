@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -35,7 +36,7 @@ data class SearchUiState(
 
 class SearchViewModel(
     private val searchRepository: SearchRepository,
-    context: Context? = null
+    private val context: Context? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -57,6 +58,13 @@ class SearchViewModel(
 
     fun clearRecognitionHistory() {
         recognitionManager?.clearHistory()
+    }
+
+    fun clearSearchHistory() {
+        viewModelScope.launch {
+            searchRepository.clearSearchHistory()
+            _uiState.update { it.copy(recentQueries = emptyList(), suggestions = emptyList()) }
+        }
     }
 
     fun removeRecognitionHistoryItem(trackId: String) {
@@ -130,7 +138,12 @@ class SearchViewModel(
         _uiState.update { it.copy(query = trimmed, isSearching = true, suggestions = emptyList(), isRecognitionOpen = false) }
 
         viewModelScope.launch {
-            searchRepository.recordSearchQuery(trimmed)
+            val isPaused = context?.let { ctx ->
+                com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseSearchHistory
+            } ?: false
+            if (!isPaused) {
+                searchRepository.recordSearchQuery(trimmed)
+            }
             val results = searchRepository.search(trimmed)
             _uiState.update { it.copy(searchResults = results, isSearching = false) }
         }

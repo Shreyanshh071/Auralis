@@ -178,7 +178,7 @@ fun ArtistScreen(
                                     action = android.content.Intent.ACTION_SEND
                                     putExtra(
                                         android.content.Intent.EXTRA_TEXT,
-                                        "Listen to ${artistPage.artist.name} on Auralis: https://music.youtube.com/channel/${artistPage.artist.id}"
+                                        "Listen to ${artistPage.artist.name} on Auralis Music\nhttps://music.youtube.com/channel/${artistPage.artist.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
                                     )
                                     type = "text/plain"
                                 }
@@ -444,7 +444,11 @@ fun ArtistScreen(
                     }
                 }
             } else {
-                items(artistPage.topSongs, key = { it.id }) { track ->
+                items(
+                    items = artistPage.topSongs,
+                    key = { it.id },
+                    contentType = { "track" }
+                ) { track ->
                     val isCurrent = track.id == currentTrackId
 
                     Row(
@@ -527,7 +531,11 @@ fun ArtistScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        items(artistPage.albums, key = { it.id }) { album ->
+                        items(
+                            items = artistPage.albums,
+                            key = { it.id },
+                            contentType = { "album" }
+                        ) { album ->
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
@@ -577,7 +585,11 @@ fun ArtistScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        items(artistPage.singles, key = { it.id }) { single ->
+                        items(
+                            items = artistPage.singles,
+                            key = { it.id },
+                            contentType = { "single" }
+                        ) { single ->
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
@@ -630,7 +642,11 @@ fun ArtistScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        items(artistPage.similarArtists, key = { it.id }) { similar ->
+                        items(
+                            items = artistPage.similarArtists,
+                            key = { it.id },
+                            contentType = { "artist" }
+                        ) { similar ->
                             Column(
                                 modifier = Modifier
                                     .width(105.dp)

@@ -46,7 +46,8 @@ class PlayerViewModel(
     private val settingsRepository: SettingsRepository,
     private val audioPlayer: AuralisAudioPlayer? = null,
     private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
-    private val searchRepository: SearchRepository? = null
+    private val searchRepository: SearchRepository? = null,
+    private val context: android.content.Context? = null
 ) : ViewModel() {
 
     private val queueManager = AudioQueueManager()
@@ -55,9 +56,18 @@ class PlayerViewModel(
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
+    private val _playbackPositionMs = MutableStateFlow(0L)
+    val playbackPositionMs: StateFlow<Long> = _playbackPositionMs.asStateFlow()
+
+    private val _playerSettings = MutableStateFlow(com.auralis.music.domain.model.PlayerSettings())
+    val playerSettings: StateFlow<com.auralis.music.domain.model.PlayerSettings> = _playerSettings.asStateFlow()
+
+    fun getPlaybackPosition(): Long = _playbackPositionMs.value
+
     private var sleepTimerJob: Job? = null
     private var playJob: Job? = null
     private var lyricsJob: Job? = null
+    private var translationJob: Job? = null
     private var radioJob: Job? = null
     private var isAutoRadioMode: Boolean = true
 
@@ -99,7 +109,7 @@ class PlayerViewModel(
 
             viewModelScope.launch {
                 player.playbackPositionMs.collect { pos ->
-                    _uiState.update { it.copy(playbackPositionMs = pos) }
+                    _playbackPositionMs.value = pos
                 }
             }
 
@@ -140,8 +150,13 @@ class PlayerViewModel(
                     )
                 }
                 viewModelScope.launch {
-                    historyRepository.addToHistory(effectiveTrack)
-                    historyRepository.recordPlay(effectiveTrack)
+                    val isPaused = context?.let { ctx ->
+                        com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseListenHistory
+                    } ?: false
+                    if (!isPaused) {
+                        historyRepository.addToHistory(effectiveTrack)
+                        historyRepository.recordPlay(effectiveTrack)
+                    }
                 }
                 loadLyrics(effectiveTrack, reqId)
 
@@ -165,9 +180,6 @@ class PlayerViewModel(
             }
         }
     }
-
-    private val _playerSettings = MutableStateFlow(com.auralis.music.domain.model.PlayerSettings())
-    val playerSettings: StateFlow<com.auralis.music.domain.model.PlayerSettings> = _playerSettings.asStateFlow()
 
     fun updateAudioQuality(quality: com.auralis.music.domain.model.AudioQuality) {
         viewModelScope.launch {
@@ -203,36 +215,41 @@ class PlayerViewModel(
 
     private fun triggerPlayback(
         track: Track,
-        debounceMs: Long = 100L,
+        debounceMs: Long = 0L,
         requestId: Long = currentPlaybackRequestId.get(),
         initialPositionMs: Long = 0L
     ) {
         playJob?.cancel()
         lyricsJob?.cancel()
 
-        playJob = viewModelScope.launch {
-            if (debounceMs > 0) {
-                delay(debounceMs)
-            }
-            if (requestId != currentPlaybackRequestId.get()) {
-                Log.d("AuralisPlayback", "[Stale triggerPlayback dropped] reqId=$requestId vs active=${currentPlaybackRequestId.get()}")
-                return@launch
-            }
-            var effectiveTrack = track
-            if (effectiveTrack.thumbnail.isNullOrBlank()) {
-                val resolvedThumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(effectiveTrack)
-                if (!resolvedThumb.isNullOrBlank()) {
-                    effectiveTrack = effectiveTrack.copy(thumbnail = resolvedThumb)
-                    _uiState.update { state ->
-                        if (state.currentTrack?.id == track.id) {
-                            state.copy(currentTrack = effectiveTrack)
-                        } else state
+        // 1. Instantly trigger audio playback at 0ms latency
+        audioPlayer?.play(track, initialPositionMs, requestId)
+
+        playJob = viewModelScope.launch(Dispatchers.IO) {
+            if (requestId != currentPlaybackRequestId.get()) return@launch
+
+            // Asynchronously resolve thumbnail in background without delaying playback startup
+            if (track.thumbnail.isNullOrBlank()) {
+                try {
+                    val resolvedThumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(track)
+                    if (!resolvedThumb.isNullOrBlank() && requestId == currentPlaybackRequestId.get()) {
+                        val updatedTrack = track.copy(thumbnail = resolvedThumb)
+                        _uiState.update { state ->
+                            if (state.currentTrack?.id == track.id) {
+                                state.copy(currentTrack = updatedTrack)
+                            } else state
+                        }
                     }
-                }
+                } catch (_: Exception) {}
             }
-            audioPlayer?.play(effectiveTrack, initialPositionMs, requestId)
-            historyRepository.addToHistory(effectiveTrack)
-            historyRepository.recordPlay(effectiveTrack)
+
+            val isPaused = context?.let { ctx ->
+                com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseListenHistory
+            } ?: false
+            if (!isPaused) {
+                historyRepository.addToHistory(track)
+                historyRepository.recordPlay(track)
+            }
         }
 
         loadLyrics(track, requestId)
@@ -355,10 +372,9 @@ class PlayerViewModel(
 
     fun seekTo(positionMs: Long) {
         val clamped = positionMs.coerceIn(0, _uiState.value.durationMs.coerceAtLeast(0))
+        _playbackPositionMs.value = clamped
         if (audioPlayer != null) {
             audioPlayer.seekTo(clamped)
-        } else {
-            _uiState.update { it.copy(playbackPositionMs = clamped) }
         }
     }
 
@@ -460,7 +476,7 @@ class PlayerViewModel(
     }
 
     fun previous() {
-        if (_uiState.value.playbackPositionMs > 3000) {
+        if (_playbackPositionMs.value > 3000) {
             seekTo(0)
             return
         }
@@ -583,32 +599,69 @@ class PlayerViewModel(
             if (cached != null) {
                 if (requestId == currentPlaybackRequestId.get()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
+                    triggerAiTranslation(track, cached, requestId)
                 }
-                return@launch
+                // If cached lyrics are already true RichSync, no need to query network again
+                if (cached.syncType == SyncType.RICHSYNC && cached.lines.any { !it.words.isNullOrEmpty() }) {
+                    return@launch
+                }
+            } else {
+                if (requestId == currentPlaybackRequestId.get()) {
+                    _uiState.update { it.copy(isLoadingLyrics = true, lyrics = null) }
+                }
             }
 
-            // 2. Not cached: Clear old lyrics and set loading
-            if (requestId == currentPlaybackRequestId.get()) {
-                _uiState.update { it.copy(isLoadingLyrics = true, lyrics = null) }
+            try {
+                // 2. Background network cascade (AMLL TTML, Musixmatch RichSync, NetEase YRC, LRCLIB, JioSaavn, KuGou)
+                val data = withContext(Dispatchers.IO) {
+                    lyricsRepository.getLyrics(
+                        title = track.title,
+                        artist = track.artist,
+                        durationSec = track.duration,
+                        videoId = track.id,
+                        forceRefresh = (cached != null && cached.syncType != SyncType.RICHSYNC)
+                    )
+                }
+
+                if (requestId == currentPlaybackRequestId.get()) {
+                    _uiState.update { it.copy(lyrics = data ?: cached, isLoadingLyrics = false) }
+                    if (data != null) {
+                        triggerAiTranslation(track, data, requestId)
+                    }
+                }
+            } catch (_: Exception) {
+                if (requestId == currentPlaybackRequestId.get()) {
+                    _uiState.update { it.copy(isLoadingLyrics = false) }
+                }
             }
+        }
+    }
 
-            // 3. Defer network lookup slightly (350ms) so audio stream resolution has exclusive network priority
-            delay(350)
-            if (requestId != currentPlaybackRequestId.get()) return@launch
+    private fun triggerAiTranslation(track: Track, lyricsData: LyricsData?, requestId: Long) {
+        if (lyricsData == null || lyricsData.lines.isEmpty()) return
+        translationJob?.cancel()
+        translationJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val settings = context?.let { ctx ->
+                    val dataStore = com.auralis.music.data.datastore.AiTranslationDataStore(ctx)
+                    dataStore.settingsFlow.first()
+                } ?: com.auralis.music.domain.model.AiTranslationSettings()
 
-            // 4. Background network cascade on low-priority dispatcher
-            val data = withContext(Dispatchers.IO) {
-                lyricsRepository.getLyrics(
-                    title = track.title,
-                    artist = track.artist,
-                    durationSec = track.duration,
-                    videoId = track.id
+                val translated = com.auralis.music.data.network.AiLyricsTranslator.translateLyrics(
+                    trackId = track.id,
+                    lyrics = lyricsData,
+                    settings = settings
                 )
-            }
-
-            if (requestId == currentPlaybackRequestId.get()) {
-                _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
-            }
+                if (translated != null && requestId == currentPlaybackRequestId.get()) {
+                    _uiState.update { current ->
+                        if (current.currentTrack?.id == track.id) {
+                            current.copy(lyrics = translated)
+                        } else {
+                            current
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -629,6 +682,7 @@ class PlayerViewModel(
             }
             if (reqId == currentPlaybackRequestId.get()) {
                 _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
+                triggerAiTranslation(track, data, reqId)
             }
         }
     }

@@ -397,6 +397,8 @@ fun ExploreScreen(
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
                                 onTrackClick = { track, _ -> onTrackClick(track, listOf(track)) },
+                                onPlayNext = onPlayNext,
+                                onAddToQueue = onAddToQueue,
                                 onMenuClick = { track -> selectedTrackForMenu = track },
                                 onArtistClick = { artist -> onOpenArtist(artist) },
                                 onPlaylistClick = { playlist -> onSearch(playlist.title) }
@@ -631,6 +633,8 @@ private fun SearchResultsView(
     currentTrackId: String?,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
+    onPlayNext: ((Track) -> Unit)? = null,
+    onAddToQueue: ((Track) -> Unit)? = null,
     onMenuClick: (Track) -> Unit,
     onArtistClick: (Artist) -> Unit,
     onPlaylistClick: (PlaylistResult) -> Unit
@@ -675,6 +679,8 @@ private fun SearchResultsView(
                     isPlaying = isPlaying,
                     playlist = recommendations,
                     onTrackClick = onTrackClick,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
                     onMenuClick = onMenuClick
                 )
             }
@@ -707,6 +713,8 @@ private fun SearchResultsView(
                         isPlaying = isPlaying,
                         playlist = results.songs,
                         onTrackClick = onTrackClick,
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
                         onMenuClick = onMenuClick
                     )
                 }
@@ -913,58 +921,65 @@ private fun TrackRowItem(
     isPlaying: Boolean,
     playlist: List<Track>,
     onTrackClick: (Track, List<Track>) -> Unit,
+    onPlayNext: ((Track) -> Unit)? = null,
+    onAddToQueue: ((Track) -> Unit)? = null,
     onMenuClick: (Track) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                onClick = { onTrackClick(track, playlist) },
-                onLongClick = { onMenuClick(track) }
-            )
-            .padding(6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    com.auralis.music.ui.components.SwipeableTrackContainer(
+        onPlayNext = { onPlayNext?.invoke(track) },
+        onAddToQueue = { onAddToQueue?.invoke(track) }
     ) {
-        ArtworkCard(
-            url = track.thumbnail,
-            modifier = Modifier.size(50.dp),
-            cornerRadius = 8.dp,
-            contentDescription = track.title
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = { onTrackClick(track, playlist) },
+                    onLongClick = { onMenuClick(track) }
+                )
+                .padding(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArtworkCard(
+                url = track.thumbnail,
+                modifier = Modifier.size(50.dp),
+                cornerRadius = 8.dp,
+                contentDescription = track.title
             )
-            Text(
-                text = track.artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (isCurrent) {
-            EqualizerBars(
-                isPlaying = isPlaying,
-                modifier = Modifier.size(18.dp),
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        IconButton(onClick = { onMenuClick(track) }) {
-            Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "Options",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (isCurrent) {
+                EqualizerBars(
+                    isPlaying = isPlaying,
+                    modifier = Modifier.size(18.dp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            IconButton(onClick = { onMenuClick(track) }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

@@ -31,11 +31,26 @@ class LrcLibLyricsSource(
 
         // 1. Try exact get
         val exactCandidate = getExact(cleanTitle, cleanArtist, query.durationSec, query.album)
-        if (exactCandidate != null) return@withContext exactCandidate
+        if (exactCandidate != null && exactCandidate.syncType == SyncType.LINE_SYNC && exactCandidate.confidence >= 75) {
+            return@withContext exactCandidate
+        }
 
-        // 2. Try search queries
-        searchQuery("$cleanTitle $cleanArtist", query)
-            ?: (if (cleanTitle != query.title) searchQuery(cleanTitle, query) else null)
+        // 2. Try search queries with Title + Artist
+        val searchCandidate = searchQuery("$cleanTitle $cleanArtist", query)
+        if (searchCandidate != null && searchCandidate.syncType == SyncType.LINE_SYNC && searchCandidate.confidence >= 70) {
+            return@withContext searchCandidate
+        }
+
+        // 3. Fallback to search query with Title alone (vital for multi-artist / composer tracks)
+        val titleOnlyCandidate = if (cleanTitle.isNotBlank()) searchQuery(cleanTitle, query) else null
+        if (titleOnlyCandidate != null && titleOnlyCandidate.syncType == SyncType.LINE_SYNC && titleOnlyCandidate.confidence >= 60) {
+            return@withContext titleOnlyCandidate
+        }
+
+        // 4. Return best candidate found (preferring synced over plain)
+        val allCandidates = listOfNotNull(exactCandidate, searchCandidate, titleOnlyCandidate)
+        return@withContext allCandidates.firstOrNull { it.syncType == SyncType.LINE_SYNC }
+            ?: allCandidates.maxByOrNull { it.confidence }
     }
 
     private fun getExact(title: String, artist: String, durationSec: Long?, album: String?): LyricsCandidate? {
@@ -61,7 +76,9 @@ class LrcLibLyricsSource(
 
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
-            val lyricsData = parseLrcItem(json) ?: return null
+            val rawLyrics = parseLrcItem(json) ?: return null
+            val candDuration = json.optLong("duration", 0L)
+            val lyricsData = LyricsMatcher.autoAlignLyrics(rawLyrics, durationSec, candDuration)
 
             val confidence = LyricsMatcher.calculateConfidence(
                 queryTitle = title,
@@ -69,7 +86,7 @@ class LrcLibLyricsSource(
                 candidateTitle = lyricsData.trackName ?: title,
                 candidateArtist = lyricsData.artistName ?: artist,
                 queryDurationSec = durationSec,
-                candidateDurationSec = json.optLong("duration", 0L)
+                candidateDurationSec = candDuration
             )
 
             return LyricsCandidate(
@@ -101,13 +118,14 @@ class LrcLibLyricsSource(
             val array = JSONArray(body)
 
             var bestCandidate: LyricsCandidate? = null
-            var bestConfidence = 0
+            var bestScore = 0
 
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val candTitle = item.optString("trackName")
                 val candArtist = item.optString("artistName")
                 val candDuration = item.optLong("duration", 0L)
+                val hasSynced = !item.optString("syncedLyrics").isNullOrBlank()
 
                 val confidence = LyricsMatcher.calculateConfidence(
                     queryTitle = query.title,
@@ -118,17 +136,21 @@ class LrcLibLyricsSource(
                     candidateDurationSec = candDuration
                 )
 
-                if (confidence >= 50 && confidence > bestConfidence) {
-                    val parsed = parseLrcItem(item)
-                    if (parsed != null && parsed.lines.isNotEmpty()) {
-                        bestConfidence = confidence
+                // Heavily prioritize synced lyrics (+25 score boost) over plain lyrics
+                val weightedScore = if (hasSynced) confidence + 25 else confidence
+
+                if (confidence >= 45 && weightedScore > bestScore) {
+                    val rawParsed = parseLrcItem(item)
+                    if (rawParsed != null && rawParsed.lines.isNotEmpty()) {
+                        val alignedParsed = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
+                        bestScore = weightedScore
                         bestCandidate = LyricsCandidate(
-                            lyricsData = parsed,
+                            lyricsData = alignedParsed,
                             confidence = confidence,
-                            syncType = parsed.syncType,
+                            syncType = alignedParsed.syncType,
                             provider = LyricsProvider.LRCLIB
                         )
-                        if (parsed.syncType == SyncType.LINE_SYNC && confidence >= 80) {
+                        if (alignedParsed.syncType == SyncType.LINE_SYNC && confidence >= 75) {
                             return bestCandidate
                         }
                     }
@@ -146,6 +168,18 @@ class LrcLibLyricsSource(
         val plainLyrics = json.optString("plainLyrics")
         val trackName = json.optString("trackName")
         val artistName = json.optString("artistName")
+        val isInstrumental = json.optBoolean("instrumental", false)
+
+        if (isInstrumental) {
+            return LyricsData(
+                provider = LyricsProvider.LRCLIB,
+                syncType = SyncType.PLAIN,
+                lines = listOf(LyricLine(time = 0L, text = "♪ Instrumental ♪", isInstrumental = true)),
+                plainLyrics = "[Instrumental]",
+                trackName = trackName,
+                artistName = artistName
+            )
+        }
 
         if (syncedLyrics.isNotBlank()) {
             return LrcParser.parse(syncedLyrics, LyricsProvider.LRCLIB).copy(

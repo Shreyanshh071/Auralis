@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
@@ -29,18 +30,29 @@ fun TrackRow(
     onTrackClick: () -> Unit,
     onFavoriteToggle: (() -> Unit)? = null,
     onMoreClick: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
+    onAddToQueue: (() -> Unit)? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
+    isPlaylistContext: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    SwipeableTrackContainer(
+        onPlayNext = onPlayNext,
+        onAddToQueue = onAddToQueue,
+        onRemoveFromPlaylist = onRemoveFromPlaylist,
+        isPlaylistContext = isPlaylistContext,
         modifier = modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onTrackClick,
-                onLongClick = onMoreClick
-            )
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onTrackClick,
+                    onLongClick = onMoreClick
+                )
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         // Thumbnail
         ArtworkCard(
             url = track.thumbnail,
@@ -76,13 +88,25 @@ fun TrackRow(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            Text(
-                text = listOfNotNull(track.artist, track.album).joinToString(" • "),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(track.id)) {
+                    Icon(
+                        imageVector = Icons.Default.DownloadDone,
+                        contentDescription = "Downloaded",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(14.dp)
+                            .padding(end = 4.dp)
+                    )
+                }
+                Text(
+                    text = listOfNotNull(track.artist, track.album).joinToString(" • "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         // Favorite Toggle
@@ -105,6 +129,7 @@ fun TrackRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
         }
     }
 }

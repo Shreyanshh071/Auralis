@@ -244,6 +244,9 @@ interface PlayCountDao {
     @Transaction
     @Query("SELECT * FROM play_counts")
     suspend fun getAllPlayCounts(): List<PlayCountWithTrackTuple>
+
+    @Query("DELETE FROM play_counts")
+    suspend fun clearPlayCounts()
 }
 
 @Dao

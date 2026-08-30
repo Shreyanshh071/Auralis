@@ -16,7 +16,8 @@ import com.auralis.music.ui.player.MiniPlayer as PlayerMiniPlayer
 fun MiniPlayer(
     track: Track,
     isPlaying: Boolean,
-    progress: Float, // 0.0f to 1.0f
+    progress: Float = 0f, // 0.0f to 1.0f
+    progressProvider: (() -> Float)? = null,
     queue: List<Track> = emptyList(),
     currentIndex: Int = 0,
     isFavorite: Boolean = false,
@@ -38,6 +39,7 @@ fun MiniPlayer(
         track = track,
         isPlaying = isPlaying,
         progress = progress,
+        progressProvider = progressProvider,
         queue = queue,
         currentIndex = currentIndex,
         isFavorite = isFavorite,
