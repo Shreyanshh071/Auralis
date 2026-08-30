@@ -2,6 +2,12 @@ package com.auralis.music.ui.screens
 
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -46,6 +52,8 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatAlignCenter
@@ -112,7 +120,8 @@ fun AppearanceScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dataStore = remember { AppearanceSettingsDataStore(context.applicationContext) }
-    val settings by dataStore.settingsFlow.collectAsState(initial = AppearanceSettings())
+    val initialSettings = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    val settings by dataStore.settingsFlow.collectAsState(initial = initialSettings)
 
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) {
         scope.launch {
@@ -123,6 +132,16 @@ fun AppearanceScreen(
 
     var activeDialog by remember { mutableStateOf<AppearanceDialogType?>(null) }
     var showThemeAndColors by remember { mutableStateOf(false) }
+
+    androidx.activity.compose.BackHandler(enabled = true) {
+        if (showThemeAndColors) {
+            showThemeAndColors = false
+        } else if (activeDialog != null) {
+            activeDialog = null
+        } else {
+            onDismiss()
+        }
+    }
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val backgroundColor = MaterialTheme.colorScheme.background
@@ -270,6 +289,15 @@ fun AppearanceScreen(
                 }
                 item {
                     AppearanceSwitchItem(
+                        icon = Icons.Default.Download,
+                        title = "Show download button",
+                        subtitle = "Display download button in player controls",
+                        isChecked = settings.showDownloadButton,
+                        onCheckedChange = { update { copy(showDownloadButton = it) } }
+                    )
+                }
+                item {
+                    AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
                         title = "Enable swipe to change song",
                         subtitle = "Swipe horizontally across player to skip or rewind",
@@ -277,41 +305,15 @@ fun AppearanceScreen(
                         onCheckedChange = { update { copy(enableSwipeToChangeSong = it) } }
                     )
                 }
-                item {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.Tune,
-                        title = "Mini-player swipe sensitivity",
-                        subtitle = "${settings.miniPlayerSwipeSensitivity}%",
-                        onClick = { activeDialog = AppearanceDialogType.MINI_PLAYER_SENSITIVITY }
-                    )
-                }
 
                 // ════ 4. LYRICS ════
                 item { AppearanceSectionHeader(title = "Lyrics") }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.GraphicEq,
-                        title = "Experimental lyrics",
-                        subtitle = "Enable the new experimental lyrics component with enhanced animations and performance",
-                        isChecked = settings.experimentalLyrics,
-                        onCheckedChange = { update { copy(experimentalLyrics = it) } }
-                    )
-                }
                 item {
                     AppearanceClickableItem(
                         icon = Icons.Default.FormatAlignCenter,
                         title = "Lyrics text position",
                         subtitle = settings.lyricsTextPosition,
                         onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_POSITION }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.AlignHorizontalLeft,
-                        title = "Respect agent positioning",
-                        subtitle = "Align lyrics based on the agent role (e.g. background vocals)",
-                        isChecked = settings.respectAgentPositioning,
-                        onCheckedChange = { update { copy(respectAgentPositioning = it) } }
                     )
                 }
                 item {
@@ -332,34 +334,9 @@ fun AppearanceScreen(
                         onCheckedChange = { update { copy(autoScrollLyrics = it) } }
                     )
                 }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Fullscreen,
-                        title = "Hide status bar on fullscreen",
-                        subtitle = "Hide the status bar when lyrics fullscreen mode is active",
-                        isChecked = settings.hideStatusBarOnFullscreen,
-                        onCheckedChange = { update { copy(hideStatusBarOnFullscreen = it) } }
-                    )
-                }
 
                 // ════ 5. MISC ════
                 item { AppearanceSectionHeader(title = "Misc") }
-                item {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.Home,
-                        title = "Default open tab",
-                        subtitle = settings.defaultOpenTab,
-                        onClick = { activeDialog = AppearanceDialogType.DEFAULT_OPEN_TAB }
-                    )
-                }
-                item {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.Folder,
-                        title = "Change default library chip",
-                        subtitle = settings.defaultLibraryChip,
-                        onClick = { activeDialog = AppearanceDialogType.DEFAULT_LIBRARY_CHIP }
-                    )
-                }
                 item {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
@@ -376,32 +353,6 @@ fun AppearanceScreen(
                         subtitle = null,
                         isChecked = settings.swipeToRemoveSongFromPlaylist,
                         onCheckedChange = { update { copy(swipeToRemoveSongFromPlaylist = it) } }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.ViewCompact,
-                        title = "Slim bottom navigation bar",
-                        subtitle = null,
-                        isChecked = settings.slimBottomNavigationBar,
-                        onCheckedChange = { update { copy(slimBottomNavigationBar = it) } }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Group,
-                        title = "Listen Together in top bar",
-                        subtitle = "Show Listen Together in the top app bar instead of the navigation bar",
-                        isChecked = settings.listenTogetherInTopBar,
-                        onCheckedChange = { update { copy(listenTogetherInTopBar = it) } }
-                    )
-                }
-                item {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.GridView,
-                        title = "Grid cell size",
-                        subtitle = settings.gridCellSize,
-                        onClick = { activeDialog = AppearanceDialogType.GRID_CELL_SIZE }
                     )
                 }
                 item {
@@ -431,33 +382,6 @@ fun AppearanceScreen(
                         subtitle = null,
                         isChecked = settings.showDownloadedPlaylist,
                         onCheckedChange = { update { copy(showDownloadedPlaylist = it) } }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.TrendingUp,
-                        title = "Show Top playlist",
-                        subtitle = null,
-                        isChecked = settings.showTopPlaylist,
-                        onCheckedChange = { update { copy(showTopPlaylist = it) } }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Cached,
-                        title = "Show Cached playlist",
-                        subtitle = null,
-                        isChecked = settings.showCachedPlaylist,
-                        onCheckedChange = { update { copy(showCachedPlaylist = it) } }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.CloudUpload,
-                        title = "Show Uploaded playlist",
-                        subtitle = null,
-                        isChecked = settings.showUploadedPlaylist,
-                        onCheckedChange = { update { copy(showUploadedPlaylist = it) } }
                     )
                 }
 
@@ -541,20 +465,20 @@ fun AppearanceScreen(
             var tempSensitivity by remember { mutableStateOf(settings.miniPlayerSwipeSensitivity.toFloat()) }
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = CARD_BG,
-                title = { Text("Mini-player swipe sensitivity", fontWeight = FontWeight.Bold, color = Color.White) },
+                containerColor = MaterialTheme.colorScheme.surface,
+                title = { Text("Mini-player swipe sensitivity", fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column {
-                        Text("${tempSensitivity.roundToInt()}%", color = ACCENT_TAN, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text("${tempSensitivity.roundToInt()}%", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         Slider(
                             value = tempSensitivity,
                             onValueChange = { tempSensitivity = it },
                             valueRange = 10f..100f,
                             colors = SliderDefaults.colors(
-                                thumbColor = ACCENT_TAN,
-                                activeTrackColor = ACCENT_TAN,
-                                inactiveTrackColor = Color(0xFF38322B)
+                                thumbColor = primaryColor,
+                                activeTrackColor = primaryColor,
+                                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                         )
                     }
@@ -564,12 +488,12 @@ fun AppearanceScreen(
                         update { copy(miniPlayerSwipeSensitivity = tempSensitivity.roundToInt()) }
                         activeDialog = null
                     }) {
-                        Text("Save", color = ACCENT_TAN, fontWeight = FontWeight.Bold)
+                        Text("Save", color = primaryColor, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { activeDialog = null }) {
-                        Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                        Text("Cancel", color = onBackground.copy(alpha = 0.7f))
                     }
                 }
             )
@@ -674,14 +598,14 @@ private fun AppearanceSwitchItem(
     onCheckedChange: (Boolean) -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val surfaceColor = MaterialTheme.colorScheme.surface
     val onSurface = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = surfaceVariant,
+        color = surfaceColor,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -695,7 +619,7 @@ private fun AppearanceSwitchItem(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(surfaceColor),
+                    .background(primaryColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -731,30 +655,23 @@ private fun AppearanceSwitchItem(
             Switch(
                 checked = isChecked,
                 onCheckedChange = onCheckedChange,
-                thumbContent = {
-                    if (isChecked) {
+                thumbContent = if (isChecked) {
+                    {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(12.dp)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(12.dp)
                         )
                     }
-                },
+                } else null,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = primaryColor,
-                    checkedTrackColor = primaryColor.copy(alpha = 0.50f),
+                    checkedTrackColor = primaryColor.copy(alpha = 0.45f),
                     checkedBorderColor = primaryColor,
-                    uncheckedThumbColor = onSurfaceVariant.copy(alpha = 0.6f),
-                    uncheckedTrackColor = surfaceColor,
-                    uncheckedBorderColor = onSurfaceVariant.copy(alpha = 0.3f)
+                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
                 )
             )
         }
@@ -769,14 +686,14 @@ private fun AppearanceClickableItem(
     onClick: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val surfaceColor = MaterialTheme.colorScheme.surface
     val onSurface = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = surfaceVariant,
+        color = surfaceColor,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -790,7 +707,7 @@ private fun AppearanceClickableItem(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(surfaceColor),
+                    .background(primaryColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -830,12 +747,12 @@ private fun AppearanceOptionsDialog(
     onDismiss: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val surfaceColor = MaterialTheme.colorScheme.surface
     val onSurface = MaterialTheme.colorScheme.onSurface
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = surfaceVariant,
+        containerColor = surfaceColor,
         title = {
             Text(
                 text = title,
@@ -904,7 +821,7 @@ private fun PlayerSliderStyleChooserDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = CARD_BG,
+        containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(24.dp),
         text = {
             Column(
@@ -939,7 +856,7 @@ private fun PlayerSliderStyleChooserDialog(
             TextButton(onClick = onDismiss) {
                 Text(
                     text = "Cancel",
-                    color = ACCENT_TAN,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
@@ -955,11 +872,24 @@ private fun SliderStylePreviewCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val cardBg = if (isSelected) Color(0xFF2B241E) else Color(0xFF1E1A16)
-    val borderColor = if (isSelected) ACCENT_TAN else Color(0xFF38312A)
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val cardBg = if (isSelected) primaryColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+    val borderColor = if (isSelected) primaryColor else MaterialTheme.colorScheme.outlineVariant
     val borderWidth = if (isSelected) 2.dp else 1.dp
-    val activeTrackColor = ACCENT_TAN
-    val inactiveTrackColor = Color(0xFF534638)
+    val activeTrackColor = primaryColor
+    val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+
+    // Infinite wave phase animation for live moving preview
+    val infiniteTransition = rememberInfiniteTransition(label = "previewWaveTransition")
+    val wavePhaseFraction by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "previewWavePhase"
+    )
 
     Box(
         modifier = modifier
@@ -1054,6 +984,12 @@ private fun SliderStylePreviewCard(
                         val endX = width - 6.dp.toPx()
                         val thumbX = startX + (endX - startX) * 0.48f
                         val stroke = 2.5.dp.toPx()
+                        val wavelength = 16.dp.toPx()
+                        val amp = 3.5.dp.toPx()
+                        val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
+                        val totalSpan = (thumbX - startX).coerceAtLeast(1f)
+                        val endTransitionLength = (wavelength * 0.9f).coerceAtMost(totalSpan * 0.6f).coerceAtLeast(1f)
+                        val startY = centerY + sin(startAngle) * amp
 
                         // Inactive track
                         drawLine(
@@ -1070,18 +1006,20 @@ private fun SliderStylePreviewCard(
                             center = Offset(endX, centerY)
                         )
 
-                        // Active track (Smooth sine wave)
+                        // Active track (Smooth animated sine wave)
                         val wavePath = Path().apply {
-                            moveTo(startX, centerY)
+                            moveTo(startX, startY)
                             var x = startX
-                            val step = 1.5f
-                            val wavelength = 16.dp.toPx()
-                            val amp = 3.5.dp.toPx()
+                            val step = 1.0f
                             while (x <= thumbX) {
+                                val distFromStart = x - startX
                                 val distFromEnd = thumbX - x
-                                val taper = (distFromEnd / (wavelength * 0.4f)).coerceIn(0f, 1f)
-                                val angle = ((x - startX) / wavelength) * (2 * PI).toFloat()
-                                val y = centerY + sin(angle) * amp * taper
+                                val endEnvelope = if (distFromEnd < endTransitionLength) {
+                                    val v = (distFromEnd / endTransitionLength).coerceIn(0f, 1f)
+                                    0.5f * (1f - kotlin.math.cos(v * PI.toFloat()))
+                                } else 1.0f
+                                val angle = (distFromStart / wavelength) * (2 * PI).toFloat() + startAngle
+                                val y = centerY + sin(angle) * amp * endEnvelope
                                 lineTo(x, y)
                                 x += step
                             }
@@ -1132,11 +1070,22 @@ private fun SliderStylePreviewCard(
                         val endX = width - 6.dp.toPx()
                         val thumbX = startX + (endX - startX) * 0.48f
                         val stroke = 2.5.dp.toPx()
+                        val pillW = 4.dp.toPx()
+                        val pillH = 16.dp.toPx()
+                        val pillR = pillW / 2f
+                        val waveEndX = thumbX - stroke / 2f
+                        val inactiveStartX = thumbX + stroke / 2f
+                        val wavelength = 10.dp.toPx()
+                        val amp = 3.5.dp.toPx()
+                        val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
+                        val totalSpan = (waveEndX - startX).coerceAtLeast(1f)
+                        val endTransitionLength = (wavelength * 0.9f).coerceAtMost(totalSpan * 0.6f).coerceAtLeast(1f)
+                        val startY = centerY + sin(startAngle) * amp
 
                         // Inactive track
                         drawLine(
                             color = inactiveTrackColor,
-                            start = Offset(thumbX, centerY),
+                            start = Offset(inactiveStartX, centerY),
                             end = Offset(endX, centerY),
                             strokeWidth = stroke,
                             cap = StrokeCap.Round
@@ -1148,22 +1097,24 @@ private fun SliderStylePreviewCard(
                             center = Offset(endX, centerY)
                         )
 
-                        // Active track (Squiggly wave)
+                        // Active track (Smooth animated squiggly wave)
                         val wavePath = Path().apply {
-                            moveTo(startX, centerY)
+                            moveTo(startX, startY)
                             var x = startX
-                            val step = 1.5f
-                            val wavelength = 10.dp.toPx()
-                            val amp = 3.5.dp.toPx()
-                            while (x <= thumbX) {
-                                val distFromEnd = thumbX - x
-                                val taper = (distFromEnd / (wavelength * 0.4f)).coerceIn(0f, 1f)
-                                val angle = ((x - startX) / wavelength) * (2 * PI).toFloat()
-                                val y = centerY + sin(angle) * amp * taper
+                            val step = 1.0f
+                            while (x <= waveEndX) {
+                                val distFromStart = x - startX
+                                val distFromEnd = waveEndX - x
+                                val endEnvelope = if (distFromEnd < endTransitionLength) {
+                                    val v = (distFromEnd / endTransitionLength).coerceIn(0f, 1f)
+                                    0.5f * (1f - kotlin.math.cos(v * PI.toFloat()))
+                                } else 1.0f
+                                val angle = (distFromStart / wavelength) * (2 * PI).toFloat() + startAngle
+                                val y = centerY + sin(angle) * amp * endEnvelope
                                 lineTo(x, y)
                                 x += step
                             }
-                            lineTo(thumbX, centerY)
+                            lineTo(waveEndX, centerY)
                         }
                         drawPath(
                             path = wavePath,
@@ -1174,10 +1125,7 @@ private fun SliderStylePreviewCard(
                                 join = StrokeJoin.Round
                             )
                         )
-                        // Pill Thumb
-                        val pillW = 2.5.dp.toPx()
-                        val pillH = 16.dp.toPx()
-                        val pillR = pillW / 2f
+                        // Pill Thumb (Rendered on top)
                         drawRoundRect(
                             color = activeTrackColor,
                             topLeft = Offset(thumbX - pillR, centerY - pillH / 2f),

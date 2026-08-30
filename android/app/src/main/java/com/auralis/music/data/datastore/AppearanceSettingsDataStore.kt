@@ -42,6 +42,7 @@ class AppearanceSettingsDataStore(
         val CROP_ALBUM_ART = booleanPreferencesKey("crop_album_art")
         val PLAYER_BUTTON_COLORS = stringPreferencesKey("player_button_colors")
         val PLAYER_SLIDER_STYLE = stringPreferencesKey("player_slider_style")
+        val SHOW_DOWNLOAD_BUTTON = booleanPreferencesKey("show_download_button")
         val ENABLE_SWIPE_TO_CHANGE_SONG = booleanPreferencesKey("enable_swipe_to_change_song")
         val MINI_PLAYER_SWIPE_SENSITIVITY = intPreferencesKey("mini_player_swipe_sensitivity")
 
@@ -89,7 +90,7 @@ class AppearanceSettingsDataStore(
                 colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic (Material You)",
 
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
-                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Gradient",
+                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
                 playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Follow theme",
@@ -102,6 +103,7 @@ class AppearanceSettingsDataStore(
                     "Wavy", "Neon Glow" -> "Wavy"
                     else -> "Default"
                 },
+                showDownloadButton = preferences[SHOW_DOWNLOAD_BUTTON] ?: true,
                 enableSwipeToChangeSong = preferences[ENABLE_SWIPE_TO_CHANGE_SONG] ?: true,
                 miniPlayerSwipeSensitivity = preferences[MINI_PLAYER_SWIPE_SENSITIVITY] ?: 73,
 
@@ -147,6 +149,7 @@ class AppearanceSettingsDataStore(
             preferences[CROP_ALBUM_ART] = settings.cropAlbumArt
             preferences[PLAYER_BUTTON_COLORS] = settings.playerButtonColors
             preferences[PLAYER_SLIDER_STYLE] = settings.playerSliderStyle
+            preferences[SHOW_DOWNLOAD_BUTTON] = settings.showDownloadButton
             preferences[ENABLE_SWIPE_TO_CHANGE_SONG] = settings.enableSwipeToChangeSong
             preferences[MINI_PLAYER_SWIPE_SENSITIVITY] = settings.miniPlayerSwipeSensitivity
 

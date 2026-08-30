@@ -36,6 +36,7 @@ data class LibraryUiState(
     val selectedFilter: LibraryFilter = LibraryFilter.PLAYLISTS,
     val playlists: List<Playlist> = emptyList(),
     val favorites: List<Track> = emptyList(),
+    val downloadedTracks: List<Track> = emptyList(),
     val savedArtists: List<SavedArtist> = emptyList(),
     val savedAlbums: List<SavedAlbum> = emptyList(),
     val top50Tracks: List<Track> = emptyList(),
@@ -72,6 +73,25 @@ class LibraryViewModel(
         viewModelScope.launch {
             libraryRepository.getFavoriteTracks().collect { favs ->
                 _uiState.update { it.copy(favorites = favs) }
+            }
+        }
+
+        // Collect downloaded tracks
+        viewModelScope.launch {
+            com.auralis.music.data.download.AuralisDownloadManager.downloadedTracks.collect { downloaded ->
+                _uiState.update { state ->
+                    val updated = state.copy(downloadedTracks = downloaded)
+                    if (state.selectedSmartCollection == SmartCollectionType.DOWNLOADED) {
+                        updated.copy(
+                            selectedPlaylist = Playlist(
+                                id = "smart_downloaded",
+                                title = "Downloaded",
+                                description = "${downloaded.size} offline songs",
+                                tracks = downloaded
+                            )
+                        )
+                    } else updated
+                }
             }
         }
 
@@ -178,8 +198,8 @@ class LibraryViewModel(
             SmartCollectionType.DOWNLOADED -> Playlist(
                 id = "smart_downloaded",
                 title = "Downloaded",
-                description = "Offline available music",
-                tracks = _uiState.value.favorites.take(15)
+                description = "${_uiState.value.downloadedTracks.size} offline songs",
+                tracks = _uiState.value.downloadedTracks
             )
             SmartCollectionType.CACHED -> Playlist(
                 id = "smart_cached",
@@ -244,9 +264,30 @@ class LibraryViewModel(
     }
 
     fun syncPlaylist(playlist: Playlist, onComplete: ((Int) -> Unit)? = null) {
-        _uiState.update { it.copy(isImporting = true, importMessage = "Syncing '${playlist.title}' with YouTube Music...") }
+        val isSpotify = playlist.id.startsWith("sp_") || playlist.tracks.any { it.id.startsWith("sp_") || it.thumbnail.contains("mosaic.scdn.co") || it.thumbnail.contains("image-cdn") }
+        _uiState.update { it.copy(isImporting = true, importMessage = if (isSpotify) "Matching songs to verified YouTube tracks..." else "Syncing '${playlist.title}' with YouTube Music...") }
         viewModelScope.launch {
             try {
+                if (isSpotify && playlist.tracks.isNotEmpty()) {
+                    val enriched = spotifyImporter.enrichTracksWithYouTubeData(
+                        tracks = playlist.tracks,
+                        onProgress = { progressText ->
+                            _uiState.update { it.copy(importMessage = progressText) }
+                        }
+                    )
+                    libraryRepository.replacePlaylistTracks(playlist.id, enriched)
+                    val updatedPlaylist = playlist.copy(tracks = enriched)
+                    _uiState.update {
+                        it.copy(
+                            isImporting = false,
+                            importMessage = "Successfully matched ${enriched.size} songs for '${playlist.title}'!",
+                            selectedPlaylist = if (it.selectedPlaylist?.id == playlist.id) updatedPlaylist else it.selectedPlaylist
+                        )
+                    }
+                    onComplete?.invoke(enriched.size)
+                    return@launch
+                }
+
                 val queryOrId = playlist.id.ifBlank { playlist.title }
                 val imported = youtubeImporter.importPlaylist(queryOrId) ?: youtubeImporter.importPlaylist(playlist.title)
                 if (imported != null && imported.tracks.isNotEmpty()) {
@@ -279,12 +320,13 @@ class LibraryViewModel(
                         importMessage = "Sync failed: ${e.localizedMessage}"
                     )
                 }
-                onComplete?.invoke(-1)
+                onComplete?.invoke(playlist.tracks.size)
             }
         }
     }
 
     fun deletePlaylist(playlistId: String) {
+        if (playlistId.startsWith("smart_")) return
         viewModelScope.launch {
             libraryRepository.deletePlaylist(playlistId)
             if (_uiState.value.selectedPlaylist?.id == playlistId) {
@@ -385,6 +427,7 @@ class LibraryViewModel(
                     }
                 )
                 if (imported != null && (imported.tracks.isNotEmpty() || imported.title.isNotBlank())) {
+                    // 1. Immediately create the playlist in Room DB so user has 0ms wait time
                     val playlist = libraryRepository.createPlaylist(
                         title = imported.title,
                         description = imported.description
@@ -398,16 +441,35 @@ class LibraryViewModel(
                         )
                     }
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
-                    val successMsg = "Imported '${imported.title}' (${imported.tracks.size} songs from Spotify)"
+                    val successMsg = "Imported '${imported.title}' (${imported.tracks.size} songs)"
                     android.util.Log.i("SpotifyImporter", successMsg)
                     _uiState.update {
                         it.copy(
                             isImportingSpotify = false,
-                            spotifyImportMessage = successMsg,
-                            importMessage = successMsg
+                            spotifyImportMessage = successMsg
                         )
                     }
                     onComplete?.invoke(true, successMsg)
+
+                    // 2. High-speed parallel audio matching in the background
+                    if (imported.tracks.isNotEmpty()) {
+                        launch(Dispatchers.IO) {
+                            try {
+                                val enrichedTracks = spotifyImporter.enrichTracksWithYouTubeData(
+                                    tracks = imported.tracks,
+                                    onProgress = { progressText ->
+                                        _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                                    }
+                                )
+                                libraryRepository.replacePlaylistTracks(playlist.id, enrichedTracks)
+                                _uiState.update {
+                                    it.copy(spotifyImportMessage = "All ${enrichedTracks.size} songs in '${imported.title}' matched with official audio!")
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("SpotifyImporter", "Background enrichment failed: ${e.message}")
+                            }
+                        }
+                    }
                 } else {
                     val errorMsg = "Could not parse Spotify playlist. Please check the link."
                     android.util.Log.e("SpotifyImporter", "Import returned null for: '$trimmed'")

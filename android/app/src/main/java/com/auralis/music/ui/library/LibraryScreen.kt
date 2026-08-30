@@ -254,6 +254,8 @@ fun LibraryScreen(
                 onSyncPlaylist = onSyncPlaylist,
                 onEditPlaylist = onEditPlaylist,
                 onAddToQueue = onAddToQueue,
+                onPlayNextTrack = onPlayNext,
+                onAddToQueueTrack = onAddToQueueTrack,
                 onMenuClick = { track -> selectedTrackForMenu = track }
             )
 
@@ -314,7 +316,7 @@ fun LibraryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -326,7 +328,10 @@ fun LibraryScreen(
                     fontSize = 24.sp
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     IconButton(
                         onClick = onOpenHistory,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
@@ -511,7 +516,20 @@ fun LibraryScreen(
                                 }
                             }
 
-                            // 2. Top Most Played Playlist
+                            // 2. Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
+                            if (appearance.showDownloadedPlaylist && uiState.downloadedTracks.isNotEmpty()) {
+                                item {
+                                    SmartLibraryCard(
+                                        title = "Downloaded",
+                                        subtitle = "${uiState.downloadedTracks.size} songs",
+                                        icon = Icons.Default.DownloadDone,
+                                        tracks = uiState.downloadedTracks,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) }
+                                    )
+                                }
+                            }
+
+                            // 3. Top Most Played Playlist
                             if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
                                 item {
                                     SmartLibraryCard(
@@ -524,7 +542,7 @@ fun LibraryScreen(
                                 }
                             }
 
-                            // 3. Cached Playlist
+                            // 4. Cached Playlist
                             if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
                                 item {
                                     SmartLibraryCard(
@@ -570,6 +588,19 @@ fun LibraryScreen(
                                 }
                             }
 
+                            // Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
+                            if (appearance.showDownloadedPlaylist && uiState.downloadedTracks.isNotEmpty()) {
+                                item {
+                                    SmartLibraryListRow(
+                                        title = "Downloaded",
+                                        subtitle = "${uiState.downloadedTracks.size} songs",
+                                        icon = Icons.Default.DownloadDone,
+                                        tracks = uiState.downloadedTracks,
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) }
+                                    )
+                                }
+                            }
+
                             if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
                                 item {
                                     SmartLibraryListRow(
@@ -595,7 +626,11 @@ fun LibraryScreen(
                             }
                         }
 
-                        items(displayedPlaylists, key = { it.id }) { playlist ->
+                        items(
+                            items = displayedPlaylists,
+                            key = { it.id },
+                            contentType = { "playlist" }
+                        ) { playlist ->
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                 UserPlaylistListRow(
                                     playlist = playlist,
@@ -1089,6 +1124,8 @@ private fun PlaylistDetailView(
     onSyncPlaylist: ((Playlist) -> Unit)? = null,
     onEditPlaylist: ((String, String, String?, String?) -> Unit)? = null,
     onAddToQueue: ((List<Track>) -> Unit)? = null,
+    onPlayNextTrack: ((Track) -> Unit)? = null,
+    onAddToQueueTrack: ((Track) -> Unit)? = null,
     onMenuClick: (Track) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1458,7 +1495,7 @@ private fun PlaylistDetailView(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(20.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
 
                         // Large Play Button
                         Box(
@@ -1481,7 +1518,33 @@ private fun PlaylistDetailView(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(20.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        // Download Playlist Button (Only for playlists other than Downloaded)
+                        if (playlist.id != "smart_downloaded") {
+                            val allDownloaded = displayedTracks.isNotEmpty() && displayedTracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF22251B))
+                                    .clickable {
+                                        if (displayedTracks.isNotEmpty()) {
+                                            com.auralis.music.data.download.AuralisDownloadManager.downloadPlaylist(displayedTracks, playlist.title)
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (allDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                                    contentDescription = "Download Playlist",
+                                    tint = if (allDownloaded) LIME_TEXT else Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp))
+                        }
 
                         // 3-Dots Options Button
                         Box(
@@ -1591,75 +1654,83 @@ private fun PlaylistDetailView(
             // ================================================================
             // 4. TRACKS LIST (Matching Photo 2)
             // ================================================================
-            itemsIndexed(displayedTracks, key = { idx, t -> "${t.id}_$idx" }) { index, track ->
+            itemsIndexed(
+                items = displayedTracks,
+                key = { idx, t -> t.id.ifEmpty { "$idx" } },
+                contentType = { _, _ -> "song" }
+            ) { index, track ->
                 val isCurrent = track.id == currentTrackId
                 val trackMin = track.duration / 60
                 val trackSec = track.duration % 60
-                val trackDurationStr = String.format("%d:%02d", trackMin, trackSec)
+                val trackDurationStr = "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec"
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(
-                            onClick = { onPlayTrack(track, displayedTracks) },
-                            onLongClick = { onMenuClick(track) }
-                        )
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                com.auralis.music.ui.components.SwipeableTrackContainer(
+                    onPlayNext = { onPlayNextTrack?.invoke(track) },
+                    onAddToQueue = { onAddToQueueTrack?.invoke(track) },
+                    onRemoveFromPlaylist = { onRemoveTrack(track.id) },
+                    isPlaylistContext = true,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                 ) {
-                    ArtworkCard(
-                        url = track.thumbnail,
-                        modifier = Modifier.size(48.dp),
-                        cornerRadius = 8.dp,
-                        contentDescription = track.title
-                    )
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isCurrent) LIME_TEXT else Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onPlayTrack(track, displayedTracks) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ArtworkCard(
+                            url = track.thumbnail,
+                            modifier = Modifier.size(48.dp),
+                            cornerRadius = 8.dp,
+                            contentDescription = track.title
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val subtitleText = if (track.duration > 0 && track.duration != 210L) {
-                                "${track.artist} • $trackDurationStr"
-                            } else {
-                                track.artist
-                            }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = subtitleText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = track.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isCurrent) LIME_TEXT else Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val subtitleText = if (track.duration > 0 && track.duration != 210L) {
+                                    "${track.artist} • $trackDurationStr"
+                                } else {
+                                    track.artist
+                                }
+                                Text(
+                                    text = subtitleText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
-                    }
 
-                    if (isCurrent) {
-                        EqualizerBars(
-                            isPlaying = isPlaying,
-                            modifier = Modifier.size(18.dp),
-                            color = LIME_TEXT
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
+                        if (isCurrent) {
+                            EqualizerBars(
+                                isPlaying = isPlaying,
+                                modifier = Modifier.size(18.dp),
+                                color = LIME_TEXT
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
 
-                    IconButton(onClick = { onMenuClick(track) }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        IconButton(onClick = { onMenuClick(track) }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -1691,18 +1762,22 @@ private fun PlaylistDetailView(
                     .padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Option 1: Edit
-                PlaylistActionRow(
-                    icon = Icons.Default.Edit,
-                    title = "Edit",
-                    subtitle = "Edit playlist",
-                    onClick = {
-                        showOptionsMenu = false
-                        editTitle = playlist.title
-                        editDesc = playlist.description ?: ""
-                        showEditDialog = true
-                    }
-                )
+                val isSmartPlaylist = playlist.id.startsWith("smart_")
+
+                // Option 1: Edit (Only for user playlists)
+                if (!isSmartPlaylist) {
+                    PlaylistActionRow(
+                        icon = Icons.Default.Edit,
+                        title = "Edit",
+                        subtitle = "Edit playlist",
+                        onClick = {
+                            showOptionsMenu = false
+                            editTitle = playlist.title
+                            editDesc = playlist.description ?: ""
+                            showEditDialog = true
+                        }
+                    )
+                }
 
                 // Option 2: Add to queue
                 PlaylistActionRow(
@@ -1716,14 +1791,29 @@ private fun PlaylistDetailView(
                     }
                 )
 
-                // Option 4: Download
+                // Option 4: Download (Only for non-downloaded playlists)
+                if (playlist.id != "smart_downloaded") {
+                    val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+                    PlaylistActionRow(
+                        icon = if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                        title = if (isAllDownloaded) "Downloaded" else "Download playlist",
+                        subtitle = if (isAllDownloaded) "All ${playlist.tracks.size} songs are available offline" else "Download all songs for offline playback",
+                        onClick = {
+                            showOptionsMenu = false
+                            com.auralis.music.data.download.AuralisDownloadManager.downloadPlaylist(playlist.tracks, playlist.title)
+                        }
+                    )
+                }
+
+                // Option 4.5: Sync / Match Tracks
                 PlaylistActionRow(
-                    icon = Icons.Default.DownloadDone,
-                    title = "Download",
-                    subtitle = "Download all songs for offline playback",
+                    icon = Icons.Default.Sync,
+                    title = "Sync / Match Songs",
+                    subtitle = "Match songs to verified YouTube tracks",
                     onClick = {
                         showOptionsMenu = false
-                        Toast.makeText(context, "Downloading playlist for offline playback...", Toast.LENGTH_SHORT).show()
+                        onSyncPlaylist?.invoke(playlist)
+                        android.widget.Toast.makeText(context, "Matching tracks to official audio...", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 )
 
@@ -1737,7 +1827,10 @@ private fun PlaylistDetailView(
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, playlist.title)
-                            putExtra(Intent.EXTRA_TEXT, "Listen to '${playlist.title}' on Auralis Music: ${playlist.tracks.size} songs")
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Listen to '${playlist.title}' on Auralis Music (${playlist.tracks.size} songs)\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                            )
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Share Playlist"))
                     }
@@ -1754,16 +1847,18 @@ private fun PlaylistDetailView(
                     }
                 )
 
-                // Option 7: Delete
-                PlaylistActionRow(
-                    icon = Icons.Default.Delete,
-                    title = "Delete",
-                    subtitle = "Remove this playlist permanently",
-                    onClick = {
-                        showOptionsMenu = false
-                        showDeleteConfirm = true
-                    }
-                )
+                // Option 7: Delete (NEVER show for smart playlists or downloaded playlist)
+                if (!isSmartPlaylist) {
+                    PlaylistActionRow(
+                        icon = Icons.Default.Delete,
+                        title = "Delete",
+                        subtitle = "Remove this playlist permanently",
+                        onClick = {
+                            showOptionsMenu = false
+                            showDeleteConfirm = true
+                        }
+                    )
+                }
             }
         }
     }

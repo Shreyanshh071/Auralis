@@ -2,6 +2,7 @@ package com.auralis.music.domain.model
 
 enum class LyricsProvider {
     AMLL,
+    BETTER_LYRICS,
     LRCLIB,
     KUGOU,
     JIOSAAVN,

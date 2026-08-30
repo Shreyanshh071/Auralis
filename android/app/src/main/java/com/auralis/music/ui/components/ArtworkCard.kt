@@ -1,5 +1,6 @@
 package com.auralis.music.ui.components
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -7,53 +8,54 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
+import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.theme.LocalReducedMotion
 
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import com.auralis.music.data.network.ArtworkResolver
-import com.auralis.music.domain.model.Track
-import com.auralis.music.util.MasterArtworkResolver
+private val GOOGLE_W_REGEX = Regex("""=w\d+-h\d+.*""")
+private val GOOGLE_S_REGEX = Regex("""=s\d+.*""")
+private val MZSTATIC_REGEX = Regex("""\d+x\d+bb""")
 
 /**
- * Upgrades thumbnail URLs to uncompressed studio master 1200x1200 HD / 720p artwork,
- * eliminating letterbox bars and low-res artifacts completely.
+ * Optimizes thumbnail URLs to crisp, hardware-accelerated 544x544/720p HD artwork,
+ * avoiding memory bloat and maximizing scroll framerates.
  */
 fun getHighResArtworkUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
     var cleaned = url.trim()
     if (cleaned.startsWith("//")) cleaned = "https:$cleaned"
 
-    // YouTube Music & Google User Content (yt3.googleusercontent.com, lh3.googleusercontent.com, ggpht.com):
-    // Upgrade from low-res thumbnail dimensions (=w60, =w120, =w544, =s120) to full studio 1200x1200 uncompressed album art
+    // YouTube Music & Google User Content:
     if (cleaned.contains("googleusercontent.com") || cleaned.contains("ggpht.com")) {
-        cleaned = cleaned.replace(Regex("""=w\d+-h\d+.*"""), "=w1200-h1200-l90-rj")
-            .replace(Regex("""=s\d+.*"""), "=s1200-c")
+        cleaned = cleaned.replace(GOOGLE_W_REGEX, "=w600-h600-l90-rj")
+            .replace(GOOGLE_S_REGEX, "=s600-c")
     }
-    // YouTube video thumbnail: upgrade 480x360 hqdefault to 1280x720 HD hq720
+    // YouTube video thumbnail:
     if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com")) {
-        cleaned = cleaned.replace("hqdefault.jpg", "hq720.jpg")
+        val noQuery = cleaned.substringBefore('?')
+        cleaned = noQuery.replace("hqdefault.jpg", "hq720.jpg")
             .replace("mqdefault.jpg", "hq720.jpg")
             .replace("sddefault.jpg", "hq720.jpg")
             .replace("default.jpg", "hq720.jpg")
     }
-    // iTunes / Apple Music artwork: 100x100bb -> 1400x1400bb
+    // iTunes / Apple Music artwork:
     if (cleaned.contains("mzstatic.com")) {
-        cleaned = cleaned.replace(Regex("""\d+x\d+bb"""), "1400x1400bb")
+        cleaned = cleaned.replace(MZSTATIC_REGEX, "600x600bb")
     }
     // Spotify artwork:
     if (cleaned.contains("i.scdn.co/image/ab67616d00004851") || cleaned.contains("i.scdn.co/image/ab67616d00001e02")) {
@@ -64,49 +66,65 @@ fun getHighResArtworkUrl(url: String?): String? {
 }
 
 @Composable
+fun rememberShimmerBrush(
+    targetValue: Float = 1400f
+): Brush {
+    val transition = rememberInfiniteTransition(label = "shimmerTransition")
+    val translateAnimation = transition.animateFloat(
+        initialValue = -500f,
+        targetValue = targetValue,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 550, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerTranslate"
+    )
+
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val shimmerColors = if (isDark) {
+        listOf(
+            Color(0xFF16151B),
+            Color(0xFF262532),
+            Color(0xFF3D3C4E),
+            Color(0xFF262532),
+            Color(0xFF16151B)
+        )
+    } else {
+        listOf(
+            Color(0xFFE2E4E9),
+            Color(0xFFF1F2F6),
+            Color(0xFFFFFFFF),
+            Color(0xFFF1F2F6),
+            Color(0xFFE2E4E9)
+        )
+    }
+
+    return Brush.linearGradient(
+        colors = shimmerColors,
+        start = Offset(translateAnimation.value, 0f),
+        end = Offset(translateAnimation.value + 400f, 0f)
+    )
+}
+
+@Composable
 fun ArtworkCard(
     url: String?,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
-    elevation: Dp = 4.dp,
+    elevation: Dp = 0.dp,
     contentDescription: String? = null,
     fallbackTrack: Track? = null,
     contentScale: ContentScale = ContentScale.Crop
 ) {
-    var effectiveUrl by remember(url) { mutableStateOf(url) }
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val shimmerBrush = rememberShimmerBrush()
+    var isImageLoaded by remember(url) { mutableStateOf(false) }
 
-    // Auto-resolve missing or video-still artwork on the fly
-    LaunchedEffect(url, fallbackTrack?.id) {
-        val targetTrack = fallbackTrack
-        if (targetTrack != null) {
-            val cached = ArtworkResolver.getArtwork(targetTrack)
-            if (!cached.isNullOrBlank()) {
-                effectiveUrl = cached
-            } else if (url.isNullOrBlank() || url.contains("i.ytimg.com") || url.contains("img.youtube.com")) {
-                val master = MasterArtworkResolver.resolveMasterArtworkUrl(
-                    targetTrack.title,
-                    targetTrack.artist,
-                    url
-                )
-                if (!master.isNullOrBlank()) {
-                    effectiveUrl = master
-                    ArtworkResolver.cacheArtwork(targetTrack, master)
-                } else {
-                    effectiveUrl = url
-                }
-            } else {
-                effectiveUrl = url
-            }
-        } else {
-            effectiveUrl = url
-        }
-    }
-
-    if (effectiveUrl.isNullOrBlank()) {
+    if (url.isNullOrBlank()) {
         Box(
             modifier = modifier
-                .shadow(elevation, RoundedCornerShape(cornerRadius))
-                .clip(RoundedCornerShape(cornerRadius))
+                .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape) else Modifier)
+                .clip(shape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
@@ -120,37 +138,30 @@ fun ArtworkCard(
     }
 
     val context = LocalContext.current
-    val reducedMotion = LocalReducedMotion.current
+    val highRes = remember(url) { getHighResArtworkUrl(url) }
 
-    val highRes = getHighResArtworkUrl(effectiveUrl)
-    var imageModel by remember(effectiveUrl) { mutableStateOf<Any?>(highRes ?: effectiveUrl) }
-
-    val request = remember(imageModel, reducedMotion) {
+    val request = remember(highRes, url) {
         ImageRequest.Builder(context)
-            .data(imageModel)
-            .listener(
-                onError = { _, _ ->
-                    // Graceful failover: if upgraded high-res 404s, revert to original URL
-                    if (imageModel == highRes && highRes != effectiveUrl && !effectiveUrl.isNullOrBlank()) {
-                        imageModel = effectiveUrl
-                    }
-                }
-            )
-            .crossfade(!reducedMotion)
+            .data(highRes ?: url)
+            .crossfade(200)
             .build()
     }
 
     Box(
         modifier = modifier
-            .shadow(elevation, RoundedCornerShape(cornerRadius))
-            .clip(RoundedCornerShape(cornerRadius))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape) else Modifier)
+            .clip(shape)
+            .background(if (isImageLoaded) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant)
+            .then(if (!isImageLoaded) Modifier.background(shimmerBrush) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
             model = request,
             contentDescription = contentDescription,
             contentScale = contentScale,
+            onState = { state ->
+                isImageLoaded = state is AsyncImagePainter.State.Success
+            },
             modifier = Modifier.fillMaxSize()
         )
     }

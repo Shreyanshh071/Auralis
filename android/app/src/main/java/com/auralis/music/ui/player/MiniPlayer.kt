@@ -7,11 +7,20 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -88,10 +97,10 @@ val MiniPlayerHeight: Dp = 68.dp
  */
 fun normalizeMiniPlayerTheme(style: String): String {
     return when (style.trim().lowercase()) {
+        "gradient", "vibrant gradient", "horizontal gradient" -> "Gradient"
         "apple liquid glass", "liquid glass", "apple glass", "glass" -> "Apple Liquid Glass"
-        "blur", "frosted glass / blur", "frosted glass", "dynamic blurred artwork" -> "Blur"
         "dark black", "pure black", "black", "amoled black", "solid amoled black" -> "Dark Black"
-        else -> "Gradient"
+        else -> "Blur"
     }
 }
 
@@ -125,7 +134,8 @@ private fun tuneColorForGradient(baseColor: Color, targetValue: Float, satMultip
 fun MiniPlayer(
     track: Track?,
     isPlaying: Boolean,
-    progress: Float, // 0.0f to 1.0f
+    progress: Float = 0f, // 0.0f to 1.0f
+    progressProvider: (() -> Float)? = null,
     queue: List<Track> = emptyList(),
     currentIndex: Int = 0,
     isFavorite: Boolean = false,
@@ -148,9 +158,13 @@ fun MiniPlayer(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    val sensitivityRatio = (appearance.miniPlayerSwipeSensitivity / 100f).coerceIn(0.10f, 1.0f)
+
     val dismissOffsetY = remember { Animatable(0f) }
     var isDismissing by remember { mutableStateOf(false) }
-    val dismissThresholdPx = with(density) { 50.dp.toPx() }
+    val dismissThresholdPx = with(density) { (75.dp * (1.15f - sensitivityRatio * 0.65f)).toPx() }
+    val dismissVelocityThreshold = 1400f * (1.15f - sensitivityRatio * 0.65f)
 
     val dragModifier = if (onClose != null && !isDismissing) {
         Modifier.draggable(
@@ -166,7 +180,7 @@ fun MiniPlayer(
             orientation = Orientation.Vertical,
             onDragStopped = { velocity ->
                 if (!isDismissing) {
-                    if (dismissOffsetY.value > dismissThresholdPx || velocity > 800f) {
+                    if (dismissOffsetY.value > dismissThresholdPx || velocity > dismissVelocityThreshold) {
                         isDismissing = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         coroutineScope.launch {
@@ -194,11 +208,7 @@ fun MiniPlayer(
         )
     } else Modifier
 
-    val animatedProgress = animateFloatAsState(
-        targetValue = progress.coerceIn(0f, 1f),
-        animationSpec = motionTween(AuralisDuration.ProgressTick, AuralisEasing.Linear),
-        label = "miniPlayerProgress"
-    )
+    val effectiveProgressProvider = progressProvider ?: { progress }
 
     val queueTracks = remember(track, queue) {
         if (queue.isNotEmpty()) {
@@ -281,7 +291,6 @@ fun MiniPlayer(
         }
     }
 
-    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val isLightMode = appearance.appTheme == "Light Mode"
 
     // Active Mini-Player Visual Theme (Gradient, Apple Liquid Glass, Blur, Dark Black)
@@ -289,11 +298,7 @@ fun MiniPlayer(
         normalizeMiniPlayerTheme(appearance.miniPlayerBackgroundStyle)
     }
 
-    // Compact floating pill shape
-    val pillShape = RoundedCornerShape(30.dp)
-
-    // Derived Gradient Stops matching user's reference image:
-    // Left: Deep moody background -> Center: Saturated mid-tone -> Right: Electric luminous vibrant accent!
+    // Derived Gradient Stops from artwork palette:
     val gradLeft = remember(extractedColors.primary) {
         tuneColorForGradient(extractedColors.primary, targetValue = 0.16f, satMultiplier = 0.90f)
     }
@@ -308,11 +313,6 @@ fun MiniPlayer(
     }
 
     // Smooth animated color transitions when track changes
-    val animPrimary by animateColorAsState(
-        targetValue = extractedColors.primary,
-        animationSpec = tween(durationMillis = 400),
-        label = "miniPlayerPrimary"
-    )
     val animGradLeft by animateColorAsState(
         targetValue = gradLeft,
         animationSpec = tween(durationMillis = 400),
@@ -334,33 +334,26 @@ fun MiniPlayer(
         label = "miniGradEnd"
     )
 
-    // Theme-specific elevation, border, and shadow configuration
     val elevation: Dp = when (activeTheme) {
-        "Blur" -> 12.dp
-        "Dark Black" -> 10.dp
+        "Blur" -> 16.dp
+        "Dark Black" -> 12.dp
         "Apple Liquid Glass" -> 18.dp
         else -> 16.dp // Gradient
     }
 
     val spotShadowColor: Color = when (activeTheme) {
-        "Gradient" -> animGradRight.copy(alpha = 0.70f)
-        "Apple Liquid Glass" -> Color(0xFFE8F0FE).copy(alpha = 0.35f)
+        "Gradient" -> animGradRight.copy(alpha = 0.65f)
+        "Apple Liquid Glass" -> Color(0xFFE8F0FE).copy(alpha = 0.30f)
         else -> Color.Black.copy(alpha = 0.50f)
     }
 
     val ambientShadowColor: Color = when (activeTheme) {
-        "Apple Liquid Glass" -> Color.Black.copy(alpha = 0.45f)
-        else -> Color.Black.copy(alpha = 0.25f)
+        "Apple Liquid Glass" -> Color.Black.copy(alpha = 0.40f)
+        else -> Color.Black.copy(alpha = 0.30f)
     }
 
-    // Typography and Icon colors tailored for optimal contrast per theme
-    val titleTextColor: Color = Color.White
-    val artistTextColor: Color = if (activeTheme == "Apple Liquid Glass") Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.78f)
-
-    // Black circular button discs with pure white icons for maximum punchy contrast
-    val actionButtonTint: Color = Color.White
-    val actionButtonBackground: Color = Color.Black.copy(alpha = 0.45f)
-
+    // Compact floating pill shape matching Photo 2
+    val pillShape = RoundedCornerShape(32.dp)
     val favoriteEnter = auralisIconSwapEnter()
     val favoriteExit = auralisIconSwapExit()
 
@@ -378,7 +371,7 @@ fun MiniPlayer(
             }
             .then(dragModifier)
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 4.dp)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
             .shadow(
                 elevation = elevation,
                 shape = pillShape,
@@ -386,10 +379,11 @@ fun MiniPlayer(
                 spotColor = spotShadowColor
             )
             .clip(pillShape)
+            .background(Color(0xFF141512))
             .then(
                 when (activeTheme) {
                     "Gradient" -> Modifier.border(
-                        width = 1.3.dp,
+                        width = 1.2.dp,
                         brush = Brush.horizontalGradient(
                             colors = listOf(
                                 animGradLeft.copy(alpha = 0.70f),
@@ -401,9 +395,9 @@ fun MiniPlayer(
                         shape = pillShape
                     )
                     "Apple Liquid Glass" -> Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), pillShape)
-                    "Blur" -> Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), pillShape)
-                    "Dark Black" -> Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), pillShape)
-                    else -> Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
+                    "Blur" -> Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), pillShape)
+                    "Dark Black" -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
+                    else -> Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), pillShape)
                 }
             )
     ) {
@@ -411,8 +405,41 @@ fun MiniPlayer(
         // 1. SELECTABLE THEME BACKGROUND SURFACE INSIDE THE FLOATING PILL
         // ────────────────────────────────────────────────────────────────────
         when (activeTheme) {
+            "Blur" -> {
+                // Persistent solid dark surface base so pill never flashes transparent while next song loads
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color(0xFF161714))
+                )
+                // Directly blur the album cover image
+                if (!currentTrack?.thumbnail.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(getHighResArtworkUrl(currentTrack?.thumbnail))
+                            .crossfade(200)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .graphicsLayer {
+                                scaleX = 1.25f
+                                scaleY = 1.25f
+                            }
+                            .blur(radius = 20.dp)
+                    )
+                }
+                // Subtle uniform dark scrim so white text remains perfectly legible (NO gradient!)
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.28f))
+                )
+            }
+
             "Gradient" -> {
-                // 1. Rich solid horizontal gradient flowing from deep moody left to electric vibrant right
+                // Dynamic horizontal gradient
                 Box(
                     modifier = Modifier
                         .matchParentSize()
@@ -425,8 +452,7 @@ fun MiniPlayer(
                             )
                         )
                 )
-
-                // 2. Ambient glowing bloom on the right side behind action buttons
+                // Right radial glow
                 Box(
                     modifier = Modifier
                         .matchParentSize()
@@ -441,14 +467,13 @@ fun MiniPlayer(
                             )
                         )
                 )
-
-                // 3. Subtle physical depth sheen (top highlight & bottom shading)
+                // Top sheen highlight & bottom shading
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(
+                                listOf(
                                     Color.White.copy(alpha = 0.16f),
                                     Color.Transparent,
                                     Color.Black.copy(alpha = 0.25f)
@@ -459,14 +484,11 @@ fun MiniPlayer(
             }
 
             "Apple Liquid Glass" -> {
-                // 1. Dark glass base
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .background(Color(0xFF141620))
                 )
-
-                // 2. Heavy Frosted Blur Background (grayscale monochrome, zero color bleed)
                 if (!currentTrack?.thumbnail.isNullOrBlank()) {
                     AsyncImage(
                         model = ImageRequest.Builder(context)
@@ -488,14 +510,12 @@ fun MiniPlayer(
                             .blur(radius = 36.dp)
                     )
                 }
-
-                // 3. Matte Frosted Glass Diffusion Overlay (smooth, clean, no harsh shine)
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(
+                                listOf(
                                     Color.Black.copy(alpha = 0.35f),
                                     Color.Black.copy(alpha = 0.55f)
                                 )
@@ -504,50 +524,8 @@ fun MiniPlayer(
                 )
             }
 
-            "Blur" -> {
-                // Solid base to ensure no transparent wash out
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(Color(0xFF14161F))
-                )
-
-                // Heavily blurred album artwork background
-                if (!currentTrack?.thumbnail.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(getHighResArtworkUrl(currentTrack?.thumbnail))
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .matchParentSize()
-                            .graphicsLayer {
-                                scaleX = 1.4f
-                                scaleY = 1.4f
-                            }
-                            .blur(radius = 36.dp)
-                    )
-                }
-
-                // Darkening atmospheric vignette overlay for maximum text contrast
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.38f),
-                                    Color.Black.copy(alpha = 0.62f)
-                                )
-                            )
-                        )
-                )
-            }
-
             else -> {
-                // "Dark Black": Clean deep AMOLED Black minimal style
+                // "Dark Black"
                 Box(
                     modifier = Modifier
                         .matchParentSize()
@@ -556,9 +534,6 @@ fun MiniPlayer(
             }
         }
 
-        // ────────────────────────────────────────────────────────────────────
-        // 2. MINI-PLAYER CONTENT & FUNCTIONALITY
-        // ────────────────────────────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -568,9 +543,17 @@ fun MiniPlayer(
             // ================================================================
             // SWIPEABLE TRACK CONTENT CAROUSEL (ARTWORK + TITLE + ARTIST)
             // ================================================================
+            val isHorizontalSwipeEnabled = userScrollEnabled && appearance.enableSwipeToChangeSong
+            val snapPositionalThreshold = (0.85f - (sensitivityRatio * 0.70f)).coerceIn(0.12f, 0.75f)
+            val pagerFlingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                state = pagerState,
+                snapPositionalThreshold = snapPositionalThreshold
+            )
+
             HorizontalPager(
                 state = pagerState,
-                userScrollEnabled = userScrollEnabled,
+                userScrollEnabled = isHorizontalSwipeEnabled,
+                flingBehavior = pagerFlingBehavior,
                 modifier = Modifier
                     .weight(1f)
                     .clipToBounds(),
@@ -601,9 +584,8 @@ fun MiniPlayer(
                         track = pageTrack,
                         isCurrent = isCurrent,
                         isPlaying = isPlaying,
-                        progress = animatedProgress,
-                        progressColor = if (activeTheme == "Gradient" || activeTheme == "Apple Liquid Glass") Color.White else if (appearance.dynamicIconColors) animPrimary else MaterialTheme.colorScheme.primary,
-                        isLiquidGlass = activeTheme == "Apple Liquid Glass",
+                        progressProvider = effectiveProgressProvider,
+                        progressColor = Color.White.copy(alpha = 0.92f),
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
                         onPlayPauseClick = onPlayPauseClick
@@ -620,7 +602,7 @@ fun MiniPlayer(
                             Text(
                                 text = pageTrack.title,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = titleTextColor,
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 maxLines = 1,
@@ -630,7 +612,7 @@ fun MiniPlayer(
                             Text(
                                 text = pageTrack.artist,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = artistTextColor,
+                                color = Color(0xFFA6A698),
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -654,15 +636,14 @@ fun MiniPlayer(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(actionButtonBackground)
-                        .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
                         .tactileBounce(scaleDown = 0.85f, onClick = { onArtistClick?.invoke() }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Person,
                         contentDescription = "Listen Together",
-                        tint = actionButtonTint,
+                        tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -672,15 +653,14 @@ fun MiniPlayer(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(actionButtonBackground)
-                        .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
                         .tactileBounce(scaleDown = 0.85f, onClick = { onAddToPlaylist?.invoke() }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add to playlist",
-                        tint = actionButtonTint,
+                        tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -690,8 +670,7 @@ fun MiniPlayer(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(actionButtonBackground)
-                        .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
                         .tactileBounce(scaleDown = 0.85f, onClick = { onFavoriteToggle?.invoke() }),
                     contentAlignment = Alignment.Center
                 ) {
@@ -703,7 +682,7 @@ fun MiniPlayer(
                         Icon(
                             imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (fav) "Favorited" else "Favorite",
-                            tint = if (fav) Color(0xFFFF4081) else actionButtonTint,
+                            tint = if (fav) Color(0xFFFF4081) else Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -719,9 +698,8 @@ private fun MiniPlayerArtworkDisc(
     track: Track,
     isCurrent: Boolean,
     isPlaying: Boolean,
-    progress: State<Float>,
-    progressColor: Color,
-    isLiquidGlass: Boolean = false,
+    progressProvider: () -> Float,
+    progressColor: Color = Color.White.copy(alpha = 0.92f),
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onPlayPauseClick: () -> Unit
@@ -740,14 +718,8 @@ private fun MiniPlayerArtworkDisc(
 
     Box(
         modifier = Modifier
-            .size(50.dp)
+            .size(48.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.35f))
-            .then(
-                if (isLiquidGlass) {
-                    Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
-                } else Modifier
-            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -757,21 +729,21 @@ private fun MiniPlayerArtworkDisc(
     ) {
         // Inset Circular Progress Track and Sweep Arc
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 2.5.dp.toPx()
-            val insetPadding = 3.5.dp.toPx()
+            val strokeWidth = 2.dp.toPx()
+            val insetPadding = 1.5.dp.toPx()
             val radius = (size.minDimension / 2) - strokeWidth / 2 - insetPadding
             val center = Offset(size.width / 2, size.height / 2)
 
-            // Background ring track
+            // Background ring track (sleek, subtle hairline)
             drawCircle(
-                color = if (isLiquidGlass) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.14f),
+                color = Color.White.copy(alpha = 0.15f),
                 radius = radius,
                 center = center,
                 style = Stroke(width = strokeWidth)
             )
 
             // Active progress sweep arc
-            val sweep = if (isCurrent) progress.value else 0f
+            val sweep = if (isCurrent) progressProvider().coerceIn(0f, 1f) else 0f
             if (sweep > 0f) {
                 drawArc(
                     color = progressColor,
@@ -783,13 +755,17 @@ private fun MiniPlayerArtworkDisc(
             }
         }
 
-        // Inner Circular Artwork Disc
+        // Inner Circular Artwork Disc (Expanded to fill cleanly, NO thick grey ring)
         Box(
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier
+                .size(41.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF22231E)),
             contentAlignment = Alignment.Center
         ) {
             ArtworkCard(
                 url = track.thumbnail,
+                fallbackTrack = track,
                 modifier = sharedArtwork.fillMaxSize(),
                 cornerRadius = artworkCorner,
                 elevation = 0.dp,
@@ -801,7 +777,7 @@ private fun MiniPlayerArtworkDisc(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f)),
+                    .background(Color.Black.copy(alpha = 0.35f)),
                 contentAlignment = Alignment.Center
             ) {
                 AnimatedContent(

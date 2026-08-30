@@ -11,6 +11,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
 
         // Request POST_NOTIFICATIONS permission for Android 13+ (API 33+)
@@ -86,6 +88,10 @@ class MainActivity : ComponentActivity() {
             val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(
                 initial = AppearanceSettings()
             )
+            val privacyDataStore = remember { com.auralis.music.data.datastore.PrivacyDataStore(applicationContext) }
+            val privacySettings by privacyDataStore.settingsFlow.collectAsState(
+                initial = com.auralis.music.domain.model.PrivacySettings()
+            )
 
             // Dynamic High Refresh Rate Enforcer (120Hz / 144Hz / 90Hz)
             LaunchedEffect(appearanceSettings.highRefreshRate) {
@@ -112,9 +118,21 @@ class MainActivity : ComponentActivity() {
                 window.attributes = lp
             }
 
+            // Secure Flag (Disable Screenshots / Recents Preview)
+            LaunchedEffect(privacySettings.disableScreenshot) {
+                if (privacySettings.disableScreenshot) {
+                    window.setFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                        android.view.WindowManager.LayoutParams.FLAG_SECURE
+                    )
+                } else {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
+
             AuralisTheme(appearanceSettings = appearanceSettings) {
                 val homeViewModel: HomeViewModel = viewModel {
-                    HomeViewModel(historyRepository, searchRepository, innerTubeClient)
+                    HomeViewModel(historyRepository, searchRepository, innerTubeClient, applicationContext)
                 }
                 val searchViewModel: SearchViewModel = viewModel {
                     SearchViewModel(searchRepository, applicationContext)
@@ -130,7 +148,8 @@ class MainActivity : ComponentActivity() {
                         settingsRepository = settingsRepository,
                         audioPlayer = audioPlayer,
                         innerTubeClient = innerTubeClient,
-                        searchRepository = searchRepository
+                        searchRepository = searchRepository,
+                        context = applicationContext
                     )
                 }
                 val listenTogetherViewModel: ListenTogetherViewModel = viewModel {

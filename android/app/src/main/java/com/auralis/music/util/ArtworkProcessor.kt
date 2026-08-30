@@ -14,6 +14,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import java.io.File
+import java.io.FileOutputStream
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
@@ -257,15 +262,19 @@ object ArtworkProcessor {
             val match = videoIdRegex.find(cleaned)?.groupValues?.getOrNull(1)
             if (!match.isNullOrBlank()) {
                 candidates.add("https://i.ytimg.com/vi/$match/maxresdefault.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/hq720.jpg")
                 candidates.add("https://i.ytimg.com/vi_webp/$match/maxresdefault.webp")
                 candidates.add("https://i.ytimg.com/vi/$match/sddefault.jpg")
                 candidates.add("https://i.ytimg.com/vi/$match/hqdefault.jpg")
             } else {
                 val base = cleaned.substringBeforeLast('?').substringBeforeLast('/')
                 candidates.add("$base/maxresdefault.jpg")
+                candidates.add("$base/hq720.jpg")
                 candidates.add("$base/sddefault.jpg")
                 candidates.add("$base/hqdefault.jpg")
             }
+            val cleanNoQuery = cleaned.substringBefore('?')
+            if (cleanNoQuery.isNotBlank()) candidates.add(cleanNoQuery)
             candidates.add(cleaned)
             return candidates.distinct()
         }
@@ -363,10 +372,10 @@ object ArtworkProcessor {
     }
 
     /**
-     * Processes artwork to a pristine, uncompressed 1:1 square master bitmap (800x800).
-     * Perfectly formatted for OnePlus Nord CE (OxygenOS), Pixel / Android 13-15 Quick Settings, One UI, and Lockscreen.
+     * Processes artwork to a pristine, uncompressed 1:1 square master bitmap (600x600).
+     * Perfectly formatted for OnePlus (OxygenOS / ColorOS Media Player), Pixel, One UI, and Lockscreen.
      */
-    fun processForMediaNotification(bitmap: Bitmap, targetSize: Int = 800): Bitmap {
+    fun processForMediaNotification(bitmap: Bitmap, targetSize: Int = 600): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
         if (width <= 0 || height <= 0) return bitmap
@@ -421,13 +430,48 @@ object ArtworkProcessor {
     }
 
     /**
-     * Compresses bitmap to high-quality JPEG byte array (95% quality) for MediaMetadata.setArtworkData.
-     * Fits perfectly under Android's 1MB Binder transaction limit while remaining razor sharp on high-DPI screens.
+     * Compresses bitmap to high-quality JPEG byte array (92% quality) for MediaMetadata.setArtworkData.
+     * Stays cleanly below Android's 1MB Binder transaction limit while remaining razor sharp on high-DPI screens.
      */
-    fun toByteArray(bitmap: Bitmap, quality: Int = 95): ByteArray {
+    fun toByteArray(bitmap: Bitmap, quality: Int = 92): ByteArray {
         val stream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         return stream.toByteArray()
+    }
+
+    /**
+     * Exports processed master artwork to an accessible local file with a FileProvider content:// URI.
+     * Allows OnePlus / OxygenOS SystemUI to decode the original 600x600 master without network restrictions.
+     */
+    fun saveMasterArtworkToCache(context: Context, bitmap: Bitmap): Uri? {
+        return try {
+            val dir = File(context.cacheDir, "artwork").apply { if (!exists()) mkdirs() }
+            val file = File(dir, "current_media_art.jpg")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                out.flush()
+            }
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val targetPackages = listOf(
+                "com.android.systemui",
+                "com.oplus.music",
+                "com.coloros.music",
+                "com.heytap.music",
+                "com.google.android.projection.gearhead"
+            )
+            for (pkg in targetPackages) {
+                try {
+                    context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (_: Exception) {}
+            }
+            uri
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 

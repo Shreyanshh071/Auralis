@@ -389,14 +389,14 @@ val DarkColorScheme = darkColorScheme(
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF0C0F0D),
+    background = Color(0xFF0E0E10),
     onBackground = Color(0xFFF3F4F6),
-    surface = Color(0xFF131714),
+    surface = Color(0xFF161619),
     onSurface = Color(0xFFF3F4F6),
-    surfaceVariant = Color(0xFF1D221E),
+    surfaceVariant = Color(0xFF202024),
     onSurfaceVariant = Color(0xFF9CA3AF),
-    outline = Color(0xFF4B5563),
-    outlineVariant = Color(0xFF374151)
+    outline = Color(0xFF383840),
+    outlineVariant = Color(0xFF28282E)
 )
 
 val LightColorScheme = lightColorScheme(
@@ -429,19 +429,23 @@ val LightColorScheme = lightColorScheme(
 val AmoledDarkColorScheme = DarkColorScheme.copy(
     background = Color.Black,
     surface = Color.Black,
-    surfaceVariant = Color(0xFF121212),
+    surfaceVariant = Color(0xFF121214),
     onBackground = Color(0xFFF3F4F6),
     onSurface = Color(0xFFF3F4F6),
-    onSurfaceVariant = Color(0xFF9CA3AF)
+    onSurfaceVariant = Color(0xFF9CA3AF),
+    outline = Color(0xFF2C2C32),
+    outlineVariant = Color(0xFF202026)
 )
 
 val MidnightDarkColorScheme = DarkColorScheme.copy(
-    background = Color(0xFF100E0C),
-    surface = Color(0xFF181512),
-    surfaceVariant = Color(0xFF221E1A),
+    background = Color(0xFF0A0A0C),
+    surface = Color(0xFF121215),
+    surfaceVariant = Color(0xFF1A1A1E),
     onBackground = Color(0xFFF3F4F6),
     onSurface = Color(0xFFF3F4F6),
-    onSurfaceVariant = Color(0xFF9CA3AF)
+    onSurfaceVariant = Color(0xFF9CA3AF),
+    outline = Color(0xFF303038),
+    outlineVariant = Color(0xFF222228)
 )
 
 val LocalAppearanceSettings = staticCompositionLocalOf {
@@ -483,34 +487,49 @@ fun AuralisTheme(
 
     val colorScheme: ColorScheme = if (isDynamicMonet && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val dynamicSys = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        when (appearanceSettings.appTheme) {
-            "Pure AMOLED Black" -> dynamicSys.copy(
-                background = Color.Black,
-                surface = Color.Black,
-                surfaceVariant = Color(0xFF121212)
-            )
-            "Midnight Velvet Dark" -> dynamicSys.copy(
-                background = Color(0xFF100E0C),
-                surface = Color(0xFF181512),
-                surfaceVariant = Color(0xFF221E1A)
-            )
-            "Light Mode" -> dynamicSys.copy(
+        if (isDark) {
+            when (appearanceSettings.appTheme) {
+                "Pure AMOLED Black" -> dynamicSys.copy(
+                    background = Color.Black,
+                    surface = Color.Black,
+                    surfaceVariant = Color(0xFF121214),
+                    outline = Color(0xFF2C2C32),
+                    outlineVariant = Color(0xFF202026),
+                    onBackground = Color(0xFFF3F4F6),
+                    onSurface = Color(0xFFF3F4F6),
+                    onSurfaceVariant = Color(0xFF9CA3AF)
+                )
+                "Midnight Velvet Dark" -> dynamicSys.copy(
+                    background = Color(0xFF0A0A0C),
+                    surface = Color(0xFF121215),
+                    surfaceVariant = Color(0xFF1A1A1E),
+                    outline = Color(0xFF303038),
+                    outlineVariant = Color(0xFF222228),
+                    onBackground = Color(0xFFF3F4F6),
+                    onSurface = Color(0xFFF3F4F6),
+                    onSurfaceVariant = Color(0xFF9CA3AF)
+                )
+                else -> dynamicSys.copy(
+                    background = Color(0xFF0E0E10),
+                    surface = Color(0xFF161619),
+                    surfaceVariant = Color(0xFF202024),
+                    outline = Color(0xFF383840),
+                    outlineVariant = Color(0xFF28282E),
+                    onBackground = Color(0xFFF3F4F6),
+                    onSurface = Color(0xFFF3F4F6),
+                    onSurfaceVariant = Color(0xFF9CA3AF)
+                )
+            }
+        } else {
+            dynamicSys.copy(
                 background = Color(0xFFF9FAFB),
-                onBackground = Color(0xFF111827),
                 surface = Color(0xFFFFFFFF),
-                onSurface = Color(0xFF111827),
                 surfaceVariant = Color(0xFFF3F4F6),
+                outlineVariant = Color(0xFFE5E7EB),
+                onBackground = Color(0xFF111827),
+                onSurface = Color(0xFF111827),
                 onSurfaceVariant = Color(0xFF4B5563)
             )
-            "Dark Mode" -> dynamicSys.copy(
-                background = Color(0xFF0C0F0D),
-                onBackground = Color(0xFFF3F4F6),
-                surface = Color(0xFF131714),
-                onSurface = Color(0xFFF3F4F6),
-                surfaceVariant = Color(0xFF1D221E),
-                onSurfaceVariant = Color(0xFF9CA3AF)
-            )
-            else -> dynamicSys
         }
     } else {
         val palette = getPaletteById(appearanceSettings.colorPalette)
@@ -552,15 +571,15 @@ fun AuralisTheme(
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-    val baseDensityScale = when (appearanceSettings.displayDensity) {
-        "Compact (85%)" -> 0.85f
-        "Large (115%)" -> 1.15f
+    val baseDensityScale = when {
+        appearanceSettings.displayDensity.contains("85") || appearanceSettings.displayDensity.contains("Compact", ignoreCase = true) -> 0.85f
+        appearanceSettings.displayDensity.contains("115") || appearanceSettings.displayDensity.contains("Large", ignoreCase = true) -> 1.15f
         else -> 1.0f
     }
     val landscapeScaleFactor = if (isLandscape && appearanceSettings.landscapeScaling) 0.88f else 1.0f
     val densityScale = baseDensityScale * landscapeScaleFactor
 
-    val customDensity = remember(currentDensity, densityScale) {
+    val customDensity = remember(currentDensity.density, currentDensity.fontScale, densityScale) {
         androidx.compose.ui.unit.Density(
             density = currentDensity.density * densityScale,
             fontScale = currentDensity.fontScale * densityScale

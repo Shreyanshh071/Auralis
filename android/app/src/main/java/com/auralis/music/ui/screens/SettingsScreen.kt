@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,10 +41,21 @@ fun SettingsScreen(
     onClearCache: () -> Unit,
     onNavigateToAccount: () -> Unit,
     onDismiss: () -> Unit,
+    historyRepository: com.auralis.music.domain.repository.HistoryRepository? = null,
+    searchRepository: com.auralis.music.domain.repository.SearchRepository? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var activeDialog by remember { mutableStateOf<SettingsDialogType?>(null) }
+
+    androidx.activity.compose.BackHandler(enabled = true) {
+        if (activeDialog != null) {
+            activeDialog = null
+        } else {
+            onDismiss()
+        }
+    }
+
     val primaryColor = MaterialTheme.colorScheme.primary
     val onBackground = MaterialTheme.colorScheme.onBackground
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
@@ -88,7 +100,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 18.dp),
-                contentPadding = PaddingValues(bottom = 96.dp),
+                contentPadding = PaddingValues(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // ── INTERFACE ──
@@ -112,40 +124,9 @@ fun SettingsScreen(
                 }
                 item {
                     SettingsRowItem(
-                        icon = Icons.Default.Stars,
-                        title = "Auralis",
-                        onClick = { activeDialog = SettingsDialogType.AURALIS }
-                    )
-                }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Podcasts,
-                        title = "Stream sources",
-                        onClick = { activeDialog = SettingsDialogType.STREAM_SOURCES }
-                    )
-                }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Tune,
-                        title = "Content",
-                        onClick = { activeDialog = SettingsDialogType.CONTENT }
-                    )
-                }
-                item {
-                    SettingsRowItem(
                         icon = Icons.Default.Translate,
                         title = "AI lyrics translation",
                         onClick = { activeDialog = SettingsDialogType.LYRICS_TRANSLATION }
-                    )
-                }
-
-                // ── ANDROID AUTO ──
-                item { SettingsCategoryHeader(title = "Android Auto") }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.DirectionsCar,
-                        title = "Android Auto",
-                        onClick = { activeDialog = SettingsDialogType.ANDROID_AUTO }
                     )
                 }
 
@@ -160,14 +141,21 @@ fun SettingsScreen(
                 }
                 item {
                     SettingsRowItem(
-                        icon = Icons.Default.CleaningServices,
-                        title = "Storage & Cache",
+                        icon = Icons.Default.Storage,
+                        title = "Storage",
                         onClick = { activeDialog = SettingsDialogType.STORAGE }
                     )
                 }
 
                 // ── SYSTEM & ABOUT ──
                 item { SettingsCategoryHeader(title = "System & About") }
+                item {
+                    SettingsRowItem(
+                        icon = Icons.Default.SystemUpdate,
+                        title = "Updater",
+                        onClick = { activeDialog = SettingsDialogType.UPDATER }
+                    )
+                }
                 item {
                     SettingsRowItem(
                         icon = Icons.Default.AppSettingsAlt,
@@ -187,20 +175,11 @@ fun SettingsScreen(
                 }
                 item {
                     SettingsRowItem(
-                        icon = Icons.Default.HistoryEdu,
-                        title = "Changelog",
-                        onClick = { activeDialog = SettingsDialogType.CHANGELOG }
-                    )
-                }
-                item {
-                    SettingsRowItem(
                         icon = Icons.Default.Info,
                         title = "About",
                         onClick = { activeDialog = SettingsDialogType.ABOUT }
                     )
                 }
-
-                item { Spacer(modifier = Modifier.height(30.dp)) }
             }
         }
 
@@ -226,7 +205,8 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceVariant)
+                                    .background(surfaceColor)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                                     .clickable { showQualityPicker = !showQualityPicker }
                                     .padding(12.dp)
                             ) {
@@ -265,7 +245,8 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceVariant)
+                                    .background(surfaceColor)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                                     .clickable { onToggleSpatialAudio(!settings.spatialAudio) }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -277,7 +258,24 @@ fun SettingsScreen(
                                 Switch(
                                     checked = settings.spatialAudio,
                                     onCheckedChange = onToggleSpatialAudio,
-                                    colors = SwitchDefaults.colors(checkedTrackColor = primaryColor, checkedThumbColor = Color.Black)
+                                    thumbContent = if (settings.spatialAudio) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = primaryColor,
+                                        checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                                        checkedBorderColor = primaryColor,
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                    )
                                 )
                             }
 
@@ -286,7 +284,8 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceVariant)
+                                    .background(surfaceColor)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                                     .clickable { onToggleGaplessPlayback(!settings.gaplessPlayback) }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -298,7 +297,24 @@ fun SettingsScreen(
                                 Switch(
                                     checked = settings.gaplessPlayback,
                                     onCheckedChange = onToggleGaplessPlayback,
-                                    colors = SwitchDefaults.colors(checkedTrackColor = primaryColor, checkedThumbColor = Color.Black)
+                                    thumbContent = if (settings.gaplessPlayback) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = primaryColor,
+                                        checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                                        checkedBorderColor = primaryColor,
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                    )
                                 )
                             }
 
@@ -307,7 +323,8 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceVariant)
+                                    .background(surfaceColor)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                                     .clickable { onToggleSkipSilence(!settings.skipSilence) }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -319,7 +336,24 @@ fun SettingsScreen(
                                 Switch(
                                     checked = settings.skipSilence,
                                     onCheckedChange = onToggleSkipSilence,
-                                    colors = SwitchDefaults.colors(checkedTrackColor = primaryColor, checkedThumbColor = Color.Black)
+                                    thumbContent = if (settings.skipSilence) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = primaryColor,
+                                        checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                                        checkedBorderColor = primaryColor,
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                    )
                                 )
                             }
                         }
@@ -332,170 +366,36 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsDialogType.AURALIS -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Auralis Modular Hub", fontWeight = FontWeight.Bold, color = primaryColor) },
-                    text = {
-                        Box(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
-                            AuralisHubView(
-                                onNavigateToAccount = {
-                                    activeDialog = null
-                                    onNavigateToAccount()
-                                }
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) {
-                            Text("Close", color = primaryColor)
-                        }
-                    }
-                )
-            }
-
             SettingsDialogType.STORAGE -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Storage & Cache", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Clear temporary audio stream buffers and image cache to free up memory.", color = onSurfaceVariant, fontSize = 13.sp)
-                            Button(
-                                onClick = {
-                                    onClearCache()
-                                    Toast.makeText(context, "Audio & image cache cleared!", Toast.LENGTH_SHORT).show()
-                                    activeDialog = null
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Clear Cache Now", color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) {
-                            Text("Cancel", color = onSurfaceVariant)
-                        }
-                    }
-                )
-            }
-
-            SettingsDialogType.STREAM_SOURCES -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Stream sources", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Active Audio Engine:", color = primaryColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text("• YouTube Music Native Stream Extractor (up to 160 kbps transparent Opus)", color = onBackground, fontSize = 13.sp)
-                            Text("• WebEngine Fallback (Universal audio redundancy)", color = onSurfaceVariant, fontSize = 13.sp)
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) {
-                            Text("OK", color = primaryColor)
-                        }
-                    }
-                )
-            }
-
-            SettingsDialogType.CONTENT -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Content", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Text("Content preferences, localized chart recommendations, and explicit content filtering are enabled.", color = onSurfaceVariant, fontSize = 13.sp)
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) { Text("OK", color = primaryColor) }
-                    }
+                StorageSettingsScreen(
+                    onDismiss = { activeDialog = null }
                 )
             }
 
             SettingsDialogType.LYRICS_TRANSLATION -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("AI lyrics translation", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Text("Kinetic word-by-word synchronized lyrics and automatic Romanized transliteration are active.", color = onSurfaceVariant, fontSize = 13.sp)
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) { Text("OK", color = primaryColor) }
-                    }
-                )
-            }
-
-            SettingsDialogType.ANDROID_AUTO -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Android Auto", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Text("Android Auto media session service is configured for background car audio playback.", color = onSurfaceVariant, fontSize = 13.sp)
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) { Text("OK", color = primaryColor) }
-                    }
+                AiLyricsTranslationScreen(
+                    onDismiss = { activeDialog = null }
                 )
             }
 
             SettingsDialogType.PRIVACY -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Privacy", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Text("Listening history and search history are stored locally on your device with offline SQLite encryption.", color = onSurfaceVariant, fontSize = 13.sp)
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) { Text("OK", color = primaryColor) }
-                    }
-                )
-            }
-
-            SettingsDialogType.CHANGELOG -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Changelog", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("v2.1.0-stable", fontWeight = FontWeight.Bold, color = primaryColor)
-                            Text("• True Zero-Delay Gapless Playback engine", color = onBackground, fontSize = 13.sp)
-                            Text("• 3D Spatial Soundstage & Virtualizer", color = onBackground, fontSize = 13.sp)
-                            Text("• Audio Quality Stream Selector (Auto, High, Standard, Low)", color = onBackground, fontSize = 13.sp)
-                            Text("• Overhauled modular Settings screen", color = onBackground, fontSize = 13.sp)
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) { Text("Close", color = primaryColor) }
-                    }
+                PrivacySettingsScreen(
+                    onDismiss = { activeDialog = null },
+                    historyRepository = historyRepository,
+                    searchRepository = searchRepository
                 )
             }
 
             SettingsDialogType.ABOUT -> {
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("About Auralis", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Auralis Music Native", fontWeight = FontWeight.Bold, color = primaryColor)
-                            Text("Version 2.1.0 (Pure Kotlin + Jetpack Compose)", color = onBackground, fontSize = 13.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("Zero ads, unlimited streaming, and synchronized kinetic lyrics.", color = onSurfaceVariant, fontSize = 12.sp)
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) { Text("OK", color = primaryColor) }
-                    }
+                AboutScreen(
+                    onNavigateToUpdater = { activeDialog = SettingsDialogType.UPDATER },
+                    onDismiss = { activeDialog = null }
+                )
+            }
+
+            SettingsDialogType.UPDATER -> {
+                UpdaterScreen(
+                    onDismiss = { activeDialog = null }
                 )
             }
 
@@ -507,14 +407,10 @@ fun SettingsScreen(
 private enum class SettingsDialogType {
     APPEARANCE,
     PLAYER_AUDIO,
-    AURALIS,
-    STREAM_SOURCES,
-    CONTENT,
     LYRICS_TRANSLATION,
-    ANDROID_AUTO,
     PRIVACY,
     STORAGE,
-    CHANGELOG,
+    UPDATER,
     ABOUT
 }
 
@@ -539,7 +435,8 @@ private fun SettingsRowItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
@@ -548,7 +445,7 @@ private fun SettingsRowItem(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

@@ -1,5 +1,8 @@
 package com.auralis.music.domain.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class Playlist(
     val id: String,
     val title: String,
@@ -10,6 +13,7 @@ data class Playlist(
     val isCustom: Boolean = true
 )
 
+@Immutable
 data class SavedArtist(
     val id: String,
     val name: String,
@@ -19,6 +23,7 @@ data class SavedArtist(
     val savedAt: Long = System.currentTimeMillis()
 )
 
+@Immutable
 data class SavedAlbum(
     val id: String,
     val title: String,

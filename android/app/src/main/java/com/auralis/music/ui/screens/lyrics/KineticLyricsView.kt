@@ -21,7 +21,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -44,7 +50,21 @@ fun KineticLyricsView(
     offsetMs: Long = 0L,
     onOffsetChange: ((Long) -> Unit)? = null
 ) {
-    if (lyrics.lines.isEmpty()) {
+    val effectiveLines = remember(lyrics) {
+        if (lyrics.lines.isNotEmpty()) lyrics.lines
+        else if (!lyrics.plainLyrics.isNullOrBlank()) {
+            lyrics.plainLyrics.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .map { LyricLine(time = 0L, text = it) }
+        } else emptyList()
+    }
+
+    val isInstrumental = (effectiveLines.isNotEmpty() && effectiveLines.all { it.isInstrumental }) ||
+        lyrics.plainLyrics?.trim()?.equals("[Instrumental]", ignoreCase = true) == true ||
+        lyrics.plainLyrics?.trim()?.equals("♪ Instrumental ♪", ignoreCase = true) == true
+
+    if (isInstrumental) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = "♪ Instrumental ♪",
@@ -55,8 +75,20 @@ fun KineticLyricsView(
         return
     }
 
-    val activeIndex = remember(lyrics.lines, currentPositionMs, offsetMs) {
-        LyricsEngine.findActiveLyricIndex(lyrics.lines, currentPositionMs, offsetMs)
+    if (effectiveLines.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = "Lyrics not available",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+        return
+    }
+
+    val isSynced = lyrics.syncType != SyncType.PLAIN && effectiveLines.any { it.time > 0L }
+    val activeIndex = remember(effectiveLines, currentPositionMs, offsetMs, isSynced) {
+        if (isSynced) LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionMs, offsetMs) else -1
     }
 
     val scrollState = rememberScrollState()
@@ -138,17 +170,33 @@ fun KineticLyricsView(
             }
         }
 
+        val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+        val normalizedPos = appearance.lyricsTextPosition.lowercase()
+        val textAlign = when (normalizedPos) {
+            "left", "start" -> TextAlign.Start
+            "right", "end" -> TextAlign.End
+            else -> TextAlign.Center
+        }
+        val horizontalAlignment = when (normalizedPos) {
+            "left", "start" -> Alignment.Start
+            "right", "end" -> Alignment.End
+            else -> Alignment.CenterHorizontally
+        }
+        val horizontalArrangement = when (normalizedPos) {
+            "left", "start" -> Arrangement.Start
+            "right", "end" -> Arrangement.End
+            else -> Arrangement.Center
+        }
+
         BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .onGloballyPositioned { viewportCoords = it }
         ) {
-            // Continuous, velocity-preserving auto-scroll:
-            // When activeIndex changes, seamlessly glides from current position & velocity
-            // to the exact viewport center without stopping, stuttering, or restarting from scratch.
-            LaunchedEffect(activeIndex, isUserInteracting) {
-                if (activeIndex < 0 || activeIndex >= lyrics.lines.size || isUserInteracting) return@LaunchedEffect
+            // Continuous, velocity-preserving auto-scroll to keep active line centered
+            LaunchedEffect(activeIndex, isUserInteracting, appearance.autoScrollLyrics) {
+                if (activeIndex < 0 || activeIndex >= effectiveLines.size || isUserInteracting || !appearance.autoScrollLyrics) return@LaunchedEffect
 
                 var lCoords = lyricCoordRefs[activeIndex]
                 if (lCoords == null || !lCoords.isAttached) {
@@ -169,36 +217,14 @@ fun KineticLyricsView(
                 val targetScroll = (scrollState.value + delta.roundToInt())
                     .coerceIn(0, scrollState.maxValue)
 
-                val currentScroll = scrollState.value.toFloat()
-                val distance = kotlin.math.abs(targetScroll.toFloat() - currentScroll)
-
-                if (distance > 1f) {
-                    // Ensure animatable baseline matches current scroll if out of sync
-                    if (kotlin.math.abs(scrollAnim.value - currentScroll) > 2f) {
-                        scrollAnim.snapTo(currentScroll)
+                val distance = kotlin.math.abs(targetScroll - scrollState.value)
+                if (distance > 2) {
+                    val animationSpec = when {
+                        distance < 300 -> spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 85f)
+                        distance < 800 -> spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 130f)
+                        else -> spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 240f)
                     }
-
-                    val stiffness = when {
-                        distance < 300f -> 85f   // Gentle, organic float for adjacent line transitions
-                        distance < 800f -> 130f  // Smooth fluid glide for multi-line shifts
-                        else -> 240f            // Responsive catch-up for manual seek jumps
-                    }
-
-                    scrollState.scroll {
-                        var lastValue = scrollAnim.value
-                        scrollAnim.animateTo(
-                            targetValue = targetScroll.toFloat(),
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = stiffness,
-                                visibilityThreshold = 0.5f
-                            )
-                        ) {
-                            val deltaPx = value - lastValue
-                            lastValue = value
-                            scrollBy(deltaPx)
-                        }
-                    }
+                    scrollState.animateScrollTo(targetScroll, animationSpec = animationSpec)
                 }
             }
 
@@ -212,9 +238,10 @@ fun KineticLyricsView(
                         start = 24.dp,
                         end = 24.dp
                     ),
+                horizontalAlignment = horizontalAlignment,
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                lyrics.lines.forEachIndexed { index, line ->
+                effectiveLines.forEachIndexed { index, line ->
                     val isActive = index == activeIndex
                     val isPast = index < activeIndex
 
@@ -246,31 +273,78 @@ fun KineticLyricsView(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .alpha(alpha)
-                                .clickable {
-                                    isUserInteracting = false
-                                    onSeekTo(line.time)
-                                }
+                                .clickable(
+                                    enabled = appearance.changeLyricsOnTap,
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        if (appearance.changeLyricsOnTap) {
+                                            isUserInteracting = false
+                                            onSeekTo(line.time)
+                                        }
+                                    }
+                                ),
+                            horizontalAlignment = horizontalAlignment
                         ) {
                             if (lyrics.syncType == SyncType.RICHSYNC && line.words != null && isActive) {
-                                Row(
+                                @OptIn(ExperimentalLayoutApi::class)
+                                FlowRow(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Start
+                                    horizontalArrangement = horizontalArrangement
                                 ) {
                                     line.words.forEach { word ->
                                         val progress = LyricsEngine.calculateWordProgress(word, currentPositionMs, offsetMs)
-                                        val wordColor = if (progress >= 1.0f) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else if (progress > 0.0f) {
-                                            Color.White
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        val isWordActive = progress > 0f && progress < 1f
+                                        val isWordFinished = progress >= 1f
+                                        val displayWord = if (word.word.endsWith(" ")) word.word else "${word.word} "
+
+                                        val brush = when {
+                                            isWordFinished -> Brush.linearGradient(listOf(Color.White, Color.White))
+                                            isWordActive -> {
+                                                val p = progress.coerceIn(0.01f, 0.99f)
+                                                val waveStart = (p - 0.08f).coerceAtLeast(0f)
+                                                val waveEnd = (p + 0.10f).coerceAtMost(1f)
+                                                Brush.horizontalGradient(
+                                                    0.0f to Color.White,
+                                                    waveStart to Color.White,
+                                                    p to Color.White.copy(alpha = 0.92f),
+                                                    waveEnd to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                                    1.0f to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                                )
+                                            }
+                                            else -> Brush.linearGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                                )
+                                            )
                                         }
 
+                                        val waveLift = if (isWordActive) {
+                                            (kotlin.math.sin(progress * Math.PI.toFloat()) * 3.0f)
+                                        } else 0f
+
+                                        val waveShadowRadius = if (isWordActive) {
+                                            14f + (10f * kotlin.math.sin(progress * Math.PI.toFloat()))
+                                        } else 0f
+
                                         Text(
-                                            text = word.word,
+                                            text = displayWord,
                                             fontSize = 24.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = wordColor,
+                                            style = androidx.compose.ui.text.TextStyle(
+                                                brush = brush,
+                                                shadow = if (isWordActive) {
+                                                    Shadow(
+                                                        color = Color.White.copy(alpha = 0.90f),
+                                                        blurRadius = waveShadowRadius,
+                                                        offset = Offset.Zero
+                                                    )
+                                                } else null
+                                            ),
+                                            modifier = Modifier.graphicsLayer {
+                                                translationY = -waveLift
+                                            },
                                             lineHeight = 32.sp
                                         )
                                     }
@@ -281,6 +355,8 @@ fun KineticLyricsView(
                                     fontSize = if (isActive) 24.sp else 20.sp,
                                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                                     color = textColor,
+                                    textAlign = textAlign,
+                                    modifier = Modifier.fillMaxWidth(),
                                     lineHeight = if (isActive) 32.sp else 28.sp
                                 )
                             }
@@ -292,6 +368,8 @@ fun KineticLyricsView(
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Normal,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                    textAlign = textAlign,
+                                    modifier = Modifier.fillMaxWidth(),
                                     lineHeight = 20.sp
                                 )
                             }

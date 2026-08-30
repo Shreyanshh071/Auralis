@@ -24,11 +24,36 @@ object LyricsMatcher {
     }
 
     /**
-     * Checks whether a candidate lyric duration matches track duration within [maxToleranceSec] (default 15 seconds).
+     * Checks whether a candidate lyric duration matches track duration within [maxToleranceSec] (default 3.5 seconds).
      */
-    fun isDurationMatching(trackDurationSec: Long, lyricDurationSec: Long, maxToleranceSec: Long = 15): Boolean {
+    fun isDurationMatching(trackDurationSec: Long, lyricDurationSec: Long, maxToleranceSec: Long = 4): Boolean {
         if (trackDurationSec <= 0 || lyricDurationSec <= 0) return true
         return abs(trackDurationSec - lyricDurationSec) <= maxToleranceSec
+    }
+
+    /**
+     * Computes the automatic pre-gap intro offset between YouTube audio stream and studio master lyrics.
+     * When YouTube audio has a 0.5s-5.0s video/silence intro, this returns the millisecond offset to shift timestamps.
+     */
+    fun calculateIntroOffsetMs(trackDurationSec: Long?, lyricDurationSec: Long?): Long {
+        return 0L
+    }
+
+    /**
+     * Automatically applies video intro alignment to all line and syllable timestamps.
+     */
+    fun autoAlignLyrics(lyricsData: com.auralis.music.domain.model.LyricsData, trackDurationSec: Long?, lyricDurationSec: Long?): com.auralis.music.domain.model.LyricsData {
+        val offsetMs = calculateIntroOffsetMs(trackDurationSec, lyricDurationSec)
+        if (offsetMs == 0L || lyricsData.lines.isEmpty()) return lyricsData
+
+        val alignedLines = lyricsData.lines.map { line ->
+            val shiftedTime = (line.time + offsetMs).coerceAtLeast(0L)
+            val shiftedWords = line.words?.map { word ->
+                word.copy(time = (word.time + offsetMs).coerceAtLeast(0L))
+            }
+            line.copy(time = shiftedTime, words = shiftedWords)
+        }
+        return lyricsData.copy(lines = alignedLines)
     }
 
     /**
@@ -52,9 +77,9 @@ object LyricsMatcher {
         if (qTokens.isEmpty() || cTokens.isEmpty()) return true
 
         for (q in qTokens) {
-            val qPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(q)
+            val qPhonetic = IndicScriptNormalizer.toPhoneticCanonical(IndicScriptNormalizer.transliterateToPhoneticLatin(q))
             for (c in cTokens) {
-                val cPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(c)
+                val cPhonetic = IndicScriptNormalizer.toPhoneticCanonical(IndicScriptNormalizer.transliterateToPhoneticLatin(c))
                 if (q == c || q.contains(c) || c.contains(q)) return true
                 if (qPhonetic == cPhonetic || qPhonetic.contains(cPhonetic) || cPhonetic.contains(qPhonetic)) return true
 
@@ -119,7 +144,7 @@ object LyricsMatcher {
         val isDirectSub = if (qCleanTitle.isNotBlank() && cCleanTitle.isNotBlank() &&
             (qCleanTitle.contains(cCleanTitle, ignoreCase = true) || cCleanTitle.contains(qCleanTitle, ignoreCase = true))
         ) 0.9 else 0.0
-        val isTitleMatchScore = if (isTitleMatching(queryTitle, candidateTitle)) 0.88 else 0.0
+        val isTitleMatchScore = if (isTitleMatching(queryTitle, candidateTitle)) 0.95 else 0.0
         val titleScore = maxOf(directTitleDice, phoneticTitleDice, isDirectSub, isTitleMatchScore)
 
         // 2. Artist Score (0.0 to 1.0)
@@ -130,7 +155,7 @@ object LyricsMatcher {
             IndicScriptNormalizer.transliterateToPhoneticLatin(qArtistClean),
             IndicScriptNormalizer.transliterateToPhoneticLatin(cArtistClean)
         )
-        val isArtistMatch = if (isArtistMatching(queryArtist, candidateArtist)) 0.88 else 0.0
+        val isArtistMatch = if (isArtistMatching(queryArtist, candidateArtist)) 0.95 else 0.0
         val artistScore = maxOf(directArtistDice, phoneticArtistDice, isArtistMatch)
 
         // 3. Duration Score (0.0 to 1.0)

@@ -22,6 +22,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Collections
 
+import android.content.Context
+import com.auralis.music.data.datastore.HomeRecommendationsCache
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.collect
+
 data class SpeedDialItem(
     val id: String,
     val name: String,
@@ -43,20 +49,22 @@ data class HomeRecommendationSection(
 )
 
 data class HomeUiState(
-    val speedDialPages: List<List<SpeedDialItem>> = emptyList(),
-    val quickPicks: List<Track> = emptyList(),
-    val dailyDiscover: List<DailyDiscoverItem> = emptyList(),
-    val forgottenFavorites: List<Track> = emptyList(),
-    val keepListening: List<Track> = emptyList(),
-    val similarRecommendations: List<SimilarRecommendation> = emptyList(),
-    val communityPlaylists: List<PlaylistResult> = emptyList(),
-    val dynamicSections: List<HomeSection> = emptyList(),
-    val legacySections: List<HomeRecommendationSection> = emptyList(),
-    val homeChips: List<HomeChip> = emptyList(),
-    val selectedChip: HomeChip? = null,
     val recentTracks: List<HistoryEntry> = emptyList(),
     val topPlayedTracks: List<PlayCountEntry> = emptyList(),
+    val speedDialPages: List<List<SpeedDialItem>> = emptyList(),
+    val forgottenFavorites: List<Track> = emptyList(),
+    val keepListening: List<Track> = emptyList(),
+    val quickPicks: List<Track> = emptyList(),
+    val communityPlaylists: List<PlaylistResult> = emptyList(),
+    val communitySections: List<CommunityPlaylistItem> = emptyList(),
+    val homeChips: List<HomeChip> = emptyList(),
+    val selectedChip: HomeChip? = null,
+    val dynamicSections: List<HomeSection> = emptyList(),
+    val legacySections: List<HomeRecommendationSection> = emptyList(),
+    val dailyDiscover: List<DailyDiscoverItem> = emptyList(),
+    val similarRecommendations: List<SimilarRecommendation> = emptyList(),
     val similarArtists: List<Artist> = emptyList(),
+    val similarArtistTracks: List<Track> = emptyList(),
     val similarArtistName: String? = null,
     val similarArtistThumbnail: String? = null,
     val selectedMoodFilter: String? = null,
@@ -69,7 +77,8 @@ data class HomeUiState(
 class HomeViewModel(
     private val historyRepository: HistoryRepository,
     private val searchRepository: SearchRepository,
-    private val innerTubeClient: InnerTubeClient = InnerTubeClient()
+    private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
+    private val context: Context? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -78,7 +87,45 @@ class HomeViewModel(
     private val artistAvatarCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
 
     init {
+        // 1. Immediately restore cached recommendation shelves to UI (0ms cold start latency)
+        viewModelScope.launch(Dispatchers.IO) {
+            context?.let { ctx ->
+                val cachedRecs = HomeRecommendationsCache.getCachedSimilarRecommendations(ctx)
+                val cachedDiscover = HomeRecommendationsCache.getCachedDailyDiscover(ctx)
+                if (cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            similarRecommendations = if (it.similarRecommendations.isEmpty()) cachedRecs else it.similarRecommendations,
+                            dailyDiscover = if (it.dailyDiscover.isEmpty()) cachedDiscover else it.dailyDiscover
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Load fresh home data
         loadHomeData()
+
+        // 3. Continuously collect listening history & top played in real-time
+        viewModelScope.launch(Dispatchers.IO) {
+            historyRepository.getHistory().collect { historyList ->
+                val topPlayed = historyRepository.getTopPlayedTracks().first()
+                val profile = TasteProfiler.computeTasteProfile(historyList, topPlayed)
+                val topTracks = topPlayed.map { it.track }
+                val historyTracks = historyList.map { it.track }
+                _uiState.update {
+                    it.copy(
+                        recentTracks = historyList,
+                        topPlayedTracks = topPlayed,
+                        tasteProfile = profile,
+                        speedDialPages = if (historyList.isEmpty() && topPlayed.isEmpty()) emptyList() else it.speedDialPages
+                    )
+                }
+                if (historyList.isNotEmpty()) {
+                    fetchSimilarRecommendations()
+                }
+            }
+        }
     }
 
     private fun isInvalidArtistName(artist: String?): Boolean {
@@ -114,7 +161,8 @@ class HomeViewModel(
                                 recentTracks = history,
                                 topPlayedTracks = topPlayed,
                                 speedDialPages = speedDial,
-                                tasteProfile = profile
+                                tasteProfile = profile,
+                                isLoading = false
                             )
                         }
 
@@ -305,12 +353,14 @@ class HomeViewModel(
             val finalItems = discoveries.distinctBy { it.recommendation.id }.shuffled()
             if (finalItems.isNotEmpty()) {
                 _uiState.update { it.copy(dailyDiscover = finalItems) }
+                context?.let { HomeRecommendationsCache.saveDailyDiscover(it, finalItems) }
             }
         } catch (_: Exception) {}
     }
 
     /**
      * Similar Recommendations: "Similar to [Artist]" & "Similar to [Song]"
+     * Fetches concurrently and saves to local disk cache so shelves never vanish on restart.
      */
     private suspend fun fetchSimilarRecommendations() = withContext(Dispatchers.IO) {
         try {
@@ -322,78 +372,90 @@ class HomeViewModel(
                 .take(4)
 
             val topTracks = history.take(3)
-            val similarList = mutableListOf<SimilarRecommendation>()
+            val similarList = Collections.synchronizedList(mutableListOf<SimilarRecommendation>())
 
-            // 1. Artist-based recommendations from user's authentic favorite artists
-            for (artistName in topArtists) {
-                try {
-                    val searchResult = searchRepository.search(artistName)
-                    val matchedArtist = searchResult.artists.firstOrNull { it.name.equals(artistName, ignoreCase = true) }
-                        ?: searchResult.artists.firstOrNull()
-                    val artistTracks = searchResult.songs.take(10)
-                    val sampleThumb = matchedArtist?.thumbnail
-                        ?: artistTracks.firstOrNull()?.thumbnail
+            coroutineScope {
+                // 1. Artist-based recommendations from user's authentic favorite artists (parallel)
+                topArtists.forEach { artistName ->
+                    launch(Dispatchers.IO) {
+                        try {
+                            val searchResult = searchRepository.search(artistName)
+                            val matchedArtist = searchResult.artists.firstOrNull { it.name.equals(artistName, ignoreCase = true) }
+                                ?: searchResult.artists.firstOrNull()
+                            val artistTracks = searchResult.songs.take(10)
+                            val sampleThumb = matchedArtist?.thumbnail
+                                ?: artistTracks.firstOrNull()?.thumbnail
 
-                    if (artistTracks.isNotEmpty()) {
-                        similarList.add(
-                            SimilarRecommendation(
-                                seedTitle = artistName,
-                                seedThumbnail = sampleThumb,
-                                seedType = RecommendationSeedType.ARTIST,
-                                items = artistTracks,
-                                artistId = matchedArtist?.id,
-                                artistName = artistName
-                            )
-                        )
+                            if (artistTracks.isNotEmpty()) {
+                                similarList.add(
+                                    SimilarRecommendation(
+                                        seedTitle = artistName,
+                                        seedThumbnail = sampleThumb,
+                                        seedType = RecommendationSeedType.ARTIST,
+                                        items = artistTracks,
+                                        artistId = matchedArtist?.id,
+                                        artistName = artistName
+                                    )
+                                )
+                            }
+                        } catch (_: Exception) {}
                     }
-                } catch (_: Exception) {}
-            }
+                }
 
-            // 2. Song-based related recommendations
-            for (track in topTracks) {
-                try {
-                    val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(track.id)
-                    val related = innerTubeClient.getRelated(browseId, params).take(10)
-                    if (related.isNotEmpty()) {
-                        similarList.add(
-                            SimilarRecommendation(
-                                seedTitle = track.title,
-                                seedThumbnail = track.thumbnail,
-                                seedType = RecommendationSeedType.SONG,
-                                items = related,
-                                artistName = track.artist
-                            )
-                        )
+                // 2. Song-based related recommendations (parallel)
+                topTracks.forEach { track ->
+                    launch(Dispatchers.IO) {
+                        try {
+                            val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(track.id)
+                            val related = innerTubeClient.getRelated(browseId, params).take(10)
+                            if (related.isNotEmpty()) {
+                                similarList.add(
+                                    SimilarRecommendation(
+                                        seedTitle = track.title,
+                                        seedThumbnail = track.thumbnail,
+                                        seedType = RecommendationSeedType.SONG,
+                                        items = related,
+                                        artistName = track.artist
+                                    )
+                                )
+                            }
+                        } catch (_: Exception) {}
                     }
-                } catch (_: Exception) {}
+                }
             }
 
             // 3. Fallback popular artists if history is sparse
             if (similarList.isEmpty()) {
                 val curatedCurations = listOf("Tame Impala", "The Weeknd", "Daft Punk")
-                for (artist in curatedCurations) {
-                    try {
-                        val res = searchRepository.search(artist)
-                        val matchedArt = res.artists.firstOrNull { it.name.equals(artist, ignoreCase = true) }
-                            ?: res.artists.firstOrNull()
-                        if (res.songs.isNotEmpty()) {
-                            similarList.add(
-                                SimilarRecommendation(
-                                    seedTitle = artist,
-                                    seedThumbnail = matchedArt?.thumbnail ?: res.songs.firstOrNull()?.thumbnail,
-                                    seedType = RecommendationSeedType.ARTIST,
-                                    items = res.songs.take(8),
-                                    artistId = matchedArt?.id,
-                                    artistName = artist
-                                )
-                            )
+                coroutineScope {
+                    curatedCurations.forEach { artist ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                val res = searchRepository.search(artist)
+                                val matchedArt = res.artists.firstOrNull { it.name.equals(artist, ignoreCase = true) }
+                                    ?: res.artists.firstOrNull()
+                                if (res.songs.isNotEmpty()) {
+                                    similarList.add(
+                                        SimilarRecommendation(
+                                            seedTitle = artist,
+                                            seedThumbnail = matchedArt?.thumbnail ?: res.songs.firstOrNull()?.thumbnail,
+                                            seedType = RecommendationSeedType.ARTIST,
+                                            items = res.songs.take(8),
+                                            artistId = matchedArt?.id,
+                                            artistName = artist
+                                        )
+                                    )
+                                }
+                            } catch (_: Exception) {}
                         }
-                    } catch (_: Exception) {}
+                    }
                 }
             }
 
-            if (similarList.isNotEmpty()) {
-                _uiState.update { it.copy(similarRecommendations = similarList) }
+            val finalRecs = similarList.toList()
+            if (finalRecs.isNotEmpty()) {
+                _uiState.update { it.copy(similarRecommendations = finalRecs) }
+                context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, finalRecs) }
             }
         } catch (_: Exception) {}
     }
@@ -634,8 +696,17 @@ class HomeViewModel(
     }
 
     fun clearHistory() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             historyRepository.clearHistory()
+            _uiState.update {
+                it.copy(
+                    recentTracks = emptyList(),
+                    topPlayedTracks = emptyList(),
+                    speedDialPages = emptyList(),
+                    keepListening = emptyList(),
+                    forgottenFavorites = emptyList()
+                )
+            }
         }
     }
 
@@ -643,6 +714,7 @@ class HomeViewModel(
      * Builds 3x3 Speed Dial Pages (27 items total = 3 pages of 9).
      * Strictly deduplicates songs so identical tracks (even with different YouTube IDs,
      * bracket noise, or artist variations) are never recommended multiple times on Speed Dial.
+     * Only page 0 displays the 5-dot "Surprise Me" tile in the 9th slot; pages 1 and 2 display 9 full tracks.
      */
     fun buildSpeedDialPages(
         topTracks: List<Track>,
@@ -654,7 +726,7 @@ class HomeViewModel(
         if (uniqueTracks.isEmpty()) return emptyList()
 
         val allItems = mutableListOf<SpeedDialItem>()
-        for ((idx, t) in uniqueTracks.take(24).withIndex()) {
+        for ((idx, t) in uniqueTracks.take(26).withIndex()) {
             val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
             allItems.add(
                 SpeedDialItem(
@@ -668,29 +740,59 @@ class HomeViewModel(
         }
 
         val pages = mutableListOf<List<SpeedDialItem>>()
-        for (p in 0 until 3) {
-            val pageSlice = allItems.drop(p * 8).take(8).toMutableList()
-            if (pageSlice.isNotEmpty()) {
-                // 9th Tile: Surprise Me / Explore
-                pageSlice.add(
+
+        // Page 0: 8 tracks + 1 Surprise Me dice tile in the 9th slot
+        val page0Items = allItems.take(8).toMutableList()
+        if (page0Items.isNotEmpty()) {
+            page0Items.add(
+                SpeedDialItem(
+                    id = "surprise-0",
+                    name = "Surprise Me",
+                    type = SpeedDialType.SURPRISE
+                )
+            )
+            while (page0Items.size < 9) {
+                page0Items.add(
                     SpeedDialItem(
-                        id = "surprise-$p",
-                        name = "Surprise Me",
-                        type = SpeedDialType.SURPRISE
+                        id = "placeholder-0-${page0Items.size}",
+                        name = "",
+                        type = SpeedDialType.PLACEHOLDER
                     )
                 )
-                while (pageSlice.size < 9) {
-                    pageSlice.add(
-                        SpeedDialItem(
-                            id = "placeholder-$p-${pageSlice.size}",
-                            name = "",
-                            type = SpeedDialType.PLACEHOLDER
-                        )
-                    )
-                }
-                pages.add(pageSlice)
             }
+            pages.add(page0Items)
         }
+
+        // Page 1: 9 tracks (items 8..16) without surprise button
+        val page1Items = allItems.drop(8).take(9).toMutableList()
+        if (page1Items.isNotEmpty()) {
+            while (page1Items.size < 9) {
+                page1Items.add(
+                    SpeedDialItem(
+                        id = "placeholder-1-${page1Items.size}",
+                        name = "",
+                        type = SpeedDialType.PLACEHOLDER
+                    )
+                )
+            }
+            pages.add(page1Items)
+        }
+
+        // Page 2: 9 tracks (items 17..25) without surprise button
+        val page2Items = allItems.drop(17).take(9).toMutableList()
+        if (page2Items.isNotEmpty()) {
+            while (page2Items.size < 9) {
+                page2Items.add(
+                    SpeedDialItem(
+                        id = "placeholder-2-${page2Items.size}",
+                        name = "",
+                        type = SpeedDialType.PLACEHOLDER
+                    )
+                )
+            }
+            pages.add(page2Items)
+        }
+
         return pages
     }
 }

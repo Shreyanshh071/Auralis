@@ -22,9 +22,7 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.service.AuralisMediaService
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 
 /**
  * High-Reliability Dual-Engine Audio Player for Auralis.
@@ -51,6 +49,19 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     init {
         com.auralis.music.data.network.AudioStreamResolver.init(appContext)
+
+        // Broadcast real-time playback state to Discord Gateway Rich Presence
+        scope.launch {
+            combine(
+                _currentTrack,
+                _isPlaying,
+                _playbackPositionMs,
+                _durationMs
+            ) { track, isPlaying, pos, duration ->
+                com.auralis.music.data.network.discord.DiscordGatewayManager.getInstance(appContext)
+                    .onPlaybackStateChanged(track, isPlaying, pos, duration)
+            }.collect()
+        }
     }
 
     private var isUsingExoPlayer = false
@@ -67,8 +78,14 @@ class AuralisAudioPlayer private constructor(context: Context) {
                 )
             )
 
+        // DefaultDataSource.Factory seamlessly handles local file:// (offline downloads), content://, and network streams
+        val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            appContext,
+            httpDataSourceFactory
+        )
+
         val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
-            .setDataSourceFactory(httpDataSourceFactory)
+            .setDataSourceFactory(defaultDataSourceFactory)
 
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -283,10 +300,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
             }
         }
 
-        // Ticker for ExoPlayer progress
+        // High-frequency real-time ticker for ExoPlayer progress (16ms ~ 60fps for ultra-smooth seekbar & lyrics sync)
         scope.launch {
             while (isActive) {
-                delay(250)
+                delay(16)
                 if (isUsingExoPlayer && exoPlayer.isPlaying) {
                     _playbackPositionMs.value = exoPlayer.currentPosition
                     if (exoPlayer.duration > 0) {
@@ -398,18 +415,27 @@ class AuralisAudioPlayer private constructor(context: Context) {
         streamResolveJob = scope.launch {
             tracker.tResolveStartMs = System.currentTimeMillis()
             var directUrl: String? = null
-            try {
-                withTimeoutOrNull(12000L) {
-                    directUrl = AudioStreamResolver.resolveAudioStream(
-                        videoId = track.id,
-                        title = track.title,
-                        artist = track.artist,
-                        quality = currentAudioQuality,
-                        context = appContext
-                    )
+
+            // Check for offline downloaded track first for instant playback
+            val isExplicitlyDownloaded = com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(track.id)
+            val localDownloadedFile = if (isExplicitlyDownloaded) com.auralis.music.data.download.AuralisDownloadManager.getDownloadedFile(track.id) else null
+            if (localDownloadedFile != null && localDownloadedFile.exists()) {
+                directUrl = Uri.fromFile(localDownloadedFile).toString()
+                Log.d("AuralisPlayback", "[Offline Engine] Playing '${track.title}' from local storage: $directUrl")
+            } else {
+                try {
+                    withTimeoutOrNull(3000L) {
+                        directUrl = AudioStreamResolver.resolveAudioStream(
+                            videoId = track.id,
+                            title = track.title,
+                            artist = track.artist,
+                            quality = currentAudioQuality,
+                            context = appContext
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w("AuralisPlayback", "[Resolver] Stream resolve notice: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w("AuralisPlayback", "[Resolver] Stream resolve notice: ${e.message}")
             }
 
             if (currentSessionId.get() != requestId) return@launch
@@ -492,13 +518,18 @@ class AuralisAudioPlayer private constructor(context: Context) {
                 streamResolveJob?.join()
                 delay(1200)
                 Log.d("AuralisPlayback", "[Prefetch] Pre-resolving stream for '${track.title}' (${track.id}) [$currentAudioQuality] in background...")
-                val streamUrl = com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(
-                    videoId = track.id,
-                    title = track.title,
-                    artist = track.artist,
-                    quality = currentAudioQuality,
-                    context = appContext
-                )
+                val localFile = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedFile(track.id)
+                val streamUrl = if (localFile != null && localFile.exists()) {
+                    Uri.fromFile(localFile).toString()
+                } else {
+                    com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(
+                        videoId = track.id,
+                        title = track.title,
+                        artist = track.artist,
+                        quality = currentAudioQuality,
+                        context = appContext
+                    )
+                }
 
                 // 🚀 TRUE GAPLESS PLAYBACK PRE-BUFFERING
                 if (!streamUrl.isNullOrBlank() && isGaplessEnabled && isUsingExoPlayer) {
@@ -612,11 +643,14 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun seekTo(positionMs: Long) {
-        _playbackPositionMs.value = positionMs
+        val bounded = positionMs.coerceAtLeast(0L)
+        _playbackPositionMs.value = bounded
         if (isUsingExoPlayer) {
-            exoPlayer.seekTo(positionMs)
+            val dur = exoPlayer.duration
+            val target = if (dur > 0 && bounded >= dur) (dur - 500L).coerceAtLeast(0L) else bounded
+            exoPlayer.seekTo(target)
         } else {
-            youTubeEngine.seekTo(positionMs)
+            youTubeEngine.seekTo(bounded)
         }
     }
 

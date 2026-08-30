@@ -1,11 +1,15 @@
 package com.auralis.music.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.geometry.Offset
+import com.auralis.music.ui.components.rememberShimmerBrush
+import com.auralis.music.ui.components.tactileBounce
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -124,7 +128,7 @@ fun HomeScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -136,7 +140,10 @@ fun HomeScreen(
                         fontSize = 26.sp
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         IconButton(
                             onClick = onOpenHistory,
                             modifier = Modifier.tactileBounce(scaleDown = 0.90f)
@@ -159,21 +166,29 @@ fun HomeScreen(
                 }
             }
 
-            // ================================================================
-            // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
-            // ================================================================
-            if (uiState.speedDialPages.isNotEmpty()) {
+            // ── SKELETON GHOST TILES ON INITIAL LOAD ──
+            if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
                 item {
-                    Text(
-                        text = "Speed dial",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                    HomeGhostTilesSkeleton(
+                        modifier = Modifier.padding(top = 4.dp)
                     )
+                }
+            } else {
+                // ================================================================
+                // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
+                // ================================================================
+                if (uiState.speedDialPages.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Speed dial",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 20.sp,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                        )
 
-                    val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
+                        val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
 
                     val speedDialThemeKey = MaterialTheme.colorScheme.background.hashCode() xor MaterialTheme.colorScheme.primary.hashCode()
 
@@ -403,7 +418,11 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        items(keepList, key = { it.id }) { track ->
+                        items(
+                            items = keepList,
+                            key = { it.id },
+                            contentType = { "track" }
+                        ) { track ->
                             Column(
                                 modifier = Modifier
                                     .width(115.dp)
@@ -433,60 +452,6 @@ fun HomeScreen(
                                 )
                                 Text(
                                     text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
-                }
-            }
-
-            // ================================================================
-            // 6. TRENDING COMMUNITY PLAYLISTS
-            // ================================================================
-            if (uiState.communityPlaylists.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Trending community playlists",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                    )
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(uiState.communityPlaylists, key = { it.id }) { pl ->
-                            Column(
-                                modifier = Modifier
-                                    .width(135.dp)
-                                    .clickable { onNavigateToExplore() }
-                                    .padding(4.dp)
-                            ) {
-                                ArtworkCard(
-                                    url = pl.thumbnail ?: "",
-                                    modifier = Modifier.size(135.dp).clip(RoundedCornerShape(12.dp)),
-                                    cornerRadius = 12.dp,
-                                    contentDescription = pl.title
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = pl.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = pl.author ?: "Community",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                     maxLines = 1,
@@ -559,15 +524,16 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            items(simRec.items, key = { it.id }) { track ->
+                            items(
+                                items = simRec.items,
+                                key = { it.id },
+                                contentType = { "track" }
+                            ) { track ->
                                 Column(
                                     modifier = Modifier
                                         .width(115.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .combinedClickable(
-                                            onClick = { onTrackClick(track, simRec.items) },
-                                            onLongClick = { selectedTrackForMenu = track }
-                                        )
+                                        .clickable { onTrackClick(track, simRec.items) }
                                         .padding(4.dp)
                                 ) {
                                     ArtworkCard(
@@ -628,7 +594,11 @@ fun HomeScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                items(section.items, key = { it.id }) { track ->
+                                items(
+                                    items = section.items,
+                                    key = { it.id },
+                                    contentType = { "track" }
+                                ) { track ->
                                     Column(
                                         modifier = Modifier
                                             .width(120.dp)
@@ -669,7 +639,7 @@ fun HomeScreen(
                     }
                 }
             }
-
+            }
         }
 
 
@@ -715,17 +685,49 @@ private fun SpeedDialTile(
         return
     }
 
-    // 9th Tile: 5-Dot Dice Pattern ("Surprise Me")
+    // 9th Tile: 3-Dot Diagonal Dice Pattern with Dynamic Glow Background ("Surprise Me")
     if (item.type == SpeedDialType.SURPRISE || item.type == SpeedDialType.MORE) {
+        val primary = MaterialTheme.colorScheme.primary
+        val secondary = MaterialTheme.colorScheme.secondary
+        val tertiary = MaterialTheme.colorScheme.tertiary
+        val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+
+        // Multi-tone dynamic gradient with corner glows matching reference photo
+        val gradientBrush = Brush.linearGradient(
+            colors = listOf(
+                primary.copy(alpha = 0.38f),
+                Color(0xFF131217),
+                tertiary.copy(alpha = 0.30f)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(300f, 300f)
+        )
+
+        val dotColor = primary.copy(alpha = 0.88f)
+
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable(onClick = onClick)
-                .padding(18.dp),
+                .background(Color(0xFF121116))
+                .background(gradientBrush)
+                .border(
+                    BorderStroke(
+                        1.dp,
+                        Brush.linearGradient(
+                            listOf(
+                                primary.copy(alpha = 0.45f),
+                                outlineVariant.copy(alpha = 0.20f),
+                                tertiary.copy(alpha = 0.40f)
+                            )
+                        )
+                    ),
+                    RoundedCornerShape(14.dp)
+                )
+                .tactileBounce(scaleDown = 0.88f, onClick = onClick)
+                .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            DiceFivePattern()
+            DiceThreePattern(dotColor = dotColor)
         }
         return
     }
@@ -735,7 +737,8 @@ private fun SpeedDialTile(
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)), RoundedCornerShape(14.dp))
                 .clickable(onClick = onClick)
         ) {
             if (!item.image.isNullOrBlank()) {
@@ -789,7 +792,8 @@ private fun SpeedDialTile(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)), RoundedCornerShape(14.dp))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -833,43 +837,140 @@ private fun SpeedDialTile(
 }
 
 /**
- * Renders the 5-dot dice pattern for the 9th Speed Dial tile.
+ * Renders the 3-dot diagonal dice pattern for the Surprise Me tile.
  */
 @Composable
-private fun DiceFivePattern() {
+private fun DiceThreePattern(dotColor: Color) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.Start
         ) {
-            DiceDot()
-            DiceDot()
+            DiceDot(color = dotColor)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            DiceDot()
+            DiceDot(color = dotColor)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.End
         ) {
-            DiceDot()
-            DiceDot()
+            DiceDot(color = dotColor)
         }
     }
 }
 
 @Composable
-private fun DiceDot() {
+private fun DiceDot(color: Color) {
     Box(
         modifier = Modifier
-            .size(10.dp)
+            .size(16.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary)
+            .background(color)
     )
+}
+
+/**
+ * Shimmer Ghost Tiles Skeleton Loader:
+ * Displays sleek placeholder tiles during cold start before feed data resolves,
+ * preventing sudden layout jumps or blank grey boxes.
+ */
+@Composable
+fun HomeGhostTilesSkeleton(modifier: Modifier = Modifier) {
+    val shimmerBrush = rememberShimmerBrush()
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp)
+    ) {
+        // 1. Shimmer Speed Dial Section (3x3 Grid)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .width(130.dp)
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(shimmerBrush)
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                for (row in 0 until 3) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        for (col in 0 until 3) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(shimmerBrush)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Shimmer Shelf Section ("Similar to...")
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(shimmerBrush)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(150.dp)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerBrush)
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                repeat(4) {
+                    Column(
+                        modifier = Modifier.width(115.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(115.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(shimmerBrush)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.9f)
+                                .height(12.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(shimmerBrush)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.6f)
+                                .height(10.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(shimmerBrush)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
