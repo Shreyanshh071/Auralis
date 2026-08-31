@@ -63,11 +63,18 @@ class WordSyncParsersTest {
         assertEquals(10500L, line1.time)
         assertEquals("Never gonna give you up", line1.text)
         assertNotNull(line1.words)
-        assertEquals(9, line1.words!!.size)
+        // Musixmatch emits the gap between two sung words as its own " " token. That
+        // token is not a word: it is folded into the trailing space of the word before
+        // it, so the token count is the sung-word count and the space never gets a
+        // karaoke sweep of its own. Its offset is still what ends the previous word.
+        assertEquals(5, line1.words!!.size)
         assertEquals(10500L, line1.words!![0].time)
-        assertEquals("Never", line1.words!![0].word)
-        assertEquals(12500L, line1.words!![8].time)
-        assertEquals("up", line1.words!![8].word)
+        assertEquals("Never ", line1.words!![0].word)
+        assertEquals(400L, line1.words!![0].duration)
+        assertEquals(12500L, line1.words!![4].time)
+        assertEquals("up", line1.words!![4].word)
+        // The final token runs to the line's own "te" (14.0s), verbatim.
+        assertEquals(1500L, line1.words!![4].duration)
     }
 
     @Test

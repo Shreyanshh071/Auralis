@@ -31,7 +31,9 @@ class LyricsRepositoryImpl(
     ): LyricsData? {
         val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         // 1. Check in-memory cache
-        memoryCache[trackKey]?.let { return it }
+        memoryCache[trackKey]?.let {
+            return com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(it, durationSec, null)
+        }
 
         // 2. Check local SQLite Room DB cache (0ms instant display)
         if (lyricsDao != null) {
@@ -40,8 +42,13 @@ class LyricsRepositoryImpl(
                 if (entity != null) {
                     val domainLyrics = entityToDomain(entity, title, artist)
                     if (domainLyrics != null) {
-                        memoryCache[trackKey] = domainLyrics
-                        return domainLyrics
+                        val aligned = com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(domainLyrics, durationSec, null)
+                        val firstTime = aligned.lines.firstOrNull()?.time ?: 0L
+                        // If cached is plain/empty or unverified LRCLIB starting at 0ms, skip cache to query studio sources
+                        if (!(aligned.provider == LyricsProvider.LRCLIB && firstTime == 0L)) {
+                            memoryCache[trackKey] = aligned
+                            return aligned
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -60,7 +67,13 @@ class LyricsRepositoryImpl(
 
         // 1. Check in-memory cache
         if (!forceRefresh) {
-            memoryCache[trackKey]?.let { return it }
+            memoryCache[trackKey]?.let { cached ->
+                val aligned = com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(cached, durationSec, null)
+                val firstTime = aligned.lines.firstOrNull()?.time ?: 0L
+                if (!(aligned.provider == LyricsProvider.LRCLIB && firstTime == 0L)) {
+                    return aligned
+                }
+            }
         }
 
         // 2. Check local SQLite Room DB cache (0ms instant display)
@@ -70,8 +83,12 @@ class LyricsRepositoryImpl(
                 if (entity != null) {
                     val domainLyrics = entityToDomain(entity, title, artist)
                     if (domainLyrics != null) {
-                        memoryCache[trackKey] = domainLyrics
-                        return domainLyrics
+                        val aligned = com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(domainLyrics, durationSec, null)
+                        val firstTime = aligned.lines.firstOrNull()?.time ?: 0L
+                        if (!(aligned.provider == LyricsProvider.LRCLIB && firstTime == 0L)) {
+                            memoryCache[trackKey] = aligned
+                            return aligned
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -89,15 +106,26 @@ class LyricsRepositoryImpl(
 
         // 4. Multi-Provider Cascade (AMLL RichSync -> LRCLIB, JioSaavn, NetEase, KuGou, Musixmatch -> Genius, YouTube)
         val networkResult = lyricsClient.getLyrics(title, artist, durationSec, videoId)
-        if (networkResult != null) {
-            memoryCache[trackKey] = networkResult
+        if (networkResult != null && networkResult.lines.isNotEmpty()) {
+            val alignedNetwork = com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(networkResult, durationSec, null)
+            memoryCache[trackKey] = alignedNetwork
 
-            // Save to SQLite Room database only if synced (RichSync or Line-Synced)
-            if (lyricsDao != null && networkResult.syncType != com.auralis.music.domain.model.SyncType.PLAIN) {
+            // Save to SQLite Room database for persistent 0ms instant retrieval
+            if (lyricsDao != null) {
                 try {
-                    val entity = domainToEntity(trackKey, networkResult)
+                    val entity = domainToEntity(trackKey, alignedNetwork)
                     lyricsDao.insertLyrics(entity)
                     negativeLyricsDao?.removeNegativeEntry(trackKey)
+                } catch (_: Exception) {}
+            }
+            return alignedNetwork
+        } else {
+            // Record negative entry with 12-hour TTL to prevent repeated slow missed lookups
+            if (negativeLyricsDao != null) {
+                try {
+                    negativeLyricsDao.insertNegativeEntry(
+                        NegativeLyricsEntity(trackKey = trackKey, cachedAt = System.currentTimeMillis())
+                    )
                 } catch (_: Exception) {}
             }
         }
@@ -167,10 +195,22 @@ class LyricsRepositoryImpl(
                 lines.add(LyricLine(time = time, text = text, words = words, isInstrumental = isInst))
             }
 
-            val resolvedLines = lines
+            val cleanedLines = lines.filterNot { com.auralis.music.data.parser.LrcParser.isMetadataOrCreditLine(it.text) }
+            val resolvedLines = if (cleanedLines.size >= 4 && cleanedLines.none { !it.words.isNullOrEmpty() }) {
+                com.auralis.music.data.parser.LrcParser.mergeMicroFragments(cleanedLines)
+            } else {
+                cleanedLines
+            }
+
+            val hasDerivedWordSync = resolvedLines.any { it.words != null && it.words.isNotEmpty() }
+            val resolvedSyncType = if (syncType == SyncType.LINE_SYNC && hasDerivedWordSync) {
+                SyncType.RICHSYNC
+            } else {
+                syncType
+            }
 
             return LyricsData(
-                syncType = syncType,
+                syncType = resolvedSyncType,
                 lines = resolvedLines,
                 plainLyrics = entity.plainLyrics,
                 provider = provider,

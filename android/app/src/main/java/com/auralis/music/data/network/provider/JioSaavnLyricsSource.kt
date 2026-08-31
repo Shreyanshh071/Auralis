@@ -18,7 +18,7 @@ import java.net.URLEncoder
  * Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Urdu, and Indian regional music.
  */
 class JioSaavnLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.JIOSAAVN

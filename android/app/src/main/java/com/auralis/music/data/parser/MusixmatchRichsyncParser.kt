@@ -54,7 +54,6 @@ object MusixmatchRichsyncParser {
 
                 val lineStartMs = (tsSec * 1000.0).toLong()
                 val lineEndMs = if (teSec > tsSec) (teSec * 1000.0).toLong() else lineStartMs + 3000L
-                val lineDurationMs = (lineEndMs - lineStartMs).coerceAtLeast(300L)
                 val fullText = lineObj.optString("x").trim()
 
                 val lArray = lineObj.optJSONArray("l")
@@ -65,10 +64,24 @@ object MusixmatchRichsyncParser {
                         val tokenObj = lArray.optJSONObject(j) ?: continue
                         val cText = tokenObj.optString("c", "")
                         val offsetSec = tokenObj.optDouble("o", 0.0)
+                        val tokenStartMs = lineStartMs + (offsetSec * 1000.0).toLong()
 
-                        val wordStartMs = lineStartMs + (offsetSec * 1000.0).toLong()
+                        if (cText.isBlank()) {
+                            if (words.isNotEmpty()) {
+                                val last = words.last()
+                                words[words.size - 1] = last.copy(
+                                    word = if (last.word.endsWith(" ")) last.word else "${last.word} "
+                                )
+                            }
+                            continue
+                        }
 
-                        // Calculate duration based on next token or line end
+                        // Musixmatch encodes a token stream: every gap between sung words is
+                        // itself a token (usually " "). The end of this word is therefore the
+                        // offset of the next token, and the last token of the line ends at "te".
+                        // Both are provider-supplied values, so they are used verbatim — no cap,
+                        // no "natural singing length" guess, because a long value here is a
+                        // genuinely held note and a short one is a genuine rest that follows.
                         val nextOffsetSec = if (j + 1 < lArray.length()) {
                             lArray.optJSONObject(j + 1)?.optDouble("o", offsetSec) ?: offsetSec
                         } else null
@@ -76,13 +89,13 @@ object MusixmatchRichsyncParser {
                         val wordDurMs = if (nextOffsetSec != null && nextOffsetSec > offsetSec) {
                             ((nextOffsetSec - offsetSec) * 1000.0).toLong()
                         } else {
-                            (lineEndMs - wordStartMs).coerceIn(100L, 2000L)
+                            (lineEndMs - tokenStartMs).coerceAtLeast(100L)
                         }
 
                         words.add(
                             LyricWord(
                                 word = cText,
-                                time = wordStartMs,
+                                time = tokenStartMs,
                                 duration = wordDurMs.coerceAtLeast(50L)
                             )
                         )

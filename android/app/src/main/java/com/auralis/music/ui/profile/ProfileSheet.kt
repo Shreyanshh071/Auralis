@@ -119,12 +119,13 @@ fun ProfileSheet(
     onDismiss: () -> Unit,
     historyRepository: com.auralis.music.domain.repository.HistoryRepository? = null,
     searchRepository: com.auralis.music.domain.repository.SearchRepository? = null,
+    hasActiveTrack: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val profile = authUiState.profile
-    var isSettingsOpen by remember { mutableStateOf(false) }
-    var isDiscordIntegrationOpen by remember { mutableStateOf(false) }
+    var isSettingsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var isDiscordIntegrationOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
 
@@ -157,7 +158,8 @@ fun ProfileSheet(
             onNavigateToAccount = { isSettingsOpen = false },
             onDismiss = { isSettingsOpen = false },
             historyRepository = historyRepository,
-            searchRepository = searchRepository
+            searchRepository = searchRepository,
+            hasActiveTrack = hasActiveTrack
         )
         return
     }

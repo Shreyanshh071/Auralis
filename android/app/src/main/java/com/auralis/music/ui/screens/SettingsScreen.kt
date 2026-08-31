@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -43,10 +45,11 @@ fun SettingsScreen(
     onDismiss: () -> Unit,
     historyRepository: com.auralis.music.domain.repository.HistoryRepository? = null,
     searchRepository: com.auralis.music.domain.repository.SearchRepository? = null,
+    hasActiveTrack: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var activeDialog by remember { mutableStateOf<SettingsDialogType?>(null) }
+    var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<SettingsDialogType?>(null) }
 
     androidx.activity.compose.BackHandler(enabled = true) {
         if (activeDialog != null) {
@@ -56,11 +59,18 @@ fun SettingsScreen(
         }
     }
 
+    val currentThemeKey = "${MaterialTheme.colorScheme.background.toArgb()}_${MaterialTheme.colorScheme.surfaceVariant.toArgb()}_${MaterialTheme.colorScheme.surface.toArgb()}_${MaterialTheme.colorScheme.primary.toArgb()}"
     val primaryColor = MaterialTheme.colorScheme.primary
     val onBackground = MaterialTheme.colorScheme.onBackground
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val surfaceColor = MaterialTheme.colorScheme.surface
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val cardBackground = if (isDark) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.8f)
+    val cardText = MaterialTheme.colorScheme.onBackground
+    val cardPrimary = MaterialTheme.colorScheme.primary
+    val cardIconBg = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.12f else 0.16f)
 
     Box(
         modifier = modifier
@@ -69,127 +79,170 @@ fun SettingsScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = onBackground,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 22.sp
-                )
-            }
-
-            // ── SETTINGS LIST ──
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 18.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // ── INTERFACE ──
-                item { SettingsCategoryHeader(title = "Interface") }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Palette,
-                        title = "Appearance",
-                        onClick = { activeDialog = SettingsDialogType.APPEARANCE }
+            Column(modifier = Modifier.fillMaxSize()) {
+                // ── TOP APP BAR ──
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = onBackground,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = onBackground,
+                        fontSize = 22.sp
                     )
                 }
 
-                // ── PLAYER & CONTENT ──
-                item { SettingsCategoryHeader(title = "Player & Content") }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.PlayArrow,
-                        title = "Player and audio",
-                        onClick = { activeDialog = SettingsDialogType.PLAYER_AUDIO }
-                    )
-                }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Translate,
-                        title = "AI lyrics translation",
-                        onClick = { activeDialog = SettingsDialogType.LYRICS_TRANSLATION }
-                    )
-                }
-
-                // ── PRIVACY & STORAGE ──
-                item { SettingsCategoryHeader(title = "Privacy & Storage") }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Security,
-                        title = "Privacy",
-                        onClick = { activeDialog = SettingsDialogType.PRIVACY }
-                    )
-                }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Storage,
-                        title = "Storage",
-                        onClick = { activeDialog = SettingsDialogType.STORAGE }
-                    )
-                }
-
-                // ── SYSTEM & ABOUT ──
-                item { SettingsCategoryHeader(title = "System & About") }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.SystemUpdate,
-                        title = "Updater",
-                        onClick = { activeDialog = SettingsDialogType.UPDATER }
-                    )
-                }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.AppSettingsAlt,
-                        title = "System app settings",
-                        onClick = {
-                            try {
-                                val intent = Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                    data = Uri.fromParts("package", context.packageName, null)
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                }
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Unable to open system settings", Toast.LENGTH_SHORT).show()
-                            }
+                // ── SETTINGS LIST ──
+                val listBottomPadding = if (hasActiveTrack) 110.dp else 16.dp
+                androidx.compose.runtime.key(currentThemeKey) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 18.dp),
+                        contentPadding = PaddingValues(bottom = listBottomPadding),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // ── INTERFACE ──
+                        item(key = "hdr_interface") { SettingsCategoryHeader(title = "Interface", color = cardPrimary) }
+                        item(key = "item_appearance") {
+                            SettingsRowItem(
+                                icon = Icons.Default.Palette,
+                                title = "Appearance",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.APPEARANCE }
+                            )
                         }
-                    )
-                }
-                item {
-                    SettingsRowItem(
-                        icon = Icons.Default.Info,
-                        title = "About",
-                        onClick = { activeDialog = SettingsDialogType.ABOUT }
-                    )
-                }
-            }
-        }
 
-        // ── DIALOG HANDLER ──
-        when (activeDialog) {
-            SettingsDialogType.APPEARANCE -> {
-                AppearanceScreen(
-                    onDismiss = { activeDialog = null }
-                )
+                        // ── PLAYER & CONTENT ──
+                        item(key = "hdr_player") { SettingsCategoryHeader(title = "Player & Content", color = cardPrimary) }
+                        item(key = "item_player_audio") {
+                            SettingsRowItem(
+                                icon = Icons.Default.PlayArrow,
+                                title = "Player and audio",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.PLAYER_AUDIO }
+                            )
+                        }
+                        item(key = "item_ai_lyrics") {
+                            SettingsRowItem(
+                                icon = Icons.Default.Translate,
+                                title = "AI lyrics translation",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.LYRICS_TRANSLATION }
+                            )
+                        }
+
+                        // ── PRIVACY & STORAGE ──
+                        item(key = "hdr_privacy") { SettingsCategoryHeader(title = "Privacy & Storage", color = cardPrimary) }
+                        item(key = "item_privacy") {
+                            SettingsRowItem(
+                                icon = Icons.Default.Security,
+                                title = "Privacy",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.PRIVACY }
+                            )
+                        }
+                        item(key = "item_storage") {
+                            SettingsRowItem(
+                                icon = Icons.Default.Storage,
+                                title = "Storage",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.STORAGE }
+                            )
+                        }
+
+                        // ── SYSTEM & ABOUT ──
+                        item(key = "hdr_system") { SettingsCategoryHeader(title = "System & About", color = cardPrimary) }
+                        item(key = "item_updater") {
+                            SettingsRowItem(
+                                icon = Icons.Default.SystemUpdate,
+                                title = "Updater",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.UPDATER }
+                            )
+                        }
+                        item(key = "item_sys_app") {
+                            SettingsRowItem(
+                                icon = Icons.Default.AppSettingsAlt,
+                                title = "System app settings",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = {
+                                    try {
+                                        val intent = Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", context.packageName, null)
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Unable to open system settings", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
+                        item(key = "item_about") {
+                            SettingsRowItem(
+                                icon = Icons.Default.Info,
+                                title = "About",
+                                cardBackground = cardBackground,
+                                borderColor = cardBorder,
+                                textColor = cardText,
+                                iconTint = cardPrimary,
+                                iconBackground = cardIconBg,
+                                onClick = { activeDialog = SettingsDialogType.ABOUT }
+                            )
+                        }
+                    }
+                }
             }
+
+            // ── DIALOG HANDLER ──
+            when (activeDialog) {
+                SettingsDialogType.APPEARANCE -> {
+                    AppearanceScreen(
+                        onDismiss = { activeDialog = null }
+                    )
+                }
 
             SettingsDialogType.PLAYER_AUDIO -> {
                 var showQualityPicker by remember { mutableStateOf(false) }
@@ -415,10 +468,13 @@ private enum class SettingsDialogType {
 }
 
 @Composable
-private fun SettingsCategoryHeader(title: String) {
+private fun SettingsCategoryHeader(
+    title: String,
+    color: Color = MaterialTheme.colorScheme.primary
+) {
     Text(
         text = title,
-        color = MaterialTheme.colorScheme.primary,
+        color = color,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
         modifier = Modifier.padding(start = 8.dp, top = 18.dp, bottom = 6.dp)
@@ -429,14 +485,19 @@ private fun SettingsCategoryHeader(title: String) {
 private fun SettingsRowItem(
     icon: ImageVector,
     title: String,
+    cardBackground: Color,
+    borderColor: Color,
+    textColor: Color,
+    iconTint: Color,
+    iconBackground: Color,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+            .background(cardBackground)
+            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
@@ -445,20 +506,20 @@ private fun SettingsRowItem(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    .background(iconBackground),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = iconTint,
                     modifier = Modifier.size(22.dp)
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = title,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = textColor,
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.sp,
                 modifier = Modifier.weight(1f)

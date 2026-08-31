@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 class KuGouLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.KUGOU

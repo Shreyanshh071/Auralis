@@ -14,13 +14,19 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 class AmllLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.AMLL
     override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC)
 
     companion object {
+        /**
+         * NOTE: this endpoint currently answers 404, so the provider is inert in
+         * practice — it is kept because it costs nothing and would resume working
+         * if the host returns. Do not treat AMLL as a live word-timing source when
+         * reasoning about which provider supplied a track's timings.
+         */
         private const val BASE_URL = "https://api.amll.dev/v1"
         private const val CLIENT_HEADER = "Auralis-Music-Android/2.0.0 (https://github.com/shreyanshchoubey09/Auralis)"
     }
@@ -72,10 +78,13 @@ class AmllLyricsSource(
                             trackName = candTitle,
                             artistName = candArtist
                         )
+                        // Report what the parser actually found. TTML without per-word
+                        // end timestamps comes back as LINE_SYNC, and claiming RICHSYNC
+                        // for it would enter the word-sync tier with no word timing.
                         return LyricsCandidate(
                             lyricsData = parsed,
                             confidence = confidence,
-                            syncType = SyncType.RICHSYNC,
+                            syncType = parsed.syncType,
                             provider = LyricsProvider.AMLL
                         )
                     }
@@ -89,7 +98,7 @@ class AmllLyricsSource(
                         return LyricsCandidate(
                             lyricsData = parsed,
                             confidence = confidence,
-                            syncType = SyncType.LINE_SYNC,
+                            syncType = parsed.syncType,
                             provider = LyricsProvider.AMLL
                         )
                     }

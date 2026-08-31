@@ -30,6 +30,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -229,15 +230,33 @@ fun NowPlayingModal(
         initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
-    LaunchedEffect(currentTrackIndex) {
-        if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
-            pagerState.animateScrollToPage(currentTrackIndex)
+    val isUserDragging by pagerState.interactionSource.collectIsDraggedAsState()
+    var userInitiatedScroll by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isUserDragging) {
+        if (isUserDragging) {
+            userInitiatedScroll = true
         }
     }
 
-    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress && pagerState.currentPage != currentTrackIndex && queue.isNotEmpty()) {
-            onSelectQueueTrack(pagerState.currentPage)
+    LaunchedEffect(currentTrackIndex) {
+        if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
+            userInitiatedScroll = false
+            val diff = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
+            if (diff == 1) {
+                pagerState.animateScrollToPage(currentTrackIndex)
+            } else {
+                pagerState.scrollToPage(currentTrackIndex)
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState.settledPage) {
+        if (userInitiatedScroll && pagerState.settledPage != currentTrackIndex && queue.isNotEmpty()) {
+            userInitiatedScroll = false
+            if (pagerState.settledPage in queue.indices) {
+                onSelectQueueTrack(pagerState.settledPage)
+            }
         }
     }
 
@@ -1073,15 +1092,7 @@ fun NowPlayingModal(
                                      .clip(CircleShape)
                                      .background(Color.White.copy(alpha = 0.12f))
                                      .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                     .tactileBounce(scaleDown = 0.84f, onClick = {
-                                         coroutineScope.launch {
-                                             if (pagerState.currentPage > 0) {
-                                                 pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                                             } else {
-                                                 onPreviousClick()
-                                             }
-                                         }
-                                     }),
+                                     .tactileBounce(scaleDown = 0.84f, onClick = onPreviousClick),
                                  contentAlignment = Alignment.Center
                              ) {
                                  Icon(
@@ -1144,15 +1155,7 @@ fun NowPlayingModal(
                                      .clip(CircleShape)
                                      .background(Color.White.copy(alpha = 0.12f))
                                      .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                     .tactileBounce(scaleDown = 0.84f, onClick = {
-                                         coroutineScope.launch {
-                                             if (pagerState.currentPage < pageCount - 1) {
-                                                 pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                                             } else {
-                                                 onNextClick()
-                                             }
-                                         }
-                                     }),
+                                     .tactileBounce(scaleDown = 0.84f, onClick = onNextClick),
                                  contentAlignment = Alignment.Center
                              ) {
                                  Icon(

@@ -91,6 +91,33 @@ class PlayerViewModel(
 
         // Bind AudioPlayer reactive flows if available
         audioPlayer?.let { player ->
+            val initialTrack = player.currentTrack.value
+            if (initialTrack != null && _uiState.value.currentTrack == null) {
+                _uiState.update {
+                    it.copy(
+                        currentTrack = initialTrack,
+                        isPlaying = player.isPlaying.value,
+                        playbackPositionMs = player.playbackPositionMs.value,
+                        durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (initialTrack.duration * 1000L)
+                    )
+                }
+                loadLyrics(initialTrack)
+            }
+
+            viewModelScope.launch {
+                player.currentTrack.collect { activeTrack ->
+                    if (activeTrack != null && _uiState.value.currentTrack?.id != activeTrack.id) {
+                        _uiState.update {
+                            it.copy(
+                                currentTrack = activeTrack,
+                                durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (activeTrack.duration * 1000L)
+                            )
+                        }
+                        loadLyrics(activeTrack)
+                    }
+                }
+            }
+
             player.setOnTrackCompletedCallback {
                 next()
             }
@@ -162,7 +189,22 @@ class PlayerViewModel(
 
                 // Pre-enqueue next song in queue for continuous gapless playback
                 val nextInQueue = qState.queue.getOrNull(qState.currentIndex + 1)
-                audioPlayer.prefetchTrack(nextInQueue)
+                audioPlayer?.prefetchTrack(nextInQueue)
+
+                // Background pre-fetch lyrics for next song in queue for 0ms instant display upon transition
+                if (nextInQueue != null) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            lyricsRepository.getLyrics(
+                                title = nextInQueue.title,
+                                artist = nextInQueue.artist,
+                                durationSec = nextInQueue.duration,
+                                videoId = nextInQueue.id,
+                                forceRefresh = false
+                            )
+                        } catch (_: Exception) {}
+                    }
+                }
 
                 if (isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
                     fetchAndAppendRadioTracks(effectiveTrack)
@@ -601,10 +643,7 @@ class PlayerViewModel(
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
                 }
-                // If cached lyrics are already true RichSync, no need to query network again
-                if (cached.syncType == SyncType.RICHSYNC && cached.lines.any { !it.words.isNullOrEmpty() }) {
-                    return@launch
-                }
+                return@launch
             } else {
                 if (requestId == currentPlaybackRequestId.get()) {
                     _uiState.update { it.copy(isLoadingLyrics = true, lyrics = null) }
@@ -612,14 +651,14 @@ class PlayerViewModel(
             }
 
             try {
-                // 2. Background network cascade (AMLL TTML, Musixmatch RichSync, NetEase YRC, LRCLIB, JioSaavn, KuGou)
+                // 2. Background network cascade (LRCLIB, JioSaavn, NetEase, KuGou, Musixmatch, etc.)
                 val data = withContext(Dispatchers.IO) {
                     lyricsRepository.getLyrics(
                         title = track.title,
                         artist = track.artist,
                         durationSec = track.duration,
                         videoId = track.id,
-                        forceRefresh = (cached != null && cached.syncType != SyncType.RICHSYNC)
+                        forceRefresh = false
                     )
                 }
 

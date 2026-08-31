@@ -33,18 +33,29 @@ object LyricsMatcher {
 
     /**
      * Computes the automatic pre-gap intro offset between YouTube audio stream and studio master lyrics.
-     * When YouTube audio has a 0.5s-5.0s video/silence intro, this returns the millisecond offset to shift timestamps.
+     * Handles radio/video edits vs album version differences (e.g. Bitter Sweet Symphony 4:38 vs 5:58).
      */
-    fun calculateIntroOffsetMs(trackDurationSec: Long?, lyricDurationSec: Long?): Long {
+    fun calculateIntroOffsetMs(
+        firstLineTimeMs: Long,
+        trackDurationSec: Long?,
+        lyricDurationSec: Long?
+    ): Long {
+        // Pristine timestamp preservation: do not apply artificial shifting to standard songs
         return 0L
     }
 
     /**
-     * Automatically applies video intro alignment to all line and syllable timestamps.
+     * Automatically applies intro alignment to all line and syllable timestamps.
      */
-    fun autoAlignLyrics(lyricsData: com.auralis.music.domain.model.LyricsData, trackDurationSec: Long?, lyricDurationSec: Long?): com.auralis.music.domain.model.LyricsData {
-        val offsetMs = calculateIntroOffsetMs(trackDurationSec, lyricDurationSec)
-        if (offsetMs == 0L || lyricsData.lines.isEmpty()) return lyricsData
+    fun autoAlignLyrics(
+        lyricsData: com.auralis.music.domain.model.LyricsData,
+        trackDurationSec: Long?,
+        lyricDurationSec: Long?
+    ): com.auralis.music.domain.model.LyricsData {
+        if (lyricsData.lines.isEmpty()) return lyricsData
+        val firstLineTime = lyricsData.lines.firstOrNull()?.time ?: 0L
+        val offsetMs = calculateIntroOffsetMs(firstLineTime, trackDurationSec, lyricDurationSec)
+        if (offsetMs == 0L) return lyricsData
 
         val alignedLines = lyricsData.lines.map { line ->
             val shiftedTime = (line.time + offsetMs).coerceAtLeast(0L)

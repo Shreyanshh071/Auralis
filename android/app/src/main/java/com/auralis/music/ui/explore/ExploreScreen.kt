@@ -355,8 +355,9 @@ fun ExploreScreen(
             // 2. SEARCH BODY: SPINNER | RESULTS | LIVE SUGGESTIONS
             // ================================================================
             val bodyState = when {
-                uiState.isSearching -> SearchBodyState.SEARCHING
-                hasResults -> SearchBodyState.RESULTS
+                uiState.isSearching && uiState.suggestions.isEmpty() && uiState.searchResults.isEmpty() -> SearchBodyState.SEARCHING
+                uiState.query.isNotBlank() -> SearchBodyState.SUGGESTIONS
+                uiState.suggestions.isEmpty() && uiState.searchResults.isNotEmpty() -> SearchBodyState.RESULTS
                 else -> SearchBodyState.SUGGESTIONS
             }
 
@@ -412,10 +413,10 @@ fun ExploreScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // Live Autocomplete Suggestions (while typing)
-                            if (uiState.suggestions.isNotEmpty()) {
+                            // 1. Live Autocomplete Text Suggestions (Strictly limited to 3 items)
+                            if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
                                 items(
-                                    items = uiState.suggestions,
+                                    items = uiState.suggestions.take(3),
                                     key = { "sug_$it" }
                                 ) { suggestion ->
                                     Row(
@@ -454,8 +455,41 @@ fun ExploreScreen(
                                         }
                                     }
                                 }
-                            } else {
-                                // Recent Searches History Items (when input is empty)
+                            }
+
+                            // 2. Direct Matched Songs (Live Results below Text Suggestions listed as Top Songs)
+                            if (uiState.query.isNotBlank() && uiState.searchResults.songs.isNotEmpty()) {
+                                item(key = "header_live_songs") {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Top Songs",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+                                    )
+                                }
+
+                                items(
+                                    items = uiState.searchResults.songs.take(15),
+                                    key = { "live_song_${it.id}" }
+                                ) { track ->
+                                    val isCurrent = track.id == currentTrackId
+                                    TrackRowItem(
+                                        track = track,
+                                        isCurrent = isCurrent,
+                                        isPlaying = isPlaying,
+                                        playlist = uiState.searchResults.songs,
+                                        onTrackClick = onTrackClick,
+                                        onPlayNext = onPlayNext,
+                                        onAddToQueue = onAddToQueue,
+                                        onMenuClick = { selectedTrackForMenu = it }
+                                    )
+                                }
+                            }
+
+                            // 3. Recent Searches History Items (when input is empty)
+                            if (uiState.query.isBlank()) {
                                 items(
                                     items = uiState.recentQueries,
                                     key = { "recent_$it" }

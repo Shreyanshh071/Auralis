@@ -16,14 +16,21 @@ import java.net.URLEncoder
  * Better Lyrics / Portato provider delivering TTML and QRC syllable/word-by-word synchronized lyrics.
  */
 class BetterLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.BETTER_LYRICS
     override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC, SyncType.PLAIN)
 
     companion object {
-        private const val BASE_URL = "https://api.betterlyrics.org"
+        /**
+         * The Better Lyrics API host. `api.betterlyrics.org` does not resolve
+         * (NXDOMAIN) — pointing at it made this provider, the only source of
+         * Apple Music word-level TTML, fail instantly and silently on every
+         * track, which left Musixmatch richsync as the de-facto word-timing
+         * source even where its data is compressed and wrong.
+         */
+        private const val BASE_URL = "https://lyrics-api.boidu.dev"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     }
 
@@ -36,7 +43,13 @@ class BetterLyricsSource(
         try {
             val encSong = URLEncoder.encode(cleanTitle, "UTF-8")
             val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
-            val url = "$BASE_URL/getLyrics?s=$encSong&a=$encArtist"
+            // `d` (duration, seconds) and `al` (album) are what let the API pick the
+            // right release: without them a radio edit or re-record can come back,
+            // and its timestamps will not line up with the stream being played.
+            val durationParam = query.durationSec?.takeIf { it > 0 }?.let { "&d=$it" } ?: ""
+            val albumParam = query.album?.takeIf { it.isNotBlank() }
+                ?.let { "&al=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            val url = "$BASE_URL/getLyrics?s=$encSong&a=$encArtist$durationParam$albumParam"
 
             val req = Request.Builder()
                 .url(url)

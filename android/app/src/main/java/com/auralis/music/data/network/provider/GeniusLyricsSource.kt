@@ -16,7 +16,7 @@ import java.net.URLEncoder
  * English, Hindi, Latin, Rap, Indie, and niche music worldwide.
  */
 class GeniusLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.GENIUS
