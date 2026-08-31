@@ -296,18 +296,23 @@ fun KineticLyricsView(
                                         val progress = LyricsEngine.calculateWordProgress(word, currentPositionMs, offsetMs)
                                         val isWordActive = progress > 0f && progress < 1f
                                         val isWordFinished = progress >= 1f
-                                        val displayWord = if (word.word.endsWith(" ")) word.word else "${word.word} "
+                                        // Verbatim provider text: the trailing space that
+                                        // separates two words already lives in the token, and a
+                                        // split syllable deliberately has none. Only that
+                                        // trailing run is normalised, so the gap is not
+                                        // collapsed at the FlowRow item boundary.
+                                        val displayWord = word.word.replace(KINETIC_TRAILING_WHITESPACE, KINETIC_NBSP)
 
                                         val brush = when {
                                             isWordFinished -> Brush.linearGradient(listOf(Color.White, Color.White))
                                             isWordActive -> {
                                                 val p = progress.coerceIn(0.01f, 0.99f)
-                                                val waveStart = (p - 0.08f).coerceAtLeast(0f)
-                                                val waveEnd = (p + 0.10f).coerceAtMost(1f)
+                                                val waveStart = (p - 0.05f).coerceAtLeast(0f)
+                                                val waveEnd = (p + 0.05f).coerceAtMost(1f)
                                                 Brush.horizontalGradient(
                                                     0.0f to Color.White,
                                                     waveStart to Color.White,
-                                                    p to Color.White.copy(alpha = 0.92f),
+                                                    p to Color.White,
                                                     waveEnd to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                                                     1.0f to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                                 )
@@ -321,11 +326,7 @@ fun KineticLyricsView(
                                         }
 
                                         val waveLift = if (isWordActive) {
-                                            (kotlin.math.sin(progress * Math.PI.toFloat()) * 3.0f)
-                                        } else 0f
-
-                                        val waveShadowRadius = if (isWordActive) {
-                                            14f + (10f * kotlin.math.sin(progress * Math.PI.toFloat()))
+                                            (kotlin.math.sin(progress * Math.PI.toFloat()) * 2.0f)
                                         } else 0f
 
                                         Text(
@@ -333,14 +334,7 @@ fun KineticLyricsView(
                                             fontSize = 24.sp,
                                             fontWeight = FontWeight.Bold,
                                             style = androidx.compose.ui.text.TextStyle(
-                                                brush = brush,
-                                                shadow = if (isWordActive) {
-                                                    Shadow(
-                                                        color = Color.White.copy(alpha = 0.90f),
-                                                        blurRadius = waveShadowRadius,
-                                                        offset = Offset.Zero
-                                                    )
-                                                } else null
+                                                brush = brush
                                             ),
                                             modifier = Modifier.graphicsLayer {
                                                 translationY = -waveLift
@@ -380,3 +374,9 @@ fun KineticLyricsView(
         }
     }
 }
+
+/** A run of whitespace at the very end of a provider-supplied word token. */
+private val KINETIC_TRAILING_WHITESPACE = Regex("\\s+\\z")
+
+/** Non-breaking space: keeps an inter-word gap from collapsing at a layout boundary. */
+private const val KINETIC_NBSP = "\u00A0"

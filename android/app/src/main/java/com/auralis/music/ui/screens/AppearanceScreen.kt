@@ -130,8 +130,8 @@ fun AppearanceScreen(
         }
     }
 
-    var activeDialog by remember { mutableStateOf<AppearanceDialogType?>(null) }
-    var showThemeAndColors by remember { mutableStateOf(false) }
+    var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<AppearanceDialogType?>(null) }
+    var showThemeAndColors by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     androidx.activity.compose.BackHandler(enabled = true) {
         if (showThemeAndColors) {

@@ -30,15 +30,18 @@ import com.auralis.music.ui.components.ArtworkCard
 private const val GITHUB_REPO_URL = "https://github.com/Shreyanshh071/Auralis"
 private const val AURALIS_WEBSITE_URL = "https://auralis-self-nu.vercel.app/"
 private const val DEVELOPER_GITHUB_URL = "https://github.com/Shreyanshh071"
-private const val DEVELOPER_AVATAR_URL = "https://github.com/Shreyanshh071.png"
+private const val DEVELOPER_AVATAR_URL = "https://avatars.githubusercontent.com/u/319473344?v=4"
 private const val DEVELOPER_EMAIL = "mailto:shreyanshchoubey09@gmail.com"
 private const val BUY_ME_A_CHAI_URL = "https://buymeachai.in/shreyanshh071"
 private const val DEVELOPER_DISCORD_URL = "https://discordapp.com/users/1494604092083802263"
+private const val CONTRIBUTOR_GITHUB_URL = "https://github.com/IshaanThakur09"
+private const val CONTRIBUTOR_AVATAR_URL = "https://github.com/IshaanThakur09.png"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
     onNavigateToUpdater: () -> Unit = {},
+    hasActiveTrack: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -64,8 +67,10 @@ fun AboutScreen(
                 title = {
                     Text(
                         text = "About",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        ),
                         color = onBackground
                     )
                 },
@@ -85,6 +90,7 @@ fun AboutScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
+        val bottomPad = if (hasActiveTrack) 110.dp else 24.dp
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -92,7 +98,7 @@ fun AboutScreen(
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(22.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp)
+            contentPadding = PaddingValues(top = 16.dp, bottom = bottomPad)
         ) {
             // ── 1. APP HERO HEADER ──
             item {
@@ -349,6 +355,98 @@ fun AboutScreen(
                                         } catch (_: Exception) {}
                                         openUrl(DEVELOPER_DISCORD_URL)
                                     }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 3. CONTRIBUTORS SECTION ──
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Header with accent divider line
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Contributors",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryColor,
+                            fontSize = 15.sp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        HorizontalDivider(
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                        )
+                    }
+
+                    // Contributor Card
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = surfaceColor,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Contributor Avatar
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .border(2.dp, primaryColor.copy(alpha = 0.8f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                ArtworkCard(
+                                    url = CONTRIBUTOR_AVATAR_URL,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cornerRadius = 36.dp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Contributor Name
+                            Text(
+                                text = "Ishaan Thakur",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = onBackground,
+                                fontSize = 19.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Subtitle
+                            Text(
+                                text = "Contributor",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = onSurfaceVariant,
+                                fontSize = 13.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            // Contributor Social Icons Row
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularActionDrawableButton(
+                                    drawableRes = R.drawable.ic_github,
+                                    onClick = { openUrl(CONTRIBUTOR_GITHUB_URL) }
                                 )
                             }
                         }

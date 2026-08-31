@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 class LrcLibLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.LRCLIB
@@ -91,7 +91,7 @@ class LrcLibLyricsSource(
 
             return LyricsCandidate(
                 lyricsData = lyricsData,
-                confidence = confidence.coerceAtLeast(85),
+                confidence = confidence,
                 syncType = lyricsData.syncType,
                 provider = LyricsProvider.LRCLIB
             )

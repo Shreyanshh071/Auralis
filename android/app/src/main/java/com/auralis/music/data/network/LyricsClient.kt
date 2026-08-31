@@ -1,13 +1,29 @@
 package com.auralis.music.data.network
 
 import android.util.Log
-import com.auralis.music.data.network.provider.*
+import com.auralis.music.data.network.provider.AmllLyricsSource
+import com.auralis.music.data.network.provider.BetterLyricsSource
+import com.auralis.music.data.network.provider.GeniusLyricsSource
+import com.auralis.music.data.network.provider.JioSaavnLyricsSource
+import com.auralis.music.data.network.provider.KuGouLyricsSource
+import com.auralis.music.data.network.provider.LrcLibLyricsSource
+import com.auralis.music.data.network.provider.LyricsCandidate
+import com.auralis.music.data.network.provider.LyricsSearchQuery
+import com.auralis.music.data.network.provider.LyricsSource
+import com.auralis.music.data.network.provider.MusixmatchLyricsSource
+import com.auralis.music.data.network.provider.NetEaseLyricsSource
+import com.auralis.music.data.network.provider.YouTubeInnerTubeLyricsSource
 import com.auralis.music.domain.model.LyricsData
+import com.auralis.music.domain.model.LyricsProvider
 import com.auralis.music.domain.model.SyncType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class LyricsClient(
     private val amllSource: AmllLyricsSource = AmllLyricsSource(),
@@ -22,17 +38,14 @@ class LyricsClient(
 ) {
     companion object {
         private const val TAG = "LyricsCascade"
-        private const val TIMING_TAG = "AuralisLyricsTiming"
-        private const val PROVIDER_TIMEOUT_MS = 1800L
-        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        private val lyricsDispatcher = Dispatchers.IO.limitedParallelism(2)
+        private const val PROVIDER_TIMEOUT_MS = 2200L
     }
 
     /**
-     * High-speed parallel multi-provider search prioritizing:
-     * Tier 1: Word-Synced / Karaoke (AMLL TTML, Better Lyrics, Musixmatch RichSync, NetEase YRC)
-     * Tier 2: Line-Synced LRC in Parallel (LRCLIB, JioSaavn, KuGou)
-     * Tier 3: Plain Lyrics Fallback (Genius, YouTube Music, Plain fallbacks)
+     * Ultra-fast parallel multi-provider search with instant early exit:
+     * - As soon as ANY provider returns high-confidence synced lyrics (>= 68%), immediately return (sub-300ms!).
+     * - If moderate match arrives (>= 50%), evaluate immediately without waiting for slow failing providers.
+     * - Falls back to plain sources (Genius, YouTube Music) in parallel only if no synced lyrics found.
      */
     suspend fun getLyrics(
         title: String,
@@ -58,65 +71,87 @@ class LyricsClient(
         )
 
         val t0 = System.currentTimeMillis()
-        Log.d(TAG, "Starting parallel synced lyrics search for: '$coreTitle' by '${query.artist}' (${durationSec ?: 0}s)")
-        val providerTimings = java.util.Collections.synchronizedList(mutableListOf<String>())
+        Log.d(TAG, "Starting ultra-fast synced lyrics search for: '$coreTitle' by '${query.artist}' (${durationSec ?: 0}s)")
 
-        // ── TIER 1 & 2: PARALLEL HIGH-SPEED SYNCED & RICHSYNC SEARCH ──
+        // ── TIER 1: HIGH-SPEED PARALLEL SYNCED RACE ──
+        // Prioritized order: studio human-verified sources first, then crowdsourced fallbacks
         val syncedProviders: List<LyricsSource> = listOf(
             betterLyricsSource,
-            amllSource,
             musixmatchSource,
             netEaseSource,
-            lrcLibSource,
+            kuGouSource,
+            amllSource,
             jioSaavnSource,
-            kuGouSource
+            lrcLibSource
         )
 
-        val results = kotlinx.coroutines.coroutineScope {
-            syncedProviders.map { source ->
-                async {
+        val syncedWinner: LyricsData? = coroutineScope {
+            val resultChannel = Channel<LyricsCandidate>(capacity = syncedProviders.size * 2)
+            val activeCount = syncedProviders.size
+
+            val providerJobs = syncedProviders.map { source ->
+                launch {
                     try {
-                        val tStart = System.currentTimeMillis()
-                        val cand = kotlinx.coroutines.withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
+                        val cand = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
                             source.search(query)
                         }
-                        val tSpent = System.currentTimeMillis() - tStart
-                        providerTimings.add("${source.provider}: ${tSpent}ms")
-                        cand
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Provider ${source.provider} search failed: ${e.message}")
-                        null
+                        if (cand != null) {
+                            resultChannel.send(cand)
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        resultChannel.send(
+                            LyricsCandidate(
+                                lyricsData = LyricsData(syncType = SyncType.PLAIN, lines = emptyList(), provider = source.provider),
+                                confidence = -1,
+                                syncType = SyncType.PLAIN,
+                                provider = source.provider
+                            )
+                        )
                     }
                 }
-            }.awaitAll().filterNotNull()
+            }
+
+            var bestSyncedCandidate: LyricsCandidate? = null
+            var bestPlainCandidate: LyricsCandidate? = null
+            var completedProviders = 0
+
+            while (completedProviders < activeCount) {
+                val candidate = resultChannel.receive()
+                if (candidate.confidence == -1) {
+                    completedProviders++
+                    continue
+                }
+
+                // If candidate is synced (LINE_SYNC / RICH_SYNC)
+                if (candidate.syncType != SyncType.PLAIN && candidate.confidence >= 50 && candidate.lyricsData.lines.isNotEmpty()) {
+                    if (candidate.confidence > (bestSyncedCandidate?.confidence ?: 0)) {
+                        bestSyncedCandidate = candidate
+                    }
+
+                    // INSTANT WIN: High confidence synced lyrics (>= 68%) -> Return immediately without waiting for other providers!
+                    if (candidate.confidence >= 68) {
+                        Log.d(TAG, "[INSTANT WINNER] ${candidate.provider} returned in ${System.currentTimeMillis() - t0}ms (Confidence: ${candidate.confidence}%)")
+                        providerJobs.forEach { it.cancel() }
+                        return@coroutineScope candidate.lyricsData
+                    }
+                } else if (candidate.syncType == SyncType.PLAIN && candidate.confidence >= 40 && candidate.lyricsData.lines.isNotEmpty()) {
+                    if (candidate.confidence > (bestPlainCandidate?.confidence ?: 0)) {
+                        bestPlainCandidate = candidate
+                    }
+                }
+            }
+
+            bestSyncedCandidate?.lyricsData ?: bestPlainCandidate?.lyricsData
         }
 
-        // 1. Prioritize Word-Synced (RICHSYNC) candidate first (AMLL TTML, Musixmatch RichSync, NetEase YRC)
-        val richSyncCandidate = results.filter { it.syncType == SyncType.RICHSYNC && it.confidence >= 55 }
-            .maxByOrNull { it.confidence }
-
-        if (richSyncCandidate != null) {
-            Log.d(TAG, "[WORD-SYNC WINNER] Using RichSync word-by-word lyrics from ${richSyncCandidate.provider} (Confidence: ${richSyncCandidate.confidence}%)")
-            logTimingSummary(coreTitle, query.artist, t0, providerTimings, "${richSyncCandidate.provider.name} (Word-Synced)", true)
-            return@withContext richSyncCandidate.lyricsData
+        if (syncedWinner != null && syncedWinner.lines.isNotEmpty()) {
+            Log.d(TAG, "Lyrics race resolved in ${System.currentTimeMillis() - t0}ms (Provider: ${syncedWinner.provider})")
+            return@withContext syncedWinner
         }
 
-        // 2. High-confidence line-synced match (>= 75%)
-        val topSynced = results.filter { it.syncType == SyncType.LINE_SYNC }.maxByOrNull { it.confidence }
-        if (topSynced != null && topSynced.confidence >= 75) {
-            Log.d(TAG, "[TIER 2 WINNER] Using synced lyrics from ${topSynced.provider} (Confidence: ${topSynced.confidence}%)")
-            logTimingSummary(coreTitle, query.artist, t0, providerTimings, topSynced.provider.name, true)
-            return@withContext topSynced.lyricsData
-        }
-
-        if (topSynced != null && topSynced.confidence >= 50) {
-            Log.d(TAG, "[TIER 2 Acceptable] Using synced lyrics from ${topSynced.provider} (Confidence: ${topSynced.confidence}%)")
-            logTimingSummary(coreTitle, query.artist, t0, providerTimings, topSynced.provider.name, true)
-            return@withContext topSynced.lyricsData
-        }
-
-        // 2. Fallback check on LRCLIB with raw input title if different from cleaned coreTitle
-        if (topSynced == null && title != coreTitle) {
+        // ── TIER 2: RAW TITLE FALLBACK ON LRCLIB ──
+        if (title != coreTitle) {
             try {
                 val fallbackQuery = LyricsSearchQuery(
                     title = TitleCleaner.cleanTitle(title),
@@ -125,65 +160,31 @@ class LyricsClient(
                     videoId = videoId,
                     album = album
                 )
-                val lrcFallback = lrcLibSource.search(fallbackQuery)
-                if (lrcFallback != null && lrcFallback.syncType != SyncType.PLAIN && lrcFallback.confidence >= 50) {
-                    Log.d(TAG, "[TIER 2 Fallback] Found synced lyrics via LRCLIB with original title: '$title'")
+                val lrcFallback = withTimeoutOrNull(1000L) { lrcLibSource.search(fallbackQuery) }
+                if (lrcFallback != null && lrcFallback.confidence >= 50 && lrcFallback.lyricsData.lines.isNotEmpty()) {
+                    Log.d(TAG, "[RAW TITLE WINNER] LRCLIB in ${System.currentTimeMillis() - t0}ms")
                     return@withContext lrcFallback.lyricsData
                 }
             } catch (_: Exception) {}
         }
 
-        // ── TIER 3: PLAIN LYRICS FALLBACK (PARALLEL SEARCH) ──
-        val plainCandidate = results.firstOrNull { it.syncType == SyncType.PLAIN }
-        if (plainCandidate != null) {
-            Log.d(TAG, "[TIER 3] Using plain lyrics from ${plainCandidate.provider}")
-            logTimingSummary(coreTitle, query.artist, t0, providerTimings, plainCandidate.provider.name, false)
-            return@withContext plainCandidate.lyricsData
-        }
-
-        // Try Genius & YouTube Music concurrently with 1500ms timeout
-        val plainTierResults = kotlinx.coroutines.coroutineScope {
+        // ── TIER 3: PLAIN LYRICS FALLBACK (Genius & YouTube Music concurrent) ──
+        val plainWinner = coroutineScope {
             val geniusDeferred = async {
-                try {
-                    kotlinx.coroutines.withTimeoutOrNull(1500L) { geniusSource.search(query) }
-                } catch (_: Exception) { null }
+                try { withTimeoutOrNull(1200L) { geniusSource.search(query) } } catch (_: Exception) { null }
             }
             val ytDeferred = async {
-                try {
-                    kotlinx.coroutines.withTimeoutOrNull(1500L) { ytMusicSource.search(query) }
-                } catch (_: Exception) { null }
+                try { withTimeoutOrNull(1200L) { ytMusicSource.search(query) } } catch (_: Exception) { null }
             }
-            listOfNotNull(geniusDeferred.await(), ytDeferred.await())
+            listOfNotNull(geniusDeferred.await(), ytDeferred.await()).firstOrNull { it.lyricsData.lines.isNotEmpty() }
         }
 
-        val plainWinner = plainTierResults.firstOrNull { it.lyricsData.lines.isNotEmpty() }
         if (plainWinner != null) {
-            Log.d(TAG, "[TIER 3] Found plain lyrics via ${plainWinner.provider} (Confidence: ${plainWinner.confidence}%)")
-            logTimingSummary(coreTitle, query.artist, t0, providerTimings, plainWinner.provider.name, false)
+            Log.d(TAG, "[PLAIN WINNER] ${plainWinner.provider} in ${System.currentTimeMillis() - t0}ms")
             return@withContext plainWinner.lyricsData
         }
 
-        Log.d(TAG, "No lyrics found across any tier for '$coreTitle' by '${query.artist}'")
-        logTimingSummary(coreTitle, query.artist, t0, providerTimings, "None", false)
+        Log.d(TAG, "No lyrics found after ${System.currentTimeMillis() - t0}ms for '$coreTitle'")
         null
-    }
-
-    private fun logTimingSummary(
-        title: String,
-        artist: String,
-        t0: Long,
-        providers: List<String>,
-        winner: String,
-        isSynced: Boolean
-    ) {
-        val totalTime = System.currentTimeMillis() - t0
-        Log.i(TIMING_TAG, """
-            ==================== LYRICS TIMING ====================
-            Track:          '$title' by '$artist'
-            Winner:         $winner (Synced: $isSynced)
-            Total Time:     ${totalTime}ms
-            Cascade Steps:  ${providers.joinToString(" -> ")}
-            =======================================================
-        """.trimIndent())
     }
 }

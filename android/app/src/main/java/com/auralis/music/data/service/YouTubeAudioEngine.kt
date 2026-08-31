@@ -584,15 +584,6 @@ class YouTubeAudioEngine(private val context: Context) {
                             }
                         });
 
-                        if (!window._auralisHighFreqTicker) {
-                            window._auralisHighFreqTicker = setInterval(function() {
-                                var curV = document.querySelector('.html5-main-video') || document.querySelector('video');
-                                if (curV && !curV.paused && curV.currentTime >= 0 && window.AuralisBridge) {
-                                    window.AuralisBridge.updateTime(curV.currentTime, curV.duration, window._auralisRequestId);
-                                }
-                            }, 16);
-                        }
-
                         v.addEventListener('error', function(e) {
                             var errDesc = v.error ? "code=" + v.error.code + " msg=" + v.error.message : "unknown error";
                             if (window.AuralisBridge) window.AuralisBridge.logPlayError(reqId, errDesc, v.readyState, v.networkState, v.currentSrc || "");

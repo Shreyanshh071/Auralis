@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 class MusixmatchLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.MUSIXMATCH

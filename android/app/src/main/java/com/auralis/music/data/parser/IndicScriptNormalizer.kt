@@ -13,6 +13,7 @@ object IndicScriptNormalizer {
         // Devanagari Independent Vowels
         "अ" to "a", "आ" to "a", "इ" to "i", "ई" to "i", "उ" to "u", "ऊ" to "u",
         "ऋ" to "ri", "ए" to "e", "ऐ" to "ai", "ओ" to "o", "औ" to "au",
+        "ऑ" to "o", "ऍ" to "e",
         // Gurmukhi Vowels
         "ਅ" to "a", "ਆ" to "a", "ਇ" to "i", "ਈ" to "i", "ਉ" to "u", "ਊ" to "u",
         "ਏ" to "e", "ਐ" to "ai", "ਓ" to "o", "ਔ" to "au",
@@ -45,6 +46,11 @@ object IndicScriptNormalizer {
         "प" to "p", "फ" to "ph", "ब" to "b", "भ" to "bh", "म" to "m",
         "य" to "y", "र" to "r", "ल" to "l", "व" to "v",
         "श" to "sh", "ष" to "sh", "स" to "s", "ह" to "h",
+        // Devanagari Nukta Consonants (Composed & Pre-composed)
+        "क़" to "k", "ख़" to "kh", "ग़" to "g", "ज़" to "z", "फ़" to "f",
+        "ड़" to "d", "ढ़" to "dh", "य़" to "y", "ळ" to "l",
+        "\u0958" to "k", "\u0959" to "kh", "\u095A" to "g", "\u095B" to "z",
+        "\u095C" to "d", "\u095D" to "dh", "\u095E" to "f", "\u095F" to "y",
         // Gurmukhi Consonants
         "ਕ" to "k", "ਖ" to "kh", "ਗ" to "g", "ਘ" to "gh",
         "ਚ" to "ch", "ਛ" to "chh", "ਜ" to "j", "ਝ" to "jh",
@@ -83,9 +89,13 @@ object IndicScriptNormalizer {
         result = result
             .replace('\u0964', ' ') // Devanagari Danda ।
             .replace('\u0965', ' ') // Devanagari Double Danda ॥
+            .replace('\u093D', ' ') // Avagraha ऽ
+            .replace("\u093C", "")  // Devanagari Nukta
             .replace("\u200C", "")  // Zero Width Non-Joiner (ZWNJ)
             .replace("\u200D", "")  // Zero Width Joiner (ZWJ)
             .replace('\uFEFF', ' ') // Byte Order Mark
+            .replace("\u25CC", "")  // Dotted circle placeholder
+            .replace(Regex("""[\u0300-\u036F]"""), "") // Combining diacritical marks
             .replace(Regex("""\s+"""), " ")
             .trim()
         return result
@@ -104,14 +114,35 @@ object IndicScriptNormalizer {
      */
     fun transliterateToReadableHinglish(text: String): String {
         if (text.isBlank()) return text
-        if (!containsIndicScript(text)) return text
+        if (!containsIndicScript(text)) {
+            // Strip any stray combining marks or dotted circles that might have leaked from external lyrics
+            return text.replace(Regex("""[\u0300-\u036F\u25CC\u093C\u093D]"""), "").trim()
+        }
 
         val normalized = normalizeIndicText(text)
         val sb = StringBuilder()
 
         var i = 0
         while (i < normalized.length) {
+            // Check 2-char combinations first (e.g. consonant + nukta if any remain)
+            if (i + 1 < normalized.length) {
+                val twoChar = normalized.substring(i, i + 2)
+                val mappedTwo = CONSONANT_MAP[twoChar]
+                if (mappedTwo != null) {
+                    sb.append(mappedTwo)
+                    i += 2
+                    continue
+                }
+            }
+
             val chStr = normalized[i].toString()
+            val ch = normalized[i]
+
+            // Skip any isolated combining diacritics / nuktas
+            if (ch == '\u093C' || ch == '\u093D' || ch == '\u25CC' || (ch.code in 0x0300..0x036F)) {
+                i++
+                continue
+            }
 
             // 1. Independent Vowel
             val vowel = VOWEL_MAP[chStr]
@@ -159,12 +190,18 @@ object IndicScriptNormalizer {
                 continue
             }
 
-            // 4. Other character
-            sb.append(chStr)
+            // 4. Other character (punctuation, English text, whitespace)
+            // Filter out any unmapped Indic characters to prevent dotted circle glyph rendering
+            if (ch.code in 0x0900..0x0DFF) {
+                // Unmapped Indic symbol: ignore to prevent dotted placeholder
+            } else {
+                sb.append(chStr)
+            }
             i++
         }
 
         val raw = sb.toString()
+            .replace(Regex("""[\u0300-\u036F\u0900-\u0DFF\u25CC]"""), "")
             .replace("  ", " ")
             .trim()
 

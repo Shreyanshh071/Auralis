@@ -181,18 +181,18 @@ fun ThemeAndColorsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // ── INTERACTIVE PHONE MOCKUP PREVIEW ──
             Box(
                 modifier = Modifier
-                    .width(190.dp)
-                    .height(290.dp)
-                    .shadow(elevation = 16.dp, shape = RoundedCornerShape(28.dp), ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
-                    .clip(RoundedCornerShape(28.dp))
+                    .width(150.dp)
+                    .height(210.dp)
+                    .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f))
+                    .clip(RoundedCornerShape(24.dp))
                     .background(previewBg)
-                    .border(2.dp, onBackground.copy(alpha = 0.15f), RoundedCornerShape(28.dp))
-                    .padding(14.dp)
+                    .border(1.5.dp, onBackground.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+                    .padding(10.dp)
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -206,53 +206,53 @@ fun ThemeAndColorsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(12.dp)
+                                .size(9.dp)
                                 .clip(CircleShape)
                                 .background(previewPrimary)
                         )
                         Box(
                             modifier = Modifier
-                                .size(12.dp)
+                                .size(9.dp)
                                 .clip(CircleShape)
                                 .background(previewSecondary)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Hero big card
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(84.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .height(58.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(previewPrimary)
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Two split lower cards
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(95.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .height(68.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(previewSecondary)
                         )
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(95.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .height(68.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(previewTertiary)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Bottom bar with floating accent button
                     Row(
@@ -262,7 +262,7 @@ fun ThemeAndColorsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(15.dp)
                                 .clip(CircleShape)
                                 .background(previewPrimary)
                         )
@@ -270,11 +270,11 @@ fun ThemeAndColorsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // ── BOTTOM CONFIGURATION CARD (THEME MODE + COLOR PALETTE) ──
             Surface(
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(22.dp),
                 color = surfaceColor,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 modifier = Modifier.fillMaxWidth()
@@ -282,7 +282,7 @@ fun ThemeAndColorsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(22.dp)
+                        .padding(18.dp)
                 ) {
                     // SECTION 1: THEME MODE
                     Text(
@@ -359,7 +359,7 @@ fun ThemeAndColorsScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // SECTION 2: COLOR PALETTE
                     Text(
@@ -370,7 +370,7 @@ fun ThemeAndColorsScreen(
                         fontSize = 17.sp
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     val paletteScrollState = rememberScrollState()
                     Row(
