@@ -743,7 +743,8 @@ fun AuralisApp(
                     isProfileOpen = false
                 },
                 historyRepository = hRepo,
-                searchRepository = sRepo
+                searchRepository = sRepo,
+                hasActiveTrack = playerUiState.currentTrack != null
             )
         }
 

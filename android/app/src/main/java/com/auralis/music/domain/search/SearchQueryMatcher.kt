@@ -30,7 +30,8 @@ object SearchQueryMatcher {
     data class ScoredTrack(
         val track: Track,
         val tier: MatchTier,
-        val score: Double
+        val score: Double,
+        val originalIndex: Int = 0  // Preserves YouTube Music's popularity-based ML rank as tiebreaker
     )
 
     /**
@@ -188,20 +189,22 @@ object SearchQueryMatcher {
         val scoredMatches = mutableListOf<ScoredTrack>()
         val nonMatching = mutableListOf<Track>()
 
-        for (track in candidates) {
+        for ((index, track) in candidates.withIndex()) {
             val eval = evaluateMatch(track, trimmed)
             if (eval != null) {
-                scoredMatches.add(eval)
+                scoredMatches.add(eval.copy(originalIndex = index))
             } else {
                 nonMatching.add(track)
             }
         }
 
-        // Sort actual matches: highest priority tier first, then highest score
+        // Sort actual matches: highest priority tier first, then highest score,
+        // then by original YouTube Music ML rank (lower index = more popular/viewed)
         val rankedMatches = scoredMatches
             .sortedWith(
                 compareBy<ScoredTrack> { it.tier.priority }
                     .thenByDescending { it.score }
+                    .thenBy { it.originalIndex }
             )
             .map { it.track }
             .distinctBy { it.id }

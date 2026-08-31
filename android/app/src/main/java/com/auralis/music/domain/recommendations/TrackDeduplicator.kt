@@ -32,6 +32,24 @@ object TrackDeduplicator {
         return lower in INVALID_ARTISTS || lower.startsWith("user_") || lower.startsWith("yt_")
     }
 
+    private val VERSION_AND_REMIX_REGEX = Regex(
+        """(?i)[\(\[\{][^)\]\}]*(?:remix|mix|edit|slowed|reverb|sped\s*up|speed\s*up|phonk|cover|acoustic|live|instrumental|vip|dub|extended|radio\s*edit|version|feat\.?|ft\.?)[^)\]\}]*[\)\]\}]"""
+    )
+    private val ALL_BRACKETS_REGEX = Regex("""[\(\[\{][^)\]\}]*[\)\]\}]""")
+
+    /**
+     * Extracts a bare base song title stripped of all versions, remix tags, slowed/reverb tags, and brackets
+     * to eliminate all alternate cuts and duplicate versions of the same song from queues.
+     */
+    fun extractBaseSongTitle(rawTitle: String): String {
+        if (rawTitle.isBlank()) return ""
+        var t = TitleCleaner.cleanTitle(rawTitle).ifBlank { rawTitle.trim() }
+        t = VERSION_AND_REMIX_REGEX.replace(t, " ")
+        t = ALL_BRACKETS_REGEX.replace(t, " ")
+        t = t.replace(MOVIE_ATTRIBUTION_REGEX, " ")
+        return t.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
+    }
+
     /**
      * Extracts a normalized fingerprint for a track using TitleCleaner.
      */

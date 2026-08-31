@@ -29,6 +29,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -236,9 +237,19 @@ fun MiniPlayer(
         initialPage = safeCurrentIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
+    val isUserDragging by pagerState.interactionSource.collectIsDraggedAsState()
+    var userInitiatedScroll by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isUserDragging) {
+        if (isUserDragging) {
+            userInitiatedScroll = true
+        }
+    }
+
     // External track index changes (e.g. background completion, notification, or full modal)
     LaunchedEffect(safeCurrentIndex) {
         if (safeCurrentIndex in 0 until pageCount && pagerState.currentPage != safeCurrentIndex) {
+            userInitiatedScroll = false
             val diff = kotlin.math.abs(pagerState.currentPage - safeCurrentIndex)
             if (diff == 1) {
                 pagerState.animateScrollToPage(safeCurrentIndex, animationSpec = tween(durationMillis = 280))
@@ -248,10 +259,11 @@ fun MiniPlayer(
         }
     }
 
-    // User swipe gestures settled on a different page -> switch track
-    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress && pagerState.currentPage != safeCurrentIndex && queueTracks.isNotEmpty()) {
-            val newPage = pagerState.currentPage
+    // User swipe gestures settled on a different page -> switch track ONLY when user dragged
+    LaunchedEffect(pagerState.settledPage) {
+        if (userInitiatedScroll && pagerState.settledPage != safeCurrentIndex && queueTracks.isNotEmpty()) {
+            userInitiatedScroll = false
+            val newPage = pagerState.settledPage
             if (newPage in queueTracks.indices) {
                 if (onSelectQueueTrack != null) {
                     onSelectQueueTrack(newPage)

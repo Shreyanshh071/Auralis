@@ -130,17 +130,50 @@ open class InnerTubeClient(
     fun curateDiverseGenreQueue(
         candidates: List<Track>,
         seedVideoId: String,
-        seedArtist: String? = null
+        seedArtist: String? = null,
+        seedTitle: String? = null
     ): List<Track> {
         if (candidates.isEmpty()) return emptyList()
 
-        // 1. Filter out seed track itself & invalid artist names
-        val validCandidates = candidates.filter { 
-            it.id != seedVideoId && !TrackDeduplicator.isInvalidArtistName(it.artist)
+        val seedBaseTitle = if (!seedTitle.isNullOrBlank()) TrackDeduplicator.extractBaseSongTitle(seedTitle) else ""
+
+        // 1. Filter out seed track itself, invalid artist names, and all remixes/versions/edits of the seed track
+        val validCandidates = candidates.filter { track ->
+            if (track.id == seedVideoId || TrackDeduplicator.isInvalidArtistName(track.artist)) {
+                return@filter false
+            }
+            if (seedBaseTitle.isNotBlank()) {
+                val candidateBaseTitle = TrackDeduplicator.extractBaseSongTitle(track.title)
+                if (candidateBaseTitle.isNotBlank() && (
+                    candidateBaseTitle == seedBaseTitle ||
+                    (candidateBaseTitle.length >= 10 && seedBaseTitle.length >= 10 && candidateBaseTitle == seedBaseTitle)
+                )) {
+                    return@filter false
+                }
+            }
+            true
         }
 
-        // 2. Comprehensive Deduplication (Title normalizer, core title normalizer, fingerprint)
-        val deduplicated = TrackDeduplicator.deduplicateTracks(validCandidates)
+        // 2. Comprehensive Deduplication: Ensure only ONE version of ANY song title exists in the queue
+        val deduplicated = mutableListOf<Track>()
+        val seenBaseTitles = mutableSetOf<String>()
+        val seenFingerprints = mutableListOf<com.auralis.music.domain.recommendations.SongFingerprint>()
+
+        for (track in validCandidates) {
+            val baseTitle = TrackDeduplicator.extractBaseSongTitle(track.title)
+            if (baseTitle.isNotBlank() && seenBaseTitles.contains(baseTitle)) {
+                continue
+            }
+            val fp = TrackDeduplicator.getSongFingerprint(track)
+            val isDup = seenFingerprints.any { TrackDeduplicator.isDuplicateSong(it, fp) }
+            if (!isDup) {
+                deduplicated.add(track)
+                seenFingerprints.add(fp)
+                if (baseTitle.isNotBlank()) {
+                    seenBaseTitles.add(baseTitle)
+                }
+            }
+        }
 
         val cleanSeedArtist = seedArtist?.split("&", ",", "feat.", "ft.", "Feat.", "Ft.", "with")
             ?.firstOrNull()?.trim()?.lowercase() ?: seedArtist?.trim()?.lowercase() ?: ""
@@ -154,8 +187,8 @@ open class InnerTubeClient(
             list.add(track)
         }
 
-        // 4. Cap Artist Tracks: Seed artist gets max 2, all other artists get max 1 (or max 2 if pool is very small)
-        val maxOtherPerArtist = if (artistGroups.size >= 10) 1 else 2
+        // 4. Cap Artist Tracks: Seed artist gets max 2, all other artists get max 1 (or max 2 if pool is small)
+        val maxOtherPerArtist = if (artistGroups.size >= 8) 1 else 2
         val cappedArtistQueues = mutableListOf<MutableList<Track>>()
 
         for ((artistKey, trackList) in artistGroups) {
@@ -265,22 +298,12 @@ open class InnerTubeClient(
                 }
             }
 
-            // ── SOURCE 3: Same Genre & Vibe Mix Radio Search from Other Artists ──
+            // ── SOURCE 3: Artist Top Tracks & Similar Artists Pool ──
             if (!primaryArtist.isNullOrBlank()) {
                 launch(Dispatchers.IO) {
                     try {
-                        val genreMix = search("$primaryArtist mix radio", FILTER_SONGS).songs
-                        candidatesPool.addAll(genreMix)
-                    } catch (_: Exception) {}
-                }
-            }
-
-            // ── SOURCE 4: Song-Specific Radio / Genre Mix ──
-            if (!cleanTitle.isNullOrBlank() && !primaryArtist.isNullOrBlank()) {
-                launch(Dispatchers.IO) {
-                    try {
-                        val songMix = search("$cleanTitle $primaryArtist radio", FILTER_SONGS).songs
-                        candidatesPool.addAll(songMix)
+                        val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs
+                        candidatesPool.addAll(artistSongs)
                     } catch (_: Exception) {}
                 }
             }
@@ -314,8 +337,8 @@ open class InnerTubeClient(
             } catch (_: Exception) {}
         }
 
-        // Curate into a perfectly diverse, genre-matched, randomized queue
-        curateDiverseGenreQueue(candidatesPool.toList(), videoId, primaryArtist)
+        // Curate into a perfectly diverse, genre-matched, randomized queue without duplicate song versions
+        curateDiverseGenreQueue(candidatesPool.toList(), videoId, primaryArtist, cleanTitle)
     }
 
     fun parseRadioFromNextResponse(root: JSONObject, seedVideoId: String? = null): List<Track> {

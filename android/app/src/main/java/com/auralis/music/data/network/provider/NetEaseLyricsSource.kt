@@ -18,15 +18,15 @@ import java.net.URLEncoder
  * for global pop, K-pop, J-pop, EDM, Anime, Latin, and international catalog.
  */
 class NetEaseLyricsSource(
-    private val client: OkHttpClient = NetworkClientProvider.okHttpClient
+    private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient
 ) : LyricsSource {
 
     override val provider: LyricsProvider = LyricsProvider.NETEASE
     override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC, SyncType.PLAIN)
 
     companion object {
-        private const val SEARCH_URL = "http://music.163.com/api/search/get/web"
-        private const val LYRIC_URL = "http://music.163.com/api/song/lyric"
+        private const val SEARCH_URL = "https://music.163.com/api/search/get/web"
+        private const val LYRIC_URL = "https://music.163.com/api/song/lyric"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     }
 
@@ -132,6 +132,22 @@ class NetEaseLyricsSource(
                     return parsedYrc
                 }
             }
+
+            // 1.5 Try AMLL TTML DB repository (over 20,000 community curated studio TTML tracks)
+            try {
+                val ttmlUrl = "https://raw.githubusercontent.com/amll-dev/amll-ttml-db/main/ncm-lyrics/$songId.ttml"
+                val ttmlReq = Request.Builder().url(ttmlUrl).header("User-Agent", USER_AGENT).build()
+                val ttmlResp = client.newCall(ttmlReq).execute()
+                if (ttmlResp.isSuccessful) {
+                    val ttmlContent = ttmlResp.body?.string() ?: ""
+                    if (ttmlContent.isNotBlank()) {
+                        val parsedTtml = com.auralis.music.data.parser.TtmlParser.parse(ttmlContent, LyricsProvider.NETEASE)
+                        if (parsedTtml.lines.isNotEmpty() && parsedTtml.syncType == SyncType.RICHSYNC) {
+                            return parsedTtml.copy(trackName = trackName, artistName = artistName)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
 
             // 2. Try Standard LRC
             val rawLrc = json.optJSONObject("lrc")?.optString("lyric") ?: ""

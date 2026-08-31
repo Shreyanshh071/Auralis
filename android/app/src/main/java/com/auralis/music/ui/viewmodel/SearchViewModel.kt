@@ -13,7 +13,10 @@ import com.auralis.music.domain.recognition.RecognitionMode
 import com.auralis.music.domain.recognition.RecognitionState
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -71,7 +74,72 @@ class SearchViewModel(
         recognitionManager?.removeHistoryItem(trackId)
     }
 
-    private var debounceJob: Job? = null
+    private var suggestionsJob: Job? = null
+    private var songsSearchJob: Job? = null
+
+    fun onQueryChange(newQuery: String) {
+        _uiState.update { it.copy(query = newQuery) }
+
+        suggestionsJob?.cancel()
+        songsSearchJob?.cancel()
+
+        if (newQuery.isBlank()) {
+            _uiState.update { it.copy(suggestions = emptyList(), searchResults = SearchResults(), isSearching = false) }
+            return
+        }
+
+        val trimmed = newQuery.trim()
+
+        // 1. INSTANT suggestions (strictly limited to 3 items)
+        suggestionsJob = viewModelScope.launch {
+            delay(50)
+            val suggestions = try {
+                searchRepository.getSuggestions(trimmed).take(3)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            if (isActive) {
+                _uiState.update { it.copy(suggestions = suggestions) }
+            }
+        }
+
+        // 2. Parallel Song Search (130ms debounce)
+        songsSearchJob = viewModelScope.launch {
+            delay(130)
+
+            // Concurrently query direct query results and top suggestion hit
+            val directResultsDeferred = async {
+                try { searchRepository.search(trimmed) } catch (_: Exception) { SearchResults() }
+            }
+
+            val topSuggestions = _uiState.value.suggestions.ifEmpty {
+                try { searchRepository.getSuggestions(trimmed).take(3) } catch (_: Exception) { emptyList() }
+            }
+
+            val topHitSongsDeferred = topSuggestions.take(2).map { sug ->
+                async {
+                    val sTrim = sug.trim()
+                    if (sTrim.isNotBlank() && !sTrim.equals(trimmed, ignoreCase = true)) {
+                        try { searchRepository.searchSongs(sTrim).take(3) } catch (_: Exception) { emptyList() }
+                    } else emptyList()
+                }
+            }
+
+            val directResults = directResultsDeferred.await()
+            val topHitSongs = topHitSongsDeferred.flatMap { it.await() }
+
+            val combinedSongs = (topHitSongs + directResults.songs).distinctBy { it.id }
+
+            if (isActive) {
+                _uiState.update {
+                    it.copy(
+                        searchResults = directResults.copy(songs = combinedSongs),
+                        isSearching = false
+                    )
+                }
+            }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -114,22 +182,6 @@ class SearchViewModel(
 
     fun stopListening() {
         recognitionManager?.stopListening()
-    }
-
-    fun onQueryChange(newQuery: String) {
-        _uiState.update { it.copy(query = newQuery, searchResults = SearchResults()) }
-
-        debounceJob?.cancel()
-        if (newQuery.isBlank()) {
-            _uiState.update { it.copy(suggestions = emptyList(), searchResults = SearchResults()) }
-            return
-        }
-
-        debounceJob = viewModelScope.launch {
-            delay(150)
-            val suggestions = searchRepository.getSuggestions(newQuery)
-            _uiState.update { it.copy(suggestions = suggestions) }
-        }
     }
 
     fun performSearch(query: String) {

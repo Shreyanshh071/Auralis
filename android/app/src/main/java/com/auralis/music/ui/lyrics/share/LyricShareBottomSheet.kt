@@ -95,7 +95,7 @@ fun LyricShareBottomSheet(
     var isEditingText by remember { mutableStateOf(false) }
     var editTextBuffer by remember { mutableStateOf(initialLyricsText) }
 
-    var selectedStyle by remember { mutableStateOf(LyricCardStyle.SOLID) }
+    var selectedStyle by remember { mutableStateOf(LyricCardStyle.BLUR) }
 
     // Curated color swatches matching modern music card aesthetic
     val backgroundColors = remember {
@@ -197,9 +197,9 @@ fun LyricShareBottomSheet(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 listOf(
-                    LyricCardStyle.SOLID to "Solid",
                     LyricCardStyle.BLUR to "Blur",
-                    LyricCardStyle.GRADIENT to "Gradient"
+                    LyricCardStyle.GRADIENT to "Gradient",
+                    LyricCardStyle.SOLID to "Solid"
                 ).forEach { (style, label) ->
                     val isSelected = selectedStyle == style
                     Box(
@@ -229,7 +229,7 @@ fun LyricShareBottomSheet(
                     .fillMaxWidth(0.92f)
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(28.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(28.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(28.dp))
             ) {
                 // Background Layer
                 when (selectedStyle) {
@@ -248,7 +248,7 @@ fun LyricShareBottomSheet(
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .blur(22.dp)
+                                    .blur(16.dp)
                             )
                         } else {
                             Box(
@@ -257,16 +257,16 @@ fun LyricShareBottomSheet(
                                     .background(selectedBgColor)
                             )
                         }
-                        // Rich cinematic vignette scrim (never washed out)
+                        // Luminous ambient translucent scrim
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(
                                     Brush.verticalGradient(
                                         listOf(
-                                            Color.Black.copy(alpha = 0.15f),
-                                            Color.Black.copy(alpha = 0.38f),
-                                            Color.Black.copy(alpha = 0.72f)
+                                            Color.Black.copy(alpha = 0.06f),
+                                            Color.Black.copy(alpha = 0.18f),
+                                            Color.Black.copy(alpha = 0.38f)
                                         )
                                     )
                                 )
@@ -301,7 +301,7 @@ fun LyricShareBottomSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(20.dp),
+                        .padding(18.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Header: Artwork + Title + Artist
@@ -314,22 +314,22 @@ fun LyricShareBottomSheet(
                             contentDescription = track.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .border(0.5.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(0.5.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = track.title,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp),
                                 color = selectedTextColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = track.artist,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                                 color = selectedSecondaryTextColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -337,7 +337,15 @@ fun LyricShareBottomSheet(
                         }
                     }
 
-                    // Center: Editable Lyric Text
+                    // Center: Editable Massive Punchy Lyric Text (Capped at 5 lines)
+                    val cleanLines = lyricsText.lines().map { it.trim() }.filter { it.isNotBlank() }.take(5)
+                    val lineCount = cleanLines.size
+                    val dynamicSp = when {
+                        lineCount <= 2 -> 34.sp
+                        lineCount <= 4 -> 27.sp
+                        else -> 22.sp
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -349,32 +357,49 @@ fun LyricShareBottomSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = lyricsText,
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                lineHeight = 30.sp
+                            text = cleanLines.joinToString("\n"),
+                            style = androidx.compose.ui.text.TextStyle(
+                                fontSize = dynamicSp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.5).sp,
+                                lineHeight = (dynamicSp.value * 1.24f).sp,
+                                textAlign = TextAlign.Center,
+                                shadow = androidx.compose.ui.graphics.Shadow(
+                                    color = Color.Black.copy(alpha = 0.35f),
+                                    blurRadius = 6f
+                                )
                             ),
                             color = selectedTextColor,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 8.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp)
                         )
                     }
 
-                    // Footer: Auralis Brand
+                    // Footer: Auralis Brand Badge
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        androidx.compose.foundation.Image(
-                            painter = painterResource(id = R.drawable.ic_notification),
-                            contentDescription = "Auralis Logo",
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.22f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(id = R.drawable.ic_notification),
+                                contentDescription = "Auralis Logo",
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Auralis",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = selectedTextColor.copy(alpha = 0.75f)
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            ),
+                            color = selectedTextColor.copy(alpha = 0.90f)
                         )
                         Spacer(modifier = Modifier.weight(1f))
                         // Tap to edit prompt hint
@@ -382,7 +407,7 @@ fun LyricShareBottomSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.12f))
+                                .background(Color.White.copy(alpha = 0.15f))
                                 .clickable {
                                     editTextBuffer = lyricsText
                                     isEditingText = true
@@ -392,14 +417,14 @@ fun LyricShareBottomSheet(
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = "Edit Lyric",
-                                tint = selectedTextColor.copy(alpha = 0.85f),
+                                tint = selectedTextColor.copy(alpha = 0.90f),
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "Edit",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = selectedTextColor.copy(alpha = 0.85f)
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = selectedTextColor.copy(alpha = 0.90f)
                             )
                         }
                     }

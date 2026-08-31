@@ -8,9 +8,6 @@ import com.auralis.music.domain.model.SyncType
 
 object BetterLyricsParser {
 
-    private val TTML_P_REGEX = Regex("""<p\s+[^>]*begin="([^"]+)"(?:\s+end="([^"]+)")?[^>]*>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
-    private val TTML_SPAN_REGEX = Regex("""<span\s+[^>]*begin="([^"]+)"(?:\s+end="([^"]+)")?[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
-
     private val QRC_LINE_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)""")
     private val QRC_WORD_REGEX = Regex("""\((\d+),(\d+)\)([^(]*)""")
 
@@ -42,8 +39,13 @@ object BetterLyricsParser {
     }
 
     /**
-     * Parses Timed Text Markup Language (TTML) syllable-level lyrics.
-     * Example: <p begin="00:12.340" end="00:15.600"><span begin="00:12.340" end="00:12.800">Hello </span><span begin="00:12.800" end="00:13.200">World</span></p>
+     * Parses Timed Text Markup Language (TTML) word/syllable-level lyrics.
+     *
+     * Apple Music exports (`itunes:timing="Word"`) give every word an explicit
+     * `begin` and `end`, and the space between one word's `end` and the next
+     * word's `begin` is a real rest in the vocal. Parsing is delegated to
+     * [TtmlParser] so those values survive untouched: nothing here invents an end
+     * timestamp, stretches a word across silence, or caps a genuinely held note.
      */
     fun parseTtml(
         ttmlContent: String,
@@ -51,63 +53,10 @@ object BetterLyricsParser {
         trackName: String? = null,
         artistName: String? = null
     ): LyricsData? {
-        val lines = mutableListOf<LyricLine>()
-        val pMatches = TTML_P_REGEX.findAll(ttmlContent).toList()
+        val parsed = TtmlParser.parse(ttmlContent, provider)
+        if (parsed.lines.isEmpty()) return null
 
-        for (pMatch in pMatches) {
-            val pBeginStr = pMatch.groupValues[1]
-            val pLineTime = parseTimestampToMs(pBeginStr)
-            val innerContent = pMatch.groupValues[3]
-
-            val spanMatches = TTML_SPAN_REGEX.findAll(innerContent).toList()
-            val words = if (spanMatches.isNotEmpty()) {
-                spanMatches.mapNotNull { sMatch ->
-                    val sBeginStr = sMatch.groupValues[1]
-                    val sEndStr = sMatch.groupValues[2]
-                    val rawWord = sMatch.groupValues[3].replace(Regex("<[^>]*>"), "")
-                    if (rawWord.isEmpty()) return@mapNotNull null
-
-                    val sBegin = parseTimestampToMs(sBeginStr)
-                    val sEnd = if (sEndStr.isNotBlank()) parseTimestampToMs(sEndStr) else sBegin + 300L
-                    val duration = (sEnd - sBegin).coerceAtLeast(50L)
-
-                    LyricWord(
-                        word = rawWord,
-                        time = sBegin,
-                        duration = duration
-                    )
-                }
-            } else {
-                null
-            }
-
-            val fullText = if (!words.isNullOrEmpty()) {
-                words.joinToString("") { it.word }.trim()
-            } else {
-                innerContent.replace(Regex("<[^>]*>"), "").trim()
-            }
-
-            if (fullText.isNotBlank()) {
-                lines.add(
-                    LyricLine(
-                        time = pLineTime,
-                        text = fullText,
-                        words = words
-                    )
-                )
-            }
-        }
-
-        if (lines.isEmpty()) return null
-
-        val sorted = lines.sortedBy { it.time }
-        val hasRichWords = sorted.any { !it.words.isNullOrEmpty() }
-
-        return LyricsData(
-            syncType = if (hasRichWords) SyncType.RICHSYNC else SyncType.LINE_SYNC,
-            lines = sorted,
-            plainLyrics = sorted.joinToString("\n") { it.text },
-            provider = provider,
+        return parsed.copy(
             trackName = trackName,
             artistName = artistName
         )
@@ -141,11 +90,23 @@ object BetterLyricsParser {
             val rest = lineMatch.groupValues[4]
             val wordMatches = QRC_WORD_REGEX.findAll(rest).toList()
             val words = if (wordMatches.isNotEmpty()) {
-                wordMatches.mapNotNull { wm ->
-                    val wStart = wm.groupValues[1].toLongOrNull() ?: return@mapNotNull null
+                wordMatches.mapIndexedNotNull { wIdx, wm ->
+                    val wStart = wm.groupValues[1].toLongOrNull() ?: return@mapIndexedNotNull null
                     val wDur = wm.groupValues[2].toLongOrNull() ?: 300L
-                    val wText = wm.groupValues[3]
-                    if (wText.isEmpty()) return@mapNotNull null
+                    var wText = wm.groupValues[3]
+                    if (wText.isEmpty()) return@mapIndexedNotNull null
+
+                    if (wIdx < wordMatches.size - 1) {
+                        val nextWText = wordMatches[wIdx + 1].groupValues[3]
+                        val prevLast = wText.lastOrNull()
+                        val nextFirst = nextWText.firstOrNull()
+                        if (!wText.endsWith(" ") && !nextWText.startsWith(" ") &&
+                            prevLast != null && nextFirst != null &&
+                            prevLast.isLetterOrDigit() && nextFirst.isLetterOrDigit()
+                        ) {
+                            wText = "$wText "
+                        }
+                    }
 
                     LyricWord(
                         word = wText,
@@ -185,41 +146,6 @@ object BetterLyricsParser {
             trackName = trackName,
             artistName = artistName
         )
-    }
-
-    private fun parseTimestampToMs(timeStr: String): Long {
-        val trimmed = timeStr.trim()
-        // Format 1: "00:12.340" or "01:23:45.670" or "12.340s" or "12340ms"
-        if (trimmed.endsWith("ms", ignoreCase = true)) {
-            return trimmed.removeSuffix("ms").removeSuffix("MS").trim().toLongOrNull() ?: 0L
-        }
-        if (trimmed.endsWith("s", ignoreCase = true)) {
-            val sec = trimmed.removeSuffix("s").removeSuffix("S").trim().toDoubleOrNull() ?: 0.0
-            return (sec * 1000).toLong()
-        }
-
-        val parts = trimmed.split(":")
-        return when (parts.size) {
-            2 -> {
-                val min = parts[0].toLongOrNull() ?: 0L
-                val secParts = parts[1].split(".")
-                val sec = secParts[0].toLongOrNull() ?: 0L
-                val ms = if (secParts.size > 1) parseMs(secParts[1]) else 0L
-                min * 60_000L + sec * 1_000L + ms
-            }
-            3 -> {
-                val hr = parts[0].toLongOrNull() ?: 0L
-                val min = parts[1].toLongOrNull() ?: 0L
-                val secParts = parts[2].split(".")
-                val sec = secParts[0].toLongOrNull() ?: 0L
-                val ms = if (secParts.size > 1) parseMs(secParts[1]) else 0L
-                hr * 3600_000L + min * 60_000L + sec * 1_000L + ms
-            }
-            else -> {
-                val sec = trimmed.toDoubleOrNull() ?: 0.0
-                (sec * 1000).toLong()
-            }
-        }
     }
 
     private fun parseMs(msRaw: String?): Long {

@@ -41,6 +41,8 @@ fun UpdaterScreen(
     var isChecking by remember { mutableStateOf(false) }
     var updateResult by remember { mutableStateOf<UpdateInfo?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var isDownloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf(0f) }
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -259,7 +261,9 @@ fun UpdaterScreen(
         if (showUpdateDialog && updateResult != null) {
             val info = updateResult!!
             AlertDialog(
-                onDismissRequest = { showUpdateDialog = false },
+                onDismissRequest = {
+                    if (!isDownloading) showUpdateDialog = false
+                },
                 containerColor = surfaceColor,
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -274,14 +278,14 @@ fun UpdaterScreen(
                     }
                 },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             text = "Auralis v${info.latestVersion} is ready to install.",
                             fontWeight = FontWeight.SemiBold,
                             color = primaryColor,
                             fontSize = 14.5.sp
                         )
-                        if (!info.releaseNotes.isNullOrBlank()) {
+                        if (!info.releaseNotes.isNullOrBlank() && !isDownloading) {
                             Text(
                                 text = info.releaseNotes,
                                 color = onSurfaceVariant,
@@ -289,29 +293,70 @@ fun UpdaterScreen(
                                 maxLines = 8
                             )
                         }
+
+                        if (isDownloading) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                LinearProgressIndicator(
+                                    progress = { downloadProgress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = primaryColor,
+                                    trackColor = primaryColor.copy(alpha = 0.2f)
+                                )
+                                Text(
+                                    text = if (downloadProgress > 0f) "Downloading update... ${(downloadProgress * 100).toInt()}%" else "Starting download...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     Button(
+                        enabled = !isDownloading,
                         onClick = {
-                            val url = info.downloadUrl ?: info.htmlUrl ?: "https://github.com/shreyanshchoubey09/Auralis/releases"
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            val apkUrl = info.downloadUrl
+                            if (!apkUrl.isNullOrBlank() && apkUrl.endsWith(".apk", ignoreCase = true)) {
+                                isDownloading = true
+                                downloadProgress = 0f
+                                scope.launch {
+                                    val res = UpdateChecker.downloadAndInstallApk(
+                                        context = context,
+                                        downloadUrl = apkUrl,
+                                        versionName = info.latestVersion,
+                                        onProgress = { p -> downloadProgress = p }
+                                    )
+                                    isDownloading = false
+                                    if (res.isFailure) {
+                                        Toast.makeText(context, "Download failed: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                    }
                                 }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {
-                                Toast.makeText(context, "Could not open download link", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val url = info.htmlUrl ?: "https://github.com/Shreyanshh071/Auralis/releases"
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Could not open download link", Toast.LENGTH_SHORT).show()
+                                }
+                                showUpdateDialog = false
                             }
-                            showUpdateDialog = false
                         }
                     ) {
-                        Text("Download & Install", fontWeight = FontWeight.Bold)
+                        Text(if (isDownloading) "Downloading..." else "Update Now", fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showUpdateDialog = false }) {
-                        Text("Later", color = onSurfaceVariant)
+                    if (!isDownloading) {
+                        TextButton(onClick = { showUpdateDialog = false }) {
+                            Text("Later", color = onSurfaceVariant)
+                        }
                     }
                 }
             )

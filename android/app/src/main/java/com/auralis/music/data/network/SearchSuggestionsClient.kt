@@ -20,9 +20,30 @@ class SearchSuggestionsClient(
 
     suspend fun getSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
-        if (trimmed.isBlank() || trimmed.length < 2) return@withContext emptyList()
+        if (trimmed.isBlank()) return@withContext emptyList()
 
-        // 1. Primary: Direct YouTube Music InnerTube Suggestion Engine
+        // 1. Ultra-fast Google Suggestion API (< 20ms response time)
+        try {
+            val encoded = URLEncoder.encode(trimmed, "UTF-8")
+            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=$encoded"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string()
+                if (!body.isNullOrBlank()) {
+                    val parsed = parseSuggestionsJson(body)
+                    if (parsed.isNotEmpty()) {
+                        return@withContext parsed
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Fallback: YouTube Music InnerTube Suggestion Engine
         try {
             val payload = JSONObject().apply {
                 put("input", trimmed)
@@ -55,23 +76,7 @@ class SearchSuggestionsClient(
             }
         } catch (_: Exception) {}
 
-        // 2. Fallback: Google Suggest with music query
-        try {
-            val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=$encoded"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0")
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext emptyList()
-
-            val body = response.body?.string() ?: return@withContext emptyList()
-            parseSuggestionsJson(body)
-        } catch (e: Exception) {
-            emptyList()
-        }
+        emptyList()
     }
 
     fun parseYtMusicSuggestionsJson(jsonString: String): List<String> {

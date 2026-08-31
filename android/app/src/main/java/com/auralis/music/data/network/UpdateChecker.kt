@@ -1,12 +1,16 @@
 package com.auralis.music.data.network
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 data class UpdateInfo(
@@ -23,7 +27,7 @@ data class UpdateInfo(
 
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
-    private const val GITHUB_REPO = "shreyanshchoubey09/Auralis"
+    private const val GITHUB_REPO = "Shreyanshh071/Auralis"
     private const val RELEASES_API = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
 
     private val client = OkHttpClient.Builder()
@@ -137,6 +141,75 @@ object UpdateChecker {
             return false
         } catch (_: Exception) {
             return latest != current
+        }
+    }
+
+    suspend fun downloadAndInstallApk(
+        context: Context,
+        downloadUrl: String,
+        versionName: String,
+        onProgress: (Float) -> Unit
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(downloadUrl)
+                .header("User-Agent", "Auralis-Android-App")
+                .build()
+
+            val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val apkFile = File(updateDir, "Auralis-v$versionName.apk")
+            if (apkFile.exists()) apkFile.delete()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("Failed to download APK: HTTP ${response.code}")
+                val body = response.body ?: throw Exception("Empty APK response")
+                val totalBytes = body.contentLength()
+
+                body.byteStream().use { input ->
+                    apkFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var downloadedBytes = 0L
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
+                            if (totalBytes > 0) {
+                                val prog = downloadedBytes.toFloat() / totalBytes.toFloat()
+                                onProgress(prog.coerceIn(0f, 1f))
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+            }
+
+            // Trigger Android Package Installer
+            withContext(Dispatchers.Main) {
+                installApk(context, apkFile)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download and install update", e)
+            Result.failure(e)
+        }
+    }
+
+    fun installApk(context: Context, apkFile: File) {
+        try {
+            val apkUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch package installer", e)
+            Toast.makeText(context, "Failed to launch installer: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 }

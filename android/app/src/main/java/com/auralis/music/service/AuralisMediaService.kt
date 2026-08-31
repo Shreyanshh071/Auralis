@@ -515,6 +515,19 @@ class AuralisMediaService : MediaSessionService() {
 
         val favIcon = if (isFavorite) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
 
+        // Extract dominant/vibrant artwork color to dynamically tint media notification background on all OEM skins
+        val dominantColorInt = artwork?.let { bmp ->
+            try {
+                val palette = androidx.palette.graphics.Palette.from(bmp).generate()
+                palette.vibrantSwatch?.rgb
+                    ?: palette.dominantSwatch?.rgb
+                    ?: palette.darkVibrantSwatch?.rgb
+                    ?: palette.mutedSwatch?.rgb
+            } catch (_: Exception) {
+                null
+            }
+        } ?: android.graphics.Color.parseColor("#1E2430")
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -522,8 +535,12 @@ class AuralisMediaService : MediaSessionService() {
             .setContentIntent(contentPendingIntent)
             .setOngoing(isPlaying)
             .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setStyle(mediaStyle)
+            .setColor(dominantColorInt)
+            .setColorized(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(favIcon, "Favorite", favPendingIntent)
             .addAction(android.R.drawable.ic_media_previous, "Previous", prevPendingIntent)

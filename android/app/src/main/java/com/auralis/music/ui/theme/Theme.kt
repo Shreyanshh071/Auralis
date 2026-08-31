@@ -476,13 +476,15 @@ fun AuralisTheme(
 
     val isDynamicMonet = appearanceSettings.colorPalette == "Dynamic (Material You)"
 
-    // Base scheme according to selected theme mode
-    val baseScheme = when (appearanceSettings.appTheme) {
-        "Pure AMOLED Black" -> AmoledDarkColorScheme
-        "Midnight Velvet Dark" -> MidnightDarkColorScheme
-        "Light Mode" -> LightColorScheme
-        "Dark Mode" -> DarkColorScheme
-        else -> if (isDark) DarkColorScheme else LightColorScheme
+    // Base scheme strictly according to light / dark state
+    val baseScheme = if (isDark) {
+        when (appearanceSettings.appTheme) {
+            "Pure AMOLED Black" -> AmoledDarkColorScheme
+            "Midnight Velvet Dark" -> MidnightDarkColorScheme
+            else -> DarkColorScheme
+        }
+    } else {
+        LightColorScheme
     }
 
     val colorScheme: ColorScheme = if (isDynamicMonet && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
