@@ -258,44 +258,6 @@ fun ArtistScreen(
                         )
                     }
 
-                    // Radio Button (Starts official artist radio mix)
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
-                            .clickable {
-                                if (artistPage.topSongs.isNotEmpty()) {
-                                    onStartRadio(artistPage.topSongs.first())
-                                } else {
-                                    val dummySeed = Track(
-                                        id = artistPage.artist.id,
-                                        title = "${artistPage.artist.name} Radio",
-                                        artist = artistPage.artist.name,
-                                        thumbnail = artistPage.bannerUrl ?: artistPage.artist.thumbnail ?: ""
-                                    )
-                                    onStartRadio(dummySeed)
-                                }
-                            }
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Radio",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    }
-
                     Spacer(modifier = Modifier.weight(1f))
 
                     // Shuffle / Quick Play Floating Button
