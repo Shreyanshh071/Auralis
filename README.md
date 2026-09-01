@@ -15,6 +15,9 @@
 
 </div>
 
+> [!WARNING]
+> **Regional Restriction** — If YouTube Music is unavailable in your region, this app will not work without a VPN or proxy connecting to a supported region.
+
 ---
 
 ## ✨ Features
