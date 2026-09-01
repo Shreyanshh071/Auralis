@@ -73,36 +73,101 @@ class LyricsClient(
         val t0 = System.currentTimeMillis()
         Log.d(TAG, "Starting ultra-fast synced lyrics search for: '$coreTitle' by '${query.artist}' (${durationSec ?: 0}s)")
 
-        // ── TIER 1: HIGH-SPEED PARALLEL SYNCED RACE ──
-        // Prioritized order: studio human-verified sources first, then crowdsourced fallbacks
-        val syncedProviders: List<LyricsSource> = listOf(
+        // ── TIER 1: HIGH-PRECISION STUDIO VERIFIED SYNCED RACE (LRCLIB, Musixmatch, BetterLyrics) ──
+        val tier1Providers: List<LyricsSource> = listOf(
             lrcLibSource,
-            jioSaavnSource,
-            betterLyricsSource,
             musixmatchSource,
+            betterLyricsSource
+        )
+
+        val tier2Providers: List<LyricsSource> = listOf(
+            jioSaavnSource,
             netEaseSource,
             kuGouSource,
             amllSource
         )
 
-        val syncedWinner: LyricsData? = coroutineScope {
-            val resultChannel = Channel<LyricsCandidate>(capacity = syncedProviders.size * 2)
-            val activeCount = syncedProviders.size
-
-            val providerJobs = syncedProviders.map { source ->
+        // Run Tier 1 first (fast sub-400ms studio synced database)
+        val tier1Winner: LyricsData? = coroutineScope {
+            val resultChannel = Channel<LyricsCandidate>(capacity = tier1Providers.size * 2)
+            val providerJobs = tier1Providers.map { source ->
                 launch {
                     try {
                         val cand = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
                             source.search(query)
                         }
                         if (cand != null) {
-                            Log.d(TAG, "[Provider: ${source.provider}] found: ${cand.syncType}, confidence=${cand.confidence}%, lines=${cand.lyricsData.lines.size}")
+                            Log.d(TAG, "[Tier 1 Provider: ${source.provider}] found: ${cand.syncType}, confidence=${cand.confidence}%, lines=${cand.lyricsData.lines.size}")
                             resultChannel.send(cand)
-                        } else {
-                            Log.d(TAG, "[Provider: ${source.provider}] returned null/timeout")
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "[Provider: ${source.provider}] exception: ${e.message}")
+                        Log.w(TAG, "[Tier 1 Provider: ${source.provider}] exception: ${e.message}")
+                    } finally {
+                        resultChannel.send(
+                            LyricsCandidate(
+                                lyricsData = LyricsData(syncType = SyncType.PLAIN, lines = emptyList(), provider = source.provider),
+                                confidence = -1,
+                                syncType = SyncType.PLAIN,
+                                provider = source.provider
+                            )
+                        )
+                    }
+                }
+            }
+
+            var bestCandidate: LyricsCandidate? = null
+            var completedCount = 0
+
+            while (completedCount < tier1Providers.size) {
+                val candidate = resultChannel.receive()
+                if (candidate.confidence == -1) {
+                    completedCount++
+                    continue
+                }
+
+                val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
+                if (isCandSynced && candidate.confidence >= 50 && candidate.lyricsData.lines.isNotEmpty()) {
+                    val resolvedSyncType = when {
+                        candidate.lyricsData.syncType == SyncType.RICHSYNC || candidate.syncType == SyncType.RICHSYNC -> SyncType.RICHSYNC
+                        else -> SyncType.LINE_SYNC
+                    }
+                    val correctedCand = candidate.copy(
+                        syncType = resolvedSyncType,
+                        lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
+                    )
+
+                    if (correctedCand.confidence > (bestCandidate?.confidence ?: 0)) {
+                        bestCandidate = correctedCand
+                    }
+
+                    // Instant win for authoritative studio source
+                    if (correctedCand.confidence >= 65) {
+                        Log.d(TAG, "[TIER 1 INSTANT WINNER] ${correctedCand.provider} in ${System.currentTimeMillis() - t0}ms (Confidence: ${correctedCand.confidence}%)")
+                        providerJobs.forEach { it.cancel() }
+                        return@coroutineScope correctedCand.lyricsData
+                    }
+                }
+            }
+            bestCandidate?.lyricsData
+        }
+
+        if (tier1Winner != null && tier1Winner.lines.isNotEmpty()) {
+            return@withContext tier1Winner
+        }
+
+        // ── TIER 2: SECONDARY / REGIONAL / CROWDSOURCED CASCADE ──
+        val tier2Winner: LyricsData? = coroutineScope {
+            val resultChannel = Channel<LyricsCandidate>(capacity = tier2Providers.size * 2)
+            val providerJobs = tier2Providers.map { source ->
+                launch {
+                    try {
+                        val cand = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
+                            source.search(query)
+                        }
+                        if (cand != null) {
+                            resultChannel.send(cand)
+                        }
+                    } catch (_: Exception) {
                     } finally {
                         resultChannel.send(
                             LyricsCandidate(
@@ -118,49 +183,36 @@ class LyricsClient(
 
             var bestSyncedCandidate: LyricsCandidate? = null
             var bestPlainCandidate: LyricsCandidate? = null
-            var completedProviders = 0
+            var completedCount = 0
 
-            while (completedProviders < activeCount) {
+            while (completedCount < tier2Providers.size) {
                 val candidate = resultChannel.receive()
                 if (candidate.confidence == -1) {
-                    completedProviders++
+                    completedCount++
                     continue
                 }
 
-                // If candidate is synced (LINE_SYNC / RICH_SYNC or contains timestamped lines)
                 val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
-                if (isCandSynced && candidate.confidence >= 50 && candidate.lyricsData.lines.isNotEmpty()) {
-                    val resolvedSyncType = when {
-                        candidate.lyricsData.syncType == SyncType.RICHSYNC || candidate.syncType == SyncType.RICHSYNC -> SyncType.RICHSYNC
-                        else -> SyncType.LINE_SYNC
+                if (isCandSynced && candidate.confidence >= 55 && candidate.lyricsData.lines.isNotEmpty()) {
+                    if (candidate.confidence > (bestSyncedCandidate?.confidence ?: 0)) {
+                        bestSyncedCandidate = candidate
                     }
-                    val correctedCand = candidate.copy(
-                        syncType = resolvedSyncType,
-                        lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
-                    )
-                    if (correctedCand.confidence > (bestSyncedCandidate?.confidence ?: 0)) {
-                        bestSyncedCandidate = correctedCand
-                    }
-
-                    // INSTANT WIN: High confidence synced lyrics (>= 68%) -> Return immediately without waiting for other providers!
-                    if (correctedCand.confidence >= 68) {
-                        Log.d(TAG, "[INSTANT WINNER] ${correctedCand.provider} returned in ${System.currentTimeMillis() - t0}ms (Confidence: ${correctedCand.confidence}%)")
+                    if (candidate.confidence >= 75) {
                         providerJobs.forEach { it.cancel() }
-                        return@coroutineScope correctedCand.lyricsData
+                        return@coroutineScope candidate.lyricsData
                     }
-                } else if (candidate.syncType == SyncType.PLAIN && candidate.confidence >= 40 && candidate.lyricsData.lines.isNotEmpty()) {
+                } else if (candidate.syncType == SyncType.PLAIN && candidate.confidence >= 50 && candidate.lyricsData.lines.isNotEmpty()) {
                     if (candidate.confidence > (bestPlainCandidate?.confidence ?: 0)) {
                         bestPlainCandidate = candidate
                     }
                 }
             }
-
             bestSyncedCandidate?.lyricsData ?: bestPlainCandidate?.lyricsData
         }
 
-        if (syncedWinner != null && syncedWinner.lines.isNotEmpty()) {
-            Log.d(TAG, "Lyrics race resolved in ${System.currentTimeMillis() - t0}ms (Provider: ${syncedWinner.provider}, syncType: ${syncedWinner.syncType})")
-            return@withContext syncedWinner
+        if (tier2Winner != null && tier2Winner.lines.isNotEmpty()) {
+            Log.d(TAG, "Lyrics resolved via Tier 2 in ${System.currentTimeMillis() - t0}ms (Provider: ${tier2Winner.provider})")
+            return@withContext tier2Winner
         }
 
         // ── TIER 2: RAW TITLE FALLBACK ON LRCLIB ──

@@ -84,10 +84,10 @@ class AppearanceSettingsDataStore(
             AppearanceSettings(
                 highRefreshRate = preferences[HIGH_REFRESH_RATE] ?: true,
                 landscapeScaling = preferences[LANDSCAPE_SCALING] ?: false,
-                dynamicTheme = preferences[DYNAMIC_THEME] ?: true,
+                dynamicTheme = preferences[DYNAMIC_THEME] ?: false,
                 dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: true,
                 appTheme = preferences[APP_THEME] ?: "Follow system",
-                colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic (Material You)",
+                colorPalette = preferences[COLOR_PALETTE] ?: "Auralis Lime",
 
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
                 miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
