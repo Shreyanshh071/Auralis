@@ -96,18 +96,6 @@ object BetterLyricsParser {
                     var wText = wm.groupValues[3]
                     if (wText.isEmpty()) return@mapIndexedNotNull null
 
-                    if (wIdx < wordMatches.size - 1) {
-                        val nextWText = wordMatches[wIdx + 1].groupValues[3]
-                        val prevLast = wText.lastOrNull()
-                        val nextFirst = nextWText.firstOrNull()
-                        if (!wText.endsWith(" ") && !nextWText.startsWith(" ") &&
-                            prevLast != null && nextFirst != null &&
-                            prevLast.isLetterOrDigit() && nextFirst.isLetterOrDigit()
-                        ) {
-                            wText = "$wText "
-                        }
-                    }
-
                     LyricWord(
                         word = wText,
                         time = wStart,

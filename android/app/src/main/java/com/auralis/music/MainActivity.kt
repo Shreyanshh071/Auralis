@@ -2,6 +2,7 @@ package com.auralis.music
 
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -76,6 +77,8 @@ class MainActivity : ComponentActivity() {
         val settingsRepository = SettingsRepositoryImpl(settingsDataStore)
         val searchRepository = SearchRepositoryImpl(innerTubeClient, suggestionsClient, searchHistoryDao)
         val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
+
+        Log.d("AuralisPlayback", "[MainActivity] onCreate - connected to AuralisAudioPlayer (track=${audioPlayer.currentTrack.value?.title}, isPlaying=${audioPlayer.isPlaying.value})")
 
         val googleAccountSyncManager = GoogleAccountSyncManager(
             context = applicationContext,
@@ -180,5 +183,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("AuralisPlayback", "[MainActivity] onResume")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        android.util.Log.d("AuralisPlayback", "[MainActivity] onPause")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        android.util.Log.d("AuralisPlayback", "[MainActivity] onStop")
+    }
+
+    override fun onDestroy() {
+        android.util.Log.d("AuralisPlayback", "[MainActivity] onDestroy - Activity destroyed, background service and player remain intact")
+        super.onDestroy()
     }
 }

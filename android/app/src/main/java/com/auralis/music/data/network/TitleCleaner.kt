@@ -18,15 +18,33 @@ object TitleCleaner {
         """(?i)[\(\[\{][^)\]\}]*(?:official\s*(?:music)?\s*(?:video|audio)|\b(?:video|audio)\b|music\s*video|lyric\s*video|lyrics|audio\s*song|video\s*song|full\s*video(?:\s*song)?|full\s*audio(?:\s*song)?|lyrical(?:\s*video)?|visualizer|remaster(?:ed)?|hd\s*video|4k|hq|prod\.?|ost|special\s*edition|exclusive|bhojpuri\s*video(?:\s*song)?|bhojpuri\s*song(?:\s*\d{4})?|new\s*song\s*\d{4}|hit\s*song)[^)\]\}]*[\)\]\}]"""
     )
 
+    // Movie, soundtrack, and OST attribution noise (e.g. (From "Brahmastra"), - From "Movie", (OST))
+    private val MOVIE_ATTRIBUTION_REGEX = Regex(
+        """(?i)\s*[\(\[\{/\-]\s*(?:from\s+(?:the\s+)?(?:motion\s+picture\s+)?(?:soundtrack\s+)?["'“”‘’]?[^()\[\]{}]+["'“”‘’]?|original\s+motion\s+picture\s+soundtrack|soundtrack\s+version|ost)[\)\]\}]?"""
+    )
+
     // Pipe separated label/artist channel spam (common in Indian and regional releases)
     private val PIPE_CHANNEL_SPAM_REGEX = Regex(
         """(?i)\|\s*(?:official\s*video|official\s*audio|t-series|zee\s*music\s*(?:company)?|speed\s*records|sony\s*music\s*(?:india)?|yrf|tips\s*official|bhojpuri\s*song|new\s*bhojpuri|pawan\s*singh|khesari\s*lal\s*yadav|shilpi\s*raj|wave\s*music|worldwide\s*records|dharmendra\s*chanchal|neha\s*raj)[^|]*"""
     )
 
-    // Strips trailing feat/ft without breaking brackets
-    private val FEAT_INSIDE_BRACKET_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?|with)\s+[^)\]\}]+(?=[\)\]\}]|$)""")
-    private val FEAT_TRAILING_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?|with)\s+.*$""")
+    // Strips featuring artists inside brackets (e.g. (feat. Bruno Mars), [ft. DaBaby], (with Bruno Mars))
+    private val FEAT_BRACKET_REGEX = Regex("""(?i)\s*[\(\[\{]\s*(?:feat\.?|ft\.?|featuring)\s+[^)\]\}]+[\)\]\}]""")
+    private val WITH_ARTIST_BRACKET_REGEX = Regex("""(?i)\s*[\(\[\{]\s*with\s+[^)\]\}]+[\)\]\}]""")
+    private val FEAT_INSIDE_BRACKET_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring)\s+[^)\]\}]+(?=[\)\]\}]|$)""")
+    private val FEAT_TRAILING_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring)\s+.*$""")
+    private val EMPTY_BRACKETS_REGEX = Regex("""\(\s*\)|\[\s*\]|\{\s*\}""")
     private val MULTI_SPACE = Regex("""\s+""")
+
+    /**
+     * Strips movie attribution and soundtrack tags from a title specifically for lyrics provider search.
+     * (e.g. "Deva Deva (From \"Brahmastra\")" -> "Deva Deva").
+     */
+    fun cleanCoreSongTitle(rawTitle: String): String {
+        val cleaned = cleanTitle(rawTitle)
+        val core = MOVIE_ATTRIBUTION_REGEX.replace(cleaned, "").trim(' ', '-', '|', ':', '_')
+        return core.ifBlank { cleaned }
+    }
 
     /**
      * Extracts version information (e.g. "Remix", "Acoustic", "Live") from a raw title string.
@@ -74,9 +92,13 @@ object TitleCleaner {
         // 2. Strip bracketed noise phrases (e.g. [Official Video], (Lyrics))
         title = BRACKET_NOISE_REGEX.replace(title, "")
 
-        // 3. Strip featuring artists
+        // 3. Strip featuring artists (e.g. "(feat. Bruno Mars)", "(with Bruno Mars)", "feat. DaBaby")
+        // NOTE: NEVER strip plain "with" outside of explicit artist credit brackets to protect titles like "Die With A Smile"
+        title = FEAT_BRACKET_REGEX.replace(title, "")
+        title = WITH_ARTIST_BRACKET_REGEX.replace(title, "")
         title = FEAT_INSIDE_BRACKET_REGEX.replace(title, "")
         title = FEAT_TRAILING_REGEX.replace(title, "")
+        title = EMPTY_BRACKETS_REGEX.replace(title, "")
 
         // 4. Handle "Song Title - Video Noise" or "Video Noise - Song Title"
         if (title.contains(" - ")) {
@@ -111,15 +133,23 @@ object TitleCleaner {
             title = title.replace(Regex("""(?i)\s*[\(\[]\s*acoustic\s*version\s*[\)\]]"""), " ($preservedVersion)")
         }
 
-        // 6. Clean dangling edge punctuation without stripping legitimate quotes within title
-        title = title.trim(' ', '-', '|', ':', '_')
+        // 6. Clean dangling edge punctuation without stripping legitimate quotes or balanced brackets
+        title = title.trim(' ', '-', '|', ':', '_', '/')
         if (title.startsWith("\"") && title.endsWith("\"") && title.count { it == '"' } == 2) {
             title = title.removeSurrounding("\"").trim()
         }
         if (title.startsWith("'") && title.endsWith("'") && title.count { it == '\'' } == 2) {
             title = title.removeSurrounding("'").trim()
         }
-        title = MULTI_SPACE.replace(title, " ").trim()
+        title = EMPTY_BRACKETS_REGEX.replace(title, "")
+        // Strip unmatched orphan brackets at edges
+        if (title.endsWith(")") && !title.contains("(")) title = title.removeSuffix(")").trim()
+        if (title.endsWith("]") && !title.contains("[")) title = title.removeSuffix("]").trim()
+        if (title.endsWith("}") && !title.contains("{")) title = title.removeSuffix("}").trim()
+        if (title.startsWith("(") && !title.contains(")")) title = title.removePrefix("(").trim()
+        if (title.startsWith("[") && !title.contains("]")) title = title.removePrefix("[").trim()
+        if (title.startsWith("{") && !title.contains("}")) title = title.removePrefix("{").trim()
+        title = MULTI_SPACE.replace(title, " ").trim(' ', '-', '|', ':', '_', '/')
 
         // Re-append version tag if it was in the original title but stripped by bracket cleaning
         if (preservedVersion != null && !title.contains(preservedVersion, ignoreCase = true)) {

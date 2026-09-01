@@ -90,7 +90,7 @@ fun AboutScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        val bottomPad = if (hasActiveTrack) 110.dp else 24.dp
+        val bottomPad = if (hasActiveTrack) 130.dp else 24.dp
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

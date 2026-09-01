@@ -34,6 +34,7 @@ fun HomeScreen(
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
+    onAlbumClick: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -60,6 +61,7 @@ fun HomeScreen(
         onOpenProfile = onOpenProfile,
         onOpenHistory = onOpenHistory,
         onArtistClick = onArtistClick,
+        onAlbumClick = onAlbumClick,
         isInListenTogetherRoom = isInListenTogetherRoom,
         onRecommendToRoom = onRecommendToRoom,
         modifier = modifier

@@ -26,31 +26,46 @@ class LrcLibLyricsSource(
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
-        val cleanTitle = TitleCleaner.cleanTitle(query.title)
+        val cleanTitle = TitleCleaner.cleanCoreSongTitle(query.title)
         val cleanArtist = TitleCleaner.cleanArtist(query.artist)
+        val primaryArtist = cleanArtist
+            .split(Regex("""[,&/|]|(?:\s+feat\.?\s+)|\s+ft\.?\s+|\s+and\s+|\s+with\s+""", RegexOption.IGNORE_CASE))
+            .firstOrNull()?.trim() ?: cleanArtist
 
-        // 1. Try exact get
-        val exactCandidate = getExact(cleanTitle, cleanArtist, query.durationSec, query.album)
-        if (exactCandidate != null && exactCandidate.syncType == SyncType.LINE_SYNC && exactCandidate.confidence >= 75) {
+        // 1. Try exact get with primary artist first (matches studio catalogue metadata)
+        var exactCandidate = getExact(cleanTitle, primaryArtist, query.durationSec, query.album)
+        if (exactCandidate == null || exactCandidate.syncType != SyncType.LINE_SYNC) {
+            exactCandidate = getExact(cleanTitle, cleanArtist, query.durationSec, query.album) ?: exactCandidate
+        }
+        if (exactCandidate != null && exactCandidate.syncType == SyncType.LINE_SYNC && exactCandidate.confidence >= 70) {
             return@withContext exactCandidate
         }
 
-        // 2. Try search queries with Title + Artist
+        // 2. Try search queries with Title + Primary Artist
+        val primarySearchCandidate = if (primaryArtist.isNotBlank() && primaryArtist != cleanArtist) {
+            searchQuery("$cleanTitle $primaryArtist", query)
+        } else null
+        if (primarySearchCandidate != null && primarySearchCandidate.syncType == SyncType.LINE_SYNC && primarySearchCandidate.confidence >= 65) {
+            return@withContext primarySearchCandidate
+        }
+
+        // 3. Try search queries with Title + Full Artist
         val searchCandidate = searchQuery("$cleanTitle $cleanArtist", query)
-        if (searchCandidate != null && searchCandidate.syncType == SyncType.LINE_SYNC && searchCandidate.confidence >= 70) {
+        if (searchCandidate != null && searchCandidate.syncType == SyncType.LINE_SYNC && searchCandidate.confidence >= 65) {
             return@withContext searchCandidate
         }
 
-        // 3. Fallback to search query with Title alone (vital for multi-artist / composer tracks)
+        // 4. Fallback to search query with Title alone (vital for multi-artist / composer tracks)
         val titleOnlyCandidate = if (cleanTitle.isNotBlank()) searchQuery(cleanTitle, query) else null
-        if (titleOnlyCandidate != null && titleOnlyCandidate.syncType == SyncType.LINE_SYNC && titleOnlyCandidate.confidence >= 60) {
+        if (titleOnlyCandidate != null && titleOnlyCandidate.syncType == SyncType.LINE_SYNC && titleOnlyCandidate.confidence >= 55) {
             return@withContext titleOnlyCandidate
         }
 
-        // 4. Return best candidate found (preferring synced over plain)
-        val allCandidates = listOfNotNull(exactCandidate, searchCandidate, titleOnlyCandidate)
-        return@withContext allCandidates.firstOrNull { it.syncType == SyncType.LINE_SYNC }
-            ?: allCandidates.maxByOrNull { it.confidence }
+        // 5. Return best candidate found (preferring synced over plain)
+        val validCandidates = listOfNotNull(exactCandidate, primarySearchCandidate, searchCandidate, titleOnlyCandidate)
+            .filter { it.confidence >= 50 && it.lyricsData.lines.isNotEmpty() }
+
+        return@withContext validCandidates.maxByOrNull { (if (it.syncType == SyncType.LINE_SYNC) 1000 else 0) + it.confidence }
     }
 
     private fun getExact(title: String, artist: String, durationSec: Long?, album: String?): LyricsCandidate? {

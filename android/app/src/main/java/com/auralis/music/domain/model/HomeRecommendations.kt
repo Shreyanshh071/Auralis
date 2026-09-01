@@ -45,5 +45,6 @@ data class HomeSection(
     val subtitle: String? = null,
     val thumbnail: String? = null,
     val items: List<Track> = emptyList(),
+    val albums: List<PlaylistResult> = emptyList(),
     val continuationToken: String? = null
 )

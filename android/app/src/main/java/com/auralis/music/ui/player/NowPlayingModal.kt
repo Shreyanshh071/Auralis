@@ -211,6 +211,14 @@ fun NowPlayingModal(
     val track = uiState.currentTrack ?: return
     val dynamicPalette = MaterialTheme.dynamicPalette
 
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+
     // Intercept Android Back Gesture & Hardware Back Button to dismiss the Fullscreen Player
     androidx.activity.compose.BackHandler(enabled = true) {
         onDismiss()

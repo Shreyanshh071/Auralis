@@ -380,10 +380,9 @@ object ArtworkProcessor {
         val height = bitmap.height
         if (width <= 0 || height <= 0) return bitmap
 
-        // 1. If not 1:1, strip black bars first and center-crop to 1:1 square
+        // 1. If not 1:1 square, center-crop to 1:1 square
         val cleanedBitmap = if (width != height) {
-            val stripped = stripBlackBars(bitmap)
-            cropToCenterSquare(stripped)
+            cropToCenterSquare(bitmap)
         } else {
             bitmap
         }
@@ -474,4 +473,13 @@ object ArtworkProcessor {
         }
     }
 }
+
+class CropBlackBarsTransformation : coil.transform.Transformation {
+    override val cacheKey: String = "com.auralis.music.util.CropBlackBarsTransformation"
+
+    override suspend fun transform(input: Bitmap, size: coil.size.Size): Bitmap {
+        return ArtworkProcessor.stripBlackBars(input)
+    }
+}
+
 

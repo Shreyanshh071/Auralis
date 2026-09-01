@@ -11,5 +11,8 @@ data class LyricsEntity(
     val linesJson: String,
     val plainLyrics: String? = null,
     val provider: String,
+    val trackName: String? = null,
+    val artistName: String? = null,
     val cachedAt: Long = System.currentTimeMillis()
 )
+

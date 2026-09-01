@@ -179,6 +179,26 @@ fun VoiceAndMusicRecognitionModal(
     val isSuccess = state.status == RecognitionStatus.SUCCESS
     val isError = state.status == RecognitionStatus.ERROR
 
+    // Automatically trigger search as soon as speech or a song is recognized without requiring manual clicks
+    LaunchedEffect(isSuccess, state.recognizedText, state.identifiedTrack) {
+        if (isSuccess) {
+            val queryToSearch = when {
+                state.identifiedTrack != null -> {
+                    "${state.identifiedTrack.artist} ${state.identifiedTrack.title}".trim()
+                }
+                state.recognizedText.isNotBlank() -> {
+                    state.recognizedText.trim().removeSurrounding("\"")
+                }
+                else -> ""
+            }
+
+            if (queryToSearch.isNotBlank()) {
+                kotlinx.coroutines.delay(300)
+                onSearchQuery(queryToSearch)
+            }
+        }
+    }
+
     // Solid opaque root container: intercepts clicks and prevents any underlying screens from bleeding through
     Box(
         modifier = modifier
