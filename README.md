@@ -11,7 +11,7 @@
 
 **Auralis** is a modern, high-performance, ad-free native music streaming and collaborative listening experience crafted with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines**, and **Material 3**.
 
-[Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Building](#-building--installing) • [Sponsor](#-sponsor-this-project)
+[Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -118,42 +118,6 @@
 | **Networking & Extraction** | [OkHttp 4](https://square.github.io/okhttp/), Custom InnerTube Web Client, NewPipe Extractor |
 | **Backend & Sync** | [Firebase Auth](https://firebase.google.com/products/auth), [Cloud Firestore](https://firebase.google.com/products/firestore), Google Sign-In |
 | **Lyrics Providers** | Musixmatch, LRCLIB, KuGou, AMLL, YouTube Music |
-
----
-
-## 🚀 Building & Installing
-
-### Prerequisites
-- **Android Studio Ladybug (2024.2.1)** or newer
-- **JDK 17** or **JDK 21**
-- **Android SDK** (API 34 / 35 / 36)
-
-### Clone the Repository
-```bash
-git clone https://github.com/shreyanshchoubey09/Auralis.git
-cd Auralis
-```
-
-### Build Debug APK
-```powershell
-cd android
-.\gradlew.bat assembleDebug
-```
-The APK will be generated at:
-`android/app/build/outputs/apk/debug/app-debug.apk`
-
-### Build Release APK
-```powershell
-cd android
-.\gradlew.bat assembleRelease
-```
-The optimized release APK will be generated at:
-`android/app/build/outputs/apk/release/app-release.apk`
-
-### Install Directly to Connected Android Device
-```powershell
-adb install -r android/app/build/outputs/apk/release/app-release.apk
-```
 
 ---
 
