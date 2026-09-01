@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
             historyRepository = historyRepository,
             searchRepository = searchRepository
         )
+        googleAccountSyncManager.startContinuousCloudSync(lifecycleScope)
 
         setContent {
             val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(

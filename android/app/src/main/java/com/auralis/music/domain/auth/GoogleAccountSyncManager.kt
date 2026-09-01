@@ -12,14 +12,19 @@ import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.repository.SearchRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.UserProfileChangeRequest
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import com.auralis.music.domain.model.SavedArtist
 
 data class UserProfile(
     val uid: String = "",
@@ -172,6 +177,7 @@ class GoogleAccountSyncManager(
             _userProfile.value = updated
             persistProfile(updated)
             _syncMessage.value = "Account created successfully!"
+            backupLibraryToCloud()
         } catch (e: Exception) {
             val msg = e.localizedMessage ?: "Failed to create account"
             _syncMessage.value = msg
@@ -204,6 +210,7 @@ class GoogleAccountSyncManager(
             _userProfile.value = updated
             persistProfile(updated)
             _syncMessage.value = "Welcome back, $name!"
+            restoreLibraryFromCloud()
         } catch (e: Exception) {
             val msg = e.localizedMessage ?: "Failed to sign in"
             _syncMessage.value = msg
@@ -237,12 +244,247 @@ class GoogleAccountSyncManager(
             _userProfile.value = updated
             persistProfile(updated)
             _syncMessage.value = "Signed in as ${updated.displayName}"
+
+            // Automatically restore cloud playlists and library
+            restoreLibraryFromCloud()
         } catch (e: Exception) {
             val msg = "Google Sign-In failed: ${e.localizedMessage ?: e.message}"
             _syncMessage.value = msg
             throw RuntimeException(msg, e)
         } finally {
             _isSyncing.value = false
+        }
+    }
+
+    /**
+     * Restores playlists, favorite tracks, and saved artists from Firebase Firestore cloud storage.
+     */
+    suspend fun restoreLibraryFromCloud(): Boolean = withContext(Dispatchers.IO) {
+        val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return@withContext false
+        if (fbUser.isAnonymous) return@withContext false
+        val uid = fbUser.uid
+        _isSyncing.value = true
+        _syncMessage.value = "Restoring library from your cloud account..."
+
+        try {
+            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            val docSnap = db.collection("users").document(uid).get().await()
+
+            if (!docSnap.exists()) {
+                android.util.Log.d("CloudSync", "[CloudSync] No cloud backup found for user $uid. Backing up current local library to cloud...")
+                backupLibraryToCloud()
+                _isSyncing.value = false
+                return@withContext true
+            }
+
+            var restoredPlaylistsCount = 0
+
+            // 1. Restore Playlists & Tracks
+            val rawPlaylists = docSnap.get("playlists") as? List<*>
+            if (rawPlaylists != null && rawPlaylists.isNotEmpty()) {
+                val localPlaylists = libraryRepository.getPlaylists().first()
+
+                for (pObj in rawPlaylists) {
+                    val pMap = pObj as? Map<*, *> ?: continue
+                    val title = (pMap["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Restored Playlist"
+                    val desc = pMap["description"] as? String
+                    val rawTracks = pMap["tracks"] as? List<*> ?: emptyList<Any>()
+
+                    val tracks = rawTracks.mapNotNull { tObj ->
+                        val tMap = tObj as? Map<*, *> ?: return@mapNotNull null
+                        val id = (tMap["id"] as? String) ?: return@mapNotNull null
+                        val tTitle = (tMap["title"] as? String) ?: "Unknown Track"
+                        val artist = (tMap["artist"] as? String) ?: "Unknown Artist"
+                        val album = tMap["album"] as? String
+                        val thumb = (tMap["thumbnail"] as? String) ?: ""
+                        val dur = (tMap["duration"] as? Number)?.toLong() ?: 0L
+                        Track(
+                            id = id,
+                            title = tTitle,
+                            artist = artist,
+                            album = album,
+                            thumbnail = thumb,
+                            duration = dur
+                        )
+                    }
+
+                    val existingLocal = localPlaylists.find { it.title.trim().equals(title.trim(), ignoreCase = true) }
+                    val targetPlaylistId = if (existingLocal != null) {
+                        existingLocal.id
+                    } else {
+                        val created = libraryRepository.createPlaylist(title, desc)
+                        created.id
+                    }
+
+                    if (tracks.isNotEmpty()) {
+                        libraryRepository.replacePlaylistTracks(targetPlaylistId, tracks)
+                    }
+                    restoredPlaylistsCount++
+                }
+                android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $restoredPlaylistsCount playlists for user $uid")
+            }
+
+            // 2. Restore Favorites (Liked songs)
+            val rawFavorites = docSnap.get("favorites") as? List<*>
+            if (rawFavorites != null && rawFavorites.isNotEmpty()) {
+                var favCount = 0
+                for (fObj in rawFavorites) {
+                    val fMap = fObj as? Map<*, *> ?: continue
+                    val id = (fMap["id"] as? String) ?: continue
+                    val title = (fMap["title"] as? String) ?: "Unknown Track"
+                    val artist = (fMap["artist"] as? String) ?: "Unknown Artist"
+                    val album = fMap["album"] as? String
+                    val thumb = (fMap["thumbnail"] as? String) ?: ""
+                    val dur = (fMap["duration"] as? Number)?.toLong() ?: 0L
+                    val track = Track(id = id, title = title, artist = artist, album = album, thumbnail = thumb, duration = dur)
+                    libraryRepository.setFavorite(track, true)
+                    favCount++
+                }
+                android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $favCount favorites for user $uid")
+            }
+
+            // 3. Restore Saved Artists
+            val rawArtists = docSnap.get("savedArtists") as? List<*>
+            if (rawArtists != null && rawArtists.isNotEmpty()) {
+                for (aObj in rawArtists) {
+                    val aMap = aObj as? Map<*, *> ?: continue
+                    val id = (aMap["id"] as? String) ?: continue
+                    val name = (aMap["name"] as? String) ?: continue
+                    val thumb = aMap["thumbnail"] as? String
+                    val subs = aMap["subscribers"] as? String
+                    libraryRepository.saveArtist(com.auralis.music.domain.model.SavedArtist(id, name, thumb, subs))
+                }
+            }
+
+            val updated = _userProfile.value.copy(
+                lastSyncedTimestamp = System.currentTimeMillis(),
+                syncedPlaylistsCount = restoredPlaylistsCount
+            )
+            _userProfile.value = updated
+            persistProfile(updated)
+
+            _syncMessage.value = "Your cloud playlists and library were successfully restored!"
+            return@withContext true
+        } catch (e: Exception) {
+            android.util.Log.e("CloudSync", "[CloudSync Error] Restore failed: ${e.message}", e)
+            _syncMessage.value = "Cloud restore notice: ${e.localizedMessage ?: e.message}"
+            return@withContext false
+        } finally {
+            _isSyncing.value = false
+        }
+    }
+
+    /**
+     * Backs up local playlists, favorites, and saved artists to Firestore `/users/{uid}`.
+     */
+    suspend fun backupLibraryToCloud(): Boolean = withContext(Dispatchers.IO) {
+        val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return@withContext false
+        if (fbUser.isAnonymous) return@withContext false
+        val uid = fbUser.uid
+
+        try {
+            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            val playlists = libraryRepository.getPlaylists().first()
+            val favorites = libraryRepository.getFavoriteTracks().first()
+            val savedArtists = libraryRepository.getSavedArtists().first()
+
+            val playlistsData = playlists.map { p ->
+                mapOf(
+                    "id" to p.id,
+                    "title" to p.title,
+                    "description" to p.description,
+                    "coverUrl" to p.coverUrl,
+                    "createdAt" to p.createdAt,
+                    "isCustom" to p.isCustom,
+                    "tracks" to p.tracks.map { t ->
+                        mapOf(
+                            "id" to t.id,
+                            "title" to t.title,
+                            "artist" to t.artist,
+                            "album" to t.album,
+                            "thumbnail" to t.thumbnail,
+                            "duration" to t.duration
+                        )
+                    }
+                )
+            }
+
+            val favoritesData = favorites.map { t ->
+                mapOf(
+                    "id" to t.id,
+                    "title" to t.title,
+                    "artist" to t.artist,
+                    "album" to t.album,
+                    "thumbnail" to t.thumbnail,
+                    "duration" to t.duration
+                )
+            }
+
+            val savedArtistsData = savedArtists.map { a ->
+                mapOf(
+                    "id" to a.id,
+                    "name" to a.name,
+                    "thumbnail" to a.thumbnail,
+                    "subscribers" to a.subscribers
+                )
+            }
+
+            val now = System.currentTimeMillis()
+            val docData = hashMapOf<String, Any?>(
+                "playlists" to playlistsData,
+                "favorites" to favoritesData,
+                "savedArtists" to savedArtistsData,
+                "updatedAt" to now,
+                "playlistsUpdatedAt" to now,
+                "favoritesUpdatedAt" to now,
+                "schemaVersion" to 1
+            )
+
+            db.collection("users").document(uid).set(docData, com.google.firebase.firestore.SetOptions.merge()).await()
+            android.util.Log.d("CloudSync", "[CloudSync OK] Backed up ${playlists.size} playlists & ${favorites.size} favorites to cloud for user $uid")
+            
+            val updated = _userProfile.value.copy(
+                lastSyncedTimestamp = now,
+                syncedPlaylistsCount = playlists.size,
+                syncedLikedCount = favorites.size
+            )
+            _userProfile.value = updated
+            persistProfile(updated)
+
+            return@withContext true
+        } catch (e: Exception) {
+            android.util.Log.e("CloudSync", "[CloudSync Error] Backup failed: ${e.message}", e)
+            return@withContext false
+        }
+    }
+
+    /**
+     * Starts background observation of local library changes to keep cloud Firestore backup automatically up to date.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    fun startContinuousCloudSync(scope: CoroutineScope) {
+        scope.launch(Dispatchers.IO) {
+            val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+            if (user != null && !user.isAnonymous) {
+                // Initial restore or backup on startup
+                restoreLibraryFromCloud()
+            }
+
+            // Continuously observe library changes and debounced backup
+            combine(
+                libraryRepository.getPlaylists(),
+                libraryRepository.getFavoriteTracks(),
+                libraryRepository.getSavedArtists()
+            ) { playlists, favorites, artists ->
+                Triple(playlists, favorites, artists)
+            }
+            .debounce(3000L)
+            .collect {
+                val activeUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+                if (activeUser != null && !activeUser.isAnonymous) {
+                    backupLibraryToCloud()
+                }
+            }
         }
     }
 
