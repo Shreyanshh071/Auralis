@@ -59,4 +59,28 @@ class ListenTogetherSyncTest {
         // Client at 53_000ms (3000ms drift) -> resync needed!
         assertTrue(ListenTogetherSyncMath.shouldResync(clientPositionMs = 53_000L, estimatedHostPositionMs = hostPos))
     }
+
+    @Test
+    fun `pill notification types and construction work correctly`() {
+        val joinPill = com.auralis.music.ui.viewmodel.PillNotification(
+            message = "Alice joined the room",
+            type = com.auralis.music.ui.viewmodel.PillType.MEMBER_JOINED
+        )
+        assertEquals("Alice joined the room", joinPill.message)
+        assertEquals(com.auralis.music.ui.viewmodel.PillType.MEMBER_JOINED, joinPill.type)
+
+        val leavePill = com.auralis.music.ui.viewmodel.PillNotification(
+            message = "Bob has left the room",
+            type = com.auralis.music.ui.viewmodel.PillType.MEMBER_LEFT
+        )
+        assertEquals("Bob has left the room", leavePill.message)
+        assertEquals(com.auralis.music.ui.viewmodel.PillType.MEMBER_LEFT, leavePill.type)
+
+        val hostDisconnectPill = com.auralis.music.ui.viewmodel.PillNotification(
+            message = "Host has disconnected",
+            type = com.auralis.music.ui.viewmodel.PillType.HOST_DISCONNECTED
+        )
+        assertEquals("Host has disconnected", hostDisconnectPill.message)
+        assertEquals(com.auralis.music.ui.viewmodel.PillType.HOST_DISCONNECTED, hostDisconnectPill.type)
+    }
 }

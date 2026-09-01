@@ -93,7 +93,7 @@ class AppearanceSettingsDataStore(
                 miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
-                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Follow theme",
+                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",

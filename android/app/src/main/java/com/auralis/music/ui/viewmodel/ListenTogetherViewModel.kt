@@ -19,6 +19,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class PillNotification(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val message: String,
+    val type: PillType = PillType.INFO,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+enum class PillType {
+    INFO,
+    MEMBER_JOINED,
+    MEMBER_LEFT,
+    HOST_DISCONNECTED
+}
+
 data class ListenTogetherUiState(
     val activeRoom: NativeRoomState? = null,
     val members: List<RoomMember> = emptyList(),
@@ -29,7 +43,8 @@ data class ListenTogetherUiState(
     val errorMessage: String? = null,
     val myDisplayName: String = "",
     val isSearchingRecommendations: Boolean = false,
-    val recommendationSearchResults: List<Track> = emptyList()
+    val recommendationSearchResults: List<Track> = emptyList(),
+    val pillNotification: PillNotification? = null
 )
 
 class ListenTogetherViewModel(
@@ -45,10 +60,53 @@ class ListenTogetherViewModel(
     private var membersJob: Job? = null
     private var recommendationsJob: Job? = null
     private var searchJob: Job? = null
+    private var pillDismissJob: Job? = null
+
+    private var previousMembers: List<RoomMember> = emptyList()
 
     private var lastSyncedTrackId: String? = null
     private var lastSyncedIsPlaying: Boolean? = null
     private var lastSeekTimestampMs: Long = 0L
+
+    fun showPill(message: String, type: PillType = PillType.INFO) {
+        pillDismissJob?.cancel()
+        _uiState.update { it.copy(pillNotification = PillNotification(message = message, type = type)) }
+        pillDismissJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(3500L)
+            _uiState.update { it.copy(pillNotification = null) }
+        }
+    }
+
+    fun dismissPill() {
+        pillDismissJob?.cancel()
+        _uiState.update { it.copy(pillNotification = null) }
+    }
+
+    private fun handleMembersDelta(newMembers: List<RoomMember>) {
+        val myUid = _uiState.value.currentUserId
+        if (previousMembers.isNotEmpty() && newMembers.isNotEmpty()) {
+            // 1. Detect member who left
+            val leftMembers = previousMembers.filter { old ->
+                old.id != myUid && newMembers.none { it.id == old.id }
+            }
+            for (left in leftMembers) {
+                if (left.isHost) {
+                    showPill("Host (${left.name}) has disconnected", PillType.HOST_DISCONNECTED)
+                } else {
+                    showPill("${left.name} has left the room", PillType.MEMBER_LEFT)
+                }
+            }
+
+            // 2. Detect member who joined
+            val joinedMembers = newMembers.filter { newM ->
+                newM.id != myUid && previousMembers.none { it.id == newM.id }
+            }
+            for (joined in joinedMembers) {
+                showPill("${joined.name} joined the room", PillType.MEMBER_JOINED)
+            }
+        }
+        previousMembers = newMembers
+    }
 
     var onSyncTrackChange: ((track: Track, queue: List<Track>, initialPositionMs: Long) -> Unit)? = null
     var onSyncResume: (() -> Unit)? = null
@@ -154,7 +212,23 @@ class ListenTogetherViewModel(
                 )
                 lastSyncedTrackId = initialTrack?.id
                 lastSyncedIsPlaying = isPlaying
-                _uiState.update { it.copy(isHost = true, isConnecting = false, currentUserId = uid, myDisplayName = if (it.myDisplayName.isBlank()) effectiveName else it.myDisplayName) }
+                val hostMember = RoomMember(
+                    id = uid,
+                    name = effectiveName,
+                    isHost = true,
+                    joinedAt = System.currentTimeMillis(),
+                    avatarColorHex = "#D4E157"
+                )
+                previousMembers = listOf(hostMember)
+                _uiState.update {
+                    it.copy(
+                        isHost = true,
+                        isConnecting = false,
+                        currentUserId = uid,
+                        members = listOf(hostMember),
+                        myDisplayName = if (it.myDisplayName.isBlank()) effectiveName else it.myDisplayName
+                    )
+                }
                 startObservingRoom(roomCode)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Create Room Failed]: ${e.message}", e)
@@ -173,9 +247,11 @@ class ListenTogetherViewModel(
                 val uid = manager.ensureAuthenticated()
                 lastSyncedTrackId = null
                 lastSyncedIsPlaying = null
+                previousMembers = initialRoomState.membersList
                 _uiState.update {
                     it.copy(
                         activeRoom = initialRoomState,
+                        members = initialRoomState.membersList,
                         isHost = false,
                         isConnecting = false,
                         currentUserId = uid,
@@ -224,6 +300,7 @@ class ListenTogetherViewModel(
         searchJob?.cancel()
         lastSyncedTrackId = null
         lastSyncedIsPlaying = null
+        previousMembers = emptyList()
         _uiState.update {
             it.copy(
                 activeRoom = null,
@@ -332,8 +409,10 @@ class ListenTogetherViewModel(
         roomJob = viewModelScope.launch {
             manager.observeRoomState(roomCode).collect { state ->
                 if (state == null || state.status == "closed") {
+                    val wasGuest = !_uiState.value.isHost && _uiState.value.activeRoom != null
                     lastSyncedTrackId = null
                     lastSyncedIsPlaying = null
+                    previousMembers = emptyList()
                     _uiState.update {
                         it.copy(
                             activeRoom = null,
@@ -343,8 +422,24 @@ class ListenTogetherViewModel(
                             errorMessage = if (state?.status == "closed") "Room was closed by host" else null
                         )
                     }
+                    if (wasGuest) {
+                        showPill("Host has disconnected", PillType.HOST_DISCONNECTED)
+                    }
                 } else {
-                    _uiState.update { it.copy(activeRoom = state) }
+                    _uiState.update { current ->
+                        val updatedMembers = if (state.membersList.isNotEmpty()) {
+                            val map = current.members.associateBy { it.id }.toMutableMap()
+                            state.membersList.forEach { m -> map[m.id] = m }
+                            map.values.sortedWith(compareByDescending<RoomMember> { it.isHost }.thenBy { it.joinedAt })
+                        } else current.members
+
+                        handleMembersDelta(updatedMembers)
+
+                        current.copy(
+                            activeRoom = state,
+                            members = updatedMembers
+                        )
+                    }
 
                     // If Guest, perform playback synchronization with drift correction
                     if (!_uiState.value.isHost) {
@@ -356,7 +451,15 @@ class ListenTogetherViewModel(
 
         membersJob = viewModelScope.launch {
             manager.observeRoomMembers(roomCode).collect { membersList ->
-                _uiState.update { it.copy(members = membersList) }
+                if (membersList.isNotEmpty()) {
+                    _uiState.update { current ->
+                        val map = current.members.associateBy { it.id }.toMutableMap()
+                        membersList.forEach { m -> map[m.id] = m }
+                        val sorted = map.values.sortedWith(compareByDescending<RoomMember> { it.isHost }.thenBy { it.joinedAt })
+                        handleMembersDelta(sorted)
+                        current.copy(members = sorted)
+                    }
+                }
             }
         }
 

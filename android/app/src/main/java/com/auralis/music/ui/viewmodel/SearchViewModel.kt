@@ -123,7 +123,7 @@ class SearchViewModel(
             }
         }
 
-    // 2. Direct song recommendations (ranked by popularity & views)
+        // 2. Direct song recommendations (ranked by popularity & views)
         liveSongsJob = viewModelScope.launch {
             delay(30)
             val songs = try {
@@ -230,12 +230,14 @@ class SearchViewModel(
     }
 
     fun openArtist(artist: Artist) {
-        val verifiedBanner = if (artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail.contains("i.ytimg.com")) {
-            artist.thumbnail
-        } else {
-            null
+        val isKanye = artist.name.equals("Kanye West", ignoreCase = true) || artist.name.equals("Ye", ignoreCase = true)
+        val defaultKanyeThumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
+        val verifiedBanner = when {
+            isKanye -> defaultKanyeThumb
+            artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail.contains("i.ytimg.com") && !artist.thumbnail.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") -> artist.thumbnail
+            else -> null
         }
-        val initialPage = ArtistPage(artist = artist, bannerUrl = verifiedBanner)
+        val initialPage = ArtistPage(artist = artist.copy(thumbnail = verifiedBanner ?: artist.thumbnail), bannerUrl = verifiedBanner)
         val newEntry = ExploreDetail.Artist(artistPage = initialPage, isLoading = true)
 
         _uiState.update { current ->
