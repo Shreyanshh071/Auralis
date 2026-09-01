@@ -11,12 +11,57 @@
 
 **Auralis** is a modern, high-performance, ad-free native music streaming and collaborative listening experience crafted with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines**, and **Material 3**.
 
-[Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Features](#-features) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Building](#-building--installing) • [Sponsor](#-sponsor-this-project)
+[Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Building](#-building--installing) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
 > [!WARNING]
 > **Regional Restriction** — If YouTube Music is unavailable in your region, this app will not work without a VPN or proxy connecting to a supported region.
+
+---
+
+## 📸 Screenshots
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/player.jpg" alt="Now Playing" width="100%" /><br />
+        <sub><b>Now Playing</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/lyrics.jpg" alt="Synced Lyrics" width="100%" /><br />
+        <sub><b>Synced Karaoke Lyrics</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/artist.jpg" alt="Artist Profile" width="100%" /><br />
+        <sub><b>Artist Discography</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/listen_together.jpg" alt="Listen Together" width="100%" /><br />
+        <sub><b>Listen Together</b></sub>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/recognition.jpg" alt="Music Recognition" width="100%" /><br />
+        <sub><b>Music Recognition</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/search.jpg" alt="Search & Explore" width="100%" /><br />
+        <sub><b>Search & Discovery</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/account_sync.jpg" alt="Cloud Sync & Importer" width="100%" /><br />
+        <sub><b>Playlist Importers</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/discord.jpg" alt="Discord Rich Presence" width="100%" /><br />
+        <sub><b>Discord Presence</b></sub>
+      </td>
+    </tr>
+  </table>
+</div>
 
 ---
 
