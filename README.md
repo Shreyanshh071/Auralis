@@ -1,17 +1,22 @@
-# Auralis 🎵
-
 <div align="center">
+  <img src="docs/logo.png" width="130" height="130" alt="Auralis Logo" style="border-radius: 50%;" />
+  <h1>Auralis</h1>
+  <p><b>Next-Generation Native Music Streaming & Collaborative Group Listening</b></p>
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/shreyanshchoubey09/Auralis?style=for-the-badge&color=8A2BE2)
-![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
-![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
-[![Buy Me A Chai](https://img.shields.io/badge/Buy%20Me%20A%20Chai-☕-orange?style=for-the-badge&logo=coffeescript&logoColor=white)](https://www.buymeachai.in/shreyanshh071)
+  ![GitHub release (latest by date)](https://img.shields.io/github/v/release/shreyanshchoubey09/Auralis?style=for-the-badge&color=8A2BE2)
+  ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+  ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+  ![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
+  ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+  [![Buy Me A Chai](https://img.shields.io/badge/Buy%20Me%20A%20Chai-☕-orange?style=for-the-badge&logo=coffeescript&logoColor=white)](https://www.buymeachai.in/shreyanshh071)
 
-**Auralis** is a modern, high-performance, ad-free native music streaming and collaborative listening experience crafted with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines**, and **Material 3**.
+  <br />
 
-[Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  **Auralis** is a modern, high-performance, ad-free native music streaming and collaborative listening experience crafted with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines**, and **Material 3**.
+
+  <br />
+
+  [Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
