@@ -424,13 +424,16 @@ class HomeViewModel(
                 }
             }
 
-            // 3. Fallback popular artists if history is sparse
+            // 3. Fallback popular recommendations if history is sparse (dynamic trending discovery)
             if (similarList.isEmpty()) {
-                val curatedCurations = listOf("Tame Impala", "The Weeknd", "Daft Punk")
                 coroutineScope {
-                    curatedCurations.forEach { artist ->
-                        launch(Dispatchers.IO) {
-                            try {
+                    launch(Dispatchers.IO) {
+                        try {
+                            val exploreSections = innerTubeClient.getExplore()
+                            val topTracks = exploreSections.flatMap { it.items }.distinctBy { it.id }.take(15)
+                            val discoveredArtists = topTracks.map { it.artist }.filter { !isInvalidArtistName(it) }.distinct().take(3)
+
+                            for (artist in discoveredArtists) {
                                 val res = searchRepository.search(artist)
                                 val matchedArt = res.artists.firstOrNull { it.name.equals(artist, ignoreCase = true) }
                                     ?: res.artists.firstOrNull()
@@ -446,8 +449,8 @@ class HomeViewModel(
                                         )
                                     )
                                 }
-                            } catch (_: Exception) {}
-                        }
+                            }
+                        } catch (_: Exception) {}
                     }
                 }
             }

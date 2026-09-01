@@ -95,13 +95,14 @@ class AppearanceSettingsDataStore(
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
                 playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Follow theme",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
-                cropAlbumArt = preferences[CROP_ALBUM_ART] ?: false,
+                cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",
-                playerSliderStyle = when (preferences[PLAYER_SLIDER_STYLE] ?: "Default") {
+                playerSliderStyle = when (preferences[PLAYER_SLIDER_STYLE] ?: "Wavy") {
                     "Squiggly Waveform", "Squiggly" -> "Squiggly"
                     "Thin Line", "Slim" -> "Slim"
+                    "Default" -> "Default"
                     "Wavy", "Neon Glow" -> "Wavy"
-                    else -> "Default"
+                    else -> "Wavy"
                 },
                 showDownloadButton = preferences[SHOW_DOWNLOAD_BUTTON] ?: true,
                 enableSwipeToChangeSong = preferences[ENABLE_SWIPE_TO_CHANGE_SONG] ?: true,

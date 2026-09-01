@@ -334,6 +334,8 @@ class YouTubeAudioEngine(private val context: Context) {
                     }
                 }
             }
+        } else {
+            (webView?.parent as? android.view.ViewGroup)?.removeView(webView)
         }
         return webView!!
     }

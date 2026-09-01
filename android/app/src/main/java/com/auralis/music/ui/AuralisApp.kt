@@ -143,6 +143,21 @@ fun AuralisApp(
 
     var isNowPlayingOpen by remember { mutableStateOf(false) }
 
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(isNowPlayingOpen) {
+        if (isNowPlayingOpen) {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        }
+    }
+
+    LaunchedEffect(currentDestination) {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+
     var isListenTogetherOpen by remember { mutableStateOf(false) }
     var isProfileOpen by remember { mutableStateOf(false) }
     var isHistoryOpen by remember { mutableStateOf(false) }
@@ -228,7 +243,9 @@ fun AuralisApp(
 
     androidx.activity.compose.BackHandler(
         enabled = isHomeMenuOpen ||
+                searchUiState.detailStack.isNotEmpty() ||
                 searchUiState.selectedArtistPage != null ||
+                searchUiState.selectedAlbum != null ||
                 isNowPlayingOpen ||
                 isHistoryOpen ||
                 isProfileOpen ||
@@ -237,7 +254,9 @@ fun AuralisApp(
                 currentDestination != AppDestination.HOME
     ) {
         if (isHomeMenuOpen) isHomeMenuOpen = false
+        else if (searchUiState.detailStack.isNotEmpty()) searchViewModel.popDetail()
         else if (searchUiState.selectedArtistPage != null) searchViewModel.closeArtist()
+        else if (searchUiState.selectedAlbum != null) searchViewModel.closeAlbum()
         else if (isNowPlayingOpen) isNowPlayingOpen = false
         else if (isHistoryOpen) isHistoryOpen = false
         else if (isProfileOpen) isProfileOpen = false
@@ -515,6 +534,10 @@ fun AuralisApp(
                                                     searchViewModel.openArtist(artist)
                                                     navigateToDestination(AppDestination.EXPLORE)
                                                 },
+                                                onAlbumClick = { album ->
+                                                    searchViewModel.openAlbum(album)
+                                                    navigateToDestination(AppDestination.EXPLORE)
+                                                },
                                                 isInListenTogetherRoom = isGuestInRoom,
                                                 onRecommendToRoom = { trk ->
                                                     listenTogetherViewModel.recommendSong(trk)
@@ -565,6 +588,11 @@ fun AuralisApp(
                                                 onStopListening = { searchViewModel.stopListening() },
                                                 onOpenArtist = { searchViewModel.openArtist(it) },
                                                 onCloseArtist = { searchViewModel.closeArtist() },
+                                                onOpenAlbum = { searchViewModel.openAlbum(it) },
+                                                onCloseAlbum = { searchViewModel.closeAlbum() },
+                                                onAlbumClick = { album ->
+                                                    searchViewModel.openAlbum(album)
+                                                },
                                                 onBack = {
                                                     if (destinationBackStack.isNotEmpty()) {
                                                         val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)

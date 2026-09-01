@@ -106,7 +106,7 @@ fun SettingsScreen(
                 }
 
                 // ── SETTINGS LIST ──
-                val listBottomPadding = if (hasActiveTrack) 110.dp else 16.dp
+                val listBottomPadding = if (hasActiveTrack) 130.dp else 16.dp
                 androidx.compose.runtime.key(currentThemeKey) {
                     LazyColumn(
                         modifier = Modifier
@@ -442,6 +442,7 @@ fun SettingsScreen(
             SettingsDialogType.ABOUT -> {
                 AboutScreen(
                     onNavigateToUpdater = { activeDialog = SettingsDialogType.UPDATER },
+                    hasActiveTrack = hasActiveTrack,
                     onDismiss = { activeDialog = null }
                 )
             }

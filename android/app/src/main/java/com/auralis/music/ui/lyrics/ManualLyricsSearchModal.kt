@@ -28,8 +28,17 @@ fun ManualLyricsSearchModal(
     var artist by remember { mutableStateOf(initialArtist) }
     val dynamicPalette = MaterialTheme.dynamicPalette
 
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    val handleDismiss = {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+        onDismiss()
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = handleDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
@@ -50,7 +59,7 @@ fun ManualLyricsSearchModal(
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = handleDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
@@ -93,6 +102,8 @@ fun ManualLyricsSearchModal(
 
             Button(
                 onClick = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
                     onSearch(title.trim(), artist.trim())
                     onDismiss()
                 },

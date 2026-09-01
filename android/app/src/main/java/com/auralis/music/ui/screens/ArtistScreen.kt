@@ -80,6 +80,7 @@ fun ArtistScreen(
     onAddToQueue: (Track) -> Unit = {},
     onStartRadio: (Track) -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
+    onAlbumClick: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {},
     onBack: () -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
@@ -99,9 +100,10 @@ fun ArtistScreen(
             .fillMaxSize()
             .background(DARK_BG)
     ) {
+        val artistBottomPad = if (currentTrackId != null) 180.dp else 100.dp
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp)
+            contentPadding = PaddingValues(bottom = artistBottomPad)
         ) {
             // ================================================================
             // 1. IMMERSIVE HERO HEADER (Artist Portrait Photo + Dark Scrim)
@@ -539,6 +541,8 @@ fun ArtistScreen(
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onAlbumClick(album) }
                                     .padding(4.dp)
                             ) {
                                 ArtworkCard(
@@ -593,6 +597,8 @@ fun ArtistScreen(
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onAlbumClick(single) }
                                     .padding(4.dp)
                             ) {
                                 ArtworkCard(

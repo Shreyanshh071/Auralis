@@ -104,6 +104,7 @@ fun HomeScreen(
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
+    onAlbumClick: (PlaylistResult) -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -116,10 +117,11 @@ fun HomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        val bottomPad = if (currentTrack != null) 180.dp else 100.dp
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize(),
-            contentPadding = PaddingValues(top = 2.dp, bottom = 120.dp)
+            contentPadding = PaddingValues(top = 2.dp, bottom = bottomPad)
         ) {
             // ================================================================
             // 1. TOP APP BAR: "Home" Title + 4 Action Icons
@@ -570,7 +572,7 @@ fun HomeScreen(
             // 8. DYNAMIC YOUTUBE MUSIC CAROUSEL SHELVES (FEmusic_home)
             // ================================================================
             uiState.dynamicSections.forEach { section ->
-                if (section.items.isNotEmpty()) {
+                if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
@@ -590,47 +592,93 @@ fun HomeScreen(
                                 )
                             }
 
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                items(
-                                    items = section.items,
-                                    key = { it.id },
-                                    contentType = { "track" }
-                                ) { track ->
-                                    Column(
-                                        modifier = Modifier
-                                            .width(120.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .combinedClickable(
-                                                onClick = { onTrackClick(track, section.items) },
-                                                onLongClick = { selectedTrackForMenu = track }
+                            if (section.items.isNotEmpty()) {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    items(
+                                        items = section.items,
+                                        key = { it.id },
+                                        contentType = { "track" }
+                                    ) { track ->
+                                        Column(
+                                            modifier = Modifier
+                                                .width(120.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .combinedClickable(
+                                                    onClick = { onTrackClick(track, section.items) },
+                                                    onLongClick = { selectedTrackForMenu = track }
+                                                )
+                                                .padding(4.dp)
+                                        ) {
+                                            ArtworkCard(
+                                                url = track.thumbnail,
+                                                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
+                                                cornerRadius = 12.dp,
+                                                contentDescription = track.title
                                             )
-                                            .padding(4.dp)
-                                    ) {
-                                        ArtworkCard(
-                                            url = track.thumbnail,
-                                            modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
-                                            cornerRadius = 12.dp,
-                                            contentDescription = track.title
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = track.title,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onBackground,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = track.artist,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = track.title,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = track.artist,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (section.albums.isNotEmpty()) {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    items(
+                                        items = section.albums,
+                                        key = { it.id },
+                                        contentType = { "album" }
+                                    ) { album ->
+                                        Column(
+                                            modifier = Modifier
+                                                .width(120.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { onAlbumClick(album) }
+                                                .padding(4.dp)
+                                        ) {
+                                            ArtworkCard(
+                                                url = album.thumbnail ?: "",
+                                                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
+                                                cornerRadius = 12.dp,
+                                                contentDescription = album.title
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = album.title,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = album.author ?: "Album",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }

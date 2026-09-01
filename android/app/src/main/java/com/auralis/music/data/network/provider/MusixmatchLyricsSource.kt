@@ -23,10 +23,18 @@ class MusixmatchLyricsSource(
     private var musixmatchToken: String? = null
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
-        val cleanTitle = TitleCleaner.cleanTitle(query.title)
+        val cleanTitle = TitleCleaner.cleanCoreSongTitle(query.title)
         val cleanArtist = TitleCleaner.cleanArtist(query.artist)
+        val primaryArtist = cleanArtist
+            .split(Regex("""[,&/|]|(?:\s+feat\.?\s+)|\s+ft\.?\s+|\s+and\s+|\s+with\s+""", RegexOption.IGNORE_CASE))
+            .firstOrNull()?.trim() ?: cleanArtist
+
+        if (primaryArtist.isNotBlank() && primaryArtist != cleanArtist) {
+            searchMxm(cleanTitle, primaryArtist, query)?.let { return@withContext it }
+        }
 
         searchMxm(cleanTitle, cleanArtist, query)
+            ?: searchMxm(cleanTitle, "", query)
     }
 
     private fun searchMxm(title: String, artist: String, query: LyricsSearchQuery): LyricsCandidate? {
@@ -136,7 +144,7 @@ class MusixmatchLyricsSource(
                                 return LyricsCandidate(
                                     lyricsData = alignedParsed,
                                     confidence = confidence,
-                                    syncType = SyncType.LINE_SYNC,
+                                    syncType = alignedParsed.syncType,
                                     provider = LyricsProvider.MUSIXMATCH
                                 )
                             }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Explicit resource-keep rules for the Android resource shrinker (AGP/R8).
+    The shrinker cannot automatically trace through adaptive-icon XML files
+    (mipmap-anydpi-v26/ic_launcher.xml → ic_launcher_foreground / ic_launcher_background),
+    so we declare them here to prevent them from being stripped in release builds.
+    This file itself is consumed only by the build toolchain and is NOT included in the APK.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@mipmap/ic_launcher,@mipmap/ic_launcher_round,@mipmap/ic_launcher_foreground,@drawable/ic_launcher_foreground,@drawable/ic_launcher_background,@color/ic_launcher_background" />

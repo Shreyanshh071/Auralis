@@ -121,12 +121,33 @@ object TrackDeduplicator {
             return true
         }
 
-        // 4. Tiles on Speed Dial only display the song title without artist name.
-        // If two cards have the exact same cleaned title (e.g. "Lovers Rock"), displaying
-        // both on Speed Dial looks like a duplicate bug to the user.
-        if (a.cleanedTitle.equals(b.cleanedTitle, ignoreCase = true)) {
-            return true
-        }
+        return false
+    }
+
+    fun isVideoOrBloatedTrack(track: Track): Boolean {
+        val lower = track.title.lowercase()
+        return lower.contains("official video") ||
+                lower.contains("music video") ||
+                lower.contains("official music video") ||
+                lower.contains("(video)") ||
+                lower.contains("[video]") ||
+                lower.contains("official visualizer") ||
+                lower.contains("lyric video")
+    }
+
+    /**
+     * Determines whether candidate is a higher quality studio release than current (e.g. Studio Audio Track vs Music Video).
+     */
+    fun isBetterQualityTrack(candidate: Track, current: Track): Boolean {
+        val candIsVideo = isVideoOrBloatedTrack(candidate)
+        val currIsVideo = isVideoOrBloatedTrack(current)
+        if (!candIsVideo && currIsVideo) return true
+        if (candIsVideo && !currIsVideo) return false
+
+        val candHasAlbum = !candidate.album.isNullOrBlank()
+        val currHasAlbum = !current.album.isNullOrBlank()
+        if (candHasAlbum && !currHasAlbum) return true
+        if (!candHasAlbum && currHasAlbum) return false
 
         return false
     }
@@ -140,8 +161,8 @@ object TrackDeduplicator {
 
     /**
      * Deduplicates a list of tracks so that no two tracks represent the same song.
-     * When a duplicate is encountered, the earlier track is preserved and enriched
-     * with better metadata (such as non-blank thumbnail, valid artist, or duration).
+     * When a duplicate is encountered, studio album audio tracks are strictly prioritized
+     * over music video versions and extended video takes.
      */
     fun deduplicateTracks(tracks: List<Track>): List<Track> {
         val uniqueTracks = mutableListOf<Track>()
@@ -158,20 +179,35 @@ object TrackDeduplicator {
                 uniqueTracks.add(track.copy(title = cleanTitle))
                 fingerprints.add(fp)
             } else {
-                // Enrich existing track with better metadata if available
                 val existing = uniqueTracks[existingIndex]
-                var updated = existing
-                if (updated.thumbnail.isBlank() && track.thumbnail.isNotBlank()) {
-                    updated = updated.copy(thumbnail = track.thumbnail)
-                }
-                if (isInvalidArtistName(updated.artist) && !isInvalidArtistName(track.artist)) {
-                    updated = updated.copy(artist = track.artist)
-                }
-                if (updated.duration <= 0 && track.duration > 0) {
-                    updated = updated.copy(duration = track.duration)
-                }
-                if (updated !== existing) {
+                if (isBetterQualityTrack(track, existing)) {
+                    // Studio track replaces lower-quality music video
+                    val cleanTitle = fp.cleanedTitle.ifBlank { track.title }
+                    val updated = track.copy(
+                        title = cleanTitle,
+                        thumbnail = if (track.thumbnail.isNotBlank()) track.thumbnail else existing.thumbnail,
+                        artist = if (!isInvalidArtistName(track.artist)) track.artist else existing.artist
+                    )
                     uniqueTracks[existingIndex] = updated
+                    fingerprints[existingIndex] = fp
+                } else {
+                    // Enrich existing track with better metadata if available
+                    var updated = existing
+                    if (updated.thumbnail.isBlank() && track.thumbnail.isNotBlank()) {
+                        updated = updated.copy(thumbnail = track.thumbnail)
+                    }
+                    if (isInvalidArtistName(updated.artist) && !isInvalidArtistName(track.artist)) {
+                        updated = updated.copy(artist = track.artist)
+                    }
+                    if (updated.album.isNullOrBlank() && !track.album.isNullOrBlank()) {
+                        updated = updated.copy(album = track.album)
+                    }
+                    if (updated.duration <= 0 && track.duration > 0) {
+                        updated = updated.copy(duration = track.duration)
+                    }
+                    if (updated !== existing) {
+                        uniqueTracks[existingIndex] = updated
+                    }
                 }
             }
         }

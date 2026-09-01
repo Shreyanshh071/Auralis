@@ -334,66 +334,28 @@ fun auralisPushExit(): ExitTransition = auralisNavigationExit()
 
 /**
  * Forward entrance for full-screen detail views (Playlist Detail, Artist Page).
- * Smoothly elevates and expands into view with subtle vertical lift and scale.
+ * Unified with Home -> Library navigation: 160ms alpha fade-in + 0.988f -> 1.0f subtle scale lift.
  */
 @Composable
-fun auralisDetailForwardEnter(): EnterTransition {
-    if (LocalReducedMotion.current) return EnterTransition.None
-    return fadeIn(
-        animationSpec = tween(260, easing = AuralisEasing.Standard)
-    ) + scaleIn(
-        initialScale = 0.95f,
-        animationSpec = tween(260, easing = AuralisEasing.Decelerate)
-    ) + slideInVertically(
-        initialOffsetY = { fullHeight -> (fullHeight * 0.05f).toInt() },
-        animationSpec = tween(260, easing = AuralisEasing.Decelerate)
-    )
-}
+fun auralisDetailForwardEnter(): EnterTransition = auralisNavigationEnter()
 
 /**
  * Forward exit for the parent background grid when a detail screen is opening over it.
  */
 @Composable
-fun auralisDetailForwardExit(): ExitTransition {
-    if (LocalReducedMotion.current) return ExitTransition.None
-    return fadeOut(
-        animationSpec = tween(200, easing = AuralisEasing.Standard)
-    ) + scaleOut(
-        targetScale = 0.96f,
-        animationSpec = tween(200, easing = AuralisEasing.Standard)
-    )
-}
+fun auralisDetailForwardExit(): ExitTransition = auralisNavigationExit()
 
 /**
  * Backward entrance for the parent background grid when closing a detail screen.
  */
 @Composable
-fun auralisDetailBackwardEnter(): EnterTransition {
-    if (LocalReducedMotion.current) return EnterTransition.None
-    return fadeIn(
-        animationSpec = tween(220, easing = AuralisEasing.Standard)
-    ) + scaleIn(
-        initialScale = 0.96f,
-        animationSpec = tween(220, easing = AuralisEasing.Decelerate)
-    )
-}
+fun auralisDetailBackwardEnter(): EnterTransition = auralisNavigationEnter()
 
 /**
  * Backward exit for a detail screen when closing back to the grid.
  */
 @Composable
-fun auralisDetailBackwardExit(): ExitTransition {
-    if (LocalReducedMotion.current) return ExitTransition.None
-    return fadeOut(
-        animationSpec = tween(200, easing = AuralisEasing.Standard)
-    ) + slideOutVertically(
-        targetOffsetY = { fullHeight -> (fullHeight * 0.05f).toInt() },
-        animationSpec = tween(200, easing = AuralisEasing.Accelerate)
-    ) + scaleOut(
-        targetScale = 0.95f,
-        animationSpec = tween(200, easing = AuralisEasing.Accelerate)
-    )
-}
+fun auralisDetailBackwardExit(): ExitTransition = auralisNavigationExit()
 
 /**
  * In-place content swap: loading -> results -> empty, tab bodies, inline state.

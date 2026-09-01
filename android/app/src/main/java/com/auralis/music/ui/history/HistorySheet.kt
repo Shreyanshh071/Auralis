@@ -177,9 +177,10 @@ fun HistorySheet(
                 val trackList = history.map { it.track }
                 val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
 
+                val historyBottomPad = if (currentTrackId != null) 120.dp else 32.dp
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = historyBottomPad),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {

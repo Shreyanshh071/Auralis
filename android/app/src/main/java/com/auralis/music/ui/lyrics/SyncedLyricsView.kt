@@ -233,7 +233,7 @@ fun SyncedLyricsView(
         }
     }
 
-    val isSynced = lyrics.syncType != SyncType.PLAIN && (effectiveLines.any { it.time > 0L } || introDurationMs > 0L)
+    val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
     val activeIndex = remember(currentPositionMs, offsetMs, effectiveLines, isSynced, introDurationMs) {
         if (!isSynced) -1
         else if (introDurationMs >= 1500L && (currentPositionMs + offsetMs) < introDurationMs) -1
