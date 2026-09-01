@@ -80,16 +80,106 @@ class AudioQueueManagerTest {
     }
 
     @Test
-    fun `addToQueue appends track to end of queue`() {
+    fun `addToQueue inserts track as FIFO ahead of default queue`() {
         val manager = AudioQueueManager()
-        val tracks = listOf(sampleTrack("1", "Song 1"), sampleTrack("2", "Song 2"))
-        manager.setQueue(tracks, startIndex = 0)
+        val defaultTracks = (1..300).map { sampleTrack("d$it", "Default $it") }
+        manager.setQueue(defaultTracks, startIndex = 0)
 
-        val endTrack = sampleTrack("last", "Queued Track")
-        val state = manager.addToQueue(endTrack)
+        val trackA = sampleTrack("a", "Track A")
+        val state = manager.addToQueue(trackA)
 
-        assertEquals(3, state.queue.size)
-        assertEquals("Queued Track", state.queue[2].title)
+        assertEquals(301, state.queue.size)
+        assertEquals("Track A", state.queue[1].title)
+        assertEquals("Default 1", state.currentTrack?.title)
+
+        // Advance must play Track A before any of the 300 default tracks
+        val next = manager.advanceNext()
+        assertEquals("Track A", next?.title)
+        val afterA = manager.advanceNext()
+        assertEquals("Default 2", afterA?.title)
+    }
+
+    @Test
+    fun `addToQueue multiple items maintains FIFO order before default queue`() {
+        val manager = AudioQueueManager()
+        val defaultTracks = (1..10).map { sampleTrack("d$it", "Default $it") }
+        manager.setQueue(defaultTracks, startIndex = 0)
+
+        manager.addToQueue(sampleTrack("a", "Track A"))
+        manager.addToQueue(sampleTrack("b", "Track B"))
+        val state = manager.addToQueue(sampleTrack("c", "Track C"))
+
+        assertEquals(13, state.queue.size)
+        assertEquals("Default 1", state.queue[0].title)
+        assertEquals("Track A", state.queue[1].title)
+        assertEquals("Track B", state.queue[2].title)
+        assertEquals("Track C", state.queue[3].title)
+        assertEquals("Default 2", state.queue[4].title)
+
+        // Advancing plays: Default 1 -> A -> B -> C -> Default 2
+        assertEquals("Track A", manager.advanceNext()?.title)
+        assertEquals("Track B", manager.advanceNext()?.title)
+        assertEquals("Track C", manager.advanceNext()?.title)
+        assertEquals("Default 2", manager.advanceNext()?.title)
+    }
+
+    @Test
+    fun `playNext multiple items maintains LIFO order`() {
+        val manager = AudioQueueManager()
+        val defaultTracks = (1..5).map { sampleTrack("d$it", "Default $it") }
+        manager.setQueue(defaultTracks, startIndex = 0)
+
+        manager.playNext(sampleTrack("a", "Track A"))
+        manager.playNext(sampleTrack("b", "Track B"))
+        val state = manager.playNext(sampleTrack("c", "Track C"))
+
+        assertEquals(8, state.queue.size)
+        assertEquals("Default 1", state.queue[0].title)
+        assertEquals("Track C", state.queue[1].title)
+        assertEquals("Track B", state.queue[2].title)
+        assertEquals("Track A", state.queue[3].title)
+        assertEquals("Default 2", state.queue[4].title)
+
+        // Advancing plays: C -> B -> A -> Default 2
+        assertEquals("Track C", manager.advanceNext()?.title)
+        assertEquals("Track B", manager.advanceNext()?.title)
+        assertEquals("Track A", manager.advanceNext()?.title)
+        assertEquals("Default 2", manager.advanceNext()?.title)
+    }
+
+    @Test
+    fun `mixed playNext and addToQueue preserves respective LIFO and FIFO priorities`() {
+        val manager = AudioQueueManager()
+        val defaultTracks = (1..3).map { sampleTrack("d$it", "Default $it") }
+        manager.setQueue(defaultTracks, startIndex = 0)
+
+        // Add to Queue A, Add to Queue B, Play Next C, Play Next D, Add to Queue E
+        manager.addToQueue(sampleTrack("a", "Track A"))
+        manager.addToQueue(sampleTrack("b", "Track B"))
+        manager.playNext(sampleTrack("c", "Track C"))
+        manager.playNext(sampleTrack("d", "Track D"))
+        val state = manager.addToQueue(sampleTrack("e", "Track E"))
+
+        assertEquals(8, state.queue.size)
+        // Order must be: Default 1 -> D -> C -> A -> B -> E -> Default 2 -> Default 3
+        assertEquals("Default 1", state.queue[0].title)
+        assertEquals("Track D", state.queue[1].title)
+        assertEquals("Track C", state.queue[2].title)
+        assertEquals("Track A", state.queue[3].title)
+        assertEquals("Track B", state.queue[4].title)
+        assertEquals("Track E", state.queue[5].title)
+        assertEquals("Default 2", state.queue[6].title)
+        assertEquals("Default 3", state.queue[7].title)
+
+        // Advancing playback sequentially
+        assertEquals("Track D", manager.advanceNext()?.title)
+        assertEquals("Track C", manager.advanceNext()?.title)
+        assertEquals("Track A", manager.advanceNext()?.title)
+        assertEquals("Track B", manager.advanceNext()?.title)
+        assertEquals("Track E", manager.advanceNext()?.title)
+        assertEquals("Default 2", manager.advanceNext()?.title)
+        assertEquals("Default 3", manager.advanceNext()?.title)
+        assertNull(manager.advanceNext())
     }
 
     @Test
