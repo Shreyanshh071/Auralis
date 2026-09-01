@@ -153,8 +153,19 @@ class AuthViewModel(
 
     fun syncLibraryNow() {
         viewModelScope.launch {
-            syncManager.syncLikedMusic()
-            openPlaylistSelectDialog()
+            syncManager.restoreLibraryFromCloud()
+        }
+    }
+
+    fun restoreCloudLibrary() {
+        viewModelScope.launch {
+            syncManager.restoreLibraryFromCloud()
+        }
+    }
+
+    fun backupCloudLibrary() {
+        viewModelScope.launch {
+            syncManager.backupLibraryToCloud()
         }
     }
 
