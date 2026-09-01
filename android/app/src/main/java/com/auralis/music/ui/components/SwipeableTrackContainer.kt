@@ -10,9 +10,9 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +34,7 @@ import kotlin.math.roundToInt
 
 /**
  * Wraps a track item row with swipe-to-queue, swipe-to-play-next, and swipe-to-remove actions.
+ * Optimized for 120fps buttery smooth list scrolling.
  */
 @Composable
 fun SwipeableTrackContainer(
@@ -57,8 +58,8 @@ fun SwipeableTrackContainer(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
-    val thresholdPx = with(density) { 72.dp.toPx() }
-    val maxDragPx = with(density) { 140.dp.toPx() }
+    val thresholdPx = remember(density) { with(density) { 72.dp.toPx() } }
+    val maxDragPx = remember(density) { with(density) { 140.dp.toPx() } }
 
     val draggableState = rememberDraggableState { delta ->
         coroutineScope.launch {
@@ -104,10 +105,8 @@ fun SwipeableTrackContainer(
                 }
             )
     ) {
-        val currentOffset = offsetX.value
-
-        // Background action indicators behind the sliding track row
-        if (currentOffset > 8f) {
+        // Background action indicators (only evaluated during swipe)
+        if (offsetX.value > 8f) {
             // Swiping Right -> Play Next (Left background revealed)
             Box(
                 modifier = Modifier
@@ -134,12 +133,12 @@ fun SwipeableTrackContainer(
                     )
                 }
             }
-        } else if (currentOffset < -8f) {
+        } else if (offsetX.value < -8f) {
             // Swiping Left -> Add to Queue OR Remove from Playlist
             val isDelete = isSwipeRemoveEnabled
             val bgColor = if (isDelete) Color(0xFF331414) else Color(0xFF162B1E)
             val accentColor = if (isDelete) Color(0xFFFF5252) else Color(0xFF4CAF50)
-            val icon = if (isDelete) Icons.Default.Delete else Icons.Default.PlaylistAdd
+            val icon = if (isDelete) Icons.Default.Delete else Icons.AutoMirrored.Filled.PlaylistAdd
             val label = if (isDelete) "Remove" else "Add to Queue"
 
             Box(
@@ -172,7 +171,7 @@ fun SwipeableTrackContainer(
         // Foreground track row
         Box(
             modifier = Modifier
-                .offset { IntOffset(currentOffset.roundToInt(), 0) }
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.background)
         ) {

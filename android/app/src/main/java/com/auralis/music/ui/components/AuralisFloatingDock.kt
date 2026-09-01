@@ -144,9 +144,8 @@ fun AuralisFloatingDock(
                                 state = hazeState,
                                 style = HazeStyle(
                                     backgroundColor = Color(0xFF141416),
-                                    tint = dev.chrisbanes.haze.HazeTint(Color(0xFF141416).copy(alpha = 0.52f)),
-                                    blurRadius = 28.dp,
-                                    noiseFactor = 0.03f
+                                    tint = dev.chrisbanes.haze.HazeTint(Color(0xFF141416).copy(alpha = 0.65f)),
+                                    blurRadius = 16.dp
                                 )
                             )
                         } else {
@@ -231,9 +230,8 @@ fun AuralisFloatingDock(
                                         state = hazeState,
                                         style = HazeStyle(
                                             backgroundColor = Color(0xFF141416),
-                                            tint = dev.chrisbanes.haze.HazeTint(Color(0xFF141416).copy(alpha = 0.52f)),
-                                            blurRadius = 28.dp,
-                                            noiseFactor = 0.03f
+                                            tint = dev.chrisbanes.haze.HazeTint(Color(0xFF141416).copy(alpha = 0.65f)),
+                                            blurRadius = 16.dp
                                         )
                                     )
                                 } else {
