@@ -753,6 +753,28 @@ class AuralisMediaService : MediaSessionService() {
                 .build()
         }
 
+        override fun onPlayerCommandRequest(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            playerCommand: @Player.Command Int
+        ): Int {
+            val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+            if (audioPlayer.isGuestListenTogether.value) {
+                when (playerCommand) {
+                    Player.COMMAND_PLAY_PAUSE,
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_BACK,
+                    Player.COMMAND_SEEK_FORWARD -> {
+                        Log.d("AuralisPlayback", "[AuralisMediaService] Blocked controller playerCommand $playerCommand because user is listener in Listen Together room")
+                        return SessionResult.RESULT_ERROR_PERMISSION_DENIED
+                    }
+                }
+            }
+            return super.onPlayerCommandRequest(session, controller, playerCommand)
+        }
+
         override fun onCustomCommand(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -760,6 +782,10 @@ class AuralisMediaService : MediaSessionService() {
             args: Bundle
         ): ListenableFuture<SessionResult> {
             val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+            if (audioPlayer.isGuestListenTogether.value && customCommand.customAction == ACTION_TOGGLE_REPEAT) {
+                Log.d("AuralisPlayback", "[AuralisMediaService] Blocked custom command repeat because user is listener in Listen Together room")
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             when (customCommand.customAction) {
                 ACTION_TOGGLE_FAVORITE -> {
                     audioPlayer.toggleFavorite()
@@ -781,6 +807,10 @@ class AuralisMediaService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered - stopping playback, notification and media service")
+        try {
+            com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
+        } catch (_: Exception) {}
+
         try {
             val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
             audioPlayer.stop()
@@ -808,6 +838,9 @@ class AuralisMediaService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.d("AuralisPlayback", "[AuralisMediaService] onDestroy - cleaning up serviceScope and mediaSession")
+        try {
+            com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
+        } catch (_: Exception) {}
         serviceScope.cancel()
         mediaSession?.run {
             release()

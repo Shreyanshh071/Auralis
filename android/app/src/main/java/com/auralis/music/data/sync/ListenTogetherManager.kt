@@ -14,6 +14,7 @@ import java.util.Locale
 import kotlin.random.Random
 
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 
 data class RoomMember(
@@ -47,13 +48,55 @@ data class NativeRoomState(
     val playbackPosition: Long = 0,
     val playbackRate: Float = 1.0f,
     val updatedAt: Long = System.currentTimeMillis(),
-    val status: String = "active"
+    val status: String = "active",
+    val membersList: List<RoomMember> = emptyList()
 )
 
 class ListenTogetherManager(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
+    companion object {
+        @Volatile
+        var activeRoomCode: String? = null
+            private set
+
+        @Volatile
+        var isHostUser: Boolean = false
+            private set
+
+        fun performTaskRemovedCleanup() {
+            val roomCode = activeRoomCode ?: return
+            val isHost = isHostUser
+            val uid = try { FirebaseAuth.getInstance().currentUser?.uid } catch (_: Exception) { null } ?: return
+            try {
+                val db = FirebaseFirestore.getInstance()
+                val roomDoc = db.collection("rooms").document(roomCode)
+                roomDoc.collection("members").document(uid).delete()
+                if (isHost) {
+                    roomDoc.update("status", "closed")
+                } else {
+                    db.runTransaction { transaction ->
+                        val snap = transaction.get(roomDoc)
+                        val rawList = snap.get("membersList") as? List<*>
+                        val memberToRemove = rawList?.find { (it as? Map<*, *>)?.get("id") == uid }
+                        if (memberToRemove != null) {
+                            transaction.update(roomDoc, "membersList", FieldValue.arrayRemove(memberToRemove))
+                            transaction.update(roomDoc, "memberCount", FieldValue.increment(-1))
+                            transaction.update(roomDoc, "updatedAt", System.currentTimeMillis())
+                        }
+                    }
+                }
+                android.util.Log.d("ListenTogether", "[TaskRemoved Cleanup] Successfully cleaned up room=$roomCode, isHost=$isHost")
+            } catch (e: Exception) {
+                android.util.Log.e("ListenTogether", "[TaskRemoved Cleanup Error]: ${e.message}")
+            } finally {
+                activeRoomCode = null
+                isHostUser = false
+            }
+        }
+    }
+
     private var roomListener: ListenerRegistration? = null
     private var membersListener: ListenerRegistration? = null
     private var recommendationsListener: ListenerRegistration? = null
@@ -126,6 +169,14 @@ class ListenTogetherManager(
             )
         }
 
+        val hostMemberMap = mapOf(
+            "id" to uid,
+            "name" to displayName,
+            "isHost" to true,
+            "joinedAt" to now,
+            "avatarColorHex" to "#D4E157"
+        )
+
         // Room Data matching hasValidRoomShape() exactly
         val roomData = hashMapOf(
             "id" to roomCode,
@@ -139,7 +190,9 @@ class ListenTogetherManager(
             "playbackPosition" to playbackPositionMs,
             "playbackRate" to 1.0,
             "updatedAt" to now,
-            "status" to "active"
+            "status" to "active",
+            "membersList" to listOf(hostMemberMap),
+            "memberCount" to 1
         )
 
         roomDoc.set(roomData).await()
@@ -154,6 +207,8 @@ class ListenTogetherManager(
             "avatarColorHex" to "#D4E157"
         )
         roomDoc.collection("members").document(uid).set(memberData).await()
+        activeRoomCode = roomCode
+        isHostUser = true
 
         return Pair(roomCode, uid)
     }
@@ -187,7 +242,28 @@ class ListenTogetherManager(
             "joinedAt" to now,
             "avatarColorHex" to "#D4E157"
         )
+        val memberMap = mapOf(
+            "id" to uid,
+            "name" to displayName,
+            "isHost" to false,
+            "joinedAt" to now,
+            "avatarColorHex" to "#D4E157"
+        )
+
+        // 1. Write member to subcollection
         roomDoc.collection("members").document(uid).set(memberData).await()
+
+        // 2. Real-time update to parent room document so host roomListener fires immediately (<50ms)
+        try {
+            roomDoc.update(
+                "membersList", FieldValue.arrayUnion(memberMap),
+                "memberCount", FieldValue.increment(1),
+                "updatedAt", now
+            ).await()
+        } catch (_: Exception) {}
+
+        activeRoomCode = normalizedCode
+        isHostUser = false
 
         return parseRoomState(snapshot)
     }
@@ -248,11 +324,24 @@ class ListenTogetherManager(
 
         try {
             roomDoc.collection("members").document(uid).delete().await()
+            val snapshot = roomDoc.get().await()
+            val rawList = snapshot.get("membersList") as? List<*>
+            val memberToRemove = rawList?.find { (it as? Map<*, *>)?.get("id") == uid }
+            if (memberToRemove != null) {
+                roomDoc.update(
+                    "membersList", FieldValue.arrayRemove(memberToRemove),
+                    "memberCount", FieldValue.increment(-1),
+                    "updatedAt", System.currentTimeMillis()
+                ).await()
+            }
             if (isHost) {
                 roomDoc.update("status", "closed").await()
             }
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "[Leave Room Error] code=$normalizedCode, isHost=$isHost: ${e.message}", e)
+        } finally {
+            activeRoomCode = null
+            isHostUser = false
         }
 
         stopListening()
@@ -262,7 +351,7 @@ class ListenTogetherManager(
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
-        val registration = roomDoc.addSnapshotListener { snapshot, error ->
+        val registration = roomDoc.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (error != null || snapshot == null || !snapshot.exists()) {
                 trySend(null)
                 return@addSnapshotListener
@@ -280,7 +369,7 @@ class ListenTogetherManager(
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val membersCol = firestore.collection("rooms").document(normalizedCode).collection("members")
 
-        val registration = membersCol.addSnapshotListener { snapshot, error ->
+        val registration = membersCol.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (error != null || snapshot == null) {
                 trySend(emptyList())
                 return@addSnapshotListener
@@ -346,7 +435,7 @@ class ListenTogetherManager(
             .document(normalizedCode)
             .collection("recommendations")
 
-        val registration = recCol.addSnapshotListener { snapshot, error ->
+        val registration = recCol.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (error != null || snapshot == null) {
                 trySend(emptyList())
                 return@addSnapshotListener
@@ -495,6 +584,17 @@ class ListenTogetherManager(
             )
         } ?: emptyList()
 
+        val membersRaw = doc.get("membersList") as? List<*>
+        val membersList = membersRaw?.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val mId = m["id"] as? String ?: return@mapNotNull null
+            val mName = m["name"] as? String ?: "Member"
+            val mIsHost = m["isHost"] as? Boolean ?: false
+            val mJoinedAt = (m["joinedAt"] as? Long) ?: System.currentTimeMillis()
+            val mColor = m["avatarColorHex"] as? String ?: "#D4E157"
+            RoomMember(mId, mName, mIsHost, mJoinedAt, mColor)
+        } ?: emptyList()
+
         return NativeRoomState(
             id = id,
             code = code,
@@ -507,7 +607,8 @@ class ListenTogetherManager(
             playbackPosition = playbackPosition,
             playbackRate = playbackRate,
             updatedAt = updatedAt,
-            status = status
+            status = status,
+            membersList = membersList
         )
     }
 }
