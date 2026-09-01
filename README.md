@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/logo.png" width="130" height="130" alt="Auralis Logo" />
+  <img src="docs/logo-round.png" width="130" height="130" alt="Auralis Logo" />
   <h1>Auralis</h1>
   <p><b>Next-Generation Native Music Streaming & Collaborative Group Listening</b></p>
 
