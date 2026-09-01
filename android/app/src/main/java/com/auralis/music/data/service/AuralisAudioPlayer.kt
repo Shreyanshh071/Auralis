@@ -799,11 +799,17 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        val qState = queueManager.appendTracks(tracks)
+        val qState = queueManager.addToQueue(tracks)
         _queueState.value = qState
         if (_currentTrack.value == null && tracks.isNotEmpty()) {
             playTrack(tracks.first(), qState.queue, 0, isUserQueue = true)
         }
+    }
+
+    fun appendTracks(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        val qState = queueManager.appendTracks(tracks)
+        _queueState.value = qState
     }
 
     fun playNext(track: Track) {

@@ -382,7 +382,7 @@ class PlayerViewModel(
                 }
                 if (radioTracks.isNotEmpty()) {
                     if (audioPlayer != null) {
-                        audioPlayer.addToQueue(radioTracks)
+                        audioPlayer.appendTracks(radioTracks)
                     } else {
                         val qState = queueManager.appendTracks(radioTracks)
                         _uiState.update {
@@ -512,7 +512,7 @@ class PlayerViewModel(
 
                     if (fetched.isNotEmpty()) {
                         if (audioPlayer != null) {
-                            audioPlayer.addToQueue(fetched)
+                            audioPlayer.appendTracks(fetched)
                         } else {
                             queueManager.appendTracks(fetched)
                         }
@@ -536,7 +536,7 @@ class PlayerViewModel(
             // 3. Play found candidate seamlessly
             if (nextCandidate != null) {
                 if (audioPlayer != null) {
-                    audioPlayer.addToQueue(listOf(nextCandidate))
+                    audioPlayer.appendTracks(listOf(nextCandidate))
                 } else {
                     queueManager.appendTracks(listOf(nextCandidate))
                 }
@@ -609,7 +609,7 @@ class PlayerViewModel(
         if (audioPlayer != null) {
             audioPlayer.addToQueue(tracks)
         } else {
-            val qState = queueManager.appendTracks(tracks)
+            val qState = queueManager.addToQueue(tracks)
             _uiState.update { it.copy(queue = qState.queue) }
             if (_uiState.value.currentTrack == null && tracks.isNotEmpty()) {
                 playTrack(tracks.first(), qState.queue, 0, isUserQueue = true)
