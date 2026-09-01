@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
@@ -122,6 +123,10 @@ fun ArtworkCard(
         }
     }
 
+    val isYouTubeVideoThumb = remember(resolvedUrl) {
+        resolvedUrl != null && (resolvedUrl.contains("i.ytimg.com") || resolvedUrl.contains("img.youtube.com"))
+    }
+
     var isError by remember(resolvedUrl) { mutableStateOf(false) }
 
     val request = remember(resolvedUrl) {
@@ -153,7 +158,9 @@ fun ArtworkCard(
                         isError = true
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (isYouTubeVideoThumb) Modifier.graphicsLayer { scaleX = 1.34f; scaleY = 1.34f } else Modifier)
             )
         } else {
             Icon(
