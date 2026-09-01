@@ -1,0 +1,4 @@
+# GitHub Linguist overrides
+# Ignore developer utility scripts from repository language statistics
+scripts/* linguist-documentation
+scripts/** linguist-documentation

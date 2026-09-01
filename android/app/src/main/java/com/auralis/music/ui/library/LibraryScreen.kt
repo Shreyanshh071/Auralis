@@ -770,6 +770,10 @@ private fun SmartLibraryCard(
     tracks: List<Track> = emptyList(),
     onClick: () -> Unit
 ) {
+    val validTracks = remember(tracks) {
+        tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -782,17 +786,19 @@ private fun SmartLibraryCard(
                 .clip(RoundedCornerShape(18.dp))
                 .background(CARD_DARK_BG)
         ) {
-            if (tracks.size >= 4) {
+            if (validTracks.size >= 4) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         ArtworkCard(
-                            url = tracks[0].thumbnail,
+                            url = validTracks[0].thumbnail,
+                            fallbackTrack = validTracks[0],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
                         )
                         ArtworkCard(
-                            url = tracks[1].thumbnail,
+                            url = validTracks[1].thumbnail,
+                            fallbackTrack = validTracks[1],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
@@ -800,13 +806,15 @@ private fun SmartLibraryCard(
                     }
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         ArtworkCard(
-                            url = tracks[2].thumbnail,
+                            url = validTracks[2].thumbnail,
+                            fallbackTrack = validTracks[2],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
                         )
                         ArtworkCard(
-                            url = tracks[3].thumbnail,
+                            url = validTracks[3].thumbnail,
+                            fallbackTrack = validTracks[3],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
@@ -829,9 +837,10 @@ private fun SmartLibraryCard(
                         modifier = Modifier.size(16.dp)
                     )
                 }
-            } else if (tracks.isNotEmpty()) {
+            } else if (validTracks.isNotEmpty()) {
                 ArtworkCard(
-                    url = tracks.first().thumbnail,
+                    url = validTracks.first().thumbnail,
+                    fallbackTrack = validTracks.first(),
                     modifier = Modifier.fillMaxSize(),
                     cornerRadius = 18.dp,
                     contentDescription = title
@@ -900,6 +909,10 @@ private fun UserPlaylistGridCard(
     playlist: Playlist,
     onClick: () -> Unit
 ) {
+    val validTracks = remember(playlist.tracks) {
+        playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -920,17 +933,19 @@ private fun UserPlaylistGridCard(
                     cornerRadius = 18.dp,
                     contentDescription = playlist.title
                 )
-            } else if (playlist.tracks.size >= 4) {
+            } else if (validTracks.size >= 4) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         ArtworkCard(
-                            url = playlist.tracks[0].thumbnail,
+                            url = validTracks[0].thumbnail,
+                            fallbackTrack = validTracks[0],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
                         )
                         ArtworkCard(
-                            url = playlist.tracks[1].thumbnail,
+                            url = validTracks[1].thumbnail,
+                            fallbackTrack = validTracks[1],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
@@ -938,13 +953,15 @@ private fun UserPlaylistGridCard(
                     }
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         ArtworkCard(
-                            url = playlist.tracks[2].thumbnail,
+                            url = validTracks[2].thumbnail,
+                            fallbackTrack = validTracks[2],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
                         )
                         ArtworkCard(
-                            url = playlist.tracks[3].thumbnail,
+                            url = validTracks[3].thumbnail,
+                            fallbackTrack = validTracks[3],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
@@ -953,7 +970,8 @@ private fun UserPlaylistGridCard(
                 }
             } else {
                 ArtworkCard(
-                    url = playlist.tracks.firstOrNull()?.thumbnail,
+                    url = validTracks.firstOrNull()?.thumbnail ?: playlist.tracks.firstOrNull()?.thumbnail,
+                    fallbackTrack = validTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
                     modifier = Modifier.fillMaxSize(),
                     cornerRadius = 18.dp,
                     contentDescription = playlist.title
@@ -1015,6 +1033,7 @@ private fun SmartLibraryListRow(
             if (tracks.isNotEmpty()) {
                 ArtworkCard(
                     url = tracks.first().thumbnail,
+                    fallbackTrack = tracks.first(),
                     modifier = Modifier.fillMaxSize(),
                     cornerRadius = 10.dp,
                     contentDescription = title
@@ -1064,6 +1083,10 @@ private fun UserPlaylistListRow(
     playlist: Playlist,
     onClick: () -> Unit
 ) {
+    val firstValid = remember(playlist.tracks) {
+        playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() } ?: playlist.tracks.firstOrNull()
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1074,7 +1097,8 @@ private fun UserPlaylistListRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         ArtworkCard(
-            url = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail,
+            url = playlist.coverUrl ?: firstValid?.thumbnail,
+            fallbackTrack = firstValid,
             modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)),
             cornerRadius = 10.dp,
             contentDescription = playlist.title
@@ -1324,6 +1348,10 @@ private fun PlaylistDetailView(
                             .clip(RoundedCornerShape(18.dp))
                             .background(CARD_DARK_BG)
                     ) {
+                        val detailValidTracks = remember(playlist.tracks) {
+                            playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+                        }
+
                         if (!playlist.coverUrl.isNullOrBlank()) {
                             ArtworkCard(
                                 url = playlist.coverUrl,
@@ -1331,17 +1359,19 @@ private fun PlaylistDetailView(
                                 cornerRadius = 18.dp,
                                 contentDescription = playlist.title
                             )
-                        } else if (playlist.tracks.size >= 4) {
+                        } else if (detailValidTracks.size >= 4) {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     ArtworkCard(
-                                        url = playlist.tracks[0].thumbnail,
+                                        url = detailValidTracks[0].thumbnail,
+                                        fallbackTrack = detailValidTracks[0],
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                         cornerRadius = 0.dp,
                                         contentDescription = null
                                     )
                                     ArtworkCard(
-                                        url = playlist.tracks[1].thumbnail,
+                                        url = detailValidTracks[1].thumbnail,
+                                        fallbackTrack = detailValidTracks[1],
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                         cornerRadius = 0.dp,
                                         contentDescription = null
@@ -1349,13 +1379,15 @@ private fun PlaylistDetailView(
                                 }
                                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     ArtworkCard(
-                                        url = playlist.tracks[2].thumbnail,
+                                        url = detailValidTracks[2].thumbnail,
+                                        fallbackTrack = detailValidTracks[2],
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                         cornerRadius = 0.dp,
                                         contentDescription = null
                                     )
                                     ArtworkCard(
-                                        url = playlist.tracks[3].thumbnail,
+                                        url = detailValidTracks[3].thumbnail,
+                                        fallbackTrack = detailValidTracks[3],
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                         cornerRadius = 0.dp,
                                         contentDescription = null
@@ -1364,7 +1396,8 @@ private fun PlaylistDetailView(
                             }
                         } else {
                             ArtworkCard(
-                                url = playlist.tracks.firstOrNull()?.thumbnail,
+                                url = detailValidTracks.firstOrNull()?.thumbnail ?: playlist.tracks.firstOrNull()?.thumbnail,
+                                fallbackTrack = detailValidTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
                                 modifier = Modifier.fillMaxSize(),
                                 cornerRadius = 18.dp,
                                 contentDescription = playlist.title
