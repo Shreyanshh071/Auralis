@@ -269,20 +269,26 @@ fun AuralisApp(
         }
     }
 
+    // Sync guest mode with audio player
+    LaunchedEffect(listenTogetherUiState.activeRoom, listenTogetherUiState.isHost) {
+        val isGuest = listenTogetherUiState.activeRoom != null && !listenTogetherUiState.isHost
+        playerViewModel.getAudioPlayer()?.setGuestListenTogether(isGuest)
+    }
+
     // Wire Listen Together Sync Callbacks
     LaunchedEffect(Unit) {
         listenTogetherViewModel.onSyncTrackChange = { track, queue, startPosMs ->
             val idx = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-            playerViewModel.playTrack(track, queue, idx, initialPositionMs = startPosMs)
+            playerViewModel.getAudioPlayer()?.syncPlayTrack(track, queue, idx, initialPositionMs = startPosMs)
         }
         listenTogetherViewModel.onSyncResume = {
-            playerViewModel.resume()
+            playerViewModel.getAudioPlayer()?.syncResume()
         }
         listenTogetherViewModel.onSyncPause = {
-            playerViewModel.pause()
+            playerViewModel.getAudioPlayer()?.syncPause()
         }
         listenTogetherViewModel.onSyncSeek = { pos ->
-            playerViewModel.seekTo(pos)
+            playerViewModel.getAudioPlayer()?.syncSeek(pos)
         }
         listenTogetherViewModel.onGetLocalPosition = {
             playerViewModel.getPlaybackPosition()
@@ -1133,6 +1139,81 @@ fun AuralisApp(
                                 text = "Shuffle",
                                 color = Color.White,
                                 fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── FLOATING PILL NOTIFICATION (Listen Together & System Alerts) ──
+        AnimatedVisibility(
+            visible = listenTogetherUiState.pillNotification != null,
+            enter = slideInVertically(
+                initialOffsetY = { -it },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(tween(180)),
+            exit = slideOutVertically(
+                targetOffsetY = { -it },
+                animationSpec = tween(220, easing = FastOutLinearInEasing)
+            ) + fadeOut(tween(180)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .zIndex(1000f)
+                .statusBarsPadding()
+                .padding(top = 10.dp, start = 20.dp, end = 20.dp)
+        ) {
+            val pill = listenTogetherUiState.pillNotification
+            if (pill != null) {
+                val (pillIcon, pillTint) = when (pill.type) {
+                    com.auralis.music.ui.viewmodel.PillType.MEMBER_JOINED -> Icons.Default.Person to Color(0xFFD4E157)
+                    com.auralis.music.ui.viewmodel.PillType.MEMBER_LEFT -> Icons.Default.Close to Color(0xFFFF8A80)
+                    com.auralis.music.ui.viewmodel.PillType.HOST_DISCONNECTED -> Icons.Default.Close to Color(0xFFFF5252)
+                    com.auralis.music.ui.viewmodel.PillType.INFO -> Icons.Default.Info to Color.White
+                }
+
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Surface(
+                        onClick = { listenTogetherViewModel.dismissPill() },
+                        shape = RoundedCornerShape(32.dp),
+                        color = Color(0xFF141416).copy(alpha = 0.94f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            pillTint.copy(alpha = 0.45f)
+                        ),
+                        shadowElevation = 12.dp,
+                        modifier = Modifier.wrapContentSize()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(pillTint.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = pillIcon,
+                                    contentDescription = null,
+                                    tint = pillTint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = pill.message,
+                                color = Color.White,
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }

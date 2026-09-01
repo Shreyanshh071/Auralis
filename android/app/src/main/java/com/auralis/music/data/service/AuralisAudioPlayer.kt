@@ -633,6 +633,69 @@ class AuralisAudioPlayer private constructor(context: Context) {
         }
     }
 
+    val isGuestListenTogether = MutableStateFlow(false)
+
+    fun setGuestListenTogether(isGuest: Boolean) {
+        isGuestListenTogether.value = isGuest
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] setGuestListenTogether: $isGuest")
+    }
+
+    fun syncPlayTrack(
+        track: Track,
+        newQueue: List<Track> = emptyList(),
+        startIndex: Int = 0,
+        initialPositionMs: Long = 0L
+    ) {
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncPlayTrack from host: '${track.title}', pos=${initialPositionMs}ms")
+        val qState = if (newQueue.isNotEmpty()) {
+            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = false, isUserQueue = true)
+        } else {
+            queueManager.playTrack(track, isUserQueue = true)
+        }
+        _queueState.value = qState
+        play(track, initialSeekMs = initialPositionMs)
+    }
+
+    fun syncResume() {
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncResume from host")
+        val curTrack = _currentTrack.value
+        if (isUsingExoPlayer) {
+            if (exoPlayer.mediaItemCount > 0) {
+                exoPlayer.play()
+                _isPlaying.value = true
+            } else if (curTrack != null) {
+                play(curTrack, initialSeekMs = _playbackPositionMs.value)
+            }
+        } else {
+            if (curTrack != null) {
+                youTubeEngine.play()
+                _isPlaying.value = true
+            }
+        }
+    }
+
+    fun syncPause() {
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncPause from host")
+        if (isUsingExoPlayer) {
+            exoPlayer.pause()
+        }
+        youTubeEngine.pause()
+        _isPlaying.value = false
+    }
+
+    fun syncSeek(positionMs: Long) {
+        val bounded = positionMs.coerceAtLeast(0L)
+        _playbackPositionMs.value = bounded
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncSeek from host: ${bounded}ms")
+        if (isUsingExoPlayer) {
+            val dur = exoPlayer.duration
+            val target = if (dur > 0 && bounded >= dur) (dur - 500L).coerceAtLeast(0L) else bounded
+            exoPlayer.seekTo(target)
+        } else {
+            youTubeEngine.seekTo(bounded)
+        }
+    }
+
     fun playTrack(
         track: Track,
         newQueue: List<Track> = emptyList(),
@@ -640,6 +703,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
         isUserQueue: Boolean = (newQueue.size > 1),
         initialPositionMs: Long = 0L
     ) {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack blocked - user is listener in Listen Together room")
+            return
+        }
         val isAutoQueue = !isUserQueue || newQueue.size <= 1
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack: title='${track.title}', artist='${track.artist}', queueSize=${newQueue.size}, initialPos=${initialPositionMs}ms")
         
@@ -659,6 +726,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun resume() {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() blocked - user is listener in Listen Together room")
+            return
+        }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() called (isUsingExo=$isUsingExoPlayer, mediaItems=${exoPlayer.mediaItemCount}, track=${_currentTrack.value?.title})")
         val curTrack = _currentTrack.value
         if (isUsingExoPlayer) {
@@ -678,6 +749,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun pause() {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() blocked - user is listener in Listen Together room")
+            return
+        }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() called (isUsingExo=$isUsingExoPlayer, track=${_currentTrack.value?.title})")
         if (isUsingExoPlayer) {
             exoPlayer.pause()
@@ -687,6 +762,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun togglePlayPause() {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] togglePlayPause() blocked - user is listener in Listen Together room")
+            return
+        }
         if (_isPlaying.value) {
             pause()
         } else {
@@ -695,6 +774,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun seekTo(positionMs: Long) {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo() blocked - user is listener in Listen Together room")
+            return
+        }
         val bounded = positionMs.coerceAtLeast(0L)
         _playbackPositionMs.value = bounded
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo(${bounded}ms)")
@@ -732,6 +815,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun next() {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() blocked - user is listener in Listen Together room")
+            return
+        }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() triggered")
         if (queueManager.state.queue.isNotEmpty()) {
             val nextTrack = queueManager.advanceNext()
@@ -746,6 +833,10 @@ class AuralisAudioPlayer private constructor(context: Context) {
     }
 
     fun previous() {
+        if (isGuestListenTogether.value) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] previous() blocked - user is listener in Listen Together room")
+            return
+        }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] previous() triggered (pos=${_playbackPositionMs.value}ms)")
         if (_playbackPositionMs.value > 3000L) {
             seekTo(0L)

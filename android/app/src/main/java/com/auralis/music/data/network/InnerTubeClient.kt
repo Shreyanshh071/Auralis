@@ -674,7 +674,6 @@ open class InnerTubeClient(
                 ?: subButton?.optJSONObject("subscriberCountText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
                 ?: subButton?.optJSONObject("shortSubscriberCountText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
 
-            // Parse banner portrait
             val bannerThumbs = header?.optJSONObject("thumbnail")
                 ?.optJSONObject("musicThumbnailRenderer")
                 ?.optJSONObject("thumbnail")
@@ -683,8 +682,19 @@ open class InnerTubeClient(
                     ?.optJSONObject("musicThumbnailRenderer")
                     ?.optJSONObject("thumbnail")
                     ?.optJSONArray("thumbnails")
+            var bannerUrl = getBestThumbnailUrl(bannerThumbs, null).ifBlank { artist.thumbnail }
 
-            val bannerUrl = getBestThumbnailUrl(bannerThumbs, null).ifBlank { artist.thumbnail }
+            // If banner is missing or the known all-black Donda square, resolve HD portrait via Wikipedia
+            if (bannerUrl.isNullOrBlank() ||
+                bannerUrl.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") ||
+                artistName.equals("Kanye West", ignoreCase = true) ||
+                artistName.equals("Ye", ignoreCase = true)
+            ) {
+                val wikiPortrait = fetchWikipediaArtistPortrait(artistName)
+                if (!wikiPortrait.isNullOrBlank()) {
+                    bannerUrl = wikiPortrait
+                }
+            }
 
             // Radio Endpoint
             val radioEndpoint = header?.optJSONObject("startRadioButton")
@@ -1341,6 +1351,49 @@ open class InnerTubeClient(
                 put("hl", "en")
                 put("gl", "US")
             })
+        }
+    }
+
+    suspend fun fetchWikipediaArtistPortrait(artistName: String): String? = withContext(Dispatchers.IO) {
+        if (artistName.isBlank()) return@withContext null
+        try {
+            val cleanName = when (artistName.trim().lowercase()) {
+                "ye" -> "Kanye_West"
+                else -> artistName.trim().replace(" ", "_")
+            }
+            val encoded = java.net.URLEncoder.encode(cleanName, "UTF-8")
+            val url = "https://en.wikipedia.org/w/api.php?action=query&titles=$encoded&prop=pageimages&format=json&pithumbsize=1280"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)")
+                .build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext null
+            val body = response.body?.string() ?: return@withContext null
+            val json = JSONObject(body)
+            val pages = json.optJSONObject("query")?.optJSONObject("pages") ?: return@withContext null
+            val firstKey = pages.keys().asSequence().firstOrNull() ?: return@withContext null
+            val pageObj = pages.optJSONObject(firstKey)
+            val thumb = pageObj?.optJSONObject("thumbnail")?.optString("source")
+            if (!thumb.isNullOrBlank()) {
+                return@withContext thumb
+            }
+
+            // Fallback search query on Wikipedia
+            val searchEncoded = java.net.URLEncoder.encode("${artistName.trim()} musician", "UTF-8")
+            val searchUrl = "https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=$searchEncoded&gsrlimit=1&prop=pageimages&pithumbsize=1280&format=json"
+            val searchReq = Request.Builder().url(searchUrl).header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)").build()
+            val searchResp = client.newCall(searchReq).execute()
+            if (searchResp.isSuccessful) {
+                val sBody = searchResp.body?.string() ?: return@withContext null
+                val sJson = JSONObject(sBody)
+                val sPages = sJson.optJSONObject("query")?.optJSONObject("pages") ?: return@withContext null
+                val sKey = sPages.keys().asSequence().firstOrNull() ?: return@withContext null
+                return@withContext sPages.optJSONObject(sKey)?.optJSONObject("thumbnail")?.optString("source")?.ifBlank { null }
+            }
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 }

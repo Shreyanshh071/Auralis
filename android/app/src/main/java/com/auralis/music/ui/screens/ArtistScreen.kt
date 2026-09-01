@@ -114,7 +114,13 @@ fun ArtistScreen(
                         .fillMaxWidth()
                         .height(340.dp)
                 ) {
-                    val banner = artistPage.bannerUrl ?: artistPage.artist.thumbnail
+                    val isKanye = artistPage.artist.name.equals("Kanye West", ignoreCase = true) || artistPage.artist.name.equals("Ye", ignoreCase = true)
+                    val defaultKanye = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
+                    val rawBanner = artistPage.bannerUrl ?: artistPage.artist.thumbnail
+                    val banner = when {
+                        isKanye && (rawBanner.isNullOrBlank() || rawBanner.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA")) -> defaultKanye
+                        else -> rawBanner
+                    }
                     if (!banner.isNullOrBlank()) {
                         AsyncImage(
                             model = ImageRequest.Builder(context)

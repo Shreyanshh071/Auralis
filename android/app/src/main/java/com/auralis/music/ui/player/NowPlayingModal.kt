@@ -347,8 +347,8 @@ fun NowPlayingModal(
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val normalizedBackgroundStyle = when (appearance.playerBackgroundStyle) {
         "Follow theme" -> "Follow theme"
-        "Blur", "Frosted Glass / Blur", "Dynamic Blurred Artwork" -> "Blur"
-        else -> "Gradient"
+        "Gradient", "Dynamic Artwork Gradient" -> "Gradient"
+        else -> "Blur"
     }
 
     // Metrolist-grade full-bleed gradient colors derived directly from artwork dominant hue
