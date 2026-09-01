@@ -30,6 +30,21 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
 
     private var originalQueue: List<Track> = emptyList()
 
+    // Separate logical structures for high-priority user queues
+    private val playNextQueue = ArrayDeque<Track>()
+    private val addToQueueList = ArrayDeque<Track>()
+
+    private fun syncUserQueuesWithUpcoming() {
+        if (state.currentIndex < 0 || state.currentIndex >= state.queue.size - 1) {
+            playNextQueue.clear()
+            addToQueueList.clear()
+            return
+        }
+        val upcomingIds = state.queue.subList(state.currentIndex + 1, state.queue.size).map { it.id }.toSet()
+        playNextQueue.retainAll { it.id in upcomingIds }
+        addToQueueList.retainAll { it.id in upcomingIds }
+    }
+
     fun setQueue(
         tracks: List<Track>,
         startIndex: Int = 0,
@@ -38,6 +53,8 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
     ): QueueState {
         if (!preserveOrderIfSame || originalQueue.isEmpty() || originalQueue.map { it.id } != tracks.map { it.id }) {
             originalQueue = tracks.toList()
+            playNextQueue.clear()
+            addToQueueList.clear()
         }
         val index = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
         state = QueueState(
@@ -47,6 +64,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
             repeatMode = state.repeatMode,
             isUserQueue = isUserQueue
         )
+        syncUserQueuesWithUpcoming()
         return state
     }
 
@@ -108,13 +126,23 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
 
     fun advanceNext(): Track? {
         val next = nextIndex() ?: return null
+        val nextTrack = state.queue.getOrNull(next)
+        if (nextTrack != null) {
+            if (playNextQueue.isNotEmpty() && playNextQueue.first().id == nextTrack.id) {
+                playNextQueue.removeFirst()
+            } else if (addToQueueList.isNotEmpty() && addToQueueList.first().id == nextTrack.id) {
+                addToQueueList.removeFirst()
+            }
+        }
         state = state.copy(currentIndex = next)
+        syncUserQueuesWithUpcoming()
         return state.currentTrack
     }
 
     fun advancePrevious(): Track? {
         val prev = previousIndex() ?: return null
         state = state.copy(currentIndex = prev)
+        syncUserQueuesWithUpcoming()
         return state.currentTrack
     }
 
@@ -138,6 +166,9 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         } else {
             0
         }
+
+        playNextQueue.clear()
+        addToQueueList.clear()
 
         state = state.copy(
             queue = newQueue,
@@ -166,6 +197,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         )
 
         state = state.copy(queue = q, currentIndex = newActiveIndex)
+        syncUserQueuesWithUpcoming()
         return state
     }
 
@@ -173,7 +205,17 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         val q = state.queue.toMutableList()
         if (removeIndex !in q.indices) return state
 
-        q.removeAt(removeIndex)
+        val removed = q.removeAt(removeIndex)
+        val pnIdx = playNextQueue.indexOfFirst { it.id == removed.id }
+        if (pnIdx != -1) {
+            playNextQueue.removeAt(pnIdx)
+        } else {
+            val atqIdx = addToQueueList.indexOfFirst { it.id == removed.id }
+            if (atqIdx != -1) {
+                addToQueueList.removeAt(atqIdx)
+            }
+        }
+
         val newActiveIndex = QueueOperations.mapIndexAfterRemove(
             removeIndex = removeIndex,
             currentIndex = state.currentIndex,
@@ -181,12 +223,22 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         )
 
         state = state.copy(queue = q, currentIndex = newActiveIndex)
+        syncUserQueuesWithUpcoming()
         return state
     }
 
     fun addToQueue(track: Track): QueueState {
+        return addToQueue(listOf(track))
+    }
+
+    fun addToQueue(tracks: List<Track>): QueueState {
+        if (tracks.isEmpty()) return state
         val q = state.queue.toMutableList()
-        q.add(track)
+        for (track in tracks) {
+            val insertIndex = (state.currentIndex + 1 + playNextQueue.size + addToQueueList.size).coerceIn(0, q.size)
+            q.add(insertIndex, track)
+            addToQueueList.addLast(track)
+        }
         val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
         state = state.copy(queue = q, currentIndex = nextIndex)
         return state
@@ -196,6 +248,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         val q = state.queue.toMutableList()
         val insertIndex = (state.currentIndex + 1).coerceIn(0, q.size)
         q.add(insertIndex, track)
+        playNextQueue.addFirst(track)
         val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
         state = state.copy(queue = q, currentIndex = nextIndex)
         return state
@@ -203,6 +256,8 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
 
     fun clearQueue(): QueueState {
         originalQueue = emptyList()
+        playNextQueue.clear()
+        addToQueueList.clear()
         state = QueueState(repeatMode = state.repeatMode)
         return state
     }
