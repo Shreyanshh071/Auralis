@@ -16,24 +16,23 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.auralis.music.domain.model.Track
-import com.auralis.music.ui.theme.LocalReducedMotion
 
 private val GOOGLE_W_REGEX = Regex("""=w\d+-h\d+.*""")
 private val GOOGLE_S_REGEX = Regex("""=s\d+.*""")
 private val MZSTATIC_REGEX = Regex("""\d+x\d+bb""")
 
 /**
- * Optimizes thumbnail URLs to crisp, hardware-accelerated 544x544/720p HD artwork,
- * avoiding memory bloat and maximizing scroll framerates.
+ * Optimizes thumbnail URLs to crisp, hardware-accelerated HD artwork (544x544 or 480x360),
+ * avoiding memory bloat and maximizing scroll framerates without causing 404 error cascades.
  */
 fun getHighResArtworkUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
@@ -42,14 +41,14 @@ fun getHighResArtworkUrl(url: String?): String? {
 
     // YouTube Music & Google User Content (1:1 square crisp 544x544 artwork):
     if (cleaned.contains("googleusercontent.com") || cleaned.contains("ggpht.com")) {
-        cleaned = cleaned.replace(GOOGLE_W_REGEX, "=w544-h544-l90-rj")
+        return cleaned.replace(GOOGLE_W_REGEX, "=w544-h544-l90-rj")
             .replace(GOOGLE_S_REGEX, "=s544-c")
     }
     // YouTube video thumbnail (true 16:9 HD without 4:3 letterbox bars):
     if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu")) {
         val videoIdRegex = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
         val match = videoIdRegex.find(cleaned)?.groupValues?.getOrNull(1)
-        cleaned = if (!match.isNullOrBlank()) {
+        return if (!match.isNullOrBlank()) {
             "https://i.ytimg.com/vi/$match/hq720.jpg"
         } else {
             val noQuery = cleaned.substringBefore('?')
@@ -59,11 +58,11 @@ fun getHighResArtworkUrl(url: String?): String? {
     }
     // iTunes / Apple Music artwork:
     if (cleaned.contains("mzstatic.com")) {
-        cleaned = cleaned.replace(MZSTATIC_REGEX, "600x600bb")
+        return cleaned.replace(MZSTATIC_REGEX, "600x600bb")
     }
     // Spotify artwork:
     if (cleaned.contains("i.scdn.co/image/ab67616d00004851") || cleaned.contains("i.scdn.co/image/ab67616d00001e02")) {
-        cleaned = cleaned.replace("ab67616d00004851", "ab67616d0000b273")
+        return cleaned.replace("ab67616d00004851", "ab67616d0000b273")
             .replace("ab67616d00001e02", "ab67616d0000b273")
     }
     return cleaned
@@ -72,41 +71,30 @@ fun getHighResArtworkUrl(url: String?): String? {
 @Composable
 fun rememberShimmerBrush(
     targetValue: Float = 1400f
-): Brush {
-    val transition = rememberInfiniteTransition(label = "shimmerTransition")
+): androidx.compose.ui.graphics.Brush {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmerTransition")
     val translateAnimation = transition.animateFloat(
         initialValue = -500f,
         targetValue = targetValue,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 550, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(durationMillis = 600, easing = androidx.compose.animation.core.LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
         ),
         label = "shimmerTranslate"
     )
 
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val shimmerColors = if (isDark) {
-        listOf(
-            Color(0xFF16151B),
-            Color(0xFF262532),
-            Color(0xFF3D3C4E),
-            Color(0xFF262532),
-            Color(0xFF16151B)
-        )
-    } else {
-        listOf(
-            Color(0xFFE2E4E9),
-            Color(0xFFF1F2F6),
-            Color(0xFFFFFFFF),
-            Color(0xFFF1F2F6),
-            Color(0xFFE2E4E9)
-        )
-    }
+    val shimmerColors = listOf(
+        Color(0xFF16151B),
+        Color(0xFF262532),
+        Color(0xFF3D3C4E),
+        Color(0xFF262532),
+        Color(0xFF16151B)
+    )
 
-    return Brush.linearGradient(
+    return androidx.compose.ui.graphics.Brush.linearGradient(
         colors = shimmerColors,
-        start = Offset(translateAnimation.value, 0f),
-        end = Offset(translateAnimation.value + 400f, 0f)
+        start = androidx.compose.ui.geometry.Offset(translateAnimation.value, 0f),
+        end = androidx.compose.ui.geometry.Offset(translateAnimation.value + 400f, 0f)
     )
 }
 
@@ -121,128 +109,57 @@ fun ArtworkCard(
     contentScale: ContentScale = ContentScale.Crop
 ) {
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-    val shimmerBrush = rememberShimmerBrush()
     val context = LocalContext.current
 
-    var resolvedFallbackUrl by remember(fallbackTrack?.id, fallbackTrack?.title) {
-        mutableStateOf(fallbackTrack?.let { com.auralis.music.data.network.ArtworkResolver.getArtwork(it) })
-    }
-
-    LaunchedEffect(url, fallbackTrack?.id, fallbackTrack?.title) {
-        if ((url.isNullOrBlank() || url.contains("default.jpg")) && fallbackTrack != null && resolvedFallbackUrl.isNullOrBlank()) {
-            val resolved = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(fallbackTrack)
-            if (!resolved.isNullOrBlank()) {
-                resolvedFallbackUrl = resolved
-            }
+    // Resolve the best primary URL instantly without network cascades
+    val resolvedUrl = remember(url, fallbackTrack?.id, fallbackTrack?.thumbnail) {
+        when {
+            !url.isNullOrBlank() -> getHighResArtworkUrl(url) ?: url
+            fallbackTrack != null && !fallbackTrack.thumbnail.isNullOrBlank() -> getHighResArtworkUrl(fallbackTrack.thumbnail) ?: fallbackTrack.thumbnail
+            fallbackTrack != null && !fallbackTrack.id.startsWith("sp_") && fallbackTrack.id.length in 8..15 -> "https://i.ytimg.com/vi/${fallbackTrack.id}/hqdefault.jpg"
+            else -> null
         }
     }
 
-    // Build the ordered list of candidate URLs to try
-    val candidateUrls = remember(url, resolvedFallbackUrl, fallbackTrack?.id) {
-        val list = mutableListOf<String>()
+    var isError by remember(resolvedUrl) { mutableStateOf(false) }
 
-        // 1. Fallback YouTube direct video thumbnail candidates (Guaranteed individual song artwork)
-        if (fallbackTrack != null && !fallbackTrack.id.startsWith("sp_") && fallbackTrack.id.length in 8..15) {
-            val vid = fallbackTrack.id
-            list.add("https://i.ytimg.com/vi/$vid/hq720.jpg")
-            list.add("https://i.ytimg.com/vi/$vid/maxresdefault.jpg")
-            list.add("https://i.ytimg.com/vi/$vid/mqdefault.jpg")
-            list.add("https://i.ytimg.com/vi/$vid/hqdefault.jpg")
-        }
-
-        // 2. High-res optimized version of primary URL
-        if (!url.isNullOrBlank()) {
-            getHighResArtworkUrl(url)?.let { list.add(it) }
-            if (url !in list) list.add(url)
-        }
-
-        // 3. If resolved from ArtworkResolver
-        if (!resolvedFallbackUrl.isNullOrBlank()) {
-            getHighResArtworkUrl(resolvedFallbackUrl)?.let { list.add(it) }
-            if (resolvedFallbackUrl !in list) list.add(resolvedFallbackUrl!!)
-        }
-
-        // 4. Fallback track's existing thumbnail
-        if (fallbackTrack != null && !fallbackTrack.thumbnail.isNullOrBlank() && fallbackTrack.thumbnail !in list) {
-            list.add(fallbackTrack.thumbnail)
-        }
-
-        list.distinct()
-    }
-
-    var currentCandidateIndex by remember(candidateUrls) { mutableIntStateOf(0) }
-    var isImageLoaded by remember(candidateUrls) { mutableStateOf(false) }
-    var isError by remember(candidateUrls) { mutableStateOf(false) }
-
-    val activeUrl = candidateUrls.getOrNull(currentCandidateIndex)
-
-    if (activeUrl.isNullOrBlank() && (isError || candidateUrls.isEmpty())) {
-        Box(
-            modifier = modifier
-                .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape) else Modifier)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-        }
-        return
-    }
-
-    val request = remember(activeUrl) {
-        ImageRequest.Builder(context)
-            .data(activeUrl)
-            .crossfade(200)
-            .build()
+    val request = remember(resolvedUrl) {
+        if (!resolvedUrl.isNullOrBlank()) {
+            ImageRequest.Builder(context)
+                .data(resolvedUrl)
+                .allowHardware(true)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .crossfade(100)
+                .build()
+        } else null
     }
 
     Box(
         modifier = modifier
             .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape) else Modifier)
             .clip(shape)
-            .background(if (isImageLoaded) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant)
-            .then(if (!isImageLoaded && !isError) Modifier.background(shimmerBrush) else Modifier),
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
-        if (!activeUrl.isNullOrBlank()) {
+        if (request != null && !isError) {
             AsyncImage(
                 model = request,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
                 onState = { state ->
-                    when (state) {
-                        is AsyncImagePainter.State.Success -> {
-                            isImageLoaded = true
-                            isError = false
-                        }
-                        is AsyncImagePainter.State.Error -> {
-                            if (currentCandidateIndex < candidateUrls.size - 1) {
-                                currentCandidateIndex++
-                            } else {
-                                isError = true
-                                isImageLoaded = false
-                            }
-                        }
-                        is AsyncImagePainter.State.Loading -> {
-                            isImageLoaded = false
-                            isError = false
-                        }
-                        else -> Unit
+                    if (state is AsyncImagePainter.State.Error) {
+                        isError = true
                     }
                 },
                 modifier = Modifier.fillMaxSize()
             )
-        }
-
-        if (isError && !isImageLoaded) {
+        } else {
             Icon(
                 imageVector = Icons.Default.MusicNote,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.size(24.dp)
             )
         }
     }
