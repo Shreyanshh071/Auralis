@@ -1514,7 +1514,7 @@ private fun PlaylistDetailView(
                             modifier = Modifier
                                 .size(52.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF22251B))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable {
                                     if (displayedTracks.isNotEmpty()) {
                                         val shuffled = displayedTracks.shuffled()
@@ -1526,7 +1526,7 @@ private fun PlaylistDetailView(
                             Icon(
                                 imageVector = Icons.Default.Shuffle,
                                 contentDescription = "Shuffle",
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -1538,7 +1538,7 @@ private fun PlaylistDetailView(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFDCE7A1))
+                                .background(MaterialTheme.colorScheme.primary)
                                 .clickable {
                                     if (displayedTracks.isNotEmpty()) {
                                         onPlayTrack(displayedTracks.first(), displayedTracks)
@@ -1549,7 +1549,7 @@ private fun PlaylistDetailView(
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Play",
-                                tint = Color.Black,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(36.dp)
                             )
                         }
@@ -1563,7 +1563,7 @@ private fun PlaylistDetailView(
                                 modifier = Modifier
                                     .size(52.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF22251B))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .clickable {
                                         if (displayedTracks.isNotEmpty()) {
                                             com.auralis.music.data.download.AuralisDownloadManager.downloadPlaylist(displayedTracks, playlist.title)
@@ -1574,7 +1574,7 @@ private fun PlaylistDetailView(
                                 Icon(
                                     imageVector = if (allDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
                                     contentDescription = "Download Playlist",
-                                    tint = if (allDownloaded) LIME_TEXT else Color.White,
+                                    tint = if (allDownloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -1587,14 +1587,14 @@ private fun PlaylistDetailView(
                             modifier = Modifier
                                 .size(52.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF22251B))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable { showOptionsMenu = true },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Playlist Options",
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -1624,14 +1624,14 @@ private fun PlaylistDetailView(
                                     text = sortOption.label,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = LIME_TEXT,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontSize = 14.sp
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
                                     imageVector = Icons.Default.ArrowDropDown,
                                     contentDescription = "Sort Options",
-                                    tint = LIME_TEXT,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -1640,15 +1640,15 @@ private fun PlaylistDetailView(
                                 expanded = showSortMenu,
                                 onDismissRequest = { showSortMenu = false },
                                 modifier = Modifier
-                                    .background(Color(0xFF1C1E17))
-                                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                             ) {
                                 PlaylistSortOption.values().forEach { option ->
                                     DropdownMenuItem(
                                         text = {
                                             Text(
                                                 text = option.label,
-                                                color = if (sortOption == option) LIME_TEXT else Color.White,
+                                                color = if (sortOption == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                                 fontWeight = if (sortOption == option) FontWeight.Bold else FontWeight.Normal,
                                                 fontSize = 14.sp
                                             )
@@ -1662,7 +1662,7 @@ private fun PlaylistDetailView(
                                                 Icon(
                                                     imageVector = Icons.Default.Check,
                                                     contentDescription = null,
-                                                    tint = LIME_TEXT,
+                                                    tint = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                             }
