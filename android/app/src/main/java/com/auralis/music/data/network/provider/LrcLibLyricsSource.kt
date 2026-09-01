@@ -22,7 +22,7 @@ class LrcLibLyricsSource(
 
     companion object {
         private const val BASE_URL = "https://lrclib.net/api"
-        private const val CLIENT_HEADER = "Auralis-Music-Android/2.0.0 (https://github.com/shreyanshchoubey09/Auralis)"
+        private const val CLIENT_HEADER = "Auralis-Music-Android/1.0.0 (https://github.com/shreyanshchoubey09/Auralis)"
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {

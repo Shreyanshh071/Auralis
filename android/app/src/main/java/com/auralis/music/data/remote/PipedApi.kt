@@ -69,7 +69,7 @@ class PipedApi(
                 val url = "$baseUrl/streams/$videoId"
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Auralis-Music/2.0.0 (Android)")
+                    .header("User-Agent", "Auralis-Music/1.0.0 (Android)")
                     .header("Accept", "application/json")
                     .build()
 
@@ -137,7 +137,7 @@ class PipedApi(
                 val url = "$baseUrl/search?q=$encodedQuery&filter=music_songs"
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Auralis-Music/2.0.0 (Android)")
+                    .header("User-Agent", "Auralis-Music/1.0.0 (Android)")
                     .header("Accept", "application/json")
                     .build()
 
