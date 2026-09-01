@@ -331,7 +331,9 @@ fun UpdaterScreen(
                                         onProgress = { p -> downloadProgress = p }
                                     )
                                     isDownloading = false
-                                    if (res.isFailure) {
+                                    if (res.isSuccess) {
+                                        showUpdateDialog = false
+                                    } else {
                                         Toast.makeText(context, "Download failed: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                                     }
                                 }
