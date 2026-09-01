@@ -72,13 +72,7 @@ class LrcLibLyricsSource(
         try {
             val encTitle = URLEncoder.encode(title, "UTF-8")
             val encArtist = URLEncoder.encode(artist, "UTF-8")
-            var url = "$BASE_URL/get?track_name=$encTitle&artist_name=$encArtist"
-            if (!album.isNullOrBlank()) {
-                url += "&album_name=${URLEncoder.encode(album.trim(), "UTF-8")}"
-            }
-            if (durationSec != null && durationSec > 0) {
-                url += "&duration=$durationSec"
-            }
+            val url = "$BASE_URL/get?track_name=$encTitle&artist_name=$encArtist"
 
             val req = Request.Builder()
                 .url(url)
@@ -103,6 +97,8 @@ class LrcLibLyricsSource(
                 queryDurationSec = durationSec,
                 candidateDurationSec = candDuration
             )
+
+            if (confidence < 45) return null
 
             return LyricsCandidate(
                 lyricsData = lyricsData,
@@ -133,7 +129,7 @@ class LrcLibLyricsSource(
             val array = JSONArray(body)
 
             var bestCandidate: LyricsCandidate? = null
-            var bestScore = 0
+            var bestScore = 0.0
 
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
@@ -151,21 +147,36 @@ class LrcLibLyricsSource(
                     candidateDurationSec = candDuration
                 )
 
-                // Heavily prioritize synced lyrics (+25 score boost) over plain lyrics
-                val weightedScore = if (hasSynced) confidence + 25 else confidence
+                if (confidence < 45) continue
 
-                if (confidence >= 45 && weightedScore > bestScore) {
+                // Calculate duration accuracy bonus (closer duration = higher score)
+                val durDiff = if (query.durationSec != null && query.durationSec > 0 && candDuration > 0) {
+                    kotlin.math.abs(query.durationSec - candDuration)
+                } else 0L
+
+                val durationBonus = when {
+                    durDiff <= 2 -> 35.0
+                    durDiff <= 5 -> 25.0
+                    durDiff <= 10 -> 10.0
+                    durDiff <= 20 -> 0.0
+                    else -> -20.0
+                }
+
+                val syncBonus = if (hasSynced) 40.0 else 0.0
+                val totalScore = confidence.toDouble() + syncBonus + durationBonus
+
+                if (totalScore > bestScore) {
                     val rawParsed = parseLrcItem(item)
                     if (rawParsed != null && rawParsed.lines.isNotEmpty()) {
                         val alignedParsed = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
-                        bestScore = weightedScore
+                        bestScore = totalScore
                         bestCandidate = LyricsCandidate(
                             lyricsData = alignedParsed,
                             confidence = confidence,
                             syncType = alignedParsed.syncType,
                             provider = LyricsProvider.LRCLIB
                         )
-                        if (alignedParsed.syncType == SyncType.LINE_SYNC && confidence >= 75) {
+                        if (alignedParsed.syncType == SyncType.LINE_SYNC && confidence >= 80 && durDiff <= 4) {
                             return bestCandidate
                         }
                     }

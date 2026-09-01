@@ -44,7 +44,8 @@ object TasteProfiler {
         val totalPlays = playCounts.sumOf { it.count }
         if (history.isEmpty() && playCounts.isEmpty()) {
             return TasteProfile(
-                recommendedSeeds = listOf("Top Hits 2026", "Chill Lo-Fi Beats", "Global Trending Music")
+                recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS,
+                primaryVibe = "Welcome to Auralis"
             )
         }
 

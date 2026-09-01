@@ -6,6 +6,7 @@ import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.domain.model.*
+import com.auralis.music.domain.recommendations.NewUserSeedProvider
 import com.auralis.music.domain.recommendations.TasteProfile
 import com.auralis.music.domain.recommendations.TasteProfiler
 import com.auralis.music.domain.recommendations.TrackDeduplicator
@@ -110,22 +111,50 @@ class HomeViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             historyRepository.getHistory().collect { historyList ->
                 val topPlayed = historyRepository.getTopPlayedTracks().first()
-                val profile = TasteProfiler.computeTasteProfile(historyList, topPlayed)
+                val isNewUser = !hasListeningHistory(historyList, topPlayed)
+
+                val profile = if (isNewUser) {
+                    TasteProfile(recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS, primaryVibe = "Welcome to Auralis")
+                } else {
+                    TasteProfiler.computeTasteProfile(historyList, topPlayed)
+                }
+
                 val topTracks = topPlayed.map { it.track }
                 val historyTracks = historyList.map { it.track }
-                _uiState.update {
-                    it.copy(
-                        recentTracks = historyList,
-                        topPlayedTracks = topPlayed,
-                        tasteProfile = profile,
-                        speedDialPages = if (historyList.isEmpty() && topPlayed.isEmpty()) emptyList() else it.speedDialPages
-                    )
-                }
-                if (historyList.isNotEmpty()) {
+
+                if (isNewUser) {
+                    val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+                    val speedDial = buildSpeedDialPages(emptyList(), emptyList(), seedTracks)
+                    _uiState.update {
+                        it.copy(
+                            recentTracks = emptyList(),
+                            topPlayedTracks = emptyList(),
+                            tasteProfile = profile,
+                            speedDialPages = speedDial
+                        )
+                    }
+                } else {
+                    val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+                    val heavy = historyRepository.getRecentHeavyRotation()
+                    val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+                    _uiState.update {
+                        it.copy(
+                            recentTracks = historyList,
+                            topPlayedTracks = topPlayed,
+                            tasteProfile = profile,
+                            speedDialPages = speedDial
+                        )
+                    }
                     fetchSimilarRecommendations()
+                    fetchQuickPicks()
+                    fetchDailyDiscover()
                 }
             }
         }
+    }
+
+    private fun hasListeningHistory(history: List<HistoryEntry>, topPlayed: List<PlayCountEntry>): Boolean {
+        return history.isNotEmpty() || topPlayed.isNotEmpty()
     }
 
     private fun isInvalidArtistName(artist: String?): Boolean {
@@ -150,12 +179,26 @@ class HomeViewModel(
                     try {
                         val history = historyRepository.getHistory().first()
                         val topPlayed = historyRepository.getTopPlayedTracks().first()
-                        val profile = TasteProfiler.computeTasteProfile(history, topPlayed)
+                        val isNewUser = !hasListeningHistory(history, topPlayed)
+
+                        val profile = if (isNewUser) {
+                            TasteProfile(recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS, primaryVibe = "Welcome to Auralis")
+                        } else {
+                            TasteProfiler.computeTasteProfile(history, topPlayed)
+                        }
+
                         val topTracks = topPlayed.map { it.track }
                         val historyTracks = history.map { it.track }
                         val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
                         val heavy = historyRepository.getRecentHeavyRotation()
-                        val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+
+                        val speedDial = if (isNewUser) {
+                            val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+                            buildSpeedDialPages(emptyList(), emptyList(), seedTracks)
+                        } else {
+                            buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+                        }
+
                         _uiState.update {
                             it.copy(
                                 recentTracks = history,
@@ -171,7 +214,7 @@ class HomeViewModel(
                             ?.filter { it.type == SpeedDialType.TRACK }
                             ?.map { it.id }
                             ?.take(2) ?: emptyList()
-                        val candidatePool = topTracks + historyTracks + likedSeeds + heavy
+                        val candidatePool = if (isNewUser) NewUserSeedProvider.getInitialSeedTracks() else (topTracks + historyTracks + likedSeeds + heavy)
                         val tracksToPrewarm = firstPageTrackIds.mapNotNull { id -> candidatePool.firstOrNull { it.id == id } }
                         if (tracksToPrewarm.isNotEmpty()) {
                             launch(Dispatchers.IO) {
@@ -187,29 +230,31 @@ class HomeViewModel(
                             }
                         }
 
-                        // Asynchronously resolve authentic artist avatar photos for Speed Dial
-                        val artistsToResolve = (topTracks + historyTracks + likedSeeds + heavy)
-                            .map { it.artist }
-                            .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
-                            .distinct()
+                        if (!isNewUser) {
+                            // Asynchronously resolve authentic artist avatar photos for Speed Dial
+                            val artistsToResolve = (topTracks + historyTracks + likedSeeds + heavy)
+                                .map { it.artist }
+                                .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
+                                .distinct()
 
-                        if (artistsToResolve.isNotEmpty()) {
-                            launch(Dispatchers.IO) {
-                                var hasUpdates = false
-                                for (art in artistsToResolve.take(12)) {
-                                    try {
-                                        val searchHits = searchRepository.search(art)
-                                        val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
-                                            ?: searchHits.artists.firstOrNull()
-                                        if (match != null && !match.thumbnail.isNullOrBlank()) {
-                                            artistAvatarCache[art] = Pair(match.id, match.thumbnail)
-                                            hasUpdates = true
-                                        }
-                                    } catch (_: Exception) {}
-                                }
-                                if (hasUpdates) {
-                                    val updatedPages = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
-                                    _uiState.update { it.copy(speedDialPages = updatedPages) }
+                            if (artistsToResolve.isNotEmpty()) {
+                                launch(Dispatchers.IO) {
+                                    var hasUpdates = false
+                                    for (art in artistsToResolve.take(12)) {
+                                        try {
+                                            val searchHits = searchRepository.search(art)
+                                            val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
+                                                ?: searchHits.artists.firstOrNull()
+                                            if (match != null && !match.thumbnail.isNullOrBlank()) {
+                                                artistAvatarCache[art] = Pair(match.id, match.thumbnail)
+                                                hasUpdates = true
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    if (hasUpdates) {
+                                        val updatedPages = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+                                        _uiState.update { it.copy(speedDialPages = updatedPages) }
+                                    }
                                 }
                             }
                         }
@@ -260,10 +305,12 @@ class HomeViewModel(
                 launch(Dispatchers.IO) {
                     try {
                         val (chips, sections) = innerTubeClient.getHome()
+                        val cleanChips = chips.filter { !isUnwantedNoiseChip(it) }
+                        val cleanSections = sections.filter { !isUnwantedNoiseSection(it) }
                         _uiState.update {
                             it.copy(
-                                homeChips = chips,
-                                dynamicSections = sections
+                                homeChips = cleanChips,
+                                dynamicSections = cleanSections
                             )
                         }
                     } catch (_: Exception) {}
@@ -302,10 +349,22 @@ class HomeViewModel(
     private suspend fun fetchDailyDiscover() = withContext(Dispatchers.IO) {
         try {
             val likedSeeds = historyRepository.getLikedSeeds(limit = 8).shuffled().take(5)
+            val history = historyRepository.getHistory().first().map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val isNewUser = likedSeeds.isEmpty() && history.isEmpty() && topPlayed.isEmpty()
+
+            if (isNewUser) {
+                val seedDiscoveries = NewUserSeedProvider.fetchSeedDailyDiscover(searchRepository, innerTubeClient)
+                if (seedDiscoveries.isNotEmpty()) {
+                    _uiState.update { it.copy(dailyDiscover = seedDiscoveries) }
+                    context?.let { HomeRecommendationsCache.saveDailyDiscover(it, seedDiscoveries) }
+                }
+                return@withContext
+            }
+
             val seeds = if (likedSeeds.isNotEmpty()) {
                 likedSeeds
             } else {
-                val history = historyRepository.getHistory().first().map { it.track }
                 history.shuffled().take(5)
             }
 
@@ -365,6 +424,18 @@ class HomeViewModel(
     private suspend fun fetchSimilarRecommendations() = withContext(Dispatchers.IO) {
         try {
             val history = historyRepository.getHistory().first().map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val isNewUser = history.isEmpty() && topPlayed.isEmpty()
+
+            if (isNewUser) {
+                val seedRecs = NewUserSeedProvider.fetchSeedSimilarRecommendations(searchRepository)
+                if (seedRecs.isNotEmpty()) {
+                    _uiState.update { it.copy(similarRecommendations = seedRecs) }
+                    context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, seedRecs) }
+                }
+                return@withContext
+            }
+
             val topArtists = history
                 .map { it.artist }
                 .filter { !isInvalidArtistName(it) }
@@ -480,6 +551,14 @@ class HomeViewModel(
             val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
 
             val allUserTracks = (history + heavyRotation + topPlayed + likedSeeds).distinctBy { it.id }
+
+            if (allUserTracks.isEmpty()) {
+                val seedPicks = NewUserSeedProvider.fetchSeedQuickPicks(searchRepository)
+                if (seedPicks.isNotEmpty()) {
+                    _uiState.update { it.copy(quickPicks = seedPicks) }
+                }
+                return@withContext
+            }
 
             // Group user tracks by artist to discover ALL distinct artists the user listens to
             val artistTracksMap = mutableMapOf<String, MutableList<Track>>()
@@ -614,7 +693,15 @@ class HomeViewModel(
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val topArtist = history.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
-            
+
+            if (history.isEmpty() || topArtist.isNullOrBlank()) {
+                val seedPlaylists = NewUserSeedProvider.fetchSeedCommunityPlaylists(searchRepository)
+                if (seedPlaylists.isNotEmpty()) {
+                    _uiState.update { it.copy(communityPlaylists = seedPlaylists) }
+                    return@withContext
+                }
+            }
+
             val query = if (!topArtist.isNullOrBlank()) "$topArtist Mix" else "Top Hits Playlist 2026"
             val playlistsResult = searchRepository.searchPlaylists(query)
             
@@ -638,21 +725,36 @@ class HomeViewModel(
 
         viewModelScope.launch {
             try {
-                if (nextChip != null) {
-                    val (_, sections) = innerTubeClient.getHome(params = nextChip.params)
-                    _uiState.update {
-                        it.copy(dynamicSections = sections, isLoading = false)
-                    }
+                val (_, sections) = if (nextChip != null) {
+                    innerTubeClient.getHome(params = nextChip.params)
                 } else {
-                    val (_, sections) = innerTubeClient.getHome()
-                    _uiState.update {
-                        it.copy(dynamicSections = sections, isLoading = false)
-                    }
+                    innerTubeClient.getHome()
+                }
+                val cleanSections = sections.filter { !isUnwantedNoiseSection(it) }
+                _uiState.update {
+                    it.copy(dynamicSections = cleanSections, isLoading = false)
                 }
             } catch (_: Exception) {
                 _uiState.update { it.copy(isLoading = false) }
             }
         }
+    }
+
+    private fun isUnwantedNoiseSection(section: HomeSection): Boolean {
+        val lowerTitle = section.title.lowercase()
+        val lowerSubtitle = (section.subtitle ?: "").lowercase()
+        return lowerTitle.contains("rain therapy") || lowerTitle.contains("rain sound") ||
+            lowerTitle.contains("sleep therapy") || lowerTitle.contains("white noise") ||
+            lowerTitle.contains("nature sound") || lowerTitle.contains("binaural") ||
+            lowerTitle.contains("sleep sound") || lowerTitle.contains("deep sleep") ||
+            lowerSubtitle.contains("rain therapy") || lowerSubtitle.contains("sleep therapy") ||
+            lowerSubtitle.contains("white noise")
+    }
+
+    private fun isUnwantedNoiseChip(chip: HomeChip): Boolean {
+        val lower = chip.title.lowercase()
+        return lower.contains("sleep") || lower.contains("therapy") || lower.contains("rain") ||
+            lower.contains("white noise") || lower.contains("ambient sound")
     }
 
     fun selectMoodFilter(mood: String?) {
@@ -701,15 +803,25 @@ class HomeViewModel(
     fun clearHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             historyRepository.clearHistory()
+            val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+            val seedSpeedDial = buildSpeedDialPages(emptyList(), emptyList(), seedTracks)
             _uiState.update {
                 it.copy(
                     recentTracks = emptyList(),
                     topPlayedTracks = emptyList(),
-                    speedDialPages = emptyList(),
+                    speedDialPages = seedSpeedDial,
                     keepListening = emptyList(),
-                    forgottenFavorites = emptyList()
+                    forgottenFavorites = emptyList(),
+                    tasteProfile = TasteProfile(
+                        recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS,
+                        primaryVibe = "Welcome to Auralis"
+                    )
                 )
             }
+            fetchQuickPicks()
+            fetchSimilarRecommendations()
+            fetchDailyDiscover()
+            fetchCommunityPlaylists()
         }
     }
 

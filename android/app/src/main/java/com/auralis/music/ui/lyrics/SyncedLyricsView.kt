@@ -234,9 +234,8 @@ fun SyncedLyricsView(
     }
 
     val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
-    val activeIndex = remember(currentPositionMs, offsetMs, effectiveLines, isSynced, introDurationMs) {
+    val activeIndex = remember(currentPositionMs, offsetMs, effectiveLines, isSynced) {
         if (!isSynced) -1
-        else if (introDurationMs >= 1500L && (currentPositionMs + offsetMs) < introDurationMs) -1
         else LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionMs, offsetMs)
     }
 
@@ -320,6 +319,9 @@ fun SyncedLyricsView(
             }
         }
 
+        val effectiveTime = (currentPositionMs + offsetMs).coerceAtLeast(0L)
+        val isIntroActive = isSynced && introDurationMs >= 1500L && effectiveTime < introDurationMs
+
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -346,20 +348,6 @@ fun SyncedLyricsView(
             horizontalAlignment = horizontalAlignment,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ── INSTRUMENTAL MUSIC INTRO COUNTDOWN (Metrolist / Apple Music style) ──
-            val effectiveTime = (currentPositionMs + offsetMs).coerceAtLeast(0L)
-            val isIntroActive = isSynced && introDurationMs >= 1500L && effectiveTime < introDurationMs
-
-            if (isIntroActive) {
-                item(key = "instrumental_intro_countdown") {
-                    InstrumentalIntroIndicator(
-                        currentTimeMs = effectiveTime,
-                        introDurationMs = introDurationMs,
-                        onSkipIntro = { onSeekTo(introDurationMs) }
-                    )
-                }
-            }
-
             itemsIndexed(
                 items = effectiveLines,
                 key = { index, line -> "${line.time}_$index" }
@@ -370,25 +358,61 @@ fun SyncedLyricsView(
                 val isSelected = selectedIndices.contains(index)
                 val isSelectionMode = selectedIndices.isNotEmpty()
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (isSelected) {
-                                Modifier
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(Color.White.copy(alpha = 0.18f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            } else {
-                                Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                            }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = horizontalAlignment
+                ) {
+                    if (index == 0 && isIntroActive) {
+                        InstrumentalIntroIndicator(
+                            currentTimeMs = effectiveTime,
+                            introDurationMs = introDurationMs,
+                            onSkipIntro = { onSeekTo(introDurationMs) },
+                            modifier = Modifier.padding(bottom = 16.dp)
                         )
-                        .combinedClickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {
-                                if (isSelectionMode) {
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (isSelected) {
+                                    Modifier
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(Color.White.copy(alpha = 0.18f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                } else {
+                                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                }
+                            )
+                            .combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        selectedIndices = if (isSelected) {
+                                            selectedIndices - index
+                                        } else {
+                                            if (selectedIndices.size < 5) {
+                                                selectedIndices + index
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
+                                                selectedIndices
+                                            }
+                                        }
+                                    } else if (isSynced && appearance.changeLyricsOnTap) {
+                                        isUserInteracting = false
+                                        onSeekTo(line.time)
+                                        coroutineScope.launch {
+                                            listState.animateScrollToItem(
+                                                index = index,
+                                                scrollOffset = if (index <= 0) 0 else -centerOffsetPx
+                                            )
+                                        }
+                                    }
+                                },
+                                onLongClick = {
+                                    isUserInteracting = true
                                     selectedIndices = if (isSelected) {
                                         selectedIndices - index
                                     } else {
@@ -399,41 +423,19 @@ fun SyncedLyricsView(
                                             selectedIndices
                                         }
                                     }
-                                } else if (isSynced && appearance.changeLyricsOnTap) {
-                                    isUserInteracting = false
-                                    onSeekTo(line.time)
-                                    coroutineScope.launch {
-                                        listState.animateScrollToItem(
-                                            index = index,
-                                            scrollOffset = if (index <= 0) 0 else -centerOffsetPx
-                                        )
-                                    }
                                 }
-                            },
-                            onLongClick = {
-                                isUserInteracting = true
-                                selectedIndices = if (isSelected) {
-                                    selectedIndices - index
-                                } else {
-                                    if (selectedIndices.size < 5) {
-                                        selectedIndices + index
-                                    } else {
-                                        android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
-                                        selectedIndices
-                                    }
-                                }
-                            }
+                            )
+                    ) {
+                        LyricLineRow(
+                            line = line,
+                            isCurrent = isCurrent,
+                            isPast = isPast,
+                            lyricsMode = lyricsMode,
+                            syncType = lyrics.syncType,
+                            textAlign = textAlign,
+                            horizontalAlignment = horizontalAlignment
                         )
-                ) {
-                    LyricLineRow(
-                        line = line,
-                        isCurrent = isCurrent,
-                        isPast = isPast,
-                        lyricsMode = lyricsMode,
-                        syncType = lyrics.syncType,
-                        textAlign = textAlign,
-                        horizontalAlignment = horizontalAlignment
-                    )
+                    }
                 }
             }
         }
