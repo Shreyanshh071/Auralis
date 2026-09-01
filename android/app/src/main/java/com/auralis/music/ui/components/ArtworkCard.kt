@@ -44,16 +44,17 @@ fun getHighResArtworkUrl(url: String?): String? {
         return cleaned.replace(GOOGLE_W_REGEX, "=w544-h544-l90-rj")
             .replace(GOOGLE_S_REGEX, "=s544-c")
     }
-    // YouTube video thumbnail (true 16:9 HD without 4:3 letterbox bars):
+    // YouTube video thumbnail (reliable 100% available 480x360 HD artwork):
     if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu")) {
         val videoIdRegex = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
         val match = videoIdRegex.find(cleaned)?.groupValues?.getOrNull(1)
         return if (!match.isNullOrBlank()) {
-            "https://i.ytimg.com/vi/$match/hq720.jpg"
+            "https://i.ytimg.com/vi/$match/hqdefault.jpg"
         } else {
             val noQuery = cleaned.substringBefore('?')
-            noQuery.replace("hqdefault.jpg", "hq720.jpg")
-                .replace("default.jpg", "mqdefault.jpg")
+            noQuery.replace("default.jpg", "hqdefault.jpg")
+                .replace("mqdefault.jpg", "hqdefault.jpg")
+                .replace("hq720.jpg", "hqdefault.jpg")
         }
     }
     // iTunes / Apple Music artwork:

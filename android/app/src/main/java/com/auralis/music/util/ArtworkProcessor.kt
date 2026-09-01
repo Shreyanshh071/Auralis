@@ -261,17 +261,16 @@ object ArtworkProcessor {
             val videoIdRegex = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
             val match = videoIdRegex.find(cleaned)?.groupValues?.getOrNull(1)
             if (!match.isNullOrBlank()) {
-                candidates.add("https://i.ytimg.com/vi/$match/maxresdefault.jpg")
-                candidates.add("https://i.ytimg.com/vi/$match/hq720.jpg")
-                candidates.add("https://i.ytimg.com/vi_webp/$match/maxresdefault.webp")
-                candidates.add("https://i.ytimg.com/vi/$match/sddefault.jpg")
                 candidates.add("https://i.ytimg.com/vi/$match/hqdefault.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/sddefault.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/maxresdefault.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/mqdefault.jpg")
             } else {
                 val base = cleaned.substringBeforeLast('?').substringBeforeLast('/')
-                candidates.add("$base/maxresdefault.jpg")
-                candidates.add("$base/hq720.jpg")
-                candidates.add("$base/sddefault.jpg")
                 candidates.add("$base/hqdefault.jpg")
+                candidates.add("$base/sddefault.jpg")
+                candidates.add("$base/maxresdefault.jpg")
+                candidates.add("$base/mqdefault.jpg")
             }
             val cleanNoQuery = cleaned.substringBefore('?')
             if (cleanNoQuery.isNotBlank()) candidates.add(cleanNoQuery)
