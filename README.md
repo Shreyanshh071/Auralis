@@ -90,6 +90,16 @@ Auralis/
 
 ---
 
+## 💖 Sponsor This Project
+
+If you love using **Auralis** and want to support its ongoing development:
+
+[![Buy Me A Chai](https://img.shields.io/badge/Buy%20Me%20A%20Chai-☕-orange?style=for-the-badge&logo=coffeescript&logoColor=white)](https://www.buymeachai.in/shreyanshh071)
+
+Your support helps keep the project fast, ad-free, open-source, and constantly improving!
+
+---
+
 ## 📄 License
 
 This project is open-source under the [MIT License](LICENSE).
