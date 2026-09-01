@@ -152,4 +152,26 @@ class SpeedDialDeduplicationTest {
         val titles = unique.map { it.title }
         assertEquals(titles.distinct().size, unique.size)
     }
+
+    @Test
+    fun `isJunkOrNoiseTrack correctly identifies rain therapy and sleep noise spam`() {
+        val rainTrack1 = Track(id = "n1", title = "Rain Sounds for Sleep", artist = "Rain Therapy")
+        val rainTrack2 = Track(id = "n2", title = "10 Hours of Rain for Sleeping", artist = "Nature Sounds")
+        val rainTrack3 = Track(id = "n3", title = "Gentle Rain Sounds", artist = "Sleep Therapy")
+        val whiteNoise = Track(id = "n4", title = "White Noise for Deep Sleep", artist = "Deep Sleep")
+
+        assertTrue(TrackDeduplicator.isJunkOrNoiseTrack(rainTrack1))
+        assertTrue(TrackDeduplicator.isJunkOrNoiseTrack(rainTrack2))
+        assertTrue(TrackDeduplicator.isJunkOrNoiseTrack(rainTrack3))
+        assertTrue(TrackDeduplicator.isJunkOrNoiseTrack(whiteNoise))
+
+        // Legitimate songs with 'Rain' should NOT be marked as junk
+        val realSong1 = Track(id = "r1", title = "Set Fire to the Rain", artist = "Adele")
+        val realSong2 = Track(id = "r2", title = "Purple Rain", artist = "Prince")
+        val realSong3 = Track(id = "r3", title = "Rain On Me", artist = "Lady Gaga")
+
+        assertFalse(TrackDeduplicator.isJunkOrNoiseTrack(realSong1))
+        assertFalse(TrackDeduplicator.isJunkOrNoiseTrack(realSong2))
+        assertFalse(TrackDeduplicator.isJunkOrNoiseTrack(realSong3))
+    }
 }

@@ -24,13 +24,35 @@ object TrackDeduplicator {
         "unknown artist", "various artists", "various", "topic", "guest listener", "admin"
     )
 
-    private val MOVIE_ATTRIBUTION_REGEX = Regex("""(?i)\s*(?:[\(\[\{/\-]\s*from\s+[^)\]\}]+[\)\]\}]?|-\s*from\s+.*$)""")
+    private val JUNK_ARTIST_SUBSTRINGS = listOf(
+        "rain therapy", "rain sound", "rain sounds", "sleep therapy", "sleep sound",
+        "sleep sounds", "sound therapy", "white noise", "nature sounds", "nature sound",
+        "relaxing rain", "ambient rain", "binaural beat", "binaural beats", "deep sleep",
+        "calming sound", "soothing sound", "noise therapy", "sleep music therapy",
+        "meditation sounds", "relaxing sounds", "ambient sounds"
+    )
 
     fun isInvalidArtistName(artist: String?): Boolean {
         if (artist.isNullOrBlank()) return true
         val lower = artist.trim().lowercase()
-        return lower in INVALID_ARTISTS || lower.startsWith("user_") || lower.startsWith("yt_")
+        if (lower in INVALID_ARTISTS || lower.startsWith("user_") || lower.startsWith("yt_")) return true
+        return JUNK_ARTIST_SUBSTRINGS.any { lower.contains(it) }
     }
+
+    fun isJunkOrNoiseTrack(track: Track): Boolean {
+        if (isInvalidArtistName(track.artist)) return true
+        val lowerTitle = track.title.trim().lowercase()
+        val junkTitlePhrases = listOf(
+            "rain therapy", "rain sounds", "rain sound", "rain for sleeping", "rain to sleep",
+            "rain and thunder", "rain & thunder", "sleep therapy", "sound therapy", "white noise",
+            "binaural beats", "deep sleep", "nature sounds", "nature sound", "relaxing rain",
+            "calming rain", "10 hours of rain", "8 hours of rain", "3 hours of rain",
+            "hours of rain", "sleep sounds", "sleep sound", "noise for sleep"
+        )
+        return junkTitlePhrases.any { lowerTitle.contains(it) }
+    }
+
+    private val MOVIE_ATTRIBUTION_REGEX = Regex("""(?i)\s*(?:[\(\[\{/\-]\s*from\s+[^)\]\}]+[\)\]\}]?|-\s*from\s+.*$)""")
 
     private val VERSION_AND_REMIX_REGEX = Regex(
         """(?i)[\(\[\{][^)\]\}]*(?:remix|mix|edit|slowed|reverb|sped\s*up|speed\s*up|phonk|cover|acoustic|live|instrumental|vip|dub|extended|radio\s*edit|version|feat\.?|ft\.?)[^)\]\}]*[\)\]\}]"""

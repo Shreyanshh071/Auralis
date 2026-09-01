@@ -859,7 +859,13 @@ open class InnerTubeClient(
                 val params = nav?.optString("params")
 
                 if (!text.isNullOrBlank()) {
-                    chips.add(HomeChip(title = text, endpointBrowseId = browseId, params = params))
+                    val lowerText = text.lowercase()
+                    val isUnwantedChip = lowerText.contains("sleep") || lowerText.contains("therapy") ||
+                        lowerText.contains("rain") || lowerText.contains("white noise") ||
+                        lowerText.contains("ambient sound")
+                    if (!isUnwantedChip) {
+                        chips.add(HomeChip(title = text, endpointBrowseId = browseId, params = params))
+                    }
                 }
             }
 
@@ -872,6 +878,17 @@ open class InnerTubeClient(
                     ?: "Recommendations"
                 val subtitle = header?.optJSONObject("strapline")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
 
+                val lowerTitle = title.lowercase()
+                val lowerSubtitle = (subtitle ?: "").lowercase()
+                val isUnwantedSection = lowerTitle.contains("rain therapy") || lowerTitle.contains("rain sound") ||
+                    lowerTitle.contains("sleep therapy") || lowerTitle.contains("white noise") ||
+                    lowerTitle.contains("nature sound") || lowerTitle.contains("binaural") ||
+                    lowerTitle.contains("sleep sound") || lowerTitle.contains("deep sleep") ||
+                    lowerSubtitle.contains("rain therapy") || lowerSubtitle.contains("sleep therapy") ||
+                    lowerSubtitle.contains("white noise")
+
+                if (isUnwantedSection) continue
+
                 val shelfItems = shelfObj.optJSONArray("contents") ?: JSONArray()
                 val tracks = mutableListOf<Track>()
                 val albums = mutableListOf<PlaylistResult>()
@@ -882,7 +899,9 @@ open class InnerTubeClient(
                     if (twoRow != null) {
                         val parsedTrack = parseMusicTwoRowItem(twoRow)
                         if (parsedTrack != null) {
-                            tracks.add(parsedTrack)
+                            if (!com.auralis.music.domain.recommendations.TrackDeduplicator.isJunkOrNoiseTrack(parsedTrack)) {
+                                tracks.add(parsedTrack)
+                            }
                         } else {
                             val aTitle = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
                             val aNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
@@ -893,7 +912,14 @@ open class InnerTubeClient(
                                 aAuthor = subRuns.optJSONObject(0)?.optString("text")
                             }
                             if (!aTitle.isNullOrBlank() && !aNav.isNullOrBlank()) {
-                                albums.add(PlaylistResult(id = aNav, title = aTitle, thumbnail = aThumb.ifBlank { null }, author = aAuthor))
+                                val aTitleLower = aTitle.lowercase()
+                                val aAuthorLower = (aAuthor ?: "").lowercase()
+                                if (!aTitleLower.contains("rain therapy") && !aTitleLower.contains("rain sound") &&
+                                    !aTitleLower.contains("sleep therapy") && !aTitleLower.contains("white noise") &&
+                                    !aAuthorLower.contains("rain therapy") && !aAuthorLower.contains("rain sound") &&
+                                    !aAuthorLower.contains("sleep therapy") && !aAuthorLower.contains("white noise")) {
+                                    albums.add(PlaylistResult(id = aNav, title = aTitle, thumbnail = aThumb.ifBlank { null }, author = aAuthor))
+                                }
                             }
                         }
                     }
@@ -903,8 +929,14 @@ open class InnerTubeClient(
                         val parsedAlbums = mutableListOf<PlaylistResult>()
                         val parsedPlaylists = mutableListOf<PlaylistResult>()
                         parseMusicListItem(responsive, tracks, dummyArtists, parsedAlbums, parsedPlaylists)
-                        albums.addAll(parsedAlbums)
-                        albums.addAll(parsedPlaylists)
+                        albums.addAll(parsedAlbums.filter {
+                            val aTitle = it.title.lowercase()
+                            !aTitle.contains("rain therapy") && !aTitle.contains("rain sound") && !aTitle.contains("sleep therapy")
+                        })
+                        albums.addAll(parsedPlaylists.filter {
+                            val aTitle = it.title.lowercase()
+                            !aTitle.contains("rain therapy") && !aTitle.contains("rain sound") && !aTitle.contains("sleep therapy")
+                        })
                     }
                 }
 
