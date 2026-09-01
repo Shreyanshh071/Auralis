@@ -7,7 +7,7 @@
   ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
   ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
   ![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
-  ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+  ![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge)
   [![Buy Me A Chai](https://img.shields.io/badge/Buy%20Me%20A%20Chai-☕-orange?style=for-the-badge&logo=coffeescript&logoColor=white)](https://www.buymeachai.in/shreyanshh071)
 
   <br />
@@ -177,4 +177,5 @@ Your support helps keep the project fast, 100% ad-free, open-source, and constan
 
 ## 📄 License
 
-This project is open-source under the [MIT License](LICENSE).
+This project is free and open-source software licensed under the **[GNU General Public License v3.0 (GPL-3.0)](LICENSE)**.
+You are free to use, modify, and distribute this software under the terms and copyleft protections of the GPL-3.0 license.
