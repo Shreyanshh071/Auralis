@@ -11,15 +11,15 @@ class ArtworkProcessorTest {
 
     @Test
     fun testYouTubeThumbnailUpgradesTo16By9WithoutBlackBars() {
-        // YouTube video URL: should upgrade to hq720.jpg (16:9 without 4:3 letterbox black bars)
+        // YouTube video URL: should maintain reliable hqdefault.jpg without causing 404 cascades
         val input = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
         val upgraded = getHighResArtworkUrl(input)
-        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg", upgraded)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", upgraded)
 
         // Video URL with default.jpg
         val input2 = "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg"
         val upgraded2 = getHighResArtworkUrl(input2)
-        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg", upgraded2)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", upgraded2)
     }
 
     @Test
@@ -33,7 +33,7 @@ class ArtworkProcessorTest {
     fun testCandidateArtworkPrioritization() {
         val ytUrl = "https://i.ytimg.com/vi/abc12345678/hqdefault.jpg"
         val candidates = ArtworkProcessor.getHighResArtworkCandidates(ytUrl)
-        assertTrue(candidates.contains("https://i.ytimg.com/vi/abc12345678/maxresdefault.jpg"))
-        assertTrue(candidates.contains("https://i.ytimg.com/vi/abc12345678/hq720.jpg"))
+        assertTrue(candidates.contains("https://i.ytimg.com/vi/abc12345678/hqdefault.jpg"))
+        assertTrue(candidates.contains("https://i.ytimg.com/vi/abc12345678/sddefault.jpg"))
     }
 }
