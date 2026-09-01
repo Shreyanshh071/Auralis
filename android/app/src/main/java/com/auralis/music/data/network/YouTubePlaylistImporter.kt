@@ -507,13 +507,14 @@ class YouTubePlaylistImporter(
                         ?.optJSONObject("musicThumbnailRenderer")
                         ?.optJSONObject("thumbnail")
                         ?.optJSONArray("thumbnails")
+                        ?: item.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
                     val itemThumbUrl = if (itemThumbnails != null && itemThumbnails.length() > 0) {
                         itemThumbnails.optJSONObject(itemThumbnails.length() - 1)?.optString("url")
                     } else null
 
                     val finalThumbnail = when {
                         !itemThumbUrl.isNullOrBlank() -> itemThumbUrl
-                        !videoId.isNullOrBlank() -> "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                        !videoId.isNullOrBlank() -> "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
                         !fallbackCover.isNullOrBlank() -> fallbackCover
                         else -> ""
                     }

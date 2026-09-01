@@ -1219,7 +1219,7 @@ class SpotifyPlaylistImporter(
                                 track.copy(
                                     id = topMatch.id,
                                     thumbnail = topMatch.thumbnail.ifBlank {
-                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${topMatch.id}/hq720.jpg" }
+                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${topMatch.id}/hqdefault.jpg" }
                                     },
                                     duration = if (track.duration > 0) track.duration else topMatch.duration
                                 )

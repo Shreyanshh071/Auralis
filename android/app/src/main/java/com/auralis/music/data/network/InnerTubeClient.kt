@@ -1294,15 +1294,14 @@ open class InnerTubeClient(
                         .replace(Regex("""=s\d+.*"""), "=s1200-c")
                 } else if (url.contains("i.ytimg.com") || url.contains("img.youtube.com")) {
                     val noQuery = url.substringBefore('?')
-                    url = noQuery.replace("hqdefault.jpg", "hq720.jpg")
-                        .replace("mqdefault.jpg", "hq720.jpg")
-                        .replace("sddefault.jpg", "hq720.jpg")
-                        .replace("default.jpg", "hq720.jpg")
+                    url = noQuery.replace("default.jpg", "hqdefault.jpg")
+                        .replace("mqdefault.jpg", "hqdefault.jpg")
+                        .replace("hq720.jpg", "hqdefault.jpg")
                 }
                 return url
             }
         }
-        return if (!videoId.isNullOrBlank()) "https://i.ytimg.com/vi/$videoId/hq720.jpg" else ""
+        return if (!videoId.isNullOrBlank()) "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" else ""
     }
 
     private fun parseDurationToSeconds(timeStr: String): Long {
