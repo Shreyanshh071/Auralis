@@ -107,27 +107,55 @@ object LyricsMatcher {
     /**
      * Flexible track title matcher with version awareness and Indic transliteration cross-checking.
      */
+    /**
+     * Flexible track title matcher with version awareness and Indic transliteration cross-checking.
+     */
     fun isTitleMatching(queryTitle: String, candTitle: String): Boolean {
-        val qClean = TitleCleaner.cleanTitle(queryTitle).lowercase().trim()
-        val cClean = TitleCleaner.cleanTitle(candTitle).lowercase().trim()
-        if (qClean.isBlank() || cClean.isBlank()) return true
+        val qClean = TitleCleaner.cleanCoreSongTitle(queryTitle).lowercase().trim()
+        val cClean = TitleCleaner.cleanCoreSongTitle(candTitle).lowercase().trim()
+        if (qClean.isBlank() || cClean.isBlank()) return false
         if (qClean == cClean) return true
-        if (qClean.contains(cClean) || cClean.contains(qClean)) return true
+
+        // Reject multi-song mashup/medleys when query is a single song
+        val isQueryMashup = qClean.contains("mashup") || qClean.contains("medley") || qClean.contains(" / ")
+        val isCandMashup = cClean.contains("mashup") || cClean.contains("medley") || cClean.contains(" / ") || cClean.contains("sangeet mix") || cClean.contains("sangeet")
+        if (!isQueryMashup && isCandMashup) {
+            return false
+        }
 
         val qPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(qClean)
         val cPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(cClean)
-        if (qPhonetic == cPhonetic || qPhonetic.contains(cPhonetic) || cPhonetic.contains(qPhonetic)) return true
+        if (qPhonetic == cPhonetic) return true
 
-        val qTokens = tokenize(qPhonetic)
-        val cTokens = tokenize(cPhonetic).toSet()
+        val qCanonical = IndicScriptNormalizer.toPhoneticCanonical(qPhonetic)
+        val cCanonical = IndicScriptNormalizer.toPhoneticCanonical(cPhonetic)
+        if (qCanonical == cCanonical) return true
+
+        val qTokens = tokenize(qCanonical)
+        val cTokens = tokenize(cCanonical)
         if (qTokens.isEmpty() || cTokens.isEmpty()) return false
 
+        val qSet = qTokens.toSet()
+        val cSet = cTokens.toSet()
+        val intersection = qSet.intersect(cSet).size
+        val dice = (2.0 * intersection) / (qSet.size + cSet.size)
+
+        if (dice >= 0.60) return true
+
+        // When query is small (1 or 2 words), candidate must not contain unrelated song names (dice >= 0.50)
+        if (qTokens.size <= 2 && dice < 0.50) {
+            return false
+        }
+
         val matches = qTokens.count { qWord ->
-            cTokens.any { cWord ->
+            cSet.any { cWord ->
                 qWord == cWord || (qWord.length >= 4 && cWord.length >= 4 && (qWord.contains(cWord) || cWord.contains(qWord)))
             }
         }
-        return matches >= Math.min(qTokens.size, 2)
+        val matchRatio = matches.toDouble() / qTokens.size
+        val cMatchRatio = matches.toDouble() / cTokens.size
+
+        return (matchRatio >= 0.80 && cMatchRatio >= 0.50) || (matches >= 2 && matches == qTokens.size && cMatchRatio >= 0.50)
     }
 
     /**
@@ -143,20 +171,25 @@ object LyricsMatcher {
         queryAlbum: String? = null,
         candidateAlbum: String? = null
     ): Int {
-        val qCleanTitle = TitleCleaner.cleanTitle(queryTitle)
-        val cCleanTitle = TitleCleaner.cleanTitle(candidateTitle)
+        val qCoreTitle = TitleCleaner.cleanCoreSongTitle(queryTitle)
+        val cCoreTitle = TitleCleaner.cleanCoreSongTitle(candidateTitle)
+
+        val qPhoneticCore = IndicScriptNormalizer.transliterateToPhoneticLatin(qCoreTitle)
+        val cPhoneticCore = IndicScriptNormalizer.transliterateToPhoneticLatin(cCoreTitle)
+        val qCanonicalCore = IndicScriptNormalizer.toPhoneticCanonical(qPhoneticCore)
+        val cCanonicalCore = IndicScriptNormalizer.toPhoneticCanonical(cPhoneticCore)
 
         // 1. Title Score (0.0 to 1.0)
-        val directTitleDice = diceCoefficient(qCleanTitle, cCleanTitle)
-        val phoneticTitleDice = diceCoefficient(
-            IndicScriptNormalizer.transliterateToPhoneticLatin(qCleanTitle),
-            IndicScriptNormalizer.transliterateToPhoneticLatin(cCleanTitle)
-        )
-        val isDirectSub = if (qCleanTitle.isNotBlank() && cCleanTitle.isNotBlank() &&
-            (qCleanTitle.contains(cCleanTitle, ignoreCase = true) || cCleanTitle.contains(qCleanTitle, ignoreCase = true))
-        ) 0.9 else 0.0
-        val isTitleMatchScore = if (isTitleMatching(queryTitle, candidateTitle)) 0.95 else 0.0
-        val titleScore = maxOf(directTitleDice, phoneticTitleDice, isDirectSub, isTitleMatchScore)
+        val isTitleMatch = isTitleMatching(queryTitle, candidateTitle)
+        if (!isTitleMatch) {
+            return 0
+        }
+
+        val directTitleDice = diceCoefficient(qCoreTitle, cCoreTitle)
+        val phoneticTitleDice = diceCoefficient(qPhoneticCore, cPhoneticCore)
+        val canonicalTitleDice = diceCoefficient(qCanonicalCore, cCanonicalCore)
+        val isExact = if (qCoreTitle.equals(cCoreTitle, ignoreCase = true) || qPhoneticCore.equals(cPhoneticCore, ignoreCase = true) || qCanonicalCore.equals(cCanonicalCore, ignoreCase = true)) 1.0 else 0.0
+        val titleScore = maxOf(isExact, directTitleDice, phoneticTitleDice, canonicalTitleDice, 0.85)
 
         // 2. Artist Score (0.0 to 1.0)
         val qArtistClean = TitleCleaner.cleanArtist(queryArtist)
@@ -186,6 +219,11 @@ object LyricsMatcher {
             0.80
         }
 
+        // Strict guard: if artist fails AND duration fails (>25s mismatch), it is a different song with same name
+        if (artistScore == 0.0 && durationScore == 0.0) {
+            return 0
+        }
+
         // 4. Version Score (0.0 to 1.0)
         val qVersion = TitleCleaner.extractVersion(queryTitle)
         val cVersion = TitleCleaner.extractVersion(candidateTitle)
@@ -212,9 +250,6 @@ object LyricsMatcher {
         titleThreshold: Double = 0.5,
         artistThreshold: Double = 0.3
     ): Boolean {
-        if (isTitleMatching(queryTitle, candidateTitle) && isArtistMatching(queryArtist, candidateArtist)) {
-            return true
-        }
         val confidence = calculateConfidence(queryTitle, queryArtist, candidateTitle, candidateArtist)
         return confidence >= 50
     }

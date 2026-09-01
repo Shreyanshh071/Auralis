@@ -66,7 +66,7 @@ fun AuralisPlayerSlider(
     currentPosMs: Long,
     totalDurationMs: Long,
     modifier: Modifier = Modifier,
-    sliderStyle: String = "Default",
+    sliderStyle: String = "Wavy",
     activeTrackColor: Color = Color.White,
     inactiveTrackColor: Color = Color.White.copy(alpha = 0.28f),
     thumbColor: Color = Color.White,

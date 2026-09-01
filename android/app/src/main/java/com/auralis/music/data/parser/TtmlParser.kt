@@ -195,26 +195,7 @@ object TtmlParser {
 
         for (i in syllables.indices) {
             val syl = syllables[i]
-            var sylText = syl.text
-            val isLast = (i == syllables.size - 1)
-
-            // Check if this syllable needs a space separator before the next syllable
-            if (!isLast) {
-                val nextSyl = syllables[i + 1]
-                val prevLast = sylText.lastOrNull()
-                val nextFirst = nextSyl.text.firstOrNull()
-
-                val alreadyHasSpace = sylText.endsWith(" ") || nextSyl.text.startsWith(" ")
-                if (!alreadyHasSpace && prevLast != null && nextFirst != null) {
-                    val prevIsWordChar = prevLast.isLetterOrDigit() || prevLast == ',' || prevLast == '.' || prevLast == '!' || prevLast == '?' || prevLast == ';' || prevLast == ':'
-                    val nextIsWordChar = nextFirst.isLetterOrDigit()
-                    val isLatin = isLatinScript(prevLast) || isLatinScript(nextFirst)
-
-                    if (prevIsWordChar && nextIsWordChar && isLatin) {
-                        sylText = "$sylText "
-                    }
-                }
-            }
+            val sylText = syl.text
 
             lineSb.append(sylText)
             wordList.add(

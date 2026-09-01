@@ -7,13 +7,17 @@ import com.auralis.music.data.local.entity.*
 import com.auralis.music.domain.model.*
 
 fun TrackEntity.toDomain(): Track {
+    val cleanThumb = if (!id.startsWith("sp_") && id.length in 8..15 && (thumbnail.isBlank() || thumbnail.contains("mosaic.scdn.co") || thumbnail.contains("image-cdn"))) {
+        "https://i.ytimg.com/vi/$id/hq720.jpg"
+    } else thumbnail
+
     return Track(
         id = id,
         title = title,
         artist = artist,
         album = album,
         duration = duration,
-        thumbnail = thumbnail,
+        thumbnail = cleanThumb,
         source = source,
         channelTitle = channelTitle,
         views = views,

@@ -812,7 +812,7 @@ fun ProfileSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (hasActiveTrack) 120.dp else 24.dp))
         }
     }
 

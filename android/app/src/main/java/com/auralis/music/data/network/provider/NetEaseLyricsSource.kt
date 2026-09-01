@@ -31,11 +31,18 @@ class NetEaseLyricsSource(
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
-        val cleanTitle = TitleCleaner.cleanTitle(query.title)
+        val cleanTitle = TitleCleaner.cleanCoreSongTitle(query.title)
         val cleanArtist = TitleCleaner.cleanArtist(query.artist)
+        val primaryArtist = cleanArtist
+            .split(Regex("""[,&/|]|(?:\s+feat\.?\s+)|\s+ft\.?\s+|\s+and\s+|\s+with\s+""", RegexOption.IGNORE_CASE))
+            .firstOrNull()?.trim() ?: cleanArtist
+
+        if (primaryArtist.isNotBlank() && primaryArtist != cleanArtist) {
+            searchNetEase("$cleanTitle $primaryArtist", query)?.let { return@withContext it }
+        }
 
         searchNetEase("$cleanTitle $cleanArtist", query)
-            ?: (if (cleanTitle != query.title) searchNetEase(cleanTitle, query) else null)
+            ?: searchNetEase(cleanTitle, query)
     }
 
     private fun searchNetEase(searchTerm: String, query: LyricsSearchQuery): LyricsCandidate? {

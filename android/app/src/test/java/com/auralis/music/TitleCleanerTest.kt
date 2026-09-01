@@ -105,4 +105,19 @@ class TitleCleanerTest {
         assertEquals("Live", TitleCleaner.extractVersion("Song (Live at Forum)"))
         assertEquals("Instrumental", TitleCleaner.extractVersion("Song [Instrumental]"))
     }
+
+    @Test
+    fun `cleanTitle preserves song titles containing with and cleans feat credits properly`() {
+        // "Die With A Smile" must NEVER be stripped to "Die"
+        assertEquals("Die With A Smile", TitleCleaner.cleanTitle("Die With A Smile"))
+        assertEquals("Die With A Smile (Live)", TitleCleaner.cleanTitle("Die With A Smile (Live)"))
+        assertEquals("Die With A Smile", TitleCleaner.cleanTitle("Die With A Smile (feat. Bruno Mars)"))
+        assertEquals("Lady Gaga, Bruno Mars - Die With A Smile", TitleCleaner.cleanTitle("Lady Gaga, Bruno Mars - Die With A Smile (Official Music Video)"))
+        val (artist, song) = TitleCleaner.splitArtistAndTitle("Lady Gaga, Bruno Mars - Die With A Smile (Official Music Video)")
+        assertEquals("Lady Gaga, Bruno Mars", artist)
+        assertEquals("Die With A Smile", song)
+        assertEquals("Stay With Me", TitleCleaner.cleanTitle("Stay With Me"))
+        assertEquals("Dancing With A Stranger", TitleCleaner.cleanTitle("Dancing With A Stranger (feat. Normani)"))
+        assertEquals("Stuck with U", TitleCleaner.cleanTitle("Stuck with U"))
+    }
 }

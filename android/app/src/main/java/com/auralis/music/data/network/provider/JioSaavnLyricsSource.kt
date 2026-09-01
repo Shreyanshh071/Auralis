@@ -30,14 +30,19 @@ class JioSaavnLyricsSource(
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
-        val cleanTitle = TitleCleaner.cleanTitle(query.title)
+        val cleanTitle = TitleCleaner.cleanCoreSongTitle(query.title)
         val cleanArtist = TitleCleaner.cleanArtist(query.artist)
+        val primaryArtist = cleanArtist
+            .split(Regex("""[,&/|]|(?:\s+feat\.?\s+)|\s+ft\.?\s+|\s+and\s+|\s+with\s+""", RegexOption.IGNORE_CASE))
+            .firstOrNull()?.trim() ?: cleanArtist
+
+        if (primaryArtist.isNotBlank() && primaryArtist != cleanArtist) {
+            searchJioSaavn("$cleanTitle $primaryArtist", query)?.let { return@withContext it }
+        }
 
         // Try primary query first, fallback to title-only if artist is ambiguous or omitted
-        val candidate = searchJioSaavn("$cleanTitle $cleanArtist", query)
+        searchJioSaavn("$cleanTitle $cleanArtist", query)
             ?: searchJioSaavn(cleanTitle, query)
-
-        candidate
     }
 
     private fun searchJioSaavn(searchTerm: String, query: LyricsSearchQuery): LyricsCandidate? {

@@ -86,7 +86,7 @@ fun KineticLyricsView(
         return
     }
 
-    val isSynced = lyrics.syncType != SyncType.PLAIN && effectiveLines.any { it.time > 0L }
+    val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
     val activeIndex = remember(effectiveLines, currentPositionMs, offsetMs, isSynced) {
         if (isSynced) LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionMs, offsetMs) else -1
     }

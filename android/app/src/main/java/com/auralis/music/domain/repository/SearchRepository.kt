@@ -10,10 +10,12 @@ import kotlinx.coroutines.flow.Flow
 interface SearchRepository {
     suspend fun search(query: String): SearchResults
     suspend fun searchSongs(query: String): List<Track>
+    suspend fun searchAlbums(query: String): List<PlaylistResult>
     suspend fun searchArtists(query: String): List<Artist>
     suspend fun searchPlaylists(query: String): List<PlaylistResult>
     suspend fun getSuggestions(query: String): List<String>
     suspend fun getArtistPage(artist: Artist): ArtistPage?
+    suspend fun getAlbumTracks(album: PlaylistResult): List<Track>
     fun getRecentSearchQueries(): Flow<List<String>>
     suspend fun recordSearchQuery(query: String)
     suspend fun removeSearchQuery(query: String)

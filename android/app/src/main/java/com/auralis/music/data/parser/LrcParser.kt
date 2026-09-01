@@ -134,19 +134,10 @@ object LrcParser {
             sorted
         }
 
-        // Check if timestamps are fake robotic linear steps (e.g. 0.0s, 5.2s, 10.4s, 15.6s)
-        val isAuthentic = if (processedLines.size >= 4) {
-            val diffs = processedLines.zipWithNext { a, b -> b.time - a.time }
-            val hasRoboticStepPattern = diffs.zipWithNext().count { (d1, d2) -> kotlin.math.abs(d1 - d2) <= 50 && d1 > 2000L } >= 2
-            !hasRoboticStepPattern
-        } else {
-            true
-        }
-
         val hasDerivedWordSync = processedLines.any { it.words != null && it.words.isNotEmpty() }
         val syncType = when {
-            !isAuthentic -> SyncType.PLAIN
             hasWordSync || hasDerivedWordSync -> SyncType.RICHSYNC
+            processedLines.any { it.time > 0L } -> SyncType.LINE_SYNC
             processedLines.isNotEmpty() -> SyncType.LINE_SYNC
             else -> SyncType.PLAIN
         }

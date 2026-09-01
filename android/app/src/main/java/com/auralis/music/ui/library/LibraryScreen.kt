@@ -486,6 +486,8 @@ fun LibraryScreen(
                 else -> 160.dp
             }
 
+            val libraryBottomPad = if (currentTrackId != null) 180.dp else 100.dp
+
             AnimatedContent(
                 targetState = isGridView,
                 transitionSpec = {
@@ -497,7 +499,7 @@ fun LibraryScreen(
                 if (gridMode) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = minGridSize),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = libraryBottomPad),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxSize()
@@ -572,7 +574,7 @@ fun LibraryScreen(
                     // ============================================================
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = libraryBottomPad),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (searchQuery.isBlank()) {
@@ -1302,9 +1304,10 @@ private fun PlaylistDetailView(
         // ================================================================
         // 2. MAIN SCROLLABLE BODY
         // ================================================================
+        val playlistBottomPad = if (currentTrackId != null) 180.dp else 100.dp
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp)
+            contentPadding = PaddingValues(bottom = playlistBottomPad)
         ) {
             // Header Content
             item {
@@ -1683,7 +1686,8 @@ private fun PlaylistDetailView(
                             url = track.thumbnail,
                             modifier = Modifier.size(48.dp),
                             cornerRadius = 8.dp,
-                            contentDescription = track.title
+                            contentDescription = track.title,
+                            fallbackTrack = track
                         )
 
                         Spacer(modifier = Modifier.width(14.dp))

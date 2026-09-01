@@ -35,17 +35,23 @@ class BetterLyricsSource(
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
-        val cleanTitle = TitleCleaner.cleanTitle(query.title)
+        val cleanTitle = TitleCleaner.cleanCoreSongTitle(query.title)
         val cleanArtist = TitleCleaner.cleanArtist(query.artist)
+        val primaryArtist = cleanArtist
+            .split(Regex("""[,&/|]|(?:\s+feat\.?\s+)|\s+ft\.?\s+|\s+and\s+|\s+with\s+""", RegexOption.IGNORE_CASE))
+            .firstOrNull()?.trim() ?: cleanArtist
 
         if (cleanTitle.isBlank()) return@withContext null
 
+        val artistToUse = primaryArtist.ifBlank { cleanArtist }
+        fetchFromBetterLyrics(cleanTitle, artistToUse, query)
+            ?: (if (artistToUse != cleanArtist) fetchFromBetterLyrics(cleanTitle, cleanArtist, query) else null)
+    }
+
+    private fun fetchFromBetterLyrics(cleanTitle: String, artistToUse: String, query: LyricsSearchQuery): LyricsCandidate? {
         try {
             val encSong = URLEncoder.encode(cleanTitle, "UTF-8")
-            val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
-            // `d` (duration, seconds) and `al` (album) are what let the API pick the
-            // right release: without them a radio edit or re-record can come back,
-            // and its timestamps will not line up with the stream being played.
+            val encArtist = URLEncoder.encode(artistToUse, "UTF-8")
             val durationParam = query.durationSec?.takeIf { it > 0 }?.let { "&d=$it" } ?: ""
             val albumParam = query.album?.takeIf { it.isNotBlank() }
                 ?.let { "&al=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
@@ -58,9 +64,9 @@ class BetterLyricsSource(
                 .build()
 
             val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext null
+            if (!resp.isSuccessful) return null
 
-            val body = resp.body?.string() ?: return@withContext null
+            val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
 
             val ttml = json.optString("ttml")
@@ -74,27 +80,40 @@ class BetterLyricsSource(
                 else -> ""
             }
 
-            if (lyricsContent.isBlank()) return@withContext null
+            if (lyricsContent.isBlank()) return null
+
+            val candTitle = json.optString("trackName").ifBlank { json.optString("name").ifBlank { cleanTitle } }
+            val candArtist = json.optString("artistName").ifBlank { json.optString("artist").ifBlank { artistToUse } }
+            val candDuration = json.optLong("duration", 0L).takeIf { it > 0 }
 
             val rawParsed = BetterLyricsParser.parse(
                 content = lyricsContent,
                 provider = LyricsProvider.BETTER_LYRICS,
-                trackName = cleanTitle,
-                artistName = cleanArtist
-            ) ?: return@withContext null
+                trackName = candTitle,
+                artistName = candArtist
+            ) ?: return null
 
-            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, null)
+            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
 
-            val confidence = if (aligned.syncType == SyncType.RICHSYNC) 95 else 80
+            val confidence = LyricsMatcher.calculateConfidence(
+                queryTitle = query.title,
+                queryArtist = query.artist,
+                candidateTitle = candTitle,
+                candidateArtist = candArtist,
+                queryDurationSec = query.durationSec,
+                candidateDurationSec = candDuration
+            )
 
-            LyricsCandidate(
+            if (confidence < 50) return null
+
+            return LyricsCandidate(
                 lyricsData = aligned,
                 confidence = confidence,
                 syncType = aligned.syncType,
                 provider = LyricsProvider.BETTER_LYRICS
             )
         } catch (_: Exception) {
-            null
+            return null
         }
     }
 }

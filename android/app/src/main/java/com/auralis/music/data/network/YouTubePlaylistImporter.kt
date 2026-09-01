@@ -111,7 +111,7 @@ class YouTubePlaylistImporter(
 
     suspend fun importPlaylistById(playlistId: String): Playlist? = withContext(Dispatchers.IO) {
         val cleanId = if (playlistId.startsWith("VL")) playlistId.substring(2) else playlistId
-        val browseId = "VL$cleanId"
+        val browseId = if (cleanId.startsWith("MPRE") || cleanId.startsWith("FEmusic_") || cleanId.startsWith("UC")) cleanId else "VL$cleanId"
 
         try {
             val clientContext = JSONObject().apply {
@@ -144,8 +144,10 @@ class YouTubePlaylistImporter(
             val json = JSONObject(body)
 
             val playlistTitle = extractPlaylistTitle(json) ?: "Imported Playlist"
+            val playlistAuthor = extractPlaylistAuthor(json)
+            val playlistCover = extractPlaylistThumbnail(json)
             val allTracks = mutableListOf<Track>()
-            allTracks.addAll(extractTracksFromJson(json, playlistTitle))
+            allTracks.addAll(extractTracksFromJson(json, playlistTitle, playlistAuthor, playlistCover))
 
             // 2. Fetch continuations to import all remaining songs (up to 5,000 tracks)
             var continuationToken = extractPlaylistContinuationToken(json)
@@ -175,7 +177,7 @@ class YouTubePlaylistImporter(
                     val contBody = contResponse.body?.string() ?: ""
                     val contJson = JSONObject(contBody)
 
-                    val newTracks = extractTracksFromJson(contJson, playlistTitle)
+                    val newTracks = extractTracksFromJson(contJson, playlistTitle, playlistAuthor, playlistCover)
                     if (newTracks.isEmpty()) break
                     allTracks.addAll(newTracks)
 
@@ -190,7 +192,8 @@ class YouTubePlaylistImporter(
                 return@withContext Playlist(
                     id = cleanId,
                     title = playlistTitle,
-                    description = "Imported from YouTube Music",
+                    description = playlistAuthor ?: "Imported from YouTube Music",
+                    coverUrl = playlistCover,
                     tracks = validTracks
                 )
             }
@@ -345,7 +348,60 @@ class YouTubePlaylistImporter(
         return null
     }
 
-    private fun extractTracksFromJson(json: JSONObject, fallbackAlbum: String): List<Track> {
+    private fun extractPlaylistThumbnail(json: JSONObject): String? {
+        val rootHeader = json.optJSONObject("header")
+        val headerThumb = rootHeader?.optJSONObject("musicResponsiveHeaderRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        if (headerThumb != null && headerThumb.length() > 0) {
+            return headerThumb.optJSONObject(headerThumb.length() - 1)?.optString("url")
+        }
+        val detailThumb = rootHeader?.optJSONObject("musicDetailHeaderRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        if (detailThumb != null && detailThumb.length() > 0) {
+            return detailThumb.optJSONObject(detailThumb.length() - 1)?.optString("url")
+        }
+        val tabHeaderThumb = json.optJSONObject("contents")
+            ?.optJSONObject("twoColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
+            ?.optJSONObject(0)?.optJSONObject("musicResponsiveHeaderRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        if (tabHeaderThumb != null && tabHeaderThumb.length() > 0) {
+            return tabHeaderThumb.optJSONObject(tabHeaderThumb.length() - 1)?.optString("url")
+        }
+        return null
+    }
+
+    private fun extractPlaylistAuthor(json: JSONObject): String? {
+        val tabHeader = json.optJSONObject("contents")
+            ?.optJSONObject("twoColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
+            ?.optJSONObject(0)?.optJSONObject("musicResponsiveHeaderRenderer")
+        val strapline = tabHeader?.optJSONObject("straplineTextOne")
+            ?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+        if (!strapline.isNullOrBlank()) return strapline.trim()
+
+        val rootHeader = json.optJSONObject("header")
+        val rootStrapline = rootHeader?.optJSONObject("musicResponsiveHeaderRenderer")
+            ?.optJSONObject("straplineTextOne")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+            ?: rootHeader?.optJSONObject("musicDetailHeaderRenderer")
+                ?.optJSONObject("subtitle")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+        if (!rootStrapline.isNullOrBlank()) return rootStrapline.trim()
+        return null
+    }
+
+    private fun extractTracksFromJson(
+        json: JSONObject,
+        fallbackAlbum: String,
+        fallbackAuthor: String? = null,
+        fallbackCover: String? = null
+    ): List<Track> {
         val tracks = mutableListOf<Track>()
 
         fun extractItems(obj: Any?) {
@@ -364,9 +420,17 @@ class YouTubePlaylistImporter(
                     }
 
                     val col1Runs = col1?.optJSONObject("text")?.optJSONArray("runs")
-                    var artist = "Artist"
+                    var artist = fallbackAuthor ?: "Artist"
                     var album = fallbackAlbum
                     var durationSec = 210L
+
+                    // Check fixedColumns for duration (standard in YouTube Music album items)
+                    val fixedCols = item.optJSONArray("fixedColumns")
+                    val fixed0 = fixedCols?.optJSONObject(0)?.optJSONObject("musicResponsiveListItemFixedColumnRenderer")
+                    val fixed0Txt = fixed0?.optJSONObject("text")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                    if (!fixed0Txt.isNullOrBlank() && fixed0Txt.matches(Regex("^\\d+:\\d+(:\\d+)?$"))) {
+                        durationSec = parseDurationToSeconds(fixed0Txt)
+                    }
 
                     if (col1Runs != null && col1Runs.length() > 0) {
                         val artistRuns = mutableListOf<String>()
@@ -379,11 +443,7 @@ class YouTubePlaylistImporter(
                                 continue
                             }
                             if (!foundDot) {
-                                val browseId = rObj.optJSONObject("navigationEndpoint")
-                                    ?.optJSONObject("browseEndpoint")?.optString("browseId")
-                                if (browseId != null && browseId.startsWith("UC")) {
-                                    artistRuns.add(txt)
-                                } else {
+                                if (!txt.contains("plays", ignoreCase = true)) {
                                     artistRuns.add(txt)
                                 }
                             } else {
@@ -443,14 +503,29 @@ class YouTubePlaylistImporter(
 
                     val isVideoUnavailable = (title.equals("Private video", ignoreCase = true) || title.equals("Deleted video", ignoreCase = true)) && videoId.isNullOrBlank()
 
+                    val itemThumbnails = item.optJSONObject("thumbnail")
+                        ?.optJSONObject("musicThumbnailRenderer")
+                        ?.optJSONObject("thumbnail")
+                        ?.optJSONArray("thumbnails")
+                    val itemThumbUrl = if (itemThumbnails != null && itemThumbnails.length() > 0) {
+                        itemThumbnails.optJSONObject(itemThumbnails.length() - 1)?.optString("url")
+                    } else null
+
+                    val finalThumbnail = when {
+                        !itemThumbUrl.isNullOrBlank() -> itemThumbUrl
+                        !videoId.isNullOrBlank() -> "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                        !fallbackCover.isNullOrBlank() -> fallbackCover
+                        else -> ""
+                    }
+
                     if (!videoId.isNullOrBlank() && title.isNotBlank() && !isVideoUnavailable) {
                         tracks.add(
                             Track(
                                 id = videoId,
                                 title = title,
-                                artist = if (artist.isBlank() || artist == "Artist") "YouTube Music" else artist,
+                                artist = if (artist.isBlank() || artist == "Artist") (fallbackAuthor ?: "YouTube Music") else artist,
                                 album = album,
-                                thumbnail = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
+                                thumbnail = finalThumbnail,
                                 duration = durationSec,
                                 source = TrackSource.YOUTUBE
                             )

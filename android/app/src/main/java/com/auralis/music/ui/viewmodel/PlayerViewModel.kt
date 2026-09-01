@@ -50,8 +50,9 @@ class PlayerViewModel(
     private val context: android.content.Context? = null
 ) : ViewModel() {
 
-    private val queueManager = AudioQueueManager()
+    private val queueManager = audioPlayer?.queueManager ?: AudioQueueManager()
     private val sleepTimerManager = SleepTimerManager()
+    private val currentPlaybackRequestId = java.util.concurrent.atomic.AtomicLong(0L)
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -92,16 +93,34 @@ class PlayerViewModel(
         // Bind AudioPlayer reactive flows if available
         audioPlayer?.let { player ->
             val initialTrack = player.currentTrack.value
-            if (initialTrack != null && _uiState.value.currentTrack == null) {
+            val initialQState = player.queueState.value
+            if (initialTrack != null) {
                 _uiState.update {
                     it.copy(
                         currentTrack = initialTrack,
+                        queue = initialQState.queue,
+                        currentIndex = initialQState.currentIndex,
+                        isShuffled = initialQState.isShuffled,
+                        repeatMode = initialQState.repeatMode,
                         isPlaying = player.isPlaying.value,
                         playbackPositionMs = player.playbackPositionMs.value,
                         durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (initialTrack.duration * 1000L)
                     )
                 }
                 loadLyrics(initialTrack)
+            }
+
+            viewModelScope.launch {
+                player.queueState.collect { qState ->
+                    _uiState.update {
+                        it.copy(
+                            queue = qState.queue,
+                            currentIndex = qState.currentIndex,
+                            isShuffled = qState.isShuffled,
+                            repeatMode = qState.repeatMode
+                        )
+                    }
+                }
             }
 
             viewModelScope.launch {
@@ -118,9 +137,6 @@ class PlayerViewModel(
                 }
             }
 
-            player.setOnTrackCompletedCallback {
-                next()
-            }
             player.setNavigationCallbacks(
                 onNext = { next() },
                 onPrevious = { previous() },
@@ -253,8 +269,6 @@ class PlayerViewModel(
         }
     }
 
-    private val currentPlaybackRequestId = java.util.concurrent.atomic.AtomicLong(0L)
-
     private fun triggerPlayback(
         track: Track,
         debounceMs: Long = 0L,
@@ -309,31 +323,49 @@ class PlayerViewModel(
         isAutoRadioMode = isAutoQueue
 
         Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}, isAutoRadio=$isAutoRadioMode, initialPos=${initialPositionMs}ms")
-        val qState = if (newQueue.isNotEmpty()) {
-            val isSameQueue = queueManager.state.queue.isNotEmpty() &&
-                              newQueue.map { it.id } == queueManager.state.queue.map { it.id }
-            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = isSameQueue, isUserQueue = !isAutoQueue)
-        } else {
-            queueManager.playTrack(track, isUserQueue = !isAutoQueue)
-        }
-
-        _uiState.update {
-            it.copy(
-                currentTrack = qState.currentTrack,
-                queue = qState.queue,
-                currentIndex = qState.currentIndex,
-                isShuffled = qState.isShuffled,
-                isPlaying = true,
-                playbackPositionMs = initialPositionMs,
-                durationMs = track.duration * 1000,
-                errorMessage = null
+        if (audioPlayer != null) {
+            audioPlayer.playTrack(
+                track = track,
+                newQueue = newQueue,
+                startIndex = startIndex,
+                isUserQueue = isUserQueue,
+                initialPositionMs = initialPositionMs
             )
+        } else {
+            val qState = if (newQueue.isNotEmpty()) {
+                val isSameQueue = queueManager.state.queue.isNotEmpty() &&
+                                  newQueue.map { it.id } == queueManager.state.queue.map { it.id }
+                queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = isSameQueue, isUserQueue = !isAutoQueue)
+            } else {
+                queueManager.playTrack(track, isUserQueue = !isAutoQueue)
+            }
+            _uiState.update {
+                it.copy(
+                    currentTrack = qState.currentTrack,
+                    queue = qState.queue,
+                    currentIndex = qState.currentIndex,
+                    isShuffled = qState.isShuffled,
+                    isPlaying = true,
+                    playbackPositionMs = initialPositionMs,
+                    durationMs = track.duration * 1000,
+                    errorMessage = null
+                )
+            }
+            triggerPlayback(track, debounceMs = 0L, requestId = reqId, initialPositionMs = initialPositionMs)
         }
 
-        triggerPlayback(track, debounceMs = 0L, requestId = reqId, initialPositionMs = initialPositionMs)
-
-        val upcomingTrack = qState.queue.getOrNull(qState.currentIndex + 1)
-        audioPlayer?.prefetchTrack(upcomingTrack)
+        playJob?.cancel()
+        lyricsJob?.cancel()
+        playJob = viewModelScope.launch(Dispatchers.IO) {
+            val isPaused = context?.let { ctx ->
+                com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseListenHistory
+            } ?: false
+            if (!isPaused) {
+                historyRepository.addToHistory(track)
+                historyRepository.recordPlay(track)
+            }
+        }
+        loadLyrics(track, reqId)
 
         if (isAutoRadioMode) {
             fetchAndAppendRadioTracks(track)
@@ -344,19 +376,20 @@ class PlayerViewModel(
         radioJob?.cancel()
         radioJob = viewModelScope.launch {
             try {
-                // Defer background radio population slightly so playback stream gets first priority
                 delay(600)
                 val radioTracks = withContext(Dispatchers.IO) {
                     innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title)
                 }
                 if (radioTracks.isNotEmpty()) {
-                    val qState = queueManager.appendTracks(radioTracks)
-                    _uiState.update {
-                        it.copy(queue = qState.queue)
+                    if (audioPlayer != null) {
+                        audioPlayer.addToQueue(radioTracks)
+                    } else {
+                        val qState = queueManager.appendTracks(radioTracks)
+                        _uiState.update {
+                            it.copy(queue = qState.queue)
+                        }
                     }
-                    Log.d("AuralisPlayback", "[AutoRadio] Appended ${radioTracks.size} radio tracks for '${seedTrack.title}' (total queue: ${qState.queue.size})")
-                    val upcoming = qState.queue.getOrNull(qState.currentIndex + 1)
-                    audioPlayer?.prefetchTrack(upcoming)
+                    Log.d("AuralisPlayback", "[AutoRadio] Appended ${radioTracks.size} radio tracks for '${seedTrack.title}'")
                 }
             } catch (e: Exception) {
                 Log.w("AuralisPlayback", "[AutoRadio] Error fetching radio tracks: ${e.message}")
@@ -397,8 +430,12 @@ class PlayerViewModel(
         playJob?.cancel()
         radioJob?.cancel()
         lyricsJob?.cancel()
-        audioPlayer?.stop()
-        queueManager.setQueue(emptyList())
+        if (audioPlayer != null) {
+            audioPlayer.stop()
+            audioPlayer.clearQueue()
+        } else {
+            queueManager.setQueue(emptyList())
+        }
         _uiState.update {
             it.copy(
                 currentTrack = null,
@@ -421,6 +458,7 @@ class PlayerViewModel(
     }
 
     fun next() {
+        Log.d("AuralisPlayback", "[PlayerViewModel] next() triggered")
         val reqId = currentPlaybackRequestId.incrementAndGet()
         val nextTrack = queueManager.advanceNext()
         if (nextTrack != null) {
@@ -435,10 +473,13 @@ class PlayerViewModel(
                     errorMessage = null
                 )
             }
-            triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
-
-            val upcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
-            audioPlayer?.prefetchTrack(upcoming)
+            if (audioPlayer != null) {
+                audioPlayer.play(nextTrack, initialSeekMs = 0L)
+                val upcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
+                audioPlayer.prefetchTrack(upcoming)
+            } else {
+                triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
+            }
 
             if (isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
                 fetchAndAppendRadioTracks(nextTrack)
@@ -470,7 +511,11 @@ class PlayerViewModel(
                         ?: fetched.firstOrNull { it.id != curTrack.id }
 
                     if (fetched.isNotEmpty()) {
-                        queueManager.appendTracks(fetched)
+                        if (audioPlayer != null) {
+                            audioPlayer.addToQueue(fetched)
+                        } else {
+                            queueManager.appendTracks(fetched)
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -490,7 +535,11 @@ class PlayerViewModel(
 
             // 3. Play found candidate seamlessly
             if (nextCandidate != null) {
-                queueManager.appendTracks(listOf(nextCandidate))
+                if (audioPlayer != null) {
+                    audioPlayer.addToQueue(listOf(nextCandidate))
+                } else {
+                    queueManager.appendTracks(listOf(nextCandidate))
+                }
                 val advanced = queueManager.advanceNext() ?: nextCandidate
                 _uiState.update {
                     it.copy(
@@ -503,12 +552,20 @@ class PlayerViewModel(
                         errorMessage = null
                     )
                 }
-                triggerPlayback(advanced, debounceMs = 0L, requestId = reqId)
+                if (audioPlayer != null) {
+                    audioPlayer.play(advanced, initialSeekMs = 0L)
+                } else {
+                    triggerPlayback(advanced, debounceMs = 0L, requestId = reqId)
+                }
                 fetchAndAppendRadioTracks(advanced)
             } else {
                 // Keep playing current if available, or stop if nothing exists
                 if (curTrack != null) {
-                    triggerPlayback(curTrack, debounceMs = 0L, requestId = reqId)
+                    if (audioPlayer != null) {
+                        audioPlayer.play(curTrack, initialSeekMs = 0L)
+                    } else {
+                        triggerPlayback(curTrack, debounceMs = 0L, requestId = reqId)
+                    }
                 } else {
                     audioPlayer?.pause()
                     _uiState.update { it.copy(isPlaying = false) }
@@ -518,67 +575,107 @@ class PlayerViewModel(
     }
 
     fun previous() {
-        if (_playbackPositionMs.value > 3000) {
-            seekTo(0)
-            return
-        }
-        val reqId = currentPlaybackRequestId.incrementAndGet()
-        val prevTrack = queueManager.advancePrevious()
-        if (prevTrack != null) {
-            val qState = queueManager.state
-            _uiState.update {
-                it.copy(
-                    currentTrack = prevTrack,
-                    currentIndex = qState.currentIndex,
-                    isPlaying = true,
-                    playbackPositionMs = 0,
-                    durationMs = prevTrack.duration * 1000,
-                    errorMessage = null
-                )
-            }
-            triggerPlayback(prevTrack, debounceMs = 0L, requestId = reqId)
+        Log.d("AuralisPlayback", "[PlayerViewModel] previous() triggered")
+        if (audioPlayer != null) {
+            audioPlayer.previous()
         } else {
-            seekTo(0)
+            if (_playbackPositionMs.value > 3000) {
+                seekTo(0)
+                return
+            }
+            val reqId = currentPlaybackRequestId.incrementAndGet()
+            val prevTrack = queueManager.advancePrevious()
+            if (prevTrack != null) {
+                val qState = queueManager.state
+                _uiState.update {
+                    it.copy(
+                        currentTrack = prevTrack,
+                        currentIndex = qState.currentIndex,
+                        isPlaying = true,
+                        playbackPositionMs = 0,
+                        durationMs = prevTrack.duration * 1000,
+                        errorMessage = null
+                    )
+                }
+                triggerPlayback(prevTrack, debounceMs = 0L, requestId = reqId)
+            } else {
+                seekTo(0)
+            }
         }
     }
 
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        val qState = queueManager.appendTracks(tracks)
-        _uiState.update { it.copy(queue = qState.queue) }
-        if (_uiState.value.currentTrack == null && tracks.isNotEmpty()) {
-            playTrack(tracks.first(), qState.queue, 0, isUserQueue = true)
+        if (audioPlayer != null) {
+            audioPlayer.addToQueue(tracks)
+        } else {
+            val qState = queueManager.appendTracks(tracks)
+            _uiState.update { it.copy(queue = qState.queue) }
+            if (_uiState.value.currentTrack == null && tracks.isNotEmpty()) {
+                playTrack(tracks.first(), qState.queue, 0, isUserQueue = true)
+            }
         }
     }
 
     fun toggleShuffle() {
-        val qState = queueManager.toggleShuffle()
-        _uiState.update {
-            it.copy(
-                queue = qState.queue,
-                currentIndex = qState.currentIndex,
-                isShuffled = qState.isShuffled
-            )
+        if (audioPlayer != null) {
+            audioPlayer.toggleShuffle()
+        } else {
+            val qState = queueManager.toggleShuffle()
+            _uiState.update {
+                it.copy(
+                    queue = qState.queue,
+                    currentIndex = qState.currentIndex,
+                    isShuffled = qState.isShuffled
+                )
+            }
         }
     }
 
     fun toggleRepeat() {
-        val nextMode = when (_uiState.value.repeatMode) {
-            RepeatMode.OFF -> RepeatMode.ALL
-            RepeatMode.ALL -> RepeatMode.ONE
-            RepeatMode.ONE -> RepeatMode.OFF
+        if (audioPlayer != null) {
+            val nextMode = audioPlayer.toggleRepeat()
+            _uiState.update { it.copy(repeatMode = nextMode) }
+        } else {
+            val nextMode = when (_uiState.value.repeatMode) {
+                RepeatMode.OFF -> RepeatMode.ALL
+                RepeatMode.ALL -> RepeatMode.ONE
+                RepeatMode.ONE -> RepeatMode.OFF
+            }
+            queueManager.setRepeatMode(nextMode)
+            _uiState.update { it.copy(repeatMode = nextMode) }
         }
-        queueManager.setRepeatMode(nextMode)
-        _uiState.update { it.copy(repeatMode = nextMode) }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        if (audioPlayer != null) {
+            audioPlayer.moveQueueItem(fromIndex, toIndex)
+        } else {
+            val qState = queueManager.moveItem(fromIndex, toIndex)
+            _uiState.update { it.copy(queue = qState.queue, currentIndex = qState.currentIndex) }
+        }
+    }
+
+    fun removeQueueItem(removeIndex: Int) {
+        if (audioPlayer != null) {
+            audioPlayer.removeQueueItem(removeIndex)
+        } else {
+            val qState = queueManager.removeItem(removeIndex)
+            _uiState.update { it.copy(queue = qState.queue, currentIndex = qState.currentIndex) }
+        }
     }
 
     fun playNext(track: Track) {
-        if (_uiState.value.currentTrack == null) {
-            playTrack(track, listOf(track), 0, isUserQueue = true)
-            return
+        if (audioPlayer != null) {
+            audioPlayer.playNext(track)
+        } else {
+            if (_uiState.value.currentTrack == null) {
+                playTrack(track, listOf(track), 0, isUserQueue = true)
+                return
+            }
+            val qState = queueManager.playNext(track)
+            _uiState.update { it.copy(queue = qState.queue) }
         }
-        val qState = queueManager.playNext(track)
-        _uiState.update { it.copy(queue = qState.queue) }
     }
 
     fun toggleFavorite(track: Track? = null) {
@@ -626,7 +723,7 @@ class PlayerViewModel(
         }
     }
 
-    private fun loadLyrics(track: Track, requestId: Long = currentPlaybackRequestId.get()) {
+    private fun loadLyrics(track: Track, requestId: Long = currentPlaybackRequestId?.get() ?: 0L) {
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
             // 1. Instant check in local cache (memory + Room DB) for 0ms display
@@ -638,7 +735,7 @@ class PlayerViewModel(
                     videoId = track.id
                 )
             }
-            if (cached != null) {
+            if (cached != null && cached.syncType != com.auralis.music.domain.model.SyncType.PLAIN) {
                 if (requestId == currentPlaybackRequestId.get()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
@@ -646,7 +743,7 @@ class PlayerViewModel(
                 return@launch
             } else {
                 if (requestId == currentPlaybackRequestId.get()) {
-                    _uiState.update { it.copy(isLoadingLyrics = true, lyrics = null) }
+                    _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = true) }
                 }
             }
 
@@ -658,7 +755,7 @@ class PlayerViewModel(
                         artist = track.artist,
                         durationSec = track.duration,
                         videoId = track.id,
-                        forceRefresh = false
+                        forceRefresh = (cached == null || cached.syncType == com.auralis.music.domain.model.SyncType.PLAIN)
                     )
                 }
 
