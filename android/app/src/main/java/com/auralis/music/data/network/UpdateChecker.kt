@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -223,6 +224,50 @@ object UpdateChecker {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch package installer", e)
             Toast.makeText(context, "Failed to launch installer: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    const val UPDATE_CHANNEL_ID = "auralis_app_updates"
+
+    fun showUpdateNotification(context: Context, updateInfo: UpdateInfo) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    UPDATE_CHANNEL_ID,
+                    "App Updates",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifications when a new version of Auralis is available"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val intent = Intent(context, com.auralis.music.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("NAV_DESTINATION", "updater")
+            }
+
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                context,
+                1001,
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+
+            val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("New Update Available: v${updateInfo.latestVersion}")
+                .setContentText("Auralis v${updateInfo.latestVersion} is ready to download.")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("Auralis v${updateInfo.latestVersion} is now available!\n${updateInfo.releaseTitle ?: ""}\nTap to download and install."))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+
+            notificationManager.notify(9001, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing update notification: ${e.message}", e)
         }
     }
 }

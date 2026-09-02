@@ -25,7 +25,7 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class NavigationBackstackTest {
 
-    private val testDispatcher = StandardTestDispatcher()
+    private lateinit var testDispatcher: kotlinx.coroutines.test.TestDispatcher
 
     private val fakeRepository = object : SearchRepository {
         override suspend fun search(query: String): SearchResults = SearchResults()
@@ -44,6 +44,7 @@ class NavigationBackstackTest {
 
     @Before
     fun setUp() {
+        testDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher()
         Dispatchers.setMain(testDispatcher)
     }
 
@@ -55,6 +56,7 @@ class NavigationBackstackTest {
     @Test
     fun testMultiLevelDetailBackstackNavigation() = runTest(testDispatcher) {
         val viewModel = SearchViewModel(fakeRepository)
+        testScheduler.advanceUntilIdle()
 
         // 1. Initial state: stack is empty
         assertTrue(viewModel.uiState.value.detailStack.isEmpty())

@@ -829,7 +829,6 @@ class AuralisAudioPlayer private constructor(context: Context) {
                 prefetchTrack(upcoming)
             }
         }
-        onNextCallback?.invoke()
     }
 
     fun previous() {
@@ -853,7 +852,6 @@ class AuralisAudioPlayer private constructor(context: Context) {
         } else {
             seekTo(0L)
         }
-        onPreviousCallback?.invoke()
     }
 
     fun toggleShuffle(): com.auralis.music.domain.model.QueueState {

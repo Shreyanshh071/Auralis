@@ -151,14 +151,18 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.androidx.palette.ktx)
 
-    // Firebase (Auth, Firestore, Realtime DB)
+    // Firebase (Auth, Firestore, Realtime DB, Cloud Messaging)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.database)
+    implementation(libs.firebase.messaging)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.google.id)
+
+    // Background WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Unit Testing
     testImplementation(libs.junit)

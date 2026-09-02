@@ -56,7 +56,7 @@ class LyricsRepositoryImpl(
                 candidateArtist = candArtist,
                 queryDurationSec = durationSec
             )
-            if (confidence >= 50) {
+            if (confidence >= 50 && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cached)) {
                 val aligned = com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(cached, durationSec, null)
                 if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                     return aligned
@@ -82,7 +82,7 @@ class LyricsRepositoryImpl(
                             candidateArtist = candArtist,
                             queryDurationSec = durationSec
                         )
-                        if (confidence >= 50) {
+                        if (confidence >= 50 && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                             val aligned = com.auralis.music.data.parser.LyricsMatcher.autoAlignLyrics(domainLyrics, durationSec, null)
                             if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                                 memoryCache[trackKey] = aligned

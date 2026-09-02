@@ -17,6 +17,8 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         com.auralis.music.data.network.AudioStreamResolver.init(this)
         com.auralis.music.data.download.AuralisDownloadManager.init(this)
+        com.auralis.music.service.AuralisFirebaseMessagingService.subscribeToUpdateTopics()
+        com.auralis.music.service.AppUpdateWorker.schedulePeriodicCheck(this)
     }
 
     override fun newImageLoader(): ImageLoader {
