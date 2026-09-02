@@ -125,24 +125,38 @@ class PlayerViewModel(
 
             viewModelScope.launch {
                 player.currentTrack.collect { activeTrack ->
-                    if (activeTrack != null && _uiState.value.currentTrack?.id != activeTrack.id) {
+                    if (activeTrack != null) {
+                        val isNewTrack = _uiState.value.currentTrack?.id != activeTrack.id
+                        if (isNewTrack) {
+                            val reqId = currentPlaybackRequestId.incrementAndGet()
+                            _uiState.update {
+                                it.copy(
+                                    currentTrack = activeTrack,
+                                    lyrics = null,
+                                    isLoadingLyrics = true,
+                                    durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (activeTrack.duration * 1000L)
+                                )
+                            }
+                            loadLyrics(activeTrack, reqId)
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    currentTrack = activeTrack,
+                                    durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (activeTrack.duration * 1000L)
+                                )
+                            }
+                        }
+                    } else {
                         _uiState.update {
                             it.copy(
-                                currentTrack = activeTrack,
-                                durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (activeTrack.duration * 1000L)
+                                currentTrack = null,
+                                lyrics = null,
+                                isLoadingLyrics = false
                             )
                         }
-                        loadLyrics(activeTrack)
                     }
                 }
             }
-
-            player.setNavigationCallbacks(
-                onNext = { next() },
-                onPrevious = { previous() },
-                onToggleFavorite = { toggleFavorite() },
-                onToggleRepeat = { toggleRepeat() }
-            )
 
             viewModelScope.launch {
                 player.isPlaying.collect { playing ->
@@ -184,6 +198,8 @@ class PlayerViewModel(
                 _uiState.update {
                     it.copy(
                         currentTrack = effectiveTrack,
+                        lyrics = null,
+                        isLoadingLyrics = true,
                         queue = qState.queue,
                         currentIndex = qState.currentIndex,
                         isPlaying = true,
@@ -323,6 +339,18 @@ class PlayerViewModel(
         isAutoRadioMode = isAutoQueue
 
         Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}, isAutoRadio=$isAutoRadioMode, initialPos=${initialPositionMs}ms")
+        
+        _uiState.update {
+            it.copy(
+                currentTrack = track,
+                lyrics = null,
+                isLoadingLyrics = true,
+                playbackPositionMs = initialPositionMs,
+                durationMs = track.duration * 1000L,
+                errorMessage = null
+            )
+        }
+
         if (audioPlayer != null) {
             audioPlayer.playTrack(
                 track = track,
@@ -459,6 +487,10 @@ class PlayerViewModel(
 
     fun next() {
         Log.d("AuralisPlayback", "[PlayerViewModel] next() triggered")
+        if (audioPlayer != null) {
+            audioPlayer.next()
+            return
+        }
         val reqId = currentPlaybackRequestId.incrementAndGet()
         val nextTrack = queueManager.advanceNext()
         if (nextTrack != null) {
@@ -466,6 +498,8 @@ class PlayerViewModel(
             _uiState.update {
                 it.copy(
                     currentTrack = nextTrack,
+                    lyrics = null,
+                    isLoadingLyrics = true,
                     currentIndex = qState.currentIndex,
                     isPlaying = true,
                     playbackPositionMs = 0,
@@ -473,13 +507,8 @@ class PlayerViewModel(
                     errorMessage = null
                 )
             }
-            if (audioPlayer != null) {
-                audioPlayer.play(nextTrack, initialSeekMs = 0L)
-                val upcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
-                audioPlayer.prefetchTrack(upcoming)
-            } else {
-                triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
-            }
+            triggerPlayback(nextTrack, debounceMs = 0L, requestId = reqId)
+            loadLyrics(nextTrack, reqId)
 
             if (isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
                 fetchAndAppendRadioTracks(nextTrack)
@@ -489,9 +518,6 @@ class PlayerViewModel(
                 Log.d("AuralisPlayback", "[AutoRadio] End of queue reached in auto-radio mode -> advancing infinitely")
                 handleInfiniteRadioAdvance(reqId)
             } else {
-                if (audioPlayer != null) {
-                    audioPlayer.pause()
-                }
                 _uiState.update { it.copy(isPlaying = false) }
             }
         }
@@ -590,6 +616,8 @@ class PlayerViewModel(
                 _uiState.update {
                     it.copy(
                         currentTrack = prevTrack,
+                        lyrics = null,
+                        isLoadingLyrics = true,
                         currentIndex = qState.currentIndex,
                         isPlaying = true,
                         playbackPositionMs = 0,
@@ -598,6 +626,7 @@ class PlayerViewModel(
                     )
                 }
                 triggerPlayback(prevTrack, debounceMs = 0L, requestId = reqId)
+                loadLyrics(prevTrack, reqId)
             } else {
                 seekTo(0)
             }
@@ -725,6 +754,12 @@ class PlayerViewModel(
 
     private fun loadLyrics(track: Track, requestId: Long = currentPlaybackRequestId?.get() ?: 0L) {
         lyricsJob?.cancel()
+        _uiState.update {
+            it.copy(
+                lyrics = if (it.lyrics?.trackName?.equals(track.title, ignoreCase = true) == true) it.lyrics else null,
+                isLoadingLyrics = true
+            )
+        }
         lyricsJob = viewModelScope.launch {
             // 1. Instant check in local cache (memory + Room DB) for 0ms display
             val cached = withContext(Dispatchers.IO) {
@@ -767,7 +802,7 @@ class PlayerViewModel(
                 }
             } catch (_: Exception) {
                 if (requestId == currentPlaybackRequestId.get()) {
-                    _uiState.update { it.copy(isLoadingLyrics = false) }
+                    _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                 }
             }
         }
@@ -824,4 +859,9 @@ class PlayerViewModel(
     }
 
     fun getAudioPlayer(): AuralisAudioPlayer? = audioPlayer
+
+    override fun onCleared() {
+        super.onCleared()
+        closePlayer()
+    }
 }

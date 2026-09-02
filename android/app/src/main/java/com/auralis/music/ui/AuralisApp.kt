@@ -105,6 +105,7 @@ fun AuralisApp(
     authViewModel: AuthViewModel,
     googleAccountSyncManager: com.auralis.music.domain.auth.GoogleAccountSyncManager? = null,
     appearanceSettings: com.auralis.music.domain.model.AppearanceSettings = com.auralis.music.domain.model.AppearanceSettings(),
+    initialNavDestination: String? = null,
     modifier: Modifier = Modifier
 ) {
     val homeUiState by homeViewModel.uiState.collectAsState()
@@ -117,6 +118,12 @@ fun AuralisApp(
     val recognitionState by searchViewModel.recognitionState.collectAsState()
     val recognitionHistory by searchViewModel.recognitionHistory.collectAsState()
 
+    var showUpdaterFromNav by remember { mutableStateOf(initialNavDestination == "updater") }
+    LaunchedEffect(initialNavDestination) {
+        if (initialNavDestination == "updater") {
+            showUpdaterFromNav = true
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
     val initialDestination = remember(appearanceSettings.defaultOpenTab) {
         when (appearanceSettings.defaultOpenTab) {
@@ -536,6 +543,7 @@ fun AuralisApp(
                                                 },
                                                 onOpenProfile = { isProfileOpen = true },
                                                 onOpenHistory = { isHistoryOpen = true },
+                                                onOpenUpdater = { showUpdaterFromNav = true },
                                                 onArtistClick = { artist ->
                                                     searchViewModel.openArtist(artist)
                                                     navigateToDestination(AppDestination.EXPLORE)
@@ -669,6 +677,9 @@ fun AuralisApp(
                                                 onRecommendToRoom = { trk ->
                                                     listenTogetherViewModel.recommendSong(trk)
                                                     android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onReorderPlaylistTracks = { plId, from, to ->
+                                                    libraryViewModel.reorderPlaylistTracks(plId, from, to)
                                                 },
                                                 isExternalCreateDialogOpen = isExternalCreatePlaylistOpen,
                                                 onCloseExternalCreateDialog = { isExternalCreatePlaylistOpen = false }
@@ -1220,6 +1231,12 @@ fun AuralisApp(
                     }
                 }
             }
+        }
+
+        if (showUpdaterFromNav) {
+            com.auralis.music.ui.screens.UpdaterScreen(
+                onDismiss = { showUpdaterFromNav = false }
+            )
         }
     }
 }

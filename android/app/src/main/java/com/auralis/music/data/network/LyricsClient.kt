@@ -73,35 +73,29 @@ class LyricsClient(
         val t0 = System.currentTimeMillis()
         Log.d(TAG, "Starting ultra-fast synced lyrics search for: '$coreTitle' by '${query.artist}' (${durationSec ?: 0}s)")
 
-        // ── TIER 1: HIGH-PRECISION STUDIO VERIFIED SYNCED RACE (LRCLIB, Musixmatch, BetterLyrics) ──
-        val tier1Providers: List<LyricsSource> = listOf(
+        // ── PARALLEL MULTI-PROVIDER RACE WITH INTELLIGENT TIMING & COMPLETENESS SCORING ──
+        val primaryProviders: List<LyricsSource> = listOf(
             lrcLibSource,
             musixmatchSource,
-            betterLyricsSource
-        )
-
-        val tier2Providers: List<LyricsSource> = listOf(
-            jioSaavnSource,
-            netEaseSource,
             kuGouSource,
-            amllSource
+            netEaseSource,
+            jioSaavnSource
         )
 
-        // Run Tier 1 first (fast sub-400ms studio synced database)
-        val tier1Winner: LyricsData? = coroutineScope {
-            val resultChannel = Channel<LyricsCandidate>(capacity = tier1Providers.size * 2)
-            val providerJobs = tier1Providers.map { source ->
+        val syncedWinner: LyricsData? = coroutineScope {
+            val resultChannel = Channel<LyricsCandidate>(capacity = primaryProviders.size * 2)
+            val providerJobs = primaryProviders.map { source ->
                 launch {
                     try {
                         val cand = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
                             source.search(query)
                         }
                         if (cand != null) {
-                            Log.d(TAG, "[Tier 1 Provider: ${source.provider}] found: ${cand.syncType}, confidence=${cand.confidence}%, lines=${cand.lyricsData.lines.size}")
+                            Log.d(TAG, "[Provider: ${source.provider}] found: ${cand.syncType}, confidence=${cand.confidence}%, lines=${cand.lyricsData.lines.size}")
                             resultChannel.send(cand)
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "[Tier 1 Provider: ${source.provider}] exception: ${e.message}")
+                        Log.w(TAG, "[Provider: ${source.provider}] exception: ${e.message}")
                     } finally {
                         resultChannel.send(
                             LyricsCandidate(
@@ -116,9 +110,10 @@ class LyricsClient(
             }
 
             var bestCandidate: LyricsCandidate? = null
+            var bestScore = 0.0
             var completedCount = 0
 
-            while (completedCount < tier1Providers.size) {
+            while (completedCount < primaryProviders.size) {
                 val candidate = resultChannel.receive()
                 if (candidate.confidence == -1) {
                     completedCount++
@@ -136,13 +131,17 @@ class LyricsClient(
                         lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
                     )
 
-                    if (correctedCand.confidence > (bestCandidate?.confidence ?: 0)) {
+                    val score = calculateQualityScore(correctedCand, durationSec)
+                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] score=$score, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
+
+                    if (score > bestScore) {
+                        bestScore = score
                         bestCandidate = correctedCand
                     }
 
-                    // Instant win for authoritative studio source
-                    if (correctedCand.confidence >= 65) {
-                        Log.d(TAG, "[TIER 1 INSTANT WINNER] ${correctedCand.provider} in ${System.currentTimeMillis() - t0}ms (Confidence: ${correctedCand.confidence}%)")
+                    // Instant win for flawless high-scoring candidate (>= 145)
+                    if (score >= 145.0) {
+                        Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} in ${System.currentTimeMillis() - t0}ms (Score: $score)")
                         providerJobs.forEach { it.cancel() }
                         return@coroutineScope correctedCand.lyricsData
                     }
@@ -151,68 +150,9 @@ class LyricsClient(
             bestCandidate?.lyricsData
         }
 
-        if (tier1Winner != null && tier1Winner.lines.isNotEmpty()) {
-            return@withContext tier1Winner
-        }
-
-        // ── TIER 2: SECONDARY / REGIONAL / CROWDSOURCED CASCADE ──
-        val tier2Winner: LyricsData? = coroutineScope {
-            val resultChannel = Channel<LyricsCandidate>(capacity = tier2Providers.size * 2)
-            val providerJobs = tier2Providers.map { source ->
-                launch {
-                    try {
-                        val cand = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
-                            source.search(query)
-                        }
-                        if (cand != null) {
-                            resultChannel.send(cand)
-                        }
-                    } catch (_: Exception) {
-                    } finally {
-                        resultChannel.send(
-                            LyricsCandidate(
-                                lyricsData = LyricsData(syncType = SyncType.PLAIN, lines = emptyList(), provider = source.provider),
-                                confidence = -1,
-                                syncType = SyncType.PLAIN,
-                                provider = source.provider
-                            )
-                        )
-                    }
-                }
-            }
-
-            var bestSyncedCandidate: LyricsCandidate? = null
-            var bestPlainCandidate: LyricsCandidate? = null
-            var completedCount = 0
-
-            while (completedCount < tier2Providers.size) {
-                val candidate = resultChannel.receive()
-                if (candidate.confidence == -1) {
-                    completedCount++
-                    continue
-                }
-
-                val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
-                if (isCandSynced && candidate.confidence >= 55 && candidate.lyricsData.lines.isNotEmpty()) {
-                    if (candidate.confidence > (bestSyncedCandidate?.confidence ?: 0)) {
-                        bestSyncedCandidate = candidate
-                    }
-                    if (candidate.confidence >= 75) {
-                        providerJobs.forEach { it.cancel() }
-                        return@coroutineScope candidate.lyricsData
-                    }
-                } else if (candidate.syncType == SyncType.PLAIN && candidate.confidence >= 50 && candidate.lyricsData.lines.isNotEmpty()) {
-                    if (candidate.confidence > (bestPlainCandidate?.confidence ?: 0)) {
-                        bestPlainCandidate = candidate
-                    }
-                }
-            }
-            bestSyncedCandidate?.lyricsData ?: bestPlainCandidate?.lyricsData
-        }
-
-        if (tier2Winner != null && tier2Winner.lines.isNotEmpty()) {
-            Log.d(TAG, "Lyrics resolved via Tier 2 in ${System.currentTimeMillis() - t0}ms (Provider: ${tier2Winner.provider})")
-            return@withContext tier2Winner
+        if (syncedWinner != null && syncedWinner.lines.isNotEmpty()) {
+            Log.d(TAG, "[SYNCED WINNER] ${syncedWinner.provider} selected in ${System.currentTimeMillis() - t0}ms")
+            return@withContext syncedWinner
         }
 
         // ── TIER 2: RAW TITLE FALLBACK ON LRCLIB ──
@@ -228,18 +168,18 @@ class LyricsClient(
                 val lrcFallback = withTimeoutOrNull(2000L) { lrcLibSource.search(fallbackQuery) }
                 if (lrcFallback != null && lrcFallback.confidence >= 50 && lrcFallback.lyricsData.lines.isNotEmpty()) {
                     Log.d(TAG, "[RAW TITLE WINNER] LRCLIB in ${System.currentTimeMillis() - t0}ms")
-                    return@withContext lrcFallback.lyricsData
+                    return@withContext lrcFallback.lyricsData.copy(syncType = SyncType.LINE_SYNC)
                 }
             } catch (_: Exception) {}
         }
 
-        // ── TIER 3: PLAIN LYRICS FALLBACK (Genius & YouTube Music concurrent) ──
+        // ── TIER 3: PLAIN TEXT FALLBACK (Genius & YouTube Music) ──
         val plainWinner = coroutineScope {
             val geniusDeferred = async {
-                try { withTimeoutOrNull(1200L) { geniusSource.search(query) } } catch (_: Exception) { null }
+                try { withTimeoutOrNull(1500L) { geniusSource.search(query) } } catch (_: Exception) { null }
             }
             val ytDeferred = async {
-                try { withTimeoutOrNull(1200L) { ytMusicSource.search(query) } } catch (_: Exception) { null }
+                try { withTimeoutOrNull(1500L) { ytMusicSource.search(query) } } catch (_: Exception) { null }
             }
             listOfNotNull(geniusDeferred.await(), ytDeferred.await()).firstOrNull { it.lyricsData.lines.isNotEmpty() }
         }
@@ -251,5 +191,47 @@ class LyricsClient(
 
         Log.d(TAG, "No lyrics found after ${System.currentTimeMillis() - t0}ms for '$coreTitle'")
         null
+    }
+
+    private fun calculateQualityScore(cand: LyricsCandidate, queryDurationSec: Long?): Double {
+        if (com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cand.lyricsData)) {
+            return -1000.0
+        }
+        var score = cand.confidence.toDouble() // base 0 - 100
+        val lines = cand.lyricsData.lines
+        if (lines.isEmpty()) return 0.0
+
+        val firstLineTime = lines.firstOrNull { !it.isInstrumental }?.time ?: 0L
+        val isLongTrack = (queryDurationSec ?: 0L) >= 45L || (lines.size >= 15)
+
+        // 1. Timing Sanity: If a standard track starts at 0ms (or < 350ms), it's a defective crowdsourced submission lacking intro offset
+        if (isLongTrack && firstLineTime <= 350L) {
+            score -= 30.0
+        } else if (firstLineTime >= 1000L) {
+            score += 15.0 // Valid non-zero intro timing present (enables spinning countdown circle)
+        }
+
+        // 2. Line count & completeness
+        score += (lines.size.coerceAtMost(60) * 0.4) // up to +24
+
+        // 3. Backing vocals & ad-libs retention
+        val hasBackingVocals = lines.any { it.text.contains("(") && it.text.contains(")") }
+        if (hasBackingVocals) {
+            score += 15.0
+        }
+
+        // 4. RichSync word-timing bonus
+        if (cand.syncType == SyncType.RICHSYNC || cand.lyricsData.syncType == SyncType.RICHSYNC) {
+            score += 8.0
+        }
+
+        // 5. Source bonuses
+        if (cand.provider == LyricsProvider.LRCLIB && firstLineTime > 350L) {
+            score += 10.0
+        } else if (cand.provider == LyricsProvider.MUSIXMATCH && firstLineTime > 350L) {
+            score += 8.0
+        }
+
+        return score
     }
 }

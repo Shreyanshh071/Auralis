@@ -46,6 +46,7 @@ fun LibraryScreen(
     onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    onReorderPlaylistTracks: ((String, Int, Int) -> Unit)? = null,
     isExternalCreateDialogOpen: Boolean = false,
     onCloseExternalCreateDialog: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -83,6 +84,7 @@ fun LibraryScreen(
         onOpenArtist = onOpenArtist,
         isInListenTogetherRoom = isInListenTogetherRoom,
         onRecommendToRoom = onRecommendToRoom,
+        onReorderPlaylistTracks = onReorderPlaylistTracks,
         isExternalCreateDialogOpen = isExternalCreateDialogOpen,
         onCloseExternalCreateDialog = onCloseExternalCreateDialog,
         modifier = modifier

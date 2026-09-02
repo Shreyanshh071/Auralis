@@ -114,25 +114,38 @@ fun ArtworkCard(
     val context = LocalContext.current
 
     // Resolve the best primary URL instantly without network cascades
-    val resolvedUrl = remember(url, fallbackTrack?.id, fallbackTrack?.thumbnail) {
+    val resolvedUrl = remember(url) {
+        if (!url.isNullOrBlank()) getHighResArtworkUrl(url) ?: url else null
+    }
+
+    val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail) {
         when {
-            !url.isNullOrBlank() -> getHighResArtworkUrl(url) ?: url
             fallbackTrack != null && !fallbackTrack.thumbnail.isNullOrBlank() -> getHighResArtworkUrl(fallbackTrack.thumbnail) ?: fallbackTrack.thumbnail
             fallbackTrack != null && !fallbackTrack.id.startsWith("sp_") && fallbackTrack.id.length in 8..15 -> "https://i.ytimg.com/vi/${fallbackTrack.id}/hqdefault.jpg"
             else -> null
         }
     }
 
-    val isYouTubeVideoThumb = remember(resolvedUrl) {
-        resolvedUrl != null && (resolvedUrl.contains("i.ytimg.com") || resolvedUrl.contains("img.youtube.com"))
+    var isPrimaryError by remember(resolvedUrl) { mutableStateOf(false) }
+
+    val activeUrl = remember(resolvedUrl, fallbackUrl, isPrimaryError) {
+        if (!resolvedUrl.isNullOrBlank() && !isPrimaryError) {
+            resolvedUrl
+        } else {
+            fallbackUrl
+        }
     }
 
-    var isError by remember(resolvedUrl) { mutableStateOf(false) }
+    val isYouTubeVideoThumb = remember(activeUrl) {
+        activeUrl != null && (activeUrl.contains("i.ytimg.com") || activeUrl.contains("img.youtube.com"))
+    }
 
-    val request = remember(resolvedUrl) {
-        if (!resolvedUrl.isNullOrBlank()) {
+    var isError by remember(activeUrl) { mutableStateOf(false) }
+
+    val request = remember(activeUrl) {
+        if (!activeUrl.isNullOrBlank()) {
             ImageRequest.Builder(context)
-                .data(resolvedUrl)
+                .data(activeUrl)
                 .allowHardware(true)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
@@ -155,7 +168,11 @@ fun ArtworkCard(
                 contentScale = contentScale,
                 onState = { state ->
                     if (state is AsyncImagePainter.State.Error) {
-                        isError = true
+                        if (!isPrimaryError && !resolvedUrl.isNullOrBlank() && !fallbackUrl.isNullOrBlank() && resolvedUrl != fallbackUrl) {
+                            isPrimaryError = true
+                        } else {
+                            isError = true
+                        }
                     }
                 },
                 modifier = Modifier

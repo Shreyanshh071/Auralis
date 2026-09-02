@@ -16,6 +16,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.media3.common.util.UnstableApi
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
 import com.auralis.music.data.datastore.SettingsDataStore
@@ -41,8 +44,32 @@ import com.auralis.music.ui.viewmodel.SearchViewModel
 @UnstableApi
 class MainActivity : ComponentActivity() {
 
+    private var liveNavDestination = androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    private fun extractNavDestination(intent: android.content.Intent?): String? {
+        if (intent == null) return null
+        val explicit = intent.getStringExtra("NAV_DESTINATION")
+            ?: intent.getStringExtra("nav_destination")
+            ?: intent.extras?.getString("NAV_DESTINATION")
+            ?: intent.extras?.getString("nav_destination")
+            ?: intent.extras?.getString("destination")
+        if (!explicit.isNullOrBlank()) return explicit
+
+        if (intent.hasExtra("google.message_id") || intent.hasExtra("google.sent_time") || intent.hasExtra("from")) {
+            return "updater"
+        }
+        return null
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        liveNavDestination.value = extractNavDestination(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        liveNavDestination.value = extractNavDestination(intent)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
 
@@ -88,6 +115,23 @@ class MainActivity : ComponentActivity() {
             searchRepository = searchRepository
         )
         googleAccountSyncManager.startContinuousCloudSync(lifecycleScope)
+
+        // Background update check & notification on startup
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val updaterStore = com.auralis.music.data.datastore.UpdaterDataStore(applicationContext)
+                val autoCheck = updaterStore.settingsFlow.first().autoCheckUpdates
+                if (autoCheck) {
+                    val updateInfo = com.auralis.music.data.network.UpdateChecker.checkForUpdates(applicationContext)
+                    if (updateInfo.hasUpdate) {
+                        Log.d("AuralisUpdater", "New update detected on startup: v${updateInfo.latestVersion}")
+                        com.auralis.music.data.network.UpdateChecker.showUpdateNotification(applicationContext, updateInfo)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("AuralisUpdater", "Startup update check failed: ${e.message}")
+            }
+        }
 
         setContent {
             val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(
@@ -180,7 +224,8 @@ class MainActivity : ComponentActivity() {
                         listenTogetherViewModel = listenTogetherViewModel,
                         authViewModel = authViewModel,
                         googleAccountSyncManager = googleAccountSyncManager,
-                        appearanceSettings = appearanceSettings
+                        appearanceSettings = appearanceSettings,
+                        initialNavDestination = liveNavDestination.value
                     )
                 }
             }

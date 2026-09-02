@@ -51,14 +51,9 @@ class YouTubePlaylistImporter(
             val trimmed = input.trim()
             if (trimmed.isBlank()) return null
 
-            // Strictly reject standard YouTube video URLs
-            if (isStandardYouTubeUrl(trimmed)) {
-                return null
-            }
-
-            // Require music.youtube.com domain for URLs
-            if (!isYouTubeMusicUrl(trimmed)) {
-                return null
+            // Direct ID support
+            if (trimmed.startsWith("OLAK5uy_") || trimmed.startsWith("RDCLAK5uy_") || trimmed.startsWith("PL") || trimmed.startsWith("VLPL") || trimmed.startsWith("UU") || trimmed.startsWith("FL") || trimmed.startsWith("LM")) {
+                return if (trimmed.startsWith("VL")) trimmed.substring(2) else trimmed
             }
 
             try {
@@ -70,16 +65,17 @@ class YouTubePlaylistImporter(
                         val parts = it.split("=")
                         if (parts.size == 2) parts[0] to parts[1] else parts[0] to ""
                     }
-                    if (params.containsKey("list")) {
-                        val listId = params["list"]
-                        if (!listId.isNullOrBlank()) return listId
+                    val listId = params["list"]
+                    if (!listId.isNullOrBlank()) {
+                        return if (listId.startsWith("VL")) listId.substring(2) else listId
                     }
                 }
 
                 val path = uri.path ?: ""
                 val match = Regex("/playlist/([A-Za-z0-9_-]+)").find(path)
                 if (match != null) {
-                    return match.groupValues[1]
+                    val id = match.groupValues[1]
+                    return if (id.startsWith("VL")) id.substring(2) else id
                 }
                 val browseMatch = Regex("/browse/([A-Za-z0-9_-]+)").find(path)
                 if (browseMatch != null) {
@@ -94,17 +90,8 @@ class YouTubePlaylistImporter(
 
     suspend fun importPlaylist(urlOrId: String): Playlist? = withContext(Dispatchers.IO) {
         val trimmed = urlOrId.trim()
-        if (isStandardYouTubeUrl(trimmed)) {
-            throw IllegalArgumentException("Only YouTube Music links (music.youtube.com) are supported. Regular YouTube video playlists cannot be imported.")
-        }
-
         val playlistId = extractPlaylistId(trimmed)
-            ?: if (trimmed.startsWith("OLAK5uy_") || trimmed.startsWith("RDCLAK5uy_") || trimmed.startsWith("PL")) {
-                // Internal ID support for existing playlists
-                trimmed
-            } else {
-                throw IllegalArgumentException("Please use a valid YouTube Music playlist link (music.youtube.com/playlist?list=...)")
-            }
+            ?: throw IllegalArgumentException("Please enter a valid YouTube or YouTube Music playlist link (music.youtube.com/playlist?list=... or youtube.com/playlist?list=...)")
 
         importPlaylistById(playlistId)
     }
@@ -189,11 +176,12 @@ class YouTubePlaylistImporter(
 
             val validTracks = allTracks.filter { it.id.isNotBlank() }
             if (validTracks.isNotEmpty()) {
+                val finalCover = playlistCover?.ifBlank { null } ?: validTracks.firstOrNull()?.thumbnail
                 return@withContext Playlist(
                     id = cleanId,
                     title = playlistTitle,
                     description = playlistAuthor ?: "Imported from YouTube Music",
-                    coverUrl = playlistCover,
+                    coverUrl = finalCover,
                     tracks = validTracks
                 )
             }
@@ -349,19 +337,42 @@ class YouTubePlaylistImporter(
     }
 
     private fun extractPlaylistThumbnail(json: JSONObject): String? {
+        // 1. Direct check in microformatDataRenderer
+        val microformatThumb = json.optJSONObject("microformat")
+            ?.optJSONObject("microformatDataRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.optJSONArray("thumbnails")
+        if (microformatThumb != null && microformatThumb.length() > 0) {
+            val url = microformatThumb.optJSONObject(microformatThumb.length() - 1)?.optString("url")
+            if (!url.isNullOrBlank()) return url
+        }
+
+        // 2. Check root header variants
         val rootHeader = json.optJSONObject("header")
         val headerThumb = rootHeader?.optJSONObject("musicResponsiveHeaderRenderer")
             ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
             ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
         if (headerThumb != null && headerThumb.length() > 0) {
-            return headerThumb.optJSONObject(headerThumb.length() - 1)?.optString("url")
+            val url = headerThumb.optJSONObject(headerThumb.length() - 1)?.optString("url")
+            if (!url.isNullOrBlank()) return url
         }
         val detailThumb = rootHeader?.optJSONObject("musicDetailHeaderRenderer")
             ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
             ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
         if (detailThumb != null && detailThumb.length() > 0) {
-            return detailThumb.optJSONObject(detailThumb.length() - 1)?.optString("url")
+            val url = detailThumb.optJSONObject(detailThumb.length() - 1)?.optString("url")
+            if (!url.isNullOrBlank()) return url
         }
+        val editableHeaderThumb = rootHeader?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+            ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        if (editableHeaderThumb != null && editableHeaderThumb.length() > 0) {
+            val url = editableHeaderThumb.optJSONObject(editableHeaderThumb.length() - 1)?.optString("url")
+            if (!url.isNullOrBlank()) return url
+        }
+
+        // 3. Check twoColumnBrowseResultsRenderer tabs
         val tabHeaderThumb = json.optJSONObject("contents")
             ?.optJSONObject("twoColumnBrowseResultsRenderer")
             ?.optJSONArray("tabs")?.optJSONObject(0)
@@ -371,9 +382,38 @@ class YouTubePlaylistImporter(
             ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
             ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
         if (tabHeaderThumb != null && tabHeaderThumb.length() > 0) {
-            return tabHeaderThumb.optJSONObject(tabHeaderThumb.length() - 1)?.optString("url")
+            val url = tabHeaderThumb.optJSONObject(tabHeaderThumb.length() - 1)?.optString("url")
+            if (!url.isNullOrBlank()) return url
         }
-        return null
+
+        // 4. Fallback: search any thumbnail array in rootHeader
+        fun findThumb(obj: Any?): String? {
+            if (obj is JSONObject) {
+                if (obj.has("thumbnails")) {
+                    val arr = obj.optJSONArray("thumbnails")
+                    if (arr != null && arr.length() > 0) {
+                        val last = arr.optJSONObject(arr.length() - 1)?.optString("url")
+                        if (!last.isNullOrBlank()) return last
+                    }
+                }
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (key != "contents" && key != "musicResponsiveListItemRenderer") {
+                        val res = findThumb(obj.get(key))
+                        if (res != null) return res
+                    }
+                }
+            } else if (obj is JSONArray) {
+                for (i in 0 until obj.length()) {
+                    val res = findThumb(obj.get(i))
+                    if (res != null) return res
+                }
+            }
+            return null
+        }
+
+        return findThumb(rootHeader)
     }
 
     private fun extractPlaylistAuthor(json: JSONObject): String? {

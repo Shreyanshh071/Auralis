@@ -288,6 +288,7 @@ class GoogleAccountSyncManager(
                     val pMap = pObj as? Map<*, *> ?: continue
                     val title = (pMap["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Restored Playlist"
                     val desc = pMap["description"] as? String
+                    val coverUrl = pMap["coverUrl"] as? String
                     val rawTracks = pMap["tracks"] as? List<*> ?: emptyList<Any>()
 
                     val tracks = rawTracks.mapNotNull { tObj ->
@@ -316,12 +317,17 @@ class GoogleAccountSyncManager(
                         created.id
                     }
 
+                    // Restore coverUrl if present in cloud backup
+                    if (!coverUrl.isNullOrBlank()) {
+                        libraryRepository.updatePlaylist(targetPlaylistId, title, desc, coverUrl)
+                    }
+
                     if (tracks.isNotEmpty()) {
                         libraryRepository.replacePlaylistTracks(targetPlaylistId, tracks)
                     }
                     restoredPlaylistsCount++
                 }
-                android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $restoredPlaylistsCount playlists for user $uid")
+                android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $restoredPlaylistsCount playlists with covers for user $uid")
             }
 
             // 2. Restore Favorites (Liked songs)

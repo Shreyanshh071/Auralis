@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -103,6 +104,7 @@ fun HomeScreen(
     onSurpriseMe: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onOpenUpdater: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
@@ -124,7 +126,7 @@ fun HomeScreen(
             contentPadding = PaddingValues(top = 2.dp, bottom = bottomPad)
         ) {
             // ================================================================
-            // 1. TOP APP BAR: "Home" Title + 4 Action Icons
+            // 1. TOP APP BAR: "Home" Title + Action Icons
             // ================================================================
             item {
                 Row(
@@ -146,6 +148,16 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        IconButton(
+                            onClick = onOpenUpdater,
+                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                        ) {
+                            Icon(
+                                Icons.Default.SystemUpdate,
+                                contentDescription = "Check for Updates",
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                            )
+                        }
                         IconButton(
                             onClick = onOpenHistory,
                             modifier = Modifier.tactileBounce(scaleDown = 0.90f)

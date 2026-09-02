@@ -135,6 +135,12 @@ interface PlaylistDao {
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId")
     suspend fun clearPlaylistTracks(playlistId: String)
 
+    @Transaction
+    suspend fun replacePlaylistCrossRefs(playlistId: String, refs: List<PlaylistTrackCrossRef>) {
+        clearPlaylistTracks(playlistId)
+        insertCrossRefs(refs)
+    }
+
     @Query("DELETE FROM playlists WHERE id = :playlistId")
     suspend fun deletePlaylist(playlistId: String)
 }
