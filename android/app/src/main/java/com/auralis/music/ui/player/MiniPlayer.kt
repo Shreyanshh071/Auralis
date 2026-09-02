@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.auralis.music.domain.model.Track
@@ -237,19 +238,9 @@ fun MiniPlayer(
         initialPage = safeCurrentIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
-    val isUserDragging by pagerState.interactionSource.collectIsDraggedAsState()
-    var userInitiatedScroll by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isUserDragging) {
-        if (isUserDragging) {
-            userInitiatedScroll = true
-        }
-    }
-
     // External track index changes (e.g. background completion, notification, or full modal)
     LaunchedEffect(safeCurrentIndex) {
         if (safeCurrentIndex in 0 until pageCount && pagerState.currentPage != safeCurrentIndex) {
-            userInitiatedScroll = false
             val diff = kotlin.math.abs(pagerState.currentPage - safeCurrentIndex)
             if (diff == 1) {
                 pagerState.animateScrollToPage(safeCurrentIndex, animationSpec = tween(durationMillis = 280))
@@ -259,21 +250,23 @@ fun MiniPlayer(
         }
     }
 
-    // User swipe gestures settled on a different page -> switch track ONLY when user dragged
-    LaunchedEffect(pagerState.settledPage) {
-        if (userInitiatedScroll && pagerState.settledPage != safeCurrentIndex && queueTracks.isNotEmpty()) {
-            userInitiatedScroll = false
-            val newPage = pagerState.settledPage
-            if (newPage in queueTracks.indices) {
-                if (onSelectQueueTrack != null) {
-                    onSelectQueueTrack(newPage)
-                } else if (newPage > safeCurrentIndex) {
-                    onNextClick?.invoke()
-                } else if (newPage < safeCurrentIndex) {
-                    onPreviousClick?.invoke()
+    // User swipe gestures settled on a different page -> switch track
+    LaunchedEffect(pagerState, queueTracks) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { newPage ->
+                if (newPage != safeCurrentIndex && queueTracks.isNotEmpty()) {
+                    if (newPage in queueTracks.indices) {
+                        if (onSelectQueueTrack != null) {
+                            onSelectQueueTrack(newPage)
+                        } else if (newPage > safeCurrentIndex) {
+                            onNextClick?.invoke()
+                        } else if (newPage < safeCurrentIndex) {
+                            onPreviousClick?.invoke()
+                        }
+                    }
                 }
             }
-        }
     }
 
     val context = LocalContext.current

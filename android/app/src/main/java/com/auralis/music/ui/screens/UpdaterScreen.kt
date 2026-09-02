@@ -32,6 +32,10 @@ import kotlinx.coroutines.launch
 fun UpdaterScreen(
     onDismiss: () -> Unit
 ) {
+    androidx.activity.compose.BackHandler(enabled = true) {
+        onDismiss()
+    }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dataStore = remember { UpdaterDataStore(context) }

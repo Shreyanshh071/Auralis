@@ -28,27 +28,27 @@ class YouTubePlaylistImporterTest {
     }
 
     @Test
-    fun extractPlaylistId_fromStandardYouTubeUrl_returnsNull() {
+    fun extractPlaylistId_fromStandardYouTubeUrl_extractsListParam() {
         val url = "https://www.youtube.com/playlist?list=OLAK5uy_k1234567890"
-        assertNull("Standard YouTube playlist URL must be rejected", YouTubePlaylistImporter.extractPlaylistId(url))
+        assertEquals("OLAK5uy_k1234567890", YouTubePlaylistImporter.extractPlaylistId(url))
     }
 
     @Test
-    fun extractPlaylistId_fromStandardYouTubeWatchUrl_returnsNull() {
+    fun extractPlaylistId_fromStandardYouTubeWatchUrl_extractsListParam() {
         val url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1234567890abcdef"
-        assertNull("Standard YouTube watch URL with playlist must be rejected", YouTubePlaylistImporter.extractPlaylistId(url))
+        assertEquals("PL1234567890abcdef", YouTubePlaylistImporter.extractPlaylistId(url))
     }
 
     @Test
-    fun extractPlaylistId_fromShortYouTubeUrl_returnsNull() {
+    fun extractPlaylistId_fromShortYouTubeUrl_extractsListParam() {
         val url = "https://youtu.be/dQw4w9WgXcQ?list=PL1234567890abcdef"
-        assertNull("Short youtu.be URL must be rejected", YouTubePlaylistImporter.extractPlaylistId(url))
+        assertEquals("PL1234567890abcdef", YouTubePlaylistImporter.extractPlaylistId(url))
     }
 
     @Test
-    fun extractPlaylistId_fromDirectIdWithoutDomain_returnsNull() {
+    fun extractPlaylistId_fromDirectIdWithoutDomain_extractsCleanId() {
         val id = "PL1234567890abcdef"
-        assertNull("Direct playlist ID without music.youtube.com must be rejected", YouTubePlaylistImporter.extractPlaylistId(id))
+        assertEquals("PL1234567890abcdef", YouTubePlaylistImporter.extractPlaylistId(id))
     }
 
     @Test

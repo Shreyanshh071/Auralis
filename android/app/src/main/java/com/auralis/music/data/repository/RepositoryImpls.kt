@@ -78,11 +78,12 @@ class LibraryRepositoryImpl(
         }
     }
 
-    override suspend fun createPlaylist(title: String, description: String?): Playlist {
+    override suspend fun createPlaylist(title: String, description: String?, coverUrl: String?): Playlist {
         val playlist = Playlist(
             id = UUID.randomUUID().toString(),
             title = title,
             description = description,
+            coverUrl = coverUrl,
             createdAt = System.currentTimeMillis()
         )
         playlistDao.upsertPlaylist(playlist.toEntity())
@@ -110,20 +111,18 @@ class LibraryRepositoryImpl(
 
     override suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>) {
         trackDao.upsertTracksPreservingFavorite(tracks.map { it.toEntity() })
-        playlistDao.clearPlaylistTracks(playlistId)
         val refs = tracks.mapIndexed { index, track ->
             PlaylistTrackCrossRef(playlistId, track.id, index)
         }
-        playlistDao.insertCrossRefs(refs)
+        playlistDao.replacePlaylistCrossRefs(playlistId, refs)
     }
 
     override suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>) {
         trackDao.upsertTracksPreservingFavorite(tracks.map { it.toEntity() })
-        playlistDao.clearPlaylistTracks(playlistId)
         val refs = tracks.mapIndexed { index, track ->
             PlaylistTrackCrossRef(playlistId, track.id, index)
         }
-        playlistDao.insertCrossRefs(refs)
+        playlistDao.replacePlaylistCrossRefs(playlistId, refs)
     }
 
     override fun getSavedArtists(): Flow<List<SavedArtist>> {

@@ -51,7 +51,7 @@ class AutoPlayInfiniteRadioTest {
         override suspend fun setFavorite(track: Track, isFavorite: Boolean) {}
         override fun getPlaylists(): Flow<List<Playlist>> = flowOf(emptyList())
         override fun getPlaylist(playlistId: String): Flow<Playlist?> = flowOf(null)
-        override suspend fun createPlaylist(title: String, description: String?): Playlist = Playlist(id = "1", title = title)
+        override suspend fun createPlaylist(title: String, description: String?, coverUrl: String?): Playlist = Playlist(id = "1", title = title, coverUrl = coverUrl)
         override suspend fun updatePlaylist(playlistId: String, title: String, description: String?, coverUrl: String?) {}
         override suspend fun addTrackToPlaylist(playlistId: String, track: Track) {}
         override suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) {}
@@ -116,20 +116,21 @@ class AutoPlayInfiniteRadioTest {
         override suspend fun setPlaybackRate(rate: Float) {}
     }
 
+    private lateinit var testDispatcher: kotlinx.coroutines.test.TestDispatcher
+
     @Before
     fun setUp() {
-        Dispatchers.setMain(kotlinx.coroutines.test.UnconfinedTestDispatcher())
+        testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
     }
 
     @After
     fun tearDown() {
-        try {
-            Dispatchers.resetMain()
-        } catch (_: Exception) {}
+        Dispatchers.resetMain()
     }
 
     @Test
-    fun `playing single song initializes auto-radio queue, fetches radio in background and appends to queue`() = runTest {
+    fun `playing single song initializes auto-radio queue, fetches radio in background and appends to queue`() = runTest(testDispatcher) {
         val mockInnerTube = MockInnerTubeClient(
             radioTracksToReturn = listOf(sampleTrack("radio1", "Radio Song 1"), sampleTrack("radio2", "Radio Song 2"))
         )
@@ -150,7 +151,7 @@ class AutoPlayInfiniteRadioTest {
             testScheduler.advanceTimeBy(300)
             advanceUntilIdle()
             if (viewModel.uiState.value.queue.size >= 3) break
-            Thread.sleep(60)
+            Thread.sleep(50)
         }
 
         val stateAfterRadio = viewModel.uiState.value
@@ -158,10 +159,11 @@ class AutoPlayInfiniteRadioTest {
         assertEquals("Seed Song", stateAfterRadio.queue[0].title)
         assertEquals("Radio Song 1", stateAfterRadio.queue[1].title)
         assertEquals("Radio Song 2", stateAfterRadio.queue[2].title)
+        viewModel.closePlayer()
     }
 
     @Test
-    fun `skipping next on auto-radio queue plays next track without pausing`() = runTest {
+    fun `skipping next on auto-radio queue plays next track without pausing`() = runTest(testDispatcher) {
         val mockInnerTube = MockInnerTubeClient(
             radioTracksToReturn = listOf(sampleTrack("radio1", "Radio Song 1"), sampleTrack("radio2", "Radio Song 2"))
         )
@@ -180,7 +182,7 @@ class AutoPlayInfiniteRadioTest {
             testScheduler.advanceTimeBy(300)
             advanceUntilIdle()
             if (viewModel.uiState.value.queue.size >= 3) break
-            Thread.sleep(60)
+            Thread.sleep(50)
         }
 
         assertEquals(3, viewModel.uiState.value.queue.size)
@@ -191,17 +193,18 @@ class AutoPlayInfiniteRadioTest {
             testScheduler.advanceTimeBy(300)
             advanceUntilIdle()
             if (viewModel.uiState.value.currentIndex == 1) break
-            Thread.sleep(60)
+            Thread.sleep(50)
         }
 
         val nextState = viewModel.uiState.value
         assertEquals("Radio Song 1", nextState.currentTrack?.title)
         assertTrue(nextState.isPlaying)
         assertEquals(1, nextState.currentIndex)
+        viewModel.closePlayer()
     }
 
     @Test
-    fun `skipping next when queue is empty in auto-radio mode fetches fallback track and keeps playing infinitely`() = runTest {
+    fun `skipping next when queue is empty in auto-radio mode fetches fallback track and keeps playing infinitely`() = runTest(testDispatcher) {
         val historyRepo = MockHistoryRepo()
         val mockInnerTube = MockInnerTubeClient(radioTracksToReturn = emptyList())
         val viewModel = PlayerViewModel(
@@ -218,7 +221,6 @@ class AutoPlayInfiniteRadioTest {
         for (i in 0 until 40) {
             testScheduler.advanceTimeBy(300)
             advanceUntilIdle()
-            Thread.sleep(40)
         }
 
         // User hits Next when there's no next track in queue
@@ -227,7 +229,6 @@ class AutoPlayInfiniteRadioTest {
             testScheduler.advanceTimeBy(300)
             advanceUntilIdle()
             if (viewModel.uiState.value.currentTrack?.id?.startsWith("heavy") == true) break
-            Thread.sleep(40)
         }
 
         val stateAfterNext = viewModel.uiState.value
@@ -235,10 +236,11 @@ class AutoPlayInfiniteRadioTest {
         assertTrue(stateAfterNext.isPlaying)
         assertNotEquals("seed1", stateAfterNext.currentTrack?.id)
         assertTrue(stateAfterNext.currentTrack?.id?.startsWith("heavy") == true)
+        viewModel.closePlayer()
     }
 
     @Test
-    fun `user playlist queue with isUserQueue true respects finite queue boundary`() = runTest {
+    fun `user playlist queue with isUserQueue true respects finite queue boundary`() = runTest(testDispatcher) {
         val viewModel = PlayerViewModel(
             libraryRepository = MockLibraryRepo(),
             historyRepository = MockHistoryRepo(),
@@ -259,5 +261,6 @@ class AutoPlayInfiniteRadioTest {
         // Advance past end of finite user queue
         viewModel.next()
         assertFalse(viewModel.uiState.value.isPlaying)
+        viewModel.closePlayer()
     }
 }

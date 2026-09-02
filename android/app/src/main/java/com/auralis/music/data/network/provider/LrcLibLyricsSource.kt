@@ -207,8 +207,8 @@ class LrcLibLyricsSource(
             )
         }
 
-        if (syncedLyrics.isNotBlank()) {
-            return LrcParser.parse(syncedLyrics, LyricsProvider.LRCLIB).copy(
+        val result = if (syncedLyrics.isNotBlank()) {
+            LrcParser.parse(syncedLyrics, LyricsProvider.LRCLIB).copy(
                 trackName = trackName,
                 artistName = artistName,
                 plainLyrics = plainLyrics.ifBlank { null }
@@ -218,7 +218,7 @@ class LrcLibLyricsSource(
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .map { LyricLine(time = 0L, text = it) }
-            return LyricsData(
+            LyricsData(
                 provider = LyricsProvider.LRCLIB,
                 syncType = SyncType.PLAIN,
                 lines = lines,
@@ -226,7 +226,11 @@ class LrcLibLyricsSource(
                 trackName = trackName,
                 artistName = artistName
             )
+        } else null
+
+        if (result != null && com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(result)) {
+            return null
         }
-        return null
+        return result
     }
 }

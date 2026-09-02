@@ -471,6 +471,39 @@ object ArtworkProcessor {
             null
         }
     }
+    /**
+     * Converts a local content:// or file:// URI to a compact base64 data URI (data:image/jpeg;base64,...)
+     * ensuring custom playlist covers are portable, resilient across app reinstalls, and synced to Firebase Cloud.
+     */
+    fun encodeImageUriToDataUri(context: Context, uriString: String?): String? {
+        if (uriString.isNullOrBlank()) return null
+        if (uriString.startsWith("http://") || uriString.startsWith("https://") || uriString.startsWith("data:image/")) {
+            return uriString
+        }
+        return try {
+            val uri = Uri.parse(uriString)
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return uriString
+            val original = android.graphics.BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+            if (original == null) return uriString
+
+            val maxDim = 400
+            val width = original.width
+            val height = original.height
+            val scale = (maxDim.toFloat() / Math.max(width, height)).coerceAtMost(1f)
+            val scaledWidth = (width * scale).toInt().coerceAtLeast(1)
+            val scaledHeight = (height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(original, scaledWidth, scaledHeight, true)
+
+            val outStream = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 85, outStream)
+            val bytes = outStream.toByteArray()
+            val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            "data:image/jpeg;base64,$base64"
+        } catch (_: Exception) {
+            uriString
+        }
+    }
 }
 
 class CropBlackBarsTransformation : coil.transform.Transformation {

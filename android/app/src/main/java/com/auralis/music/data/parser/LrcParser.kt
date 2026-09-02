@@ -127,13 +127,7 @@ object LrcParser {
 
         val sorted = lines.sortedBy { it.time }
 
-        // Intelligently group short 1-3 word phrase fragments into full poetic lines with word timestamps
-        val processedLines = if (!hasWordSync && sorted.size >= 4) {
-            mergeMicroFragments(sorted)
-        } else {
-            sorted
-        }
-
+        val processedLines = sorted
         val hasDerivedWordSync = processedLines.any { it.words != null && it.words.isNotEmpty() }
         val syncType = when {
             hasWordSync || hasDerivedWordSync -> SyncType.RICHSYNC

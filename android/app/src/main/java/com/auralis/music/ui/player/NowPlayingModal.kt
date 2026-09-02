@@ -34,8 +34,10 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
@@ -238,18 +240,9 @@ fun NowPlayingModal(
         initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
-    val isUserDragging by pagerState.interactionSource.collectIsDraggedAsState()
-    var userInitiatedScroll by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isUserDragging) {
-        if (isUserDragging) {
-            userInitiatedScroll = true
-        }
-    }
-
+    // 1. Programmatically animate pager when the active track changes externally
     LaunchedEffect(currentTrackIndex) {
         if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
-            userInitiatedScroll = false
             val diff = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
             if (diff == 1) {
                 pagerState.animateScrollToPage(currentTrackIndex)
@@ -259,13 +252,17 @@ fun NowPlayingModal(
         }
     }
 
-    LaunchedEffect(pagerState.settledPage) {
-        if (userInitiatedScroll && pagerState.settledPage != currentTrackIndex && queue.isNotEmpty()) {
-            userInitiatedScroll = false
-            if (pagerState.settledPage in queue.indices) {
-                onSelectQueueTrack(pagerState.settledPage)
+    // 2. Reliably trigger track change when user swipes the carousel to a new page
+    LaunchedEffect(pagerState, queue) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { settledPage ->
+                if (settledPage != currentTrackIndex && queue.isNotEmpty()) {
+                    if (settledPage in queue.indices) {
+                        onSelectQueueTrack(settledPage)
+                    }
+                }
             }
-        }
     }
 
     var currentTab by remember { mutableStateOf(NowPlayingTab.PLAYER) }

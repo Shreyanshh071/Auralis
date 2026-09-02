@@ -325,6 +325,35 @@ class LibraryViewModel(
         }
     }
 
+    fun reorderPlaylistTracks(playlistId: String, fromIndex: Int, toIndex: Int) {
+        if (playlistId.startsWith("smart_")) return
+        val currentPlaylist = _uiState.value.selectedPlaylist?.takeIf { it.id == playlistId }
+            ?: _uiState.value.playlists.firstOrNull { it.id == playlistId }
+            ?: return
+
+        if (fromIndex !in currentPlaylist.tracks.indices || toIndex !in currentPlaylist.tracks.indices || fromIndex == toIndex) {
+            return
+        }
+
+        val reordered = com.auralis.music.domain.library.PlaylistManager.reorderTracks(currentPlaylist.tracks, fromIndex, toIndex)
+        val updatedPlaylist = currentPlaylist.copy(tracks = reordered)
+
+        _uiState.update { state ->
+            state.copy(
+                selectedPlaylist = if (state.selectedPlaylist?.id == playlistId) updatedPlaylist else state.selectedPlaylist,
+                playlists = state.playlists.map { if (it.id == playlistId) updatedPlaylist else it }
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                libraryRepository.reorderPlaylist(playlistId, reordered)
+            } catch (e: Exception) {
+                android.util.Log.e("LibraryViewModel", "Failed to persist reordered playlist: ${e.message}")
+            }
+        }
+    }
+
     fun deletePlaylist(playlistId: String) {
         if (playlistId.startsWith("smart_")) return
         viewModelScope.launch {
@@ -374,9 +403,11 @@ class LibraryViewModel(
             try {
                 val imported = youtubeImporter.importPlaylist(urlOrId)
                 if (imported != null) {
+                    val resolvedCover = imported.coverUrl?.ifBlank { null } ?: imported.tracks.firstOrNull()?.thumbnail
                     val playlist = libraryRepository.createPlaylist(
                         title = imported.title,
-                        description = imported.description
+                        description = imported.description,
+                        coverUrl = resolvedCover
                     )
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
                     _uiState.update {
@@ -430,16 +461,9 @@ class LibraryViewModel(
                     // 1. Immediately create the playlist in Room DB so user has 0ms wait time
                     val playlist = libraryRepository.createPlaylist(
                         title = imported.title,
-                        description = imported.description
+                        description = imported.description,
+                        coverUrl = imported.coverUrl
                     )
-                    if (!imported.coverUrl.isNullOrBlank()) {
-                        libraryRepository.updatePlaylist(
-                            playlistId = playlist.id,
-                            title = imported.title,
-                            description = imported.description,
-                            coverUrl = imported.coverUrl
-                        )
-                    }
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
                     val successMsg = "Imported '${imported.title}' (${imported.tracks.size} songs)"
                     android.util.Log.i("SpotifyImporter", successMsg)
