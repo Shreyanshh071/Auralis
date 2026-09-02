@@ -1220,7 +1220,7 @@ private fun PlaylistDetailView(
     val isCustomSort = sortOption == PlaylistSortOption.CUSTOM && searchQuery.isBlank() && !playlist.id.startsWith("smart_")
     val localTracks = remember(playlist.id) { playlist.tracks.toMutableStateList() }
 
-    var draggingTrackId by remember { mutableStateOf<String?>(null) }
+    var draggingIndex by remember { mutableStateOf(-1) }
     var isDragging by remember { mutableStateOf(false) }
     var originalDragIndex by remember { mutableStateOf(-1) }
     var currentPointerY by remember { mutableStateOf(0f) }
@@ -1236,32 +1236,31 @@ private fun PlaylistDetailView(
     }
 
     LaunchedEffect(playlist.tracks) {
-        if (!isDragging && draggingTrackId == null) {
+        if (!isDragging && draggingIndex == -1) {
             localTracks.clear()
             localTracks.addAll(playlist.tracks)
         }
     }
 
     fun checkTargetSwap(pointerY: Float) {
-        val currentId = draggingTrackId ?: return
-        val currIdx = localTracks.indexOfFirst { it.id == currentId }
-        if (currIdx == -1) return
+        if (draggingIndex !in 0..localTracks.lastIndex) return
+        val currIdx = draggingIndex
 
         val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
         if (visibleSongItems.isEmpty()) return
 
-        val draggedItemInfo = visibleSongItems.find { it.key == currentId }
+        val draggedItemInfo = visibleSongItems.find { (it.index - 1) == currIdx }
         val itemHeight = draggedItemInfo?.size?.toFloat() ?: density.run { 56.dp.toPx() }
         val draggedCenterY = pointerY - grabOffsetY + (itemHeight / 2f)
 
         // Check swap with item ABOVE (currIdx - 1) - pure 1:1 center crossing
         if (currIdx > 0) {
-            val prevTrackId = localTracks[currIdx - 1].id
-            val prevItemInfo = visibleSongItems.find { it.key == prevTrackId }
+            val prevItemInfo = visibleSongItems.find { (it.index - 1) == (currIdx - 1) }
             if (prevItemInfo != null) {
                 val prevCenterY = prevItemInfo.offset + (prevItemInfo.size / 2f)
                 if (draggedCenterY < prevCenterY) {
                     java.util.Collections.swap(localTracks, currIdx, currIdx - 1)
+                    draggingIndex = currIdx - 1
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     return
                 }
@@ -1270,12 +1269,12 @@ private fun PlaylistDetailView(
 
         // Check swap with item BELOW (currIdx + 1) - pure 1:1 center crossing
         if (currIdx < localTracks.lastIndex) {
-            val nextTrackId = localTracks[currIdx + 1].id
-            val nextItemInfo = visibleSongItems.find { it.key == nextTrackId }
+            val nextItemInfo = visibleSongItems.find { (it.index - 1) == (currIdx + 1) }
             if (nextItemInfo != null) {
                 val nextCenterY = nextItemInfo.offset + (nextItemInfo.size / 2f)
                 if (draggedCenterY > nextCenterY) {
                     java.util.Collections.swap(localTracks, currIdx, currIdx + 1)
+                    draggingIndex = currIdx + 1
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     return
                 }
@@ -1307,7 +1306,7 @@ private fun PlaylistDetailView(
 
             val pointerY = currentPointerY
             val firstSongInfo = playlistListState.layoutInfo.visibleItemsInfo.firstOrNull { it.contentType == "song" }
-            val isFirstTrackAtTop = firstSongInfo != null && firstSongInfo.key == localTracks.firstOrNull()?.id && firstSongInfo.offset >= 0
+            val isFirstTrackAtTop = firstSongInfo != null && (firstSongInfo.index - 1) == 0 && firstSongInfo.offset >= 0
 
             val scrollDelta = when {
                 pointerY < edgeZonePx && playlistListState.canScrollBackward && !isFirstTrackAtTop -> {
@@ -1501,12 +1500,11 @@ private fun PlaylistDetailView(
                                     startOffset.y.toInt() in info.offset..(info.offset + info.size)
                                 }
                                 if (hitItem != null) {
-                                    val hitTrackId = hitItem.key as? String
-                                    val idx = if (hitTrackId != null) localTracks.indexOfFirst { it.id == hitTrackId } else -1
-                                    if (idx != -1) {
+                                    val songIdx = hitItem.index - 1
+                                    if (songIdx in 0..localTracks.lastIndex) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        originalDragIndex = idx
-                                        draggingTrackId = hitTrackId
+                                        originalDragIndex = songIdx
+                                        draggingIndex = songIdx
                                         grabOffsetY = startOffset.y - hitItem.offset.toFloat()
                                         currentPointerY = startOffset.y
                                         isDragging = true
@@ -1519,10 +1517,10 @@ private fun PlaylistDetailView(
                                 checkTargetSwap(currentPointerY)
                             },
                             onDragEnd = {
-                                val finalIdx = localTracks.indexOfFirst { it.id == draggingTrackId }
+                                val finalIdx = draggingIndex
                                 val startIdx = originalDragIndex
                                 isDragging = false
-                                draggingTrackId = null
+                                draggingIndex = -1
                                 originalDragIndex = -1
                                 if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
                                     onReorderTracks?.invoke(startIdx, finalIdx)
@@ -1532,7 +1530,7 @@ private fun PlaylistDetailView(
                                 localTracks.clear()
                                 localTracks.addAll(playlist.tracks)
                                 isDragging = false
-                                draggingTrackId = null
+                                draggingIndex = -1
                                 originalDragIndex = -1
                             }
                         )
@@ -1893,14 +1891,14 @@ private fun PlaylistDetailView(
                 // ================================================================
                 itemsIndexed(
                     items = displayedTracks,
-                    key = { _, t -> t.id },
+                    key = { index, t -> "${t.id}_${t.title.hashCode()}_$index" },
                     contentType = { _, _ -> "song" }
                 ) { index, track ->
                     val isCurrent = track.id == currentTrackId
                     val trackMin = track.duration / 60
                     val trackSec = track.duration % 60
                     val trackDurationStr = "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec"
-                    val isItemBeingDragged = draggingTrackId == track.id
+                    val isItemBeingDragged = isDragging && draggingIndex == index
 
                     com.auralis.music.ui.components.SwipeableTrackContainer(
                         onPlayNext = { onPlayNextTrack?.invoke(track) },
@@ -1909,7 +1907,7 @@ private fun PlaylistDetailView(
                         isPlaylistContext = true,
                         modifier = Modifier
                             .then(
-                                if (!isItemBeingDragged) {
+                                if (isCustomSort && !isItemBeingDragged) {
                                     Modifier.animateItemPlacement(
                                         animationSpec = tween(
                                             durationMillis = 100,
@@ -2010,7 +2008,7 @@ private fun PlaylistDetailView(
             // ================================================================
             // FLOATING DRAGGED CARD OVERLAY
             // ================================================================
-            val draggedTrack = localTracks.find { it.id == draggingTrackId }
+            val draggedTrack = if (draggingIndex in 0..localTracks.lastIndex) localTracks.getOrNull(draggingIndex) else null
             if (isDragging && draggedTrack != null) {
                 val trackMin = draggedTrack.duration / 60
                 val trackSec = draggedTrack.duration % 60
