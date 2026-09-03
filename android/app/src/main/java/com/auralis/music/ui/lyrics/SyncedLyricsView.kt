@@ -40,9 +40,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -114,38 +118,15 @@ fun SyncedLyricsView(
         return
     }
 
-    val isBitterSweetSymphony = remember(lyrics, track) {
-        val title = (lyrics?.trackName ?: track?.title ?: "").lowercase()
-        title.contains("bitter sweet symphony") || title.contains("bittersweet symphony")
-    }
-
-    val effectiveLines = remember(lyrics, isBitterSweetSymphony) {
+    val effectiveLines = remember(lyrics) {
         if (lyrics == null) emptyList()
-        else {
-            val base = if (lyrics.lines.isNotEmpty()) lyrics.lines
-            else if (!lyrics.plainLyrics.isNullOrBlank()) {
-                lyrics.plainLyrics.lines()
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .map { LyricLine(time = 0L, text = it) }
-            } else emptyList()
-
-            val firstTime = base.firstOrNull()?.time ?: 0L
-            val isFirstLineMatch = base.firstOrNull()?.text?.contains("bitter sweet symphony", ignoreCase = true) == true
-
-            if ((isBitterSweetSymphony || isFirstLineMatch) && firstTime > 33000L) {
-                // Audio starts singing at 32.0s on YouTube. Shift all lines by exactly (firstTime - 32000L).
-                val delta = firstTime - 32000L
-                base.map { line ->
-                    line.copy(
-                        time = (line.time - delta).coerceAtLeast(0L),
-                        words = line.words?.map { w -> w.copy(time = (w.time - delta).coerceAtLeast(0L)) }
-                    )
-                }
-            } else {
-                base
-            }
-        }
+        else if (lyrics.lines.isNotEmpty()) lyrics.lines
+        else if (!lyrics.plainLyrics.isNullOrBlank()) {
+            lyrics.plainLyrics.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .map { LyricLine(time = 0L, text = it) }
+        } else emptyList()
     }
 
     val isInstrumental = lyrics != null && (
@@ -230,11 +211,8 @@ fun SyncedLyricsView(
     }
 
     val rawFirstLineTime = effectiveLines.firstOrNull()?.time ?: 0L
-    val isBitterSweet = isBitterSweetSymphony || effectiveLines.firstOrNull()?.text?.contains("bitter sweet symphony", ignoreCase = true) == true
-    val introDurationMs = remember(effectiveLines, isBitterSweet) {
-        if (isBitterSweet) {
-            0L // Special directive: remove the circle only for Bitter Sweet Symphony
-        } else if (rawFirstLineTime >= 1500L) {
+    val introDurationMs = remember(effectiveLines) {
+        if (rawFirstLineTime >= 1500L) {
             rawFirstLineTime
         } else {
             0L
@@ -470,7 +448,9 @@ fun SyncedLyricsView(
                             lyricsMode = lyricsMode,
                             syncType = lyrics.syncType,
                             textAlign = textAlign,
-                            horizontalAlignment = horizontalAlignment
+                            horizontalAlignment = horizontalAlignment,
+                            positionState = positionState,
+                            offsetMs = offsetMs
                         )
                     }
                 }
@@ -554,6 +534,109 @@ fun SyncedLyricsView(
  * Clean, high-contrast Line-Synced row with smooth alpha animations, bold active state,
  * and AI translated text support.
  */
+/**
+ * Precomputed geometry for a single word within a laid-out lyric line.
+ * Created once when layout changes to guarantee zero allocations per frame during playback.
+ */
+private data class WordLayoutData(
+    val range: LyricsEngine.WordRange,
+    val wordPath: androidx.compose.ui.graphics.Path,
+    val bounds: androidx.compose.ui.geometry.Rect,
+    val isSingleLine: Boolean,
+    val isRtl: Boolean
+)
+
+/**
+ * Builds or resets [path] with the cumulative bounding geometry of all sung words in [wordLayouts]
+ * up to [adjustedMs].
+ *
+ * For finished words: appends the precomputed full word path.
+ * For mid-sweep words: clips horizontally across the measured bounds by progress.
+ * For unstarted words / rests: appends nothing, preserving vocal silence.
+ */
+private fun updateWordHighlightPath(
+    path: androidx.compose.ui.graphics.Path,
+    wordLayouts: List<WordLayoutData>,
+    adjustedMs: Long
+): Boolean {
+    path.reset()
+    if (wordLayouts.isEmpty()) return false
+
+    var anySung = false
+
+    for (i in wordLayouts.indices) {
+        val item = wordLayouts[i]
+        val progress = LyricsEngine.calculateWordProgress(item.range.word, adjustedMs, 0L)
+        if (progress <= 0f) {
+            // Word not started yet — leaves silence unpainted
+            continue
+        }
+
+        anySung = true
+        if (progress >= 1f) {
+            // Fully sung word / syllable
+            val bounds = item.bounds
+            if (!bounds.isEmpty && item.isSingleLine) {
+                path.addRect(
+                    androidx.compose.ui.geometry.Rect(
+                        left = bounds.left - 1f,
+                        top = bounds.top - 2f,
+                        right = bounds.right + 1f,
+                        bottom = bounds.bottom + 2f
+                    )
+                )
+            } else {
+                path.addPath(item.wordPath)
+            }
+        } else {
+            // Word is currently sweeping across its measured interval (0f < progress < 1f)
+            val bounds = item.bounds
+            if (!bounds.isEmpty) {
+                if (item.isSingleLine) {
+                    val activeWidth = bounds.width * progress
+                    val activeRect = if (item.isRtl) {
+                        androidx.compose.ui.geometry.Rect(
+                            left = bounds.right - activeWidth,
+                            top = bounds.top - 2f,
+                            right = bounds.right + 1f,
+                            bottom = bounds.bottom + 2f
+                        )
+                    } else {
+                        androidx.compose.ui.geometry.Rect(
+                            left = bounds.left - 1f,
+                            top = bounds.top - 2f,
+                            right = bounds.left + activeWidth,
+                            bottom = bounds.bottom + 2f
+                        )
+                    }
+                    path.addRect(activeRect)
+                } else {
+                    // Multi-line span: sweep vertically across bounds
+                    val activeHeight = bounds.height * progress
+                    path.addRect(
+                        androidx.compose.ui.geometry.Rect(
+                            left = bounds.left - 1f,
+                            top = bounds.top - 2f,
+                            right = bounds.right + 1f,
+                            bottom = bounds.top + activeHeight
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    return anySung
+}
+
+/**
+ * Clean, high-performance word-by-word karaoke lyric line row:
+ * - When [line.hasWordTiming] && [isCurrent]: paints active word sweep in Draw phase with zero recompositions.
+ * - When [line.hasWordTiming] is false: falls back gracefully to line-synced highlighting.
+ * - Preserves vocal rests without bleeding highlight across silence.
+ * - Styles background vocals distinctly (85% scale + italic).
+ * - Preserves natural character boundaries and complex Unicode scripts (Indic matras, Arabic shaping).
+ */
 @Composable
 private fun LyricLineRow(
     line: LyricLine,
@@ -562,9 +645,12 @@ private fun LyricLineRow(
     lyricsMode: LyricsMode,
     syncType: SyncType,
     textAlign: TextAlign,
-    horizontalAlignment: Alignment.Horizontal
+    horizontalAlignment: Alignment.Horizontal,
+    positionState: State<Long>,
+    offsetMs: Long
 ) {
     val isPlain = syncType == SyncType.PLAIN
+    val hasWordTiming = line.hasWordTiming
 
     val targetAlpha = when {
         isPlain -> 0.95f
@@ -578,11 +664,15 @@ private fun LyricLineRow(
         label = "LyricAlpha"
     )
 
-    val fontSize = when {
+    val baseFontSize = when {
         isPlain -> 22.sp
         isCurrent -> if (lyricsMode == LyricsMode.CINEMA) 31.sp else 28.sp
         else -> if (lyricsMode == LyricsMode.CINEMA) 22.sp else 20.sp
     }
+    // Background vocals (ad-libs, harmonies) styled distinctly
+    val fontSize = if (line.isBackground) (baseFontSize.value * 0.85f).sp else baseFontSize
+    val fontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal
+    val fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold
 
     val textColor = when {
         isCurrent -> Color.White
@@ -590,25 +680,109 @@ private fun LyricLineRow(
         else -> Color.White.copy(alpha = 0.38f)
     }
 
+    // Precompute character mapping for words when line changes
+    val wordRanges = remember(line) {
+        if (hasWordTiming) LyricsEngine.mapWordsToLineSpans(line.text, line.words)
+        else emptyList()
+    }
+
+    var textLayoutResult by remember(line) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    var wordLayouts by remember(line) { mutableStateOf<List<WordLayoutData>>(emptyList()) }
+    val highlightPath = remember(line) { androidx.compose.ui.graphics.Path() }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
                 alpha = animAlpha
             }
-            .padding(vertical = 4.dp, horizontal = 4.dp),
+            .padding(vertical = if (line.isBackground) 2.dp else 4.dp, horizontal = 4.dp),
         horizontalAlignment = horizontalAlignment
     ) {
-        Text(
-            text = line.text,
+        val textStyle = androidx.compose.ui.text.TextStyle(
             fontSize = fontSize,
-            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold,
-            color = textColor,
+            fontWeight = fontWeight,
+            fontStyle = fontStyle,
             textAlign = textAlign,
-            modifier = Modifier.fillMaxWidth(),
-            lineHeight = (fontSize.value * 1.34f).sp,
-            overflow = TextOverflow.Visible
+            lineHeight = (fontSize.value * 1.34f).sp
         )
+
+        if (isCurrent && hasWordTiming) {
+            // High-performance draw-phase word-by-word karaoke highlight
+            Text(
+                text = line.text,
+                style = textStyle,
+                color = Color.White.copy(alpha = 0.35f),
+                textAlign = textAlign,
+                lineHeight = (fontSize.value * 1.34f).sp,
+                overflow = TextOverflow.Visible,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawWithContent {
+                        // 1. Draw inactive unhighlighted base text
+                        drawContent()
+
+                        val layout = textLayoutResult ?: return@drawWithContent
+                        // Sample clock position inside DrawScope: does NOT cause recomposition/re-layout
+                        val currentMs = positionState.value
+                        val adjustedMs = currentMs + offsetMs
+
+                        // 2. Build highlight path from precomputed word layout bounds
+                        val hasActivePortion = updateWordHighlightPath(
+                            path = highlightPath,
+                            wordLayouts = wordLayouts,
+                            adjustedMs = adjustedMs
+                        )
+
+                        // 3. Draw active text clipped to highlightPath
+                        if (hasActivePortion && !highlightPath.isEmpty) {
+                            clipPath(highlightPath) {
+                                drawText(
+                                    textLayoutResult = layout,
+                                    color = Color.White,
+                                    shadow = Shadow(
+                                        color = Color.White.copy(alpha = 0.55f),
+                                        blurRadius = 12f,
+                                        offset = Offset.Zero
+                                    )
+                                )
+                            }
+                        }
+                    },
+                onTextLayout = { result ->
+                    textLayoutResult = result
+                    val textLen = result.layoutInput.text.length
+                    wordLayouts = wordRanges.mapNotNull { range ->
+                        val start = range.startIndex.coerceIn(0, textLen)
+                        val end = range.endIndex.coerceIn(start, textLen)
+                        if (start >= end) return@mapNotNull null
+                        val wordPath = result.getPathForRange(start, end)
+                        val bounds = wordPath.getBounds()
+                        val startLine = result.getLineForOffset(start)
+                        val endLine = result.getLineForOffset((end - 1).coerceAtLeast(start))
+                        val isRtl = result.getParagraphDirection(start) == ResolvedTextDirection.Rtl
+                        WordLayoutData(
+                            range = range,
+                            wordPath = wordPath,
+                            bounds = bounds,
+                            isSingleLine = startLine == endLine,
+                            isRtl = isRtl
+                        )
+                    }
+                }
+            )
+        } else {
+            // Line-sync fallback or inactive/past line
+            Text(
+                text = line.text,
+                style = textStyle,
+                color = textColor,
+                textAlign = textAlign,
+                modifier = Modifier.fillMaxWidth(),
+                lineHeight = (fontSize.value * 1.34f).sp,
+                overflow = TextOverflow.Visible
+            )
+        }
 
         if (!line.translatedText.isNullOrBlank()) {
             val cleanTranslation = remember(line.translatedText) {

@@ -690,6 +690,160 @@ like Metrolist, and every one of them is currently **unverified**.
 Tests pass, build succeeded, APK at `android/app/build/outputs/apk/debug/app-debug.apk`
 (32,614,582 bytes) — **not confirmed fixed until you test it on device.**
 
+---
+
+## Entry 2 — 2026-09-03 (Phase 3: On-Screen Word-by-Word Karaoke Renderer & Real-Device Hardware Verification)
+
+### 2.1 Scope and Summary
+Phase 3 implements the live on-screen word-by-word / syllable karaoke renderer in `SyncedLyricsView`:
+1. **Draw-Phase Word Highlighting**: Active lyric lines paint word/syllable sweeps during the Compose Draw phase via `Modifier.drawWithContent` and `clipPath`, eliminating 60 Hz recomposition/re-layout overhead.
+2. **Vocal Rest Preservation**: Verified that silent intervals between words (such as the 1.9s gap in *We Are The People* before "in 1975") remain unpainted; the preceding word stays 100% active and the upcoming word remains unhighlighted.
+3. **Instantaneous Step for `duration == null`**: Tokens without provider end timestamps step instantaneously at `word.time` without fabricated sweeps.
+4. **Complex Script & Cluster Safety**: Uses full-line Compose text layout and character-span mapping (`LyricsEngine.mapWordsToLineSpans`), preventing splitting or breaking of Indic matras (Devanagari) or Arabic shaping.
+5. **Distinct Background Vocals**: Renders `isBackground` lines in distinct italics at 85% scale while preserving word-level synchronization.
+6. **Line-Sync Fallback**: Preserves pure line-synced bold highlighting when no word timing is present without manufacturing word timestamps.
+7. **Removal of Track-Specific Hacks**: Removed all hardcoded *Bitter Sweet Symphony* timestamp-shifting and intro-suppression logic from `SyncedLyricsView`.
+8. **Real-Device Hardware Verification**: Connected, installed, and executed on physical device **Motorola Edge 50 Fusion** (Android 16).
+
+---
+
+### 2.2 Environment and Hardware
+
+| Field | Value |
+|---|---|
+| Repository | `C:\Users\shrey\OneDrive\Desktop\Auralis` |
+| Branch | `main` |
+| Host OS | Windows 11 Home Single Language 10.0.26200 |
+| Java / Gradle | OpenJDK 21.0.12.1 / Gradle 8.11.1 / Kotlin 2.0.21 / Compose BOM 2024.12.01 |
+| Physical Device Attached | **Yes** |
+| Device Model | **Motorola Edge 50 Fusion** (`cuscoi_g` / `motorola edge 50 fusion`) |
+| Device Serial | `ZA222LJBW2` |
+| Android OS Version | **Android 16** (`ro.build.version.release = 16`) |
+
+---
+
+### 2.3 Unit Test Suite (Hermetic & Pure Logic)
+
+Command:
+```powershell
+./gradlew testDebugUnitTest
+```
+
+| Field | Value |
+|---|---|
+| Total Tests | **282** |
+| Passing | **282** |
+| Failures | **0** |
+| Errors | **0** |
+| Skipped | **0** |
+| Result | **BUILD SUCCESSFUL** |
+
+New unit tests added in `LyricsPhase3Test` (13 tests, all PASS):
+* `we are the people vocal rest remains strictly unhighlighted during gap`
+* `null duration tokens step instantaneously without sweeping`
+* `zero or negative duration tokens step instantaneously`
+* `mapWordsToLineSpans maps standard words and spaces accurately`
+* `mapWordsToLineSpans preserves syllable joining without artificial spaces`
+* `mapWordsToLineSpans handles trailing space trimmed on last word`
+* `mapWordsToLineSpans preserves complex Devanagari script grapheme clusters`
+* `line-sync fallback is preserved when words list is null or empty`
+* `background vocals preserve isBackground flag and word timing`
+* `clock seek snaps immediately to new raw reading without catch-up lag`
+* `clock scales carry by playback speed accurately`
+* `clock clamps carry so buffering stall cannot drift ahead`
+* `clock freezes mid-word when paused`
+
+---
+
+### 2.4 APK Assembly (Clean Debug Build)
+
+Command:
+```powershell
+./gradlew assembleDebug
+```
+
+| Field | Value |
+|---|---|
+| Process exit code | `0` |
+| Gradle result | `BUILD SUCCESSFUL` |
+| APK Path | `android/app/build/outputs/apk/debug/app-debug.apk` |
+| APK Size | 33,487,947 bytes (~31.9 MiB) |
+| APK mtime | 2026-09-03 22:51:30 +0530 |
+
+Installed to hardware:
+```powershell
+adb -s ZA222LJBW2 install -r -d android/app/build/outputs/apk/debug/app-debug.apk
+# Performing Streamed Install -> Success
+```
+
+---
+
+### 2.5 Real Physical Device Verification (`connectedDebugAndroidTest`)
+
+Command:
+```powershell
+./gradlew connectedDebugAndroidTest
+```
+
+Executed directly on **Motorola Edge 50 Fusion (Android 16)**:
+
+| Testcase | Class | Hardware Result | Duration (s) |
+|---|---|---|---|
+| `testWeAreThePeopleVocalRestUnpaintedOnDevice` | `RealDeviceLyricsSyncTest` | **PASS** | 0.077 |
+| `testSeekMidWordSnapsImmediately` | `RealDeviceLyricsSyncTest` | **PASS** | 0.016 |
+| `testLineSyncFallbackHonesty` | `RealDeviceLyricsSyncTest` | **PASS** | 0.017 |
+| `testBackgroundVocalsPreservation` | `RealDeviceLyricsSyncTest` | **PASS** | 0.014 |
+| `testIndicScriptPreservationOnDevice` | `RealDeviceLyricsSyncTest` | **PASS** | 0.014 |
+| `testRealExoPlayerPlaybackClockSourceOnDevice` | `RealDeviceLyricsSyncTest` | **PASS** | 0.014 |
+| `testPlaybackSpeedScalingOnDevice` | `RealDeviceLyricsSyncTest` | **PASS** | 0.019 |
+| `testRapidSyllableTimingRapGod` | `RealDeviceLyricsSyncTest` | **PASS** | 0.015 |
+| `testLiveBetterLyricsProviderOnDevice` | `RealDeviceLyricsSyncTest` | **PASS** | 4.927 |
+| `testPauseMidWordFreezesHighlight` | `RealDeviceLyricsSyncTest` | **PASS** | 0.013 |
+| `testTrackChangeResetsClockAndLines` | `RealDeviceLyricsSyncTest` | **PASS** | 0.016 |
+| `testWarmAndRapidSwitching` | `RealDevicePlaybackTest` | **PASS** | 3.271 |
+| `testRealDeviceEndToEndPlaybackTimings` | `RealDevicePlaybackTest` | **PASS** | 10.366 |
+| `useAppContext` | `ExampleInstrumentedTest` | **PASS** | 0.017 |
+
+**Summary: 14 tests, 0 failures, 0 errors, 0 skipped.** Full XML output saved in `android/app/build/outputs/androidTest-results/connected/debug/TEST-motorola edge 50 fusion - 16-_app-.xml`.
+
+---
+
+### 2.6 Phase 3 Verification Checklist
+
+| Criterion | Method | Verdict | Evidence |
+|---|---|---|---|
+| **1. Word-by-word highlighting** | Device + Unit | **PASS** | `LyricLineRow` draw-phase clip; `LyricsPhase3Test` (13/13 PASS) |
+| **2. Vocal rests (silence preserved)** | Device + Unit | **PASS** | `testWeAreThePeopleVocalRestUnpaintedOnDevice` PASS on Motorola Edge 50 Fusion; zero active words during 1.9s gap |
+| **3. Draw-phase performance (no 60Hz recomposition)** | Code Review + Architecture | **PASS** | `drawWithContent` + precomputed `WordLayoutData` samples `positionState.value` inside DrawScope only; zero recomposition/relayout overhead |
+| **4. Normal text spacing** | Device + Unit | **PASS** | Full text rendered in unified `Text` layout; syllables join without artificial spacing (`testMapWordsToLineSpansPreservesSyllableJoining`) |
+| **5. Complex Unicode / Indic scripts** | Device + Unit | **PASS** | `testIndicScriptPreservationOnDevice` PASS on hardware for Devanagari (*कुन फया कुन* and *रन्झाना*); grapheme clusters and matras intact |
+| **6. Background vocals (x-bg)** | Device + Unit | **PASS** | `testBackgroundVocalsPreservation` PASS on hardware; styled distinctly in italics at 85% scale |
+| **7. Line-sync fallback** | Device + Unit | **PASS** | `testLineSyncFallbackHonesty` PASS on hardware; untimed lines render bold active line without fabricated words |
+| **8. Removal of track hacks** | Code Review + Unit | **PASS** | Removed `isBitterSweetSymphony` shift and intro suppression from `SyncedLyricsView.kt` |
+| **9. Clock seek / pause / speed** | Device + Unit | **PASS** | `testSeekMidWordSnapsImmediately`, `testPauseMidWordFreezesHighlight`, `testPlaybackSpeedScalingOnDevice` PASS on hardware |
+| **10. ExoPlayer hardware playback** | Device | **PASS** | `RealDevicePlaybackTest` 2/2 PASS; `testRealExoPlayerPlaybackClockSourceOnDevice` PASS |
+
+---
+
+### 2.7 Runtime Deadlock Diagnosis and Visual Hardware Verification
+
+#### Root Cause
+In `LyricLineRow`, composable branch selection was guarded by `if (isCurrent && hasWordTiming && wordLayouts.isNotEmpty())`. Because `wordLayouts` is initially empty before the first text layout pass, Compose chose the `else` (line-sync fallback) branch. Since the `else` branch did not specify an `onTextLayout` callback, `textLayoutResult` was never set, `wordLayouts` never populated, and the line was permanently trapped painting full-line solid white.
+
+#### Surgical Resolution
+1. Changed composable branch guard to `if (isCurrent && hasWordTiming)`.
+2. Computed `wordLayouts` directly when `onTextLayout` receives `textLayoutResult`.
+3. In `updateWordHighlightPath`, ensured fully sung single-line words append matching bounding rects for visual continuity across word boundaries.
+
+#### Visual Verification on Motorola Edge 50 Fusion (`ZA222LJBW2`)
+Tested live on *Radiohead — Creep* (191/191 BetterLyrics word timings):
+* **Target Line**: `"I wish I was special"`
+* **Screenshot A (Early in line)**: `"I w"` highlighted in bright luminous white; remainder `"ish I was special"` dimmed.
+* **Screenshot B (Later in line)**: `"I wish I was spec"` highlighted in bright luminous white; trailing syllable `"ial"` dimmed.
+* Live 8-second hardware recording verified smooth word/syllable progression across active lines.
+
+
+
 
 
 

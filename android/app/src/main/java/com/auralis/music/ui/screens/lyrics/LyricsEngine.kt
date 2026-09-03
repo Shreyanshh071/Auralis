@@ -71,4 +71,79 @@ object LyricsEngine {
             else -> ((adjustedTime - start).toFloat() / duration).coerceIn(0.0f, 1.0f)
         }
     }
+
+    /**
+     * A [LyricWord] mapped to its exact character range `[startIndex, endIndex)`
+     * in the rendered line text.
+     */
+    data class WordRange(
+        val word: LyricWord,
+        val startIndex: Int,
+        val endIndex: Int
+    )
+
+    /**
+     * Maps each [LyricWord] to its character range `[startIndex, endIndex)` in [lineText].
+     *
+     * Computed once per lyric line when composition binds the line. Preserves original
+     * grapheme clusters, matras, and glyph boundaries by referencing character indices
+     * into the complete rendered line rather than slicing substrings.
+     */
+    fun mapWordsToLineSpans(lineText: String, words: List<LyricWord>?): List<WordRange> {
+        if (words.isNullOrEmpty() || lineText.isEmpty()) return emptyList()
+        val result = ArrayList<WordRange>(words.size)
+        var cursor = 0
+
+        for (word in words) {
+            val token = word.word
+            if (token.isEmpty()) continue
+
+            // 1. Direct match from current cursor
+            var idx = lineText.indexOf(token, cursor)
+            var matchLength = token.length
+
+            // 2. If trailing space was trimmed at line boundary, try trimmed end
+            if (idx == -1) {
+                val trimmedEnd = token.trimEnd()
+                if (trimmedEnd.isNotEmpty()) {
+                    idx = lineText.indexOf(trimmedEnd, cursor)
+                    if (idx != -1) {
+                        matchLength = trimmedEnd.length
+                    }
+                }
+            }
+
+            // 3. If still not found, try full trim
+            if (idx == -1) {
+                val fullTrim = token.trim()
+                if (fullTrim.isNotEmpty()) {
+                    idx = lineText.indexOf(fullTrim, cursor)
+                    if (idx != -1) {
+                        matchLength = fullTrim.length
+                    }
+                }
+            }
+
+            // 4. Fallback search from start if line formatting rearranged spaces
+            if (idx == -1) {
+                val fullTrim = token.trim()
+                if (fullTrim.isNotEmpty()) {
+                    idx = lineText.indexOf(fullTrim, 0)
+                    if (idx != -1) {
+                        matchLength = fullTrim.length
+                    }
+                }
+            }
+
+            if (idx != -1) {
+                val start = idx
+                val end = (idx + matchLength).coerceAtMost(lineText.length)
+                if (start < end) {
+                    result.add(WordRange(word = word, startIndex = start, endIndex = end))
+                    cursor = end
+                }
+            }
+        }
+        return result
+    }
 }
