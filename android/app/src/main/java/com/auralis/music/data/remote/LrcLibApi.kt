@@ -25,7 +25,7 @@ class LrcLibApi(
 ) {
     companion object {
         const val DEFAULT_BASE_URL = "https://lrclib.net/api"
-        private const val CLIENT_HEADER = "Auralis-Music-Android/1.0.0 (https://github.com/shreyanshchoubey09/Auralis)"
+        private const val CLIENT_HEADER = "Auralis-Music-Android/1.0.0 (https://github.com/Shreyanshh071/Auralis)"
     }
 
     /**

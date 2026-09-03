@@ -3,7 +3,7 @@
   <h1>Auralis</h1>
   <p><b>Next-Generation Native Music Streaming & Collaborative Group Listening</b></p>
 
-  ![GitHub release (latest by date)](https://img.shields.io/github/v/release/shreyanshchoubey09/Auralis?style=for-the-badge&color=8A2BE2)
+  ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Shreyanshh071/Auralis?style=for-the-badge&color=8A2BE2)
   ![APK Size](https://img.shields.io/badge/APK%20Size-8.3%20MB%20(Universal)-32CD32?style=for-the-badge&logo=android&logoColor=white)
   ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
   ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
@@ -17,7 +17,7 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/shreyanshchoubey09/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Ultra-Lightweight (~8.3 MB)](#-ultra-lightweight--universal-architecture-83-mb) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Ultra-Lightweight (~8.3 MB)](#-ultra-lightweight--universal-architecture-83-mb) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
