@@ -28,7 +28,7 @@ class AmllLyricsSource(
          * reasoning about which provider supplied a track's timings.
          */
         private const val BASE_URL = "https://api.amll.dev/v1"
-        private const val CLIENT_HEADER = "Auralis-Music-Android/1.0.0 (https://github.com/shreyanshchoubey09/Auralis)"
+        private const val CLIENT_HEADER = "Auralis-Music-Android/1.0.0 (https://github.com/Shreyanshh071/Auralis)"
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {

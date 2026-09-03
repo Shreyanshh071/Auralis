@@ -23,11 +23,13 @@ class LyricsRepositoryImpl(
     private val memoryCache = ConcurrentHashMap<String, LyricsData>()
 
     init {
-        // One-time purge of stale/corrupted legacy lyrics cache on app update
+        // Purge only rows written by an older parser pipeline. This used to be an
+        // unconditional clearAllLyrics(), which sits in `init` and therefore fired
+        // on every process start — the Room cache never once survived a launch.
         if (lyricsDao != null) {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    lyricsDao.clearAllLyrics()
+                    lyricsDao.purgeStalePipeline(LYRICS_PIPELINE_VERSION)
                     negativeLyricsDao?.cleanExpired(System.currentTimeMillis() + 86400000L)
                 } catch (_: Exception) {}
             }
@@ -36,6 +38,16 @@ class LyricsRepositoryImpl(
 
     companion object {
         private const val NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours TTL
+
+        /**
+         * Bump when parser timing semantics change, so rows written under the old
+         * meaning are dropped once instead of being trusted forever.
+         *
+         * 1 = the `duration == null` contract is enforced in every parser: no
+         * fabricated 300 ms / 3000 ms word ends, and word sync is labelled from
+         * [com.auralis.music.data.parser.WordTiming] rather than "any words present".
+         */
+        const val LYRICS_PIPELINE_VERSION = 1
     }
 
     override suspend fun getCachedLyrics(
@@ -197,13 +209,17 @@ class LyricsRepositoryImpl(
             lineObj.put("time", line.time)
             lineObj.put("text", line.text)
             lineObj.put("isInstrumental", line.isInstrumental)
+            if (line.isBackground) lineObj.put("isBackground", true)
             if (!line.words.isNullOrEmpty()) {
                 val wordsArray = JSONArray()
                 for (w in line.words) {
                     val wObj = JSONObject()
                     wObj.put("word", w.word)
                     wObj.put("time", w.time)
+                    // Written only when the provider stated a length. An absent key
+                    // reads back as null, which is exactly the timing contract.
                     if (w.duration != null) wObj.put("duration", w.duration)
+                    if (w.isBackground) wObj.put("isBackground", true)
                     wordsArray.put(wObj)
                 }
                 lineObj.put("words", wordsArray)
@@ -218,7 +234,9 @@ class LyricsRepositoryImpl(
             plainLyrics = domain.plainLyrics,
             provider = domain.provider.name,
             trackName = domain.trackName ?: title,
-            artistName = domain.artistName ?: artist
+            artistName = domain.artistName ?: artist,
+            hasWordTiming = com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(domain.lines),
+            pipelineVersion = LYRICS_PIPELINE_VERSION
         )
     }
 
@@ -251,14 +269,23 @@ class LyricsRepositoryImpl(
                             LyricWord(
                                 word = wObj.getString("word"),
                                 time = wObj.getLong("time"),
-                                duration = if (wObj.has("duration")) wObj.getLong("duration") else null
+                                duration = if (wObj.has("duration")) wObj.getLong("duration") else null,
+                                isBackground = wObj.optBoolean("isBackground", false)
                             )
                         )
                     }
                     wList
                 } else null
 
-                lines.add(LyricLine(time = time, text = text, words = words, isInstrumental = isInst))
+                lines.add(
+                    LyricLine(
+                        time = time,
+                        text = text,
+                        words = words,
+                        isInstrumental = isInst,
+                        isBackground = lineObj.optBoolean("isBackground", false)
+                    )
+                )
             }
 
             val cleanedLines = lines.filterNot { com.auralis.music.data.parser.LrcParser.isMetadataOrCreditLine(it.text) }
@@ -268,11 +295,13 @@ class LyricsRepositoryImpl(
                 cleanedLines
             }
 
-            val hasDerivedWordSync = resolvedLines.any { it.words != null && it.words.isNotEmpty() }
+            // The cache must not upgrade a line-synced row to word-synced. It used
+            // to label anything with a non-empty `words` list as RICHSYNC, which
+            // laundered fabricated word lists straight back into the renderer.
             val resolvedSyncType = when {
-                hasDerivedWordSync || syncType == SyncType.RICHSYNC -> SyncType.RICHSYNC
+                com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(resolvedLines) -> SyncType.RICHSYNC
                 resolvedLines.any { it.time > 0L } -> SyncType.LINE_SYNC
-                resolvedLines.isNotEmpty() -> syncType
+                resolvedLines.isNotEmpty() -> if (syncType == SyncType.RICHSYNC) SyncType.LINE_SYNC else syncType
                 else -> SyncType.PLAIN
             }
 

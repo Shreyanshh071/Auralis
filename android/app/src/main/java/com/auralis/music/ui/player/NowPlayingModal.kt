@@ -95,7 +95,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -185,7 +187,8 @@ private fun boostColorVibrancy(color: Color, minSaturation: Float = 0.65f, targe
 @Composable
 fun NowPlayingModal(
     uiState: PlayerUiState,
-    playbackPositionMs: Long = uiState.playbackPositionMs,
+    playbackPositionState: State<Long>,
+    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
     playbackSpeed: Float = 1.0f,
     userPlaylists: List<Playlist> = emptyList(),
     onPlayPauseClick: () -> Unit,
@@ -281,7 +284,28 @@ fun NowPlayingModal(
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubPositionMs by remember { mutableFloatStateOf(0f) }
 
-    val currentPosMs = if (isScrubbing) scrubPositionMs.toLong() else playbackPositionMs
+    // The player's own clock, sampled once per displayed frame and interpolated
+    // between readings. Runs only while the lyrics tab is visible and audio is
+    // actually advancing; otherwise it mirrors the coarse ticker.
+    val lyricsClock = com.auralis.music.ui.lyrics.rememberLyricsClock(
+        source = lyricsClockSource,
+        enabled = currentTab == NowPlayingTab.LYRICS && uiState.isPlaying,
+        fallbackPositionMs = playbackPositionState
+    )
+
+    // Positions stay behind State rather than being unwrapped here. Unwrapping
+    // at this level would tie every clock tick to a recomposition of the entire
+    // modal; each leaf reads the value it needs instead.
+    val seekBarPositionState = remember(playbackPositionState) {
+        derivedStateOf {
+            if (isScrubbing) scrubPositionMs.toLong() else playbackPositionState.value
+        }
+    }
+    val lyricsPositionState = remember(lyricsClock) {
+        derivedStateOf {
+            if (isScrubbing) scrubPositionMs.toLong() else lyricsClock.value
+        }
+    }
     val totalDurationMs = if (uiState.durationMs > 0) uiState.durationMs else (track.duration * 1000L)
 
     val context = LocalContext.current
@@ -693,7 +717,7 @@ fun NowPlayingModal(
                     ) {
                         SyncedLyricsView(
                             lyrics = uiState.lyrics,
-                            currentPositionMs = currentPosMs,
+                            positionState = lyricsPositionState,
                             onSeekTo = onSeekTo,
                             isLoading = uiState.isLoadingLyrics,
                             lyricsMode = com.auralis.music.domain.model.LyricsMode.CINEMA,
@@ -1059,8 +1083,14 @@ fun NowPlayingModal(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         // ── TIME SCRUBBER SLIDER & TIMESTAMPS (SQUIGGLY WAVEFORM) ──
-                        AuralisPlayerSlider(
-                            value = if (totalDurationMs > 0) (currentPosMs.toFloat() / totalDurationMs).coerceIn(0f, 1f) else 0f,
+                        // Wrapped so the per-tick position read happens inside a
+                        // leaf composable's own restart scope. Read here, it
+                        // would invalidate this entire player tab every frame.
+                        PositionSlider(
+                            positionState = seekBarPositionState,
+                            totalDurationMs = totalDurationMs,
+                            isPlaying = uiState.isPlaying,
+                            sliderStyle = appearance.playerSliderStyle,
                             onValueChange = { frac ->
                                 isScrubbing = true
                                 scrubPositionMs = frac * totalDurationMs
@@ -1069,14 +1099,6 @@ fun NowPlayingModal(
                                 isScrubbing = false
                                 onSeekTo(scrubPositionMs.toLong())
                             },
-                            isPlaying = uiState.isPlaying,
-                            currentPosMs = currentPosMs,
-                            totalDurationMs = totalDurationMs,
-                            sliderStyle = appearance.playerSliderStyle,
-                            activeTrackColor = Color.White,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.25f),
-                            thumbColor = Color.White,
-                            textColor = Color.White.copy(alpha = 0.70f),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .graphicsLayer { alpha = controlsAlpha }
@@ -1387,13 +1409,49 @@ private fun PlayerUtilityIcon(
 }
 
 /**
+ * Isolates the per-frame position read in its own recomposition scope.
+ *
+ * `AuralisPlayerSlider` needs the position as a plain `Long`, so somebody has to
+ * unwrap the [State]. Doing it here means the clock invalidates only this
+ * function; doing it at the call site would invalidate every control on the
+ * player tab, sixty times a second.
+ */
+@Composable
+private fun PositionSlider(
+    positionState: State<Long>,
+    totalDurationMs: Long,
+    isPlaying: Boolean,
+    sliderStyle: String,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val posMs = positionState.value
+    AuralisPlayerSlider(
+        value = if (totalDurationMs > 0) (posMs.toFloat() / totalDurationMs).coerceIn(0f, 1f) else 0f,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        isPlaying = isPlaying,
+        currentPosMs = posMs,
+        totalDurationMs = totalDurationMs,
+        sliderStyle = sliderStyle,
+        activeTrackColor = Color.White,
+        inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+        thumbColor = Color.White,
+        textColor = Color.White.copy(alpha = 0.70f),
+        modifier = modifier
+    )
+}
+
+/**
  * Compatibility alias for NowPlayingSheet
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun NowPlayingSheet(
     uiState: PlayerUiState,
-    playbackPositionMs: Long = uiState.playbackPositionMs,
+    playbackPositionState: State<Long>,
+    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
     playbackSpeed: Float = 1.0f,
     userPlaylists: List<Playlist> = emptyList(),
     onPlayPauseClick: () -> Unit,
@@ -1419,7 +1477,8 @@ fun NowPlayingSheet(
 ) {
     NowPlayingModal(
         uiState = uiState,
-        playbackPositionMs = playbackPositionMs,
+        playbackPositionState = playbackPositionState,
+        lyricsClockSource = lyricsClockSource,
         playbackSpeed = playbackSpeed,
         userPlaylists = userPlaylists,
         onPlayPauseClick = onPlayPauseClick,

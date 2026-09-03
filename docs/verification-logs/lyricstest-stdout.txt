@@ -1,0 +1,78 @@
+
+==========================================
+Testing song: "Raanjhanaa (From "Raanjhanaa")" by "A.R. Rahman, Jaswinder Singh, Shiraz Uppal"
+Winner provider: LRCLIB, syncType: LINE_SYNC, total lines: 64
+   [2790ms] O...
+   [3620ms] Aaja aaja dil ke gaaon
+   [5480ms] Raahein dekhe koi
+   [10980ms] Jaagegi phir kismat sohne
+   [15460ms] Jaagegi phir kismat sohne
+   [21730ms] Thi ab tak jo soyi...
+Contains expected keyword ('राँझणा'): false
+
+==========================================
+Testing song: "Starboy" by "The Weeknd, Daft Punk"
+Winner provider: BETTER_LYRICS, syncType: RICHSYNC, total lines: 67
+   [16344ms] I'm tryna put you in the worst mood, ah
+   [18744ms] P1 cleaner than your church shoes, ah
+   [21352ms] Milli point two just to hurt you, ah
+   [23924ms] All-red Lamb' just to tease you, ah
+   [26495ms] None of these toys on lease too, ah
+   [29054ms] Made your whole year in a week too, yeah
+Contains expected keyword ('Starboy'): true
+
+==========================================
+Testing song: "Let It Happen" by "Tame Impala"
+Winner provider: BETTER_LYRICS, syncType: RICHSYNC, total lines: 34
+   [27620ms] It's always around me, all this noise, but
+   [33346ms] Not nearly as loud as the voice saying
+   [39058ms] "Let it happen, let it happen"
+   [42810ms] (It's gonna feel so good)
+   [44631ms] "Just let it happen, let it happen"
+   [56891ms] All this running around
+Contains expected keyword ('happen'): true
+
+==========================================
+Testing song: "Kesariya (From "Brahmastra")" by "Arijit Singh, Pritam, Amitabh Bhattacharya"
+Winner provider: LRCLIB, syncType: LINE_SYNC, total lines: 39
+   [9440ms] मुझको इतना बताए कोई
+   [19020ms] कैसे तुझसे दिल ना लगाए कोई?
+   [29910ms] रब्बा ने तुझको बनाने में
+   [34260ms] कर दी हैं हुस्न की ख़ाली तिजोरियाँ
+   [40360ms] काजल की सियाही से लिखी हैं तूने
+   [45350ms] जाने कितनों की लव-स्टोरियाँ
+Contains expected keyword ('केसरिया'): true
+
+==========================================
+Testing song: "Tum Hi Ho" by "Arijit Singh, Mithoon"
+Winner provider: LRCLIB, syncType: LINE_SYNC, total lines: 45
+   [11200ms] Hum tere bin ab reh nahi sakte
+   [15550ms] Tere bina kya wajood mera
+   [25750ms] Hum tere bin ab reh nahi sakte
+   [30450ms] Tere bina kya wajood mera
+   [35650ms] Tujh se juda agar ho jaayenge
+   [40280ms] Toh khud se hi ho jaayenge juda
+Contains expected keyword ('तुम ही हो'): false
+
+==========================================
+Testing song: "Channa Mereya" by "Arijit Singh, Pritam"
+Winner provider: LRCLIB, syncType: LINE_SYNC, total lines: 39
+   [1020ms] अच्छा चलता हूँ
+   [2880ms] दुआओं में याद रखना
+   [5850ms] मेरे ज़िकर का ज़ुबां पे स्वाद रखना
+   [32820ms] दिल के संदूकों में
+   [35210ms] मेरे अच्छे काम रखना
+   [37430ms] चिट्टी तारों में भी
+Contains expected keyword ('अच्छा चलता हूँ'): true
+
+==========================================
+Testing song: "Karma Police" by "Radiohead"
+Winner provider: BETTER_LYRICS, syncType: RICHSYNC, total lines: 28
+   [26786ms] Karma police
+   [31061ms] Arrest this man, he talks in maths
+   [37436ms] He buzzes like a fridge
+   [39704ms] He's like a detuned radio
+   [52636ms] Karma police
+   [56926ms] Arrest this girl, her Hitler hairdo
+Contains expected keyword ('Karma police'): true
+

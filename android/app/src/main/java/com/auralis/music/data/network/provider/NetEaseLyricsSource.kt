@@ -131,16 +131,11 @@ class NetEaseLyricsSource(
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
 
-            // 1. Try YRC (Word-by-word / Syllable-level RichSync)
-            val rawYrc = json.optJSONObject("yrc")?.optString("lyric") ?: ""
-            if (rawYrc.isNotBlank() && !rawYrc.contains("纯音乐")) {
-                val parsedYrc = YrcParser.parse(rawYrc, LyricsProvider.NETEASE, trackName, artistName)
-                if (parsedYrc != null && parsedYrc.lines.isNotEmpty() && parsedYrc.syncType == SyncType.RICHSYNC) {
-                    return parsedYrc
-                }
-            }
-
-            // 1.5 Try AMLL TTML DB repository (over 20,000 community curated studio TTML tracks)
+            // 1. Try the AMLL TTML DB mirror first (20,000+ community-curated
+            //    studio TTML tracks). Its spans carry real per-syllable begin and
+            //    end times, whereas NetEase's own YRC has to be reconstructed and
+            //    its word ends are frequently absent. Genuine timing beats derived
+            //    timing, so the better format is asked for first.
             try {
                 val ttmlUrl = "https://raw.githubusercontent.com/amll-dev/amll-ttml-db/main/ncm-lyrics/$songId.ttml"
                 val ttmlReq = Request.Builder().url(ttmlUrl).header("User-Agent", USER_AGENT).build()
@@ -156,7 +151,16 @@ class NetEaseLyricsSource(
                 }
             } catch (_: Exception) {}
 
-            // 2. Try Standard LRC
+            // 2. Fall back to YRC (word-by-word / syllable-level RichSync)
+            val rawYrc = json.optJSONObject("yrc")?.optString("lyric") ?: ""
+            if (rawYrc.isNotBlank() && !rawYrc.contains("纯音乐")) {
+                val parsedYrc = YrcParser.parse(rawYrc, LyricsProvider.NETEASE, trackName, artistName)
+                if (parsedYrc != null && parsedYrc.lines.isNotEmpty() && parsedYrc.syncType == SyncType.RICHSYNC) {
+                    return parsedYrc
+                }
+            }
+
+            // 3. Try Standard LRC
             val rawLrc = json.optJSONObject("lrc")?.optString("lyric") ?: ""
             if (rawLrc.isBlank() || rawLrc.contains("纯音乐，请欣赏") || rawLrc.contains("没有填词")) {
                 // Check if track is flagged as purely instrumental

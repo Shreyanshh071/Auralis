@@ -283,6 +283,14 @@ interface LyricsDao {
 
     @Query("DELETE FROM lyrics_cache")
     suspend fun clearAllLyrics()
+
+    /**
+     * Drops rows produced by a different parser pipeline. Runs once per upgrade
+     * instead of clearing the whole table on every launch, so the cache actually
+     * survives a process restart.
+     */
+    @Query("DELETE FROM lyrics_cache WHERE pipelineVersion != :version")
+    suspend fun purgeStalePipeline(version: Int)
 }
 
 @Dao

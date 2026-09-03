@@ -22,7 +22,7 @@ import com.auralis.music.data.local.entity.*
         LyricsEntity::class,
         NegativeLyricsEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)

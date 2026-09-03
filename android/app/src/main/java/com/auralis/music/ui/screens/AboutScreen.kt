@@ -32,7 +32,6 @@ private const val GITHUB_REPO_URL = "https://github.com/Shreyanshh071/Auralis"
 private const val AURALIS_WEBSITE_URL = "https://auralis-self-nu.vercel.app/"
 private const val DEVELOPER_GITHUB_URL = "https://github.com/Shreyanshh071"
 private const val DEVELOPER_AVATAR_URL = "https://avatars.githubusercontent.com/u/319473344?v=4"
-private const val DEVELOPER_EMAIL = "mailto:shreyanshchoubey09@gmail.com"
 private const val BUY_ME_A_CHAI_URL = "https://buymeachai.in/shreyanshh071"
 private const val DEVELOPER_DISCORD_URL = "https://discordapp.com/users/1494604092083802263"
 private const val CONTRIBUTOR_GITHUB_URL = "https://github.com/IshaanThakur09"
@@ -312,7 +311,7 @@ fun AboutScreen(
 
                             // Developer Name
                             Text(
-                                text = "Shreyansh Choubey",
+                                text = "Shreyansh",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground,

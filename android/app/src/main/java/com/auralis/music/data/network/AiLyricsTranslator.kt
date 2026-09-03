@@ -56,7 +56,7 @@ object AiLyricsTranslator {
                         systemPrompt = effectivePrompt,
                         apiKey = settings.apiKey,
                         extraHeaders = mapOf(
-                            "HTTP-Referer" to "https://github.com/shreyanshchoubey09/Auralis",
+                            "HTTP-Referer" to "https://github.com/Shreyanshh071/Auralis",
                             "X-Title" to "Auralis Music"
                         )
                     )

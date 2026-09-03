@@ -33,7 +33,6 @@ object LrcParser {
         }
 
         val lines = mutableListOf<LyricLine>()
-        var hasWordSync = false
         var globalLrcOffsetMs = 0L
 
         val rawLines = lrcContent.lines()
@@ -70,7 +69,6 @@ object LrcParser {
             // across time it has no data for (see LyricWord / LyricsEngine).
             val wordMatches = WORD_TIMESTAMP_REGEX.findAll(textPart).toList()
             val words = if (wordMatches.isNotEmpty()) {
-                hasWordSync = true
                 val list = mutableListOf<LyricWord>()
                 for (wIdx in wordMatches.indices) {
                     val w = wordMatches[wIdx]
@@ -127,19 +125,20 @@ object LrcParser {
 
         val sorted = lines.sortedBy { it.time }
 
-        val processedLines = sorted
-        val hasDerivedWordSync = processedLines.any { it.words != null && it.words.isNotEmpty() }
+        // Enhanced LRC states word starts and no ends, so it is word-synced in the
+        // step sense but not the sweep sense — [WordTiming.hasGenuineWordStarts] is
+        // the right question. A word list whose entries all share one timestamp
+        // (a token split of the line text) answers false and stays line-synced.
         val syncType = when {
-            hasWordSync || hasDerivedWordSync -> SyncType.RICHSYNC
-            processedLines.any { it.time > 0L } -> SyncType.LINE_SYNC
-            processedLines.isNotEmpty() -> SyncType.LINE_SYNC
+            WordTiming.hasGenuineWordStarts(sorted) -> SyncType.RICHSYNC
+            sorted.isNotEmpty() -> SyncType.LINE_SYNC
             else -> SyncType.PLAIN
         }
 
         return LyricsData(
             syncType = syncType,
-            lines = processedLines,
-            plainLyrics = processedLines.joinToString("\n") { it.text },
+            lines = sorted,
+            plainLyrics = sorted.joinToString("\n") { it.text },
             provider = provider
         )
     }
@@ -147,6 +146,12 @@ object LrcParser {
     /**
      * Intelligently groups rapid 1-3 word phrase fragments into natural, complete poetic lines
      * with word-level timing preserved, matching Metrolist and Apple Music display style.
+     *
+     * Word timing survives a merge only when **every** fragment folded into a line
+     * supplied its own. A fragment that arrived with `words == null` states one
+     * timestamp for its whole text; splitting that text and stamping the line's
+     * time onto each token would manufacture word starts the source never gave,
+     * so such a merged line is emitted with `words = null` and stays line-synced.
      */
     fun mergeMicroFragments(rawLines: List<LyricLine>): List<LyricLine> {
         if (rawLines.size <= 2) return rawLines
@@ -155,14 +160,24 @@ object LrcParser {
         var currentMergedTime = rawLines[0].time
         val currentWords = mutableListOf<LyricWord>()
         val currentTokens = mutableListOf<String>()
+        var currentWordsComplete = true
+        // Gap measurement used to read the last fabricated word's timestamp, which
+        // was just the previous fragment's line time. Tracked directly now that no
+        // words are fabricated, so the merge heuristics behave identically.
+        var lastFragmentTime = rawLines[0].time
 
         fun flush() {
             if (currentTokens.isNotEmpty()) {
                 val fullText = currentTokens.joinToString(" ")
-                val wordsList = if (currentWords.isNotEmpty()) currentWords.toList() else null
+                val wordsList = if (currentWordsComplete && currentWords.isNotEmpty()) {
+                    currentWords.toList()
+                } else {
+                    null
+                }
                 result.add(LyricLine(time = currentMergedTime, text = fullText, words = wordsList))
                 currentTokens.clear()
                 currentWords.clear()
+                currentWordsComplete = true
             }
         }
 
@@ -172,7 +187,7 @@ object LrcParser {
             if (text.isBlank() || isMetadataOrCreditLine(text)) continue
 
             val lineWords = text.split(Regex("""\s+""")).filter { it.isNotBlank() }
-            val prevTime = if (currentWords.isNotEmpty()) currentWords.last().time else currentMergedTime
+            val prevTime = if (currentWords.isNotEmpty()) currentWords.last().time else lastFragmentTime
             val timeGap = line.time - prevTime
 
             val firstWord = lineWords.firstOrNull() ?: ""
@@ -206,9 +221,7 @@ object LrcParser {
                 if (line.words != null) {
                     currentWords.addAll(line.words)
                 } else {
-                    lineWords.forEach { w ->
-                        currentWords.add(LyricWord(word = w, time = line.time, duration = null))
-                    }
+                    currentWordsComplete = false
                 }
             } else {
                 flush()
@@ -217,11 +230,10 @@ object LrcParser {
                 if (line.words != null) {
                     currentWords.addAll(line.words)
                 } else {
-                    lineWords.forEach { w ->
-                        currentWords.add(LyricWord(word = w, time = line.time, duration = null))
-                    }
+                    currentWordsComplete = false
                 }
             }
+            lastFragmentTime = line.time
         }
         flush()
         return result

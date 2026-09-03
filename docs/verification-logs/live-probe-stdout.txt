@@ -1,0 +1,61 @@
+PROBE ==============================================
+PROBE track: Blinding Lights — The Weeknd
+PROBE  provider=BETTER_LYRICS syncType=RICHSYNC lines=37
+PROBE  words=275 withGenuineDuration=275
+PROBE  sweepable=true steppable=true backgroundLines=2
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=7
+PROBE  sample: "I "@27395+154 | "been "@27549+191 | "tryna "@27740+337 | "call"@28077+883
+PROBE ==============================================
+PROBE track: Starboy — The Weeknd, Daft Punk
+PROBE  provider=BETTER_LYRICS syncType=RICHSYNC lines=67
+PROBE  words=467 withGenuineDuration=467
+PROBE  sweepable=true steppable=true backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=0
+PROBE  sample: "I'm "@16344+155 | "tryna "@16499+339 | "put "@16838+164 | "you "@17002+158 | "in "@17160+160 | "the "@17320+166
+PROBE ==============================================
+PROBE track: Someone Like You — Adele
+PROBE  provider=BETTER_LYRICS syncType=RICHSYNC lines=45
+PROBE  words=335 withGenuineDuration=335
+PROBE  sweepable=true steppable=true backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=22
+PROBE  sample: "I "@13944+1389 | "heard "@15333+1528 | "that "@17583+280 | "you're "@17863+1051 | "settled "@19308+756 | "down"@20064+1054
+PROBE ==============================================
+PROBE track: Creep — Radiohead
+PROBE  provider=BETTER_LYRICS syncType=RICHSYNC lines=38
+PROBE  words=191 withGenuineDuration=191
+PROBE  sweepable=true steppable=true backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=1
+PROBE  sample: "When "@19764+341 | "you "@20105+94 | "were "@20199+127 | "here "@20326+281 | "be"@20607+234 | "fore"@20841+1059
+PROBE ==============================================
+PROBE track: Rap God — Eminem
+PROBE  provider=BETTER_LYRICS syncType=RICHSYNC lines=158
+PROBE  words=1554 withGenuineDuration=1554
+PROBE  sweepable=true steppable=true backgroundLines=1
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=5
+PROBE  sample: "Look, "@1160+378 | "I "@2231+100 | "was "@2331+126 | "gonna "@2457+184 | "go "@2641+137 | "easy "@2778+280
+PROBE ==============================================
+PROBE track: I Will Always Love You — Whitney Houston
+PROBE  provider=BETTER_LYRICS syncType=RICHSYNC lines=24
+PROBE  words=129 withGenuineDuration=129
+PROBE  sweepable=true steppable=true backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=20
+PROBE  sample: "If "@0+1488 | "I "@1488+1312 | "should "@4213+1651 | "stay"@5864+755
+PROBE ==============================================
+PROBE track: Bitter Sweet Symphony — The Verve
+PROBE  provider=LRCLIB syncType=LINE_SYNC lines=42
+PROBE  words=0 withGenuineDuration=0
+PROBE  sweepable=false steppable=false backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=0
+PROBE ==============================================
+PROBE track: Tum Hi Ho — Arijit Singh, Mithoon
+PROBE  provider=LRCLIB syncType=LINE_SYNC lines=45
+PROBE  words=0 withGenuineDuration=0
+PROBE  sweepable=false steppable=false backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=0
+PROBE ==============================================
+PROBE track: Kun Faya Kun — A.R. Rahman, Javed Ali, Mohit Chauhan
+PROBE  provider=LRCLIB syncType=LINE_SYNC lines=101
+PROBE  words=0 withGenuineDuration=0
+PROBE  sweepable=false steppable=false backgroundLines=0
+PROBE  wordEndOverlaps=0  unpaintedRests>=300ms=0
+

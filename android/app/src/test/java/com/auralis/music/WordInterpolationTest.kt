@@ -3,6 +3,7 @@ package com.auralis.music
 import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WordInterpolationTest {
@@ -36,5 +37,29 @@ class WordInterpolationTest {
 
         // 20000ms + 500ms offset = 20500ms (halfway) -> 0.5f
         assertEquals(0.5f, LyricsEngine.calculateWordProgress(word, currentTimeMs = 20_000L, offsetMs = 500L), 0.001f)
+    }
+
+    @Test
+    fun `null duration steps at the genuine start instead of sweeping`() {
+        // Enhanced LRC states word starts and no ends. There is no measured length
+        // to sweep across, so the word must flip at its start — a sweep here would
+        // be painting across time the provider never described.
+        val word = LyricWord(word = "said,", time = 12_500L, duration = null)
+
+        assertEquals(0.0f, LyricsEngine.calculateWordProgress(word, currentTimeMs = 12_499L), 0.001f)
+        assertEquals(1.0f, LyricsEngine.calculateWordProgress(word, currentTimeMs = 12_500L), 0.001f)
+        assertEquals(1.0f, LyricsEngine.calculateWordProgress(word, currentTimeMs = 12_501L), 0.001f)
+        // No intermediate value exists anywhere in between.
+        for (t in 12_400L..12_600L step 10L) {
+            val p = LyricsEngine.calculateWordProgress(word, currentTimeMs = t)
+            assertTrue("progress $p at t=$t is neither 0 nor 1", p == 0.0f || p == 1.0f)
+        }
+    }
+
+    @Test
+    fun `non-positive duration is treated as unknown rather than swept`() {
+        val zero = LyricWord(word = "ooh", time = 5_000L, duration = 0L)
+        assertEquals(0.0f, LyricsEngine.calculateWordProgress(zero, currentTimeMs = 4_999L), 0.001f)
+        assertEquals(1.0f, LyricsEngine.calculateWordProgress(zero, currentTimeMs = 5_000L), 0.001f)
     }
 }

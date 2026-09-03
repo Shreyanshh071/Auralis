@@ -39,6 +39,62 @@ class LyricsClient(
     companion object {
         private const val TAG = "LyricsCascade"
         private const val PROVIDER_TIMEOUT_MS = 4500L
+
+        /**
+         * How long a usable line-synced candidate is held back to give a
+         * word-synced one a chance to answer.
+         *
+         * Better Lyrics returns syllable-level TTML in roughly 0.9-1.4 s, while
+         * LRCLIB often answers line-sync in under 300 ms. Settling on the first
+         * usable result therefore guaranteed the *worse* timing format won every
+         * race. This window bounds the wait: once anything usable has landed we
+         * wait at most this long for a better tier, then commit.
+         */
+        private const val WORD_SYNC_GRACE_MS = 1200L
+
+        /** Genuine word timing outranks line timing outranks nothing. */
+        internal const val TIER_NONE = 0
+        internal const val TIER_LINE = 1
+        internal const val TIER_WORD = 2
+
+        /** Score at which a word-synced candidate is good enough to end the race. */
+        internal const val INSTANT_WIN_SCORE = 145.0
+
+        /**
+         * Which timing format a candidate actually carries — judged from the
+         * data, never from the label the provider attached to it.
+         *
+         * Mirrors braccato's `ProviderChain` priority ordering
+         * (`{syllable, word, line, unsynced}`): sync quality dominates every
+         * other quality signal, because no amount of line-count or confidence
+         * bonus makes a line-synced lyric able to highlight a syllable.
+         *
+         * A word tier requires at least two words on some line to carry a real
+         * duration. One timed word is a parser artefact, not word sync.
+         */
+        internal fun tierOf(data: LyricsData): Int = when {
+            data.lines.any { line ->
+                !line.isInstrumental && (line.words?.count { it.duration != null } ?: 0) >= 2
+            } -> TIER_WORD
+            data.lines.any { it.time > 0L } -> TIER_LINE
+            else -> TIER_NONE
+        }
+
+        /**
+         * Lexicographic `(tier, score)` comparison. Tier is compared first and
+         * absolutely: a word-synced candidate scoring 60 outranks a line-synced
+         * one scoring 150, which is exactly the case the old flat score got wrong.
+         */
+        internal fun outranks(tier: Int, score: Double, bestTier: Int, bestScore: Double): Boolean =
+            tier > bestTier || (tier == bestTier && score > bestScore)
+
+        /**
+         * Whether a candidate is good enough to cancel the remaining providers.
+         * Gated on the word tier so a strong line-synced result can never settle
+         * the race before a word source has had its chance to answer.
+         */
+        internal fun isInstantWinner(tier: Int, score: Double): Boolean =
+            tier == TIER_WORD && score >= INSTANT_WIN_SCORE
     }
 
     /**
@@ -73,13 +129,19 @@ class LyricsClient(
         val t0 = System.currentTimeMillis()
         Log.d(TAG, "Starting ultra-fast synced lyrics search for: '$coreTitle' by '${query.artist}' (${durationSec ?: 0}s)")
 
-        // ── PARALLEL MULTI-PROVIDER RACE WITH INTELLIGENT TIMING & COMPLETENESS SCORING ──
+        // ── PARALLEL MULTI-PROVIDER RACE, RANKED BY TIMING FORMAT FIRST ──
+        // Better Lyrics leads: it is the only source that reliably serves
+        // syllable-level TTML. AMLL is currently inert (its host answers 404) but
+        // costs nothing to race and would resume working on its own if the host
+        // returns.
         val primaryProviders: List<LyricsSource> = listOf(
+            betterLyricsSource,
             lrcLibSource,
             musixmatchSource,
             kuGouSource,
             netEaseSource,
-            jioSaavnSource
+            jioSaavnSource,
+            amllSource
         )
 
         val syncedWinner: LyricsData? = coroutineScope {
@@ -110,11 +172,23 @@ class LyricsClient(
             }
 
             var bestCandidate: LyricsCandidate? = null
+            var bestTier = TIER_NONE
             var bestScore = 0.0
             var completedCount = 0
+            var graceDeadlineMs = Long.MAX_VALUE
 
             while (completedCount < primaryProviders.size) {
-                val candidate = resultChannel.receive()
+                // Once something usable is in hand, stop waiting on the full
+                // provider timeout — hold only long enough for a better timing
+                // format to arrive.
+                val candidate = if (bestCandidate != null) {
+                    val remainingMs = graceDeadlineMs - System.currentTimeMillis()
+                    if (remainingMs <= 0L) break
+                    withTimeoutOrNull(remainingMs) { resultChannel.receive() } ?: break
+                } else {
+                    resultChannel.receive()
+                }
+
                 if (candidate.confidence == -1) {
                     completedCount++
                     continue
@@ -122,36 +196,51 @@ class LyricsClient(
 
                 val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
                 if (isCandSynced && candidate.confidence >= 50 && candidate.lyricsData.lines.isNotEmpty()) {
-                    val resolvedSyncType = when {
-                        candidate.lyricsData.syncType == SyncType.RICHSYNC || candidate.syncType == SyncType.RICHSYNC -> SyncType.RICHSYNC
-                        else -> SyncType.LINE_SYNC
-                    }
+                    val tier = tierOf(candidate.lyricsData)
+                    if (tier == TIER_NONE) continue
+
+                    // Label from the data, not from the provider's claim: a
+                    // candidate with no per-word durations is line-sync no matter
+                    // what it called itself.
+                    val resolvedSyncType =
+                        if (tier == TIER_WORD) SyncType.RICHSYNC else SyncType.LINE_SYNC
                     val correctedCand = candidate.copy(
                         syncType = resolvedSyncType,
                         lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
                     )
 
                     val score = calculateQualityScore(correctedCand, durationSec)
-                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] score=$score, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
+                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] tier=$tier, score=$score, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
+                    if (score < 0) continue
 
-                    if (score > bestScore) {
+                    // Lexicographic (tier, score): a word-synced candidate scoring
+                    // 60 beats a line-synced one scoring 150. Completeness bonuses
+                    // can no longer buy a worse timing format the win.
+                    if (outranks(tier, score, bestTier, bestScore)) {
+                        bestTier = tier
                         bestScore = score
                         bestCandidate = correctedCand
+                        if (graceDeadlineMs == Long.MAX_VALUE) {
+                            graceDeadlineMs = System.currentTimeMillis() + WORD_SYNC_GRACE_MS
+                        }
                     }
 
-                    // Instant win for flawless high-scoring candidate (>= 145)
-                    if (score >= 145.0) {
-                        Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} in ${System.currentTimeMillis() - t0}ms (Score: $score)")
+                    if (isInstantWinner(tier, score)) {
+                        Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} tier=$tier in ${System.currentTimeMillis() - t0}ms (Score: $score)")
                         providerJobs.forEach { it.cancel() }
                         return@coroutineScope correctedCand.lyricsData
                     }
                 }
             }
+            providerJobs.forEach { it.cancel() }
+            bestCandidate?.let {
+                Log.d(TAG, "[RACE SETTLED] ${it.provider} tier=$bestTier score=$bestScore in ${System.currentTimeMillis() - t0}ms")
+            }
             bestCandidate?.lyricsData
         }
 
         if (syncedWinner != null && syncedWinner.lines.isNotEmpty()) {
-            Log.d(TAG, "[SYNCED WINNER] ${syncedWinner.provider} selected in ${System.currentTimeMillis() - t0}ms")
+            Log.d(TAG, "[SYNCED WINNER] ${syncedWinner.provider} syncType=${syncedWinner.syncType} tier=${tierOf(syncedWinner)} selected in ${System.currentTimeMillis() - t0}ms")
             return@withContext syncedWinner
         }
 
