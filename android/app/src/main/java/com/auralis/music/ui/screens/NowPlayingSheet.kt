@@ -4,7 +4,9 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
+import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
@@ -18,7 +20,8 @@ import com.auralis.music.ui.viewmodel.PlayerUiState
 @Composable
 fun NowPlayingSheet(
     uiState: PlayerUiState,
-    playbackPositionMs: Long = uiState.playbackPositionMs,
+    playbackPositionState: State<Long>,
+    lyricsClockSource: PlaybackClockSource? = null,
     userPlaylists: List<Playlist> = emptyList(),
     onPlayPauseClick: () -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -42,7 +45,8 @@ fun NowPlayingSheet(
 ) {
     NowPlayingModal(
         uiState = uiState,
-        playbackPositionMs = playbackPositionMs,
+        playbackPositionState = playbackPositionState,
+        lyricsClockSource = lyricsClockSource,
         userPlaylists = userPlaylists,
         onPlayPauseClick = onPlayPauseClick,
         onSeekTo = onSeekTo,

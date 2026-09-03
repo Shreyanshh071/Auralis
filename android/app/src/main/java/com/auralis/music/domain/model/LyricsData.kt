@@ -30,11 +30,14 @@ enum class LyricsProvider {
  *  - [word] carries its own trailing whitespace when the source says the word
  *    is followed by a space. The renderer prints the text verbatim, so
  *    syllables of a single word stay joined.
+ *  - [isBackground] marks an ad-lib / harmony syllable (TTML `ttm:role="x-bg"`).
+ *    It changes presentation only — the timing contract above applies unchanged.
  */
 data class LyricWord(
     val word: String,
     val time: Long,             // Milliseconds offset from song start (provider-supplied)
-    val duration: Long? = null  // Provider-supplied length in ms; null = no end timestamp
+    val duration: Long? = null, // Provider-supplied length in ms; null = no end timestamp
+    val isBackground: Boolean = false
 ) {
     /** End of the sung word, or `null` when the provider gave no end timestamp. */
     val endTime: Long?
@@ -46,7 +49,13 @@ data class LyricLine(
     val text: String,
     val translatedText: String? = null,
     val words: List<LyricWord>? = null,
-    val isInstrumental: Boolean = false
+    val isInstrumental: Boolean = false,
+    /**
+     * True for a background-vocal line (TTML `ttm:role="x-bg"`), kept as its own
+     * line rather than folded into the lead vocal so neither text nor timing is
+     * corrupted. The renderer may de-emphasise it; the timing is genuine.
+     */
+    val isBackground: Boolean = false
 ) {
     /** True when the provider gave real per-word timing for this line. */
     val hasWordTiming: Boolean

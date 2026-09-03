@@ -1,0 +1,15 @@
+
+------------------------------------------------------------
+Gradle 8.11.1
+------------------------------------------------------------
+
+Build time:    2024-11-20 16:56:46 UTC
+Revision:      481cb05a490e0ef9f8620f7873b83bd8a72e7c39
+
+Kotlin:        2.0.20
+Groovy:        3.0.22
+Ant:           Apache Ant(TM) version 1.10.14 compiled on August 16 2023
+Launcher JVM:  25.0.3 (JetBrains s.r.o. 25.0.3+-15898627-b508.16)
+Daemon JVM:    C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot (from org.gradle.java.home)
+OS:            Windows 11 10.0 amd64
+

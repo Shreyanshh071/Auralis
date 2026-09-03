@@ -57,6 +57,7 @@ import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.dynamicPalette
 import com.auralis.music.ui.theme.motionTween
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -67,12 +68,19 @@ import kotlinx.coroutines.launch
  * - Multi-line selection and beautiful lyric card sharing
  * - Instrumental intro countdown and rhythm orbs
  * - AI lyric translation display support
+ *
+ * The playback position arrives as a [State] rather than a `Long` on purpose.
+ * A `Long` parameter forces this whole composable — and everything above it —
+ * to recompose on every clock tick, roughly 60 times a second. Held as state,
+ * the value is read only where it is used, and each read site invalidates on its
+ * own terms: the active index through a `derivedStateOf` that changes once per
+ * lyric line, the scroll driver through a `snapshotFlow` outside composition.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SyncedLyricsView(
     lyrics: LyricsData?,
-    currentPositionMs: Long,
+    positionState: State<Long>,
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
     isLoading: Boolean = false,
@@ -234,9 +242,14 @@ fun SyncedLyricsView(
     }
 
     val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
-    val activeIndex = remember(currentPositionMs, offsetMs, effectiveLines, isSynced) {
-        if (!isSynced) -1
-        else LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionMs, offsetMs)
+
+    // Derived, not remembered against the position: composition re-runs when the
+    // active *line* changes, not when the millisecond does.
+    val activeIndexState = remember(effectiveLines, isSynced, offsetMs, positionState) {
+        derivedStateOf {
+            if (!isSynced) -1
+            else LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value, offsetMs)
+        }
     }
 
     val listState = rememberLazyListState()
@@ -294,33 +307,53 @@ fun SyncedLyricsView(
             hasInitialCentered = false
         }
 
-        // Automatic, smooth centering of active lyric line
-        LaunchedEffect(activeIndex, isSynced, isUserInteracting, appearance.autoScrollLyrics) {
-            if (!isSynced || isUserInteracting || !appearance.autoScrollLyrics) return@LaunchedEffect
-            if (activeIndex < 0) {
-                listState.animateScrollToItem(0, 0)
-                return@LaunchedEffect
-            }
-            if (activeIndex >= effectiveLines.size) return@LaunchedEffect
+        // Automatic, smooth centering of active lyric line.
+        // Driven by a snapshotFlow so the position clock never re-runs this
+        // composable — the effect wakes only when the active index or the user's
+        // touch state actually changes.
+        LaunchedEffect(activeIndexState, isSynced, appearance.autoScrollLyrics, centerOffsetPx, effectiveLines) {
+            if (!isSynced || !appearance.autoScrollLyrics) return@LaunchedEffect
+            snapshotFlow { activeIndexState.value to isUserInteracting }
+                .distinctUntilChanged()
+                .collect { (activeIndex, interacting) ->
+                    if (interacting) return@collect
+                    if (activeIndex < 0) {
+                        listState.animateScrollToItem(0, 0)
+                        return@collect
+                    }
+                    if (activeIndex >= effectiveLines.size) return@collect
 
-            val scrollTargetOffset = if (activeIndex <= 0) 0 else -centerOffsetPx
+                    val scrollTargetOffset = if (activeIndex <= 0) 0 else -centerOffsetPx
 
-            if (!hasInitialCentered) {
-                listState.scrollToItem(
-                    index = activeIndex,
-                    scrollOffset = scrollTargetOffset
-                )
-                hasInitialCentered = true
-            } else {
-                listState.animateScrollToItem(
-                    index = activeIndex,
-                    scrollOffset = scrollTargetOffset
-                )
-            }
+                    if (!hasInitialCentered) {
+                        listState.scrollToItem(
+                            index = activeIndex,
+                            scrollOffset = scrollTargetOffset
+                        )
+                        hasInitialCentered = true
+                    } else {
+                        listState.animateScrollToItem(
+                            index = activeIndex,
+                            scrollOffset = scrollTargetOffset
+                        )
+                    }
+                }
         }
 
-        val effectiveTime = (currentPositionMs + offsetMs).coerceAtLeast(0L)
-        val isIntroActive = isSynced && introDurationMs >= 1500L && effectiveTime < introDurationMs
+        val isIntroActiveState = remember(isSynced, introDurationMs, offsetMs, positionState) {
+            derivedStateOf {
+                isSynced && introDurationMs >= 1500L &&
+                    (positionState.value + offsetMs).coerceAtLeast(0L) < introDurationMs
+            }
+        }
+        // The intro indicator shows whole seconds and a 380 ms dot cycle, so a
+        // 100 ms grid is indistinguishable from the raw clock and costs a tenth
+        // of the invalidations.
+        val introTimeState = remember(positionState, offsetMs) {
+            derivedStateOf {
+                ((positionState.value + offsetMs).coerceAtLeast(0L) / 100L) * 100L
+            }
+        }
 
         LazyColumn(
             state = listState,
@@ -352,6 +385,10 @@ fun SyncedLyricsView(
                 items = effectiveLines,
                 key = { index, line -> "${line.time}_$index" }
             ) { index, line ->
+                // Reading the derived index here — inside the item's own
+                // recomposition scope — keeps line-change invalidation local to
+                // the rows instead of the whole view.
+                val activeIndex = activeIndexState.value
                 val isCurrent = isSynced && index == activeIndex
                 val isPast = isSynced && index < activeIndex
 
@@ -362,9 +399,9 @@ fun SyncedLyricsView(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = horizontalAlignment
                 ) {
-                    if (index == 0 && isIntroActive) {
+                    if (index == 0 && isIntroActiveState.value) {
                         InstrumentalIntroIndicator(
-                            currentTimeMs = effectiveTime,
+                            currentTimeMsState = introTimeState,
                             introDurationMs = introDurationMs,
                             onSkipIntro = { onSeekTo(introDurationMs) },
                             modifier = Modifier.padding(bottom = 16.dp)
@@ -597,11 +634,12 @@ private fun LyricLineRow(
  */
 @Composable
 private fun InstrumentalIntroIndicator(
-    currentTimeMs: Long,
+    currentTimeMsState: State<Long>,
     introDurationMs: Long,
     modifier: Modifier = Modifier,
     onSkipIntro: (() -> Unit)? = null
 ) {
+    val currentTimeMs = currentTimeMsState.value
     val progress = (currentTimeMs.toFloat() / introDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
     val remainingSec = ((introDurationMs - currentTimeMs).coerceAtLeast(0L) / 1000L) + 1
 

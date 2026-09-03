@@ -819,10 +819,14 @@ fun AuralisApp(
             enter = auralisSheetEnter(),
             exit = auralisSheetExit()
         ) {
-            val modalPositionMs by playerViewModel.playbackPositionMs.collectAsState()
+            // Kept as State, not unwrapped with `by`: the modal takes the
+            // position as State so the playback clock cannot drag this whole
+            // overlay — or the modal — through a recomposition every tick.
+            val modalPositionState = playerViewModel.playbackPositionMs.collectAsState()
             NowPlayingSheet(
                 uiState = playerUiState,
-                playbackPositionMs = modalPositionMs,
+                playbackPositionState = modalPositionState,
+                lyricsClockSource = playerViewModel.playbackClockSource,
                 userPlaylists = libraryUiState.playlists,
                 onPlayPauseClick = {
                     if (isGuestInRoom) notifyGuestControlBlocked()

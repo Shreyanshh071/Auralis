@@ -65,10 +65,26 @@ class PlayerViewModel(
 
     fun getPlaybackPosition(): Long = _playbackPositionMs.value
 
+    /**
+     * The player's own fine-grained clock, exposed as the narrow
+     * [com.auralis.music.data.service.PlaybackClockSource] interface so the
+     * lyrics UI can sample it per frame without pulling `@UnstableApi` Media3
+     * types — or the whole audio player — into the composable layer.
+     */
+    val playbackClockSource: com.auralis.music.data.service.PlaybackClockSource? = audioPlayer
+
     private var sleepTimerJob: Job? = null
     private var playJob: Job? = null
     private var lyricsJob: Job? = null
     private var translationJob: Job? = null
+
+    /**
+     * Tracks whose cached line-synced lyrics have already been given one chance to
+     * be upgraded to word sync this session, so replaying a track that genuinely
+     * has no word timing does not re-run the provider cascade every time.
+     */
+    private val lyricsUpgradeAttempted =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private var radioJob: Job? = null
     private var isAutoRadioMode: Boolean = true
 
@@ -770,16 +786,30 @@ class PlayerViewModel(
                     videoId = track.id
                 )
             }
-            if (cached != null && cached.syncType != com.auralis.music.domain.model.SyncType.PLAIN) {
+            // A cached RICHSYNC entry is already the best tier available; nothing to
+            // upgrade to, so it settles here.
+            if (cached != null && cached.syncType == com.auralis.music.domain.model.SyncType.RICHSYNC) {
                 if (requestId == currentPlaybackRequestId.get()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
                 }
                 return@launch
-            } else {
-                if (requestId == currentPlaybackRequestId.get()) {
-                    _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = true) }
+            }
+
+            // Anything weaker paints immediately but is not final: a cached
+            // LINE_SYNC row used to be permanent, so a track whose word timing only
+            // became reachable later could never pick it up. One upgrade attempt per
+            // track per session, and the result is kept only if it ranks higher.
+            val cachedIsUsable = cached != null && cached.syncType != com.auralis.music.domain.model.SyncType.PLAIN
+            if (requestId == currentPlaybackRequestId.get()) {
+                _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = !cachedIsUsable) }
+                if (cachedIsUsable) {
+                    triggerAiTranslation(track, cached, requestId)
                 }
+            }
+
+            if (cachedIsUsable && !lyricsUpgradeAttempted.add(track.id)) {
+                return@launch
             }
 
             try {
@@ -790,14 +820,19 @@ class PlayerViewModel(
                         artist = track.artist,
                         durationSec = track.duration,
                         videoId = track.id,
-                        forceRefresh = (cached == null || cached.syncType == com.auralis.music.domain.model.SyncType.PLAIN)
+                        // The caches were already consulted above; without this the
+                        // upgrade query would just return the same cached row.
+                        forceRefresh = true
                     )
                 }
 
                 if (requestId == currentPlaybackRequestId.get()) {
-                    _uiState.update { it.copy(lyrics = data ?: cached, isLoadingLyrics = false) }
-                    if (data != null) {
+                    val keepNetwork = data != null && (!cachedIsUsable || lyricsTier(data) > lyricsTier(cached))
+                    if (keepNetwork) {
+                        _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
                         triggerAiTranslation(track, data, requestId)
+                    } else {
+                        _uiState.update { it.copy(lyrics = cached ?: data, isLoadingLyrics = false) }
                     }
                 }
             } catch (_: Exception) {
@@ -806,6 +841,18 @@ class PlayerViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Ranks a lyrics result the same way the provider race does: genuine word
+     * starts beat line timestamps beat unsynced text. Used to decide whether a
+     * network answer is actually an upgrade over what is already on screen.
+     */
+    private fun lyricsTier(data: LyricsData?): Int = when {
+        data == null || data.lines.isEmpty() -> 0
+        com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(data.lines) -> 3
+        data.syncType != com.auralis.music.domain.model.SyncType.PLAIN && data.lines.any { it.time > 0L } -> 2
+        else -> 1
     }
 
     private fun triggerAiTranslation(track: Track, lyricsData: LyricsData?, requestId: Long) {

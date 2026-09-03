@@ -24,16 +24,19 @@ import javax.xml.parsers.DocumentBuilderFactory
  *  - Only direct children of `<p>` are read. Nested spans are descended into
  *    explicitly, so a background/translation wrapper can never be flattened into
  *    the main line and duplicate its text.
- *  - `ttm:role="x-translation"` becomes the line translation, `x-roman` is
- *    ignored, and `x-bg` (background ad-libs) is skipped — the player has no
- *    separate background lane, and folding ad-libs into the lead line would
- *    corrupt both its text and its timing.
+ *  - `ttm:role="x-translation"` becomes the line translation and `x-roman` is
+ *    ignored. `x-bg` (background ad-libs) is emitted as its **own** line flagged
+ *    [LyricLine.isBackground], never folded into the lead vocal: an ad-lib runs
+ *    concurrently with the lead, so merging the two would corrupt both the text
+ *    and the word order of the line the listener is reading.
  */
 object TtmlParser {
 
     private const val ROLE_TRANSLATION = "x-translation"
     private const val ROLE_ROMAN = "x-roman"
     private const val ROLE_BACKGROUND = "x-bg"
+
+    private val NON_LEAD_ROLES = setOf(ROLE_TRANSLATION, ROLE_ROMAN, ROLE_BACKGROUND)
 
     private class Syllable(
         val text: String,
@@ -74,15 +77,23 @@ object TtmlParser {
 
         val sorted = lines.sortedBy { it.time }
 
-        // Word timing is only real when the file actually stated at least one word end.
-        // Otherwise the words carry starts alone, which cannot drive a karaoke sweep,
-        // so the track is presented as line-synchronized instead of pretending.
-        val hasGenuineWordTiming = sorted.any { line -> line.words?.any { it.duration != null } == true }
+        // Keep only what the file actually stated. A word list that says no more
+        // than the line timestamp already did (one shared start, no ends) is a
+        // token split, not word sync, and is dropped so nothing downstream can
+        // mistake it for timing. See [WordTiming].
+        val carriesWordInfo = WordTiming.statesMoreThanLineTime(sorted)
 
-        val resolved = if (hasGenuineWordTiming) sorted else sorted.map { it.copy(words = null) }
+        // Apple Music and AMLL exports do emit multi-word spans. Splitting one
+        // proportionally by character count stays strictly inside the interval the
+        // file measured, so it invents no timing — the only derivation permitted.
+        val resolved = if (carriesWordInfo) {
+            WordTiming.subdivideLines(sorted)
+        } else {
+            sorted.map { it.copy(words = null) }
+        }
 
         val syncType = when {
-            hasGenuineWordTiming -> SyncType.RICHSYNC
+            carriesWordInfo -> SyncType.RICHSYNC
             resolved.isNotEmpty() -> SyncType.LINE_SYNC
             else -> SyncType.PLAIN
         }
@@ -98,35 +109,50 @@ object TtmlParser {
     private fun parseParagraph(p: Element): List<LyricLine> {
         val resultLines = mutableListOf<LyricLine>()
         val currentSyllables = mutableListOf<Syllable>()
+        val currentBgSyllables = mutableListOf<Syllable>()
         val currentTranslation = StringBuilder()
         val currentPlainText = StringBuilder()
         val pBegin = attr(p, "begin").takeIf { it.isNotBlank() }?.let { parseTimestamp(it) }
 
         fun flushLine() {
-            if (currentSyllables.isEmpty() && currentPlainText.isBlank()) return
+            val hasLead = currentSyllables.isNotEmpty() || currentPlainText.isNotBlank()
+            val hasBackground = currentBgSyllables.isNotEmpty()
+            if (!hasLead && !hasBackground) return
 
             val (lineText, normalizedWords) = buildLineTextAndWords(currentSyllables, currentPlainText.toString())
-            if (lineText.isBlank()) {
-                currentSyllables.clear()
-                currentPlainText.clear()
-                currentTranslation.clear()
-                return
+            if (lineText.isNotBlank()) {
+                val lineTime = currentSyllables.minOfOrNull { it.start }
+                    ?: (if (resultLines.isEmpty()) pBegin else null)
+                    ?: 0L
+
+                resultLines.add(
+                    LyricLine(
+                        time = lineTime,
+                        text = lineText,
+                        translatedText = currentTranslation.toString().trim().ifBlank { null },
+                        words = normalizedWords
+                    )
+                )
             }
 
-            val lineTime = currentSyllables.minOfOrNull { it.start }
-                ?: (if (resultLines.isEmpty()) pBegin else null)
-                ?: 0L
-
-            resultLines.add(
-                LyricLine(
-                    time = lineTime,
-                    text = lineText,
-                    translatedText = currentTranslation.toString().trim().ifBlank { null },
-                    words = normalizedWords
-                )
-            )
+            // The ad-lib becomes a sibling line at its own start time, so the lead
+            // line above keeps exactly the text and word order the file gave it.
+            if (hasBackground) {
+                val (bgText, bgWords) = buildLineTextAndWords(currentBgSyllables, "")
+                if (bgText.isNotBlank()) {
+                    resultLines.add(
+                        LyricLine(
+                            time = currentBgSyllables.minOfOrNull { it.start } ?: 0L,
+                            text = bgText,
+                            words = bgWords?.map { it.copy(isBackground = true) },
+                            isBackground = true
+                        )
+                    )
+                }
+            }
 
             currentSyllables.clear()
+            currentBgSyllables.clear()
             currentPlainText.clear()
             currentTranslation.clear()
         }
@@ -166,10 +192,11 @@ object TtmlParser {
                 child is Element && localName(child) == "span" -> {
                     when (role(child)) {
                         ROLE_TRANSLATION -> currentTranslation.append(child.textContent ?: "")
-                        ROLE_ROMAN, ROLE_BACKGROUND -> Unit
+                        ROLE_ROMAN -> Unit
+                        ROLE_BACKGROUND -> collectSyllables(child, currentBgSyllables, currentBgSyllables)
                         else -> {
-                            collectSyllables(child, currentSyllables)
-                            currentPlainText.append(child.textContent ?: "")
+                            collectSyllables(child, currentSyllables, currentBgSyllables)
+                            currentPlainText.append(leadTextContent(child))
                         }
                     }
                 }
@@ -191,31 +218,40 @@ object TtmlParser {
         }
 
         val wordList = mutableListOf<LyricWord>()
-        val lineSb = StringBuilder()
-
-        for (i in syllables.indices) {
-            val syl = syllables[i]
-            val sylText = syl.text
-
-            lineSb.append(sylText)
+        for (syl in syllables) {
             wordList.add(
                 LyricWord(
-                    word = sylText,
+                    word = syl.text,
                     time = syl.start,
                     duration = genuineDuration(syl)
                 )
             )
         }
 
-        val finalText = lineSb.toString().trim()
+        // XML pretty-printing puts a newline between the last span and `</p>`,
+        // which reaches the final syllable as a trailing space. The line text is
+        // trimmed, so the word list is trimmed to match: concatenating the words
+        // has to reproduce the line text exactly, or a renderer measuring words
+        // and a renderer measuring the line disagree about where the line ends.
+        wordList[0] = wordList[0].let { it.copy(word = it.word.trimStart()) }
+        wordList[wordList.lastIndex] = wordList.last().let { it.copy(word = it.word.trimEnd()) }
+        wordList.removeAll { it.word.isEmpty() }
+
+        val finalText = wordList.joinToString("") { it.word }
         return Pair(finalText, wordList.takeIf { it.isNotEmpty() })
     }
 
-    private fun isLatinScript(c: Char): Boolean =
-        (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9') || c.code in 0x00C0..0x024F
-
-    /** A span either carries its own timing, or wraps timed child spans. */
-    private fun collectSyllables(span: Element, out: MutableList<Syllable>) {
+    /**
+     * A span either carries its own timing, or wraps timed child spans.
+     *
+     * [background] receives any nested `x-bg` group, so an ad-lib written inside a
+     * lead span reaches the background lane instead of being dropped.
+     */
+    private fun collectSyllables(
+        span: Element,
+        out: MutableList<Syllable>,
+        background: MutableList<Syllable>? = null
+    ) {
         val nestedTimedSpans = mutableListOf<Element>()
         var child: Node? = span.firstChild
         while (child != null) {
@@ -233,8 +269,10 @@ object TtmlParser {
 
                     inner is Element && localName(inner) == "span" -> {
                         when (role(inner)) {
-                            ROLE_TRANSLATION, ROLE_ROMAN, ROLE_BACKGROUND -> Unit
-                            else -> collectSyllables(inner, out)
+                            ROLE_TRANSLATION, ROLE_ROMAN -> Unit
+                            ROLE_BACKGROUND ->
+                                if (background != null) collectSyllables(inner, background, background) else Unit
+                            else -> collectSyllables(inner, out, background)
                         }
                     }
                 }
@@ -252,6 +290,25 @@ object TtmlParser {
         val endAttr = attr(span, "end")
         val end = if (endAttr.isBlank()) null else parseTimestamp(endAttr)
         out.add(Syllable(text, start, end))
+    }
+
+    /**
+     * Text of a node excluding nested non-lead roles, so a translation or an
+     * ad-lib written inside a lead span cannot leak into the lead line's text.
+     */
+    private fun leadTextContent(node: Node): String {
+        val first = node.firstChild ?: return node.textContent ?: ""
+        val sb = StringBuilder()
+        var child: Node? = first
+        while (child != null) {
+            when {
+                child.nodeType == Node.TEXT_NODE -> sb.append(child.textContent ?: "")
+                child is Element && localName(child) == "span" && role(child) in NON_LEAD_ROLES -> Unit
+                else -> sb.append(leadTextContent(child))
+            }
+            child = child.nextSibling
+        }
+        return sb.toString()
     }
 
     /** Attaches loose text (spacing, punctuation) to the syllable it follows. */

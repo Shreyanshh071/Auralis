@@ -33,7 +33,7 @@ import kotlinx.coroutines.flow.*
  * - Coordinated Engine Handoff: Zero conflicting play()/pause() calls to prevent AbortError.
  */
 @UnstableApi
-class AuralisAudioPlayer private constructor(context: Context) {
+class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSource {
 
     private val appContext = context.applicationContext
     val youTubeEngine = YouTubeAudioEngine(appContext)
@@ -238,6 +238,47 @@ class AuralisAudioPlayer private constructor(context: Context) {
 
     private val _playbackError = MutableStateFlow<String?>(null)
     val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
+
+    // ── PlaybackClockSource ──────────────────────────────────────────────────
+    // Sampled once per displayed frame by the lyrics renderer, so these three
+    // must stay allocation-free and never throw. ExoPlayer is not thread-safe:
+    // touch it only from the thread that owns it, and otherwise hand back the
+    // coarse mirror the 16 ms ticker maintains. `exoPlayer` is `by lazy`, but
+    // the `isUsingExoPlayer` guard means the clock can never be what creates it.
+
+    override fun rawPositionMs(): Long {
+        if (!isUsingExoPlayer) return _playbackPositionMs.value
+        return try {
+            if (exoPlayer.applicationLooper == android.os.Looper.myLooper()) {
+                exoPlayer.currentPosition
+            } else {
+                _playbackPositionMs.value
+            }
+        } catch (_: Exception) {
+            _playbackPositionMs.value
+        }
+    }
+
+    /**
+     * Engine-agnostic: covers the WebView fallback path too. Deliberately reads
+     * the mirrored flag rather than `exoPlayer.isPlaying`, so a buffer stall
+     * (which keeps `isPlaying` true while the position stops moving) is caught
+     * by the carry clamp instead of being extrapolated through.
+     */
+    override fun isPlaying(): Boolean = _isPlaying.value
+
+    override fun speed(): Float {
+        if (!isUsingExoPlayer) return 1.0f
+        return try {
+            if (exoPlayer.applicationLooper == android.os.Looper.myLooper()) {
+                exoPlayer.playbackParameters.speed
+            } else {
+                1.0f
+            }
+        } catch (_: Exception) {
+            1.0f
+        }
+    }
 
     private val onTrackCompletedListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
     private val lastCompletedSessionId = java.util.concurrent.atomic.AtomicLong(-1L)

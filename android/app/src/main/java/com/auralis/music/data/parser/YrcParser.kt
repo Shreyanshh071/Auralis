@@ -13,7 +13,13 @@ object YrcParser {
     private val YRC_WORD_REGEX = Regex("""\((\d+),(\d+),\d+\)([^(]*)""")
 
     /**
-     * Parses NetEase Cloud Music YRC content into [LyricsData] with [SyncType.RICHSYNC].
+     * Parses NetEase Cloud Music YRC content into [LyricsData].
+     *
+     * YRC states a start **and** a length per token — `(start,duration,?)` in the
+     * bracket dialect, `{"t":…,"d":…}` in the JSON dialect — so both are used
+     * verbatim. When a token omits its length the duration stays `null`: the old
+     * `300 ms` default made every such token sweep for a third of a second it had
+     * no data for, which reads as a highlight running on through silence.
      */
     fun parse(
         yrcContent: String,
@@ -38,7 +44,6 @@ object YrcParser {
         artistName: String
     ): LyricsData? {
         val lines = mutableListOf<LyricLine>()
-        var hasWordSync = false
 
         val rawLines = content.lines()
         for (rawLine in rawLines) {
@@ -61,12 +66,11 @@ object YrcParser {
 
                 for (w in wordMatches) {
                     val wStartMs = w.groupValues[1].toLongOrNull() ?: lineStartMs
-                    val wDurMs = w.groupValues[2].toLongOrNull() ?: 300L
+                    val wDurMs = w.groupValues[2].toLongOrNull()?.takeIf { it > 0L }
                     val wText = w.groupValues[3]
 
                     words.add(LyricWord(word = wText, time = wStartMs, duration = wDurMs))
                     lineSb.append(wText)
-                    hasWordSync = true
                 }
 
                 val fullText = lineSb.toString().trim()
@@ -84,10 +88,12 @@ object YrcParser {
 
         if (lines.isEmpty()) return null
 
+        val sorted = lines.sortedBy { it.time }
+
         return LyricsData(
-            syncType = if (hasWordSync) SyncType.RICHSYNC else SyncType.LINE_SYNC,
-            lines = lines.sortedBy { it.time },
-            plainLyrics = lines.joinToString("\n") { it.text },
+            syncType = if (WordTiming.hasGenuineWordStarts(sorted)) SyncType.RICHSYNC else SyncType.LINE_SYNC,
+            lines = sorted,
+            plainLyrics = sorted.joinToString("\n") { it.text },
             provider = provider,
             trackName = trackName,
             artistName = artistName
@@ -116,7 +122,9 @@ object YrcParser {
                     val tokenObj = cArray.optJSONObject(j) ?: continue
                     val tx = tokenObj.optString("tx", "")
                     val offset = tokenObj.optLong("t", 0L)
-                    val dur = tokenObj.optLong("d", 300L)
+                    // "d" absent means this token's length was never stated. It stays
+                    // null; the previous default of 300ms was invented.
+                    val dur = if (tokenObj.has("d")) tokenObj.optLong("d", 0L).takeIf { it > 0L } else null
 
                     val wordStartMs = lineStartMs + offset
                     words.add(LyricWord(word = tx, time = wordStartMs, duration = dur))
@@ -137,10 +145,16 @@ object YrcParser {
 
             if (lines.isEmpty()) return null
 
+            val sorted = lines.sortedBy { it.time }
+
             return LyricsData(
-                syncType = SyncType.RICHSYNC,
-                lines = lines.sortedBy { it.time },
-                plainLyrics = lines.joinToString("\n") { it.text },
+                syncType = if (WordTiming.hasGenuineWordStarts(sorted)) {
+                    SyncType.RICHSYNC
+                } else {
+                    SyncType.LINE_SYNC
+                },
+                lines = sorted,
+                plainLyrics = sorted.joinToString("\n") { it.text },
                 provider = provider,
                 trackName = trackName,
                 artistName = artistName

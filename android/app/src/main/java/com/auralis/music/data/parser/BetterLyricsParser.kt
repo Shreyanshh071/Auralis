@@ -65,6 +65,10 @@ object BetterLyricsParser {
     /**
      * Parses QQ Music QRC format.
      * Example: [00:12.34](12340,460)Hello (12800,400)World
+     *
+     * The `(start,length)` pair is stated per token, so both are used as given —
+     * not floored, not capped. A token whose length is unreadable gets
+     * `duration = null` rather than the old invented 300 ms.
      */
     fun parseQrc(
         qrcContent: String,
@@ -92,14 +96,14 @@ object BetterLyricsParser {
             val words = if (wordMatches.isNotEmpty()) {
                 wordMatches.mapIndexedNotNull { wIdx, wm ->
                     val wStart = wm.groupValues[1].toLongOrNull() ?: return@mapIndexedNotNull null
-                    val wDur = wm.groupValues[2].toLongOrNull() ?: 300L
-                    var wText = wm.groupValues[3]
+                    val wDur = wm.groupValues[2].toLongOrNull()?.takeIf { it > 0L }
+                    val wText = wm.groupValues[3]
                     if (wText.isEmpty()) return@mapIndexedNotNull null
 
                     LyricWord(
                         word = wText,
                         time = wStart,
-                        duration = wDur.coerceAtLeast(50L)
+                        duration = wDur
                     )
                 }
             } else null
@@ -124,10 +128,9 @@ object BetterLyricsParser {
         if (lines.isEmpty()) return null
 
         val sorted = lines.sortedBy { it.time }
-        val hasRichWords = sorted.any { !it.words.isNullOrEmpty() }
 
         return LyricsData(
-            syncType = if (hasRichWords) SyncType.RICHSYNC else SyncType.LINE_SYNC,
+            syncType = if (WordTiming.hasGenuineWordStarts(sorted)) SyncType.RICHSYNC else SyncType.LINE_SYNC,
             lines = sorted,
             plainLyrics = sorted.joinToString("\n") { it.text },
             provider = provider,
