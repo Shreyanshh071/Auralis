@@ -137,35 +137,63 @@ fun AuralisPlayerSlider(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val width = size.width.toFloat()
-                        if (width > 0f) {
-                            isDragging = true
-                            val initialProgress = (down.position.x / width).coerceIn(0f, 1f)
-                            dragProgress = initialProgress
-                            onValueChange(initialProgress)
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        if (width <= 0f) return@awaitEachGesture
+                        val pointerId = down.id
+                        val touchSlop = viewConfiguration.touchSlop
+                        var dragStarted = false
 
-                            val pointerId = down.id
-                            down.consume()
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
 
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val pointerChange = event.changes.firstOrNull { it.id == pointerId } ?: break
-
-                                if (pointerChange.pressed) {
-                                    val newProgress = (pointerChange.position.x / width).coerceIn(0f, 1f)
-                                    if (newProgress != dragProgress) {
-                                        dragProgress = newProgress
-                                        onValueChange(newProgress)
-                                    }
-                                    pointerChange.consume()
+                            if (!change.pressed) {
+                                // Finger released
+                                if (!dragStarted) {
+                                    // Discrete tap confirmed
+                                    val tapProgress = (change.position.x / width).coerceIn(0f, 1f)
+                                    dragProgress = tapProgress
+                                    onValueChange(tapProgress)
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    change.consume()
+                                    onValueChangeFinished()
                                 } else {
-                                    pointerChange.consume()
-                                    break
+                                    change.consume()
+                                    isDragging = false
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    onValueChangeFinished()
                                 }
+                                break
                             }
 
+                            val deltaX = change.position.x - down.position.x
+                            val deltaY = change.position.y - down.position.y
+
+                            if (!dragStarted) {
+                                // If gesture is primarily vertical (e.g., pulling modal down or scrolling), do not intercept!
+                                if (kotlin.math.abs(deltaY) > touchSlop && kotlin.math.abs(deltaY) > kotlin.math.abs(deltaX)) {
+                                    break
+                                }
+                                if (kotlin.math.abs(deltaX) > touchSlop) {
+                                    dragStarted = true
+                                    isDragging = true
+                                    val progress = (change.position.x / width).coerceIn(0f, 1f)
+                                    dragProgress = progress
+                                    onValueChange(progress)
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    change.consume()
+                                }
+                            } else {
+                                val newProgress = (change.position.x / width).coerceIn(0f, 1f)
+                                if (newProgress != dragProgress) {
+                                    dragProgress = newProgress
+                                    onValueChange(newProgress)
+                                }
+                                change.consume()
+                            }
+                        }
+
+                        if (dragStarted && isDragging) {
                             isDragging = false
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onValueChangeFinished()
                         }
                     }

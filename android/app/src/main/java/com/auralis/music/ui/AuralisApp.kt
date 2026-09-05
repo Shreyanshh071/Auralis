@@ -573,9 +573,9 @@ fun AuralisApp(
                                                 onQueryChange = { searchViewModel.onQueryChange(it) },
                                                 onSearch = { searchViewModel.performSearch(it) },
                                                 onClearSearch = { searchViewModel.clearSearch() },
-                                                onTrackClick = { track, queue ->
+                                                onTrackClick = { track, _ ->
                                                     if (isGuestInRoom) notifyGuestControlBlocked()
-                                                    else playerViewModel.playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                                                    else playerViewModel.playTrack(track, listOf(track), 0)
                                                 },
                                                 onFavoriteToggle = { track -> playerViewModel.toggleFavorite(track) },
                                                 onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
@@ -875,7 +875,7 @@ fun AuralisApp(
                         notifyGuestControlBlocked()
                     } else {
                         val t = playerUiState.queue.getOrNull(index)
-                        if (t != null) {
+                        if (t != null && !(index == playerUiState.currentIndex && t.id == playerUiState.currentTrack?.id)) {
                             playerViewModel.playTrack(t, playerUiState.queue, index)
                         }
                     }
@@ -946,7 +946,7 @@ fun AuralisApp(
                                 notifyGuestControlBlocked()
                             } else {
                                 val t = playerUiState.queue.getOrNull(index)
-                                if (t != null) {
+                                if (t != null && !(index == playerUiState.currentIndex && t.id == playerUiState.currentTrack?.id)) {
                                     playerViewModel.playTrack(t, playerUiState.queue, index)
                                 }
                             }

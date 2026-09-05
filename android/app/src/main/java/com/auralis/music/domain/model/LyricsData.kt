@@ -74,5 +74,17 @@ data class LyricsData(
     val translatedLanguage: String? = null,
     val provider: LyricsProvider,
     val trackName: String? = null,
-    val artistName: String? = null
-)
+    val artistName: String? = null,
+    val durationMs: Long? = null,
+    val leadingSilenceMs: Long? = null
+) {
+    /**
+     * Stated or inferred duration of the lyrics track in milliseconds.
+     * Prefers explicit provider metadata [durationMs] (from TTML <body dur> or LRC [length:]),
+     * otherwise falls back to the last line or word end timestamp.
+     */
+    val effectiveDurationMs: Long
+        get() = durationMs
+            ?: lines.lastOrNull { !it.isInstrumental }?.let { it.wordTimingEndMs ?: it.time }
+            ?: 0L
+}

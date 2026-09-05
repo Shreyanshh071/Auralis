@@ -165,8 +165,8 @@ fun MiniPlayer(
 
     val dismissOffsetY = remember { Animatable(0f) }
     var isDismissing by remember { mutableStateOf(false) }
-    val dismissThresholdPx = with(density) { (75.dp * (1.15f - sensitivityRatio * 0.65f)).toPx() }
-    val dismissVelocityThreshold = 1400f * (1.15f - sensitivityRatio * 0.65f)
+    val dismissThresholdPx = with(density) { (90.dp * (1.15f - sensitivityRatio * 0.40f)).toPx() }
+    val dismissVelocityThreshold = 1800f * (1.15f - sensitivityRatio * 0.40f)
 
     val dragModifier = if (onClose != null && !isDismissing) {
         Modifier.draggable(
@@ -238,6 +238,15 @@ fun MiniPlayer(
         initialPage = safeCurrentIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    var userSwiped by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isDragged) {
+        if (isDragged) {
+            userSwiped = true
+        }
+    }
+
     // External track index changes (e.g. background completion, notification, or full modal)
     LaunchedEffect(safeCurrentIndex) {
         if (safeCurrentIndex in 0 until pageCount && pagerState.currentPage != safeCurrentIndex) {
@@ -250,12 +259,13 @@ fun MiniPlayer(
         }
     }
 
-    // User swipe gestures settled on a different page -> switch track
+    // User swipe gestures settled on a different page -> switch track ONLY on physical user drag
     LaunchedEffect(pagerState, queueTracks) {
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { newPage ->
-                if (newPage != safeCurrentIndex && queueTracks.isNotEmpty()) {
+                if (userSwiped && newPage != safeCurrentIndex && queueTracks.isNotEmpty()) {
+                    userSwiped = false
                     if (newPage in queueTracks.indices) {
                         if (onSelectQueueTrack != null) {
                             onSelectQueueTrack(newPage)
@@ -549,7 +559,7 @@ fun MiniPlayer(
             // SWIPEABLE TRACK CONTENT CAROUSEL (ARTWORK + TITLE + ARTIST)
             // ================================================================
             val isHorizontalSwipeEnabled = userScrollEnabled && appearance.enableSwipeToChangeSong
-            val snapPositionalThreshold = (0.85f - (sensitivityRatio * 0.70f)).coerceIn(0.12f, 0.75f)
+            val snapPositionalThreshold = (0.85f - (sensitivityRatio * 0.45f)).coerceIn(0.38f, 0.75f)
             val pagerFlingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                 state = pagerState,
                 snapPositionalThreshold = snapPositionalThreshold

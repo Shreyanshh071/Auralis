@@ -24,6 +24,16 @@ class TtmlParserTest {
     }
 
     @Test
+    fun `parse extracts duration and leading silence from creep ttml`() {
+        val ttml = java.io.File("c:/Users/shrey/OneDrive/Desktop/Auralis/scratch/creep.ttml").readText()
+        val parsed = TtmlParser.parse(ttml)
+        println("PARSED DURATION: ${parsed.durationMs}")
+        println("PARSED SILENCE: ${parsed.leadingSilenceMs}")
+        assertEquals(238640L, parsed.durationMs)
+        assertEquals(940L, parsed.leadingSilenceMs)
+    }
+
+    @Test
     fun `parse converts TTML XML with word-level spans into RichSync LyricsData`() {
         val ttml = """
             <?xml version="1.0" encoding="utf-8"?>

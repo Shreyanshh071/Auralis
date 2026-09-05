@@ -73,11 +73,185 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.AuthUiState
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawBehind
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
 val ONBOARDING_PEACH = Color(0xFFFFB67A)
+
+/**
+ * High-performance, hardware-accelerated dynamic atmospheric mesh background:
+ * Fluidly moves signature Auralis brand colors (Warm Amber/Peach, Neon Royal Violet, Coral Rose, Electric Cyan)
+ * across the canvas with dual non-repeating orbital phases and a deep pitch-black anchor for perfect text readability.
+ */
+@Composable
+private fun DynamicAtmosphericMeshBackground(
+    modifier: Modifier = Modifier,
+    content: @Composable (pulse: Float) -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "AtmosphericMeshTransition")
+
+    val phase1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(16000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase1"
+    )
+
+    val phase2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(23000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase2"
+    )
+
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.90f,
+        targetValue = 1.14f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
+    // Palette tokens in sync with Auralis signature brand & theme
+    val amberPeach = Color(0xFFFF9E54)
+    val warmAmber = ONBOARDING_PEACH
+    val royalViolet = Color(0xFF7C3AED)
+    val electricIndigo = Color(0xFF8B5CF6)
+    val roseCoral = Color(0xFFF43F5E)
+    val cyanAccent = Color(0xFF06B6D4)
+    val deepCanvas = Color(0xFF070806)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawBehind {
+                val width = size.width
+                val height = size.height
+
+                // 1. Deep solid foundation canvas
+                drawRect(color = deepCanvas)
+
+                // 2. Orb 1: Warm Amber / Sunset Peach Bloom (orbiting around top-left & headline)
+                val angle1 = (phase1 * 2 * PI).toFloat()
+                val center1 = Offset(
+                    x = width * (0.36f + 0.22f * cos(angle1)),
+                    y = height * (0.22f + 0.12f * sin(angle1))
+                )
+                val radius1 = width * 1.10f * pulse
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            amberPeach.copy(alpha = 0.42f),
+                            warmAmber.copy(alpha = 0.22f),
+                            warmAmber.copy(alpha = 0.05f),
+                            Color.Transparent
+                        ),
+                        center = center1,
+                        radius = radius1
+                    ),
+                    center = center1,
+                    radius = radius1
+                )
+
+                // 3. Orb 2: Neon Royal Violet Bloom (drifting through right-center)
+                val angle2 = (phase2 * 2 * PI).toFloat()
+                val center2 = Offset(
+                    x = width * (0.76f + 0.18f * sin(angle2)),
+                    y = height * (0.45f + 0.16f * cos(angle2))
+                )
+                val radius2 = width * 1.18f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            royalViolet.copy(alpha = 0.36f),
+                            electricIndigo.copy(alpha = 0.18f),
+                            royalViolet.copy(alpha = 0.04f),
+                            Color.Transparent
+                        ),
+                        center = center2,
+                        radius = radius2
+                    ),
+                    center = center2,
+                    radius = radius2
+                )
+
+                // 4. Orb 3: Coral / Rose Bloom (drifting in the lower-mid region)
+                val center3 = Offset(
+                    x = width * (0.22f + 0.24f * sin(angle1 + 1.6f)),
+                    y = height * (0.64f + 0.14f * cos(angle2 + 0.7f))
+                )
+                val radius3 = width * 1.05f * (2.05f - pulse)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            roseCoral.copy(alpha = 0.28f),
+                            roseCoral.copy(alpha = 0.10f),
+                            Color.Transparent
+                        ),
+                        center = center3,
+                        radius = radius3
+                    ),
+                    center = center3,
+                    radius = radius3
+                )
+
+                // 5. Orb 4: Subtle Electric Cyan Highlight (orbiting near top-right edge)
+                val center4 = Offset(
+                    x = width * (0.84f + 0.14f * cos(angle2 + 2.4f)),
+                    y = height * (0.12f + 0.10f * sin(angle1 + 1.2f))
+                )
+                val radius4 = width * 0.82f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            cyanAccent.copy(alpha = 0.24f),
+                            cyanAccent.copy(alpha = 0.06f),
+                            Color.Transparent
+                        ),
+                        center = center4,
+                        radius = radius4
+                    ),
+                    center = center4,
+                    radius = radius4
+                )
+
+                // 6. Global Multi-Stop Contrast & Vignette Ramp
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0.00f to Color(0xFF070806).copy(alpha = 0.30f),
+                        0.22f to Color.Transparent,
+                        0.58f to Color(0xFF070806).copy(alpha = 0.40f),
+                        0.78f to Color(0xFF070806).copy(alpha = 0.85f),
+                        1.00f to Color(0xFF070806)
+                    )
+                )
+            }
+    ) {
+        content(pulse)
+    }
+}
 
 /**
  * Pixel-Perfect Welcome & Onboarding Screen with full-screen Email Auth screen.
  * Fully functional with real Firebase Google Sign-In & Email/Password Authentication.
+ * Features living dynamic atmospheric color aura in sync with Auralis design system.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -90,172 +264,217 @@ fun WelcomeScreen(
 ) {
     var isEmailAuthOpen by remember { mutableStateOf(false) }
 
-    AnimatedContent(
-        targetState = isEmailAuthOpen,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
-        label = "OnboardingTransition"
-    ) { openEmailAuth ->
-        if (openEmailAuth) {
-            // ── FULL-SCREEN EMAIL AUTHENTICATION ──
-            EmailAuthFullScreen(
-                authUiState = authUiState,
-                onBack = { isEmailAuthOpen = false },
-                onSignUp = onSignUpWithEmail,
-                onSignIn = onSignInWithEmail
-            )
-        } else {
-            // ── MAIN ONBOARDING SCREEN ──
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0C0C0C))
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 24.dp)
-            ) {
-                Column(
+    DynamicAtmosphericMeshBackground(modifier = modifier) { pulse ->
+        AnimatedContent(
+            targetState = isEmailAuthOpen,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "OnboardingTransition"
+        ) { openEmailAuth ->
+            if (openEmailAuth) {
+                // ── FULL-SCREEN EMAIL AUTHENTICATION ──
+                EmailAuthFullScreen(
+                    authUiState = authUiState,
+                    onBack = { isEmailAuthOpen = false },
+                    onSignUp = onSignUpWithEmail,
+                    onSignIn = onSignInWithEmail
+                )
+            } else {
+                // ── MAIN ONBOARDING SCREEN ──
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.SpaceBetween
+                        .background(Color.Transparent)
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 24.dp)
                 ) {
-                    // ── TOP BRANDING & HEADLINE SECTION ──
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp)
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // App Logo Box
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 28.dp)
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_auralis_logo),
-                                contentDescription = "Auralis Logo",
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                            )
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Text(
-                                text = "Auralis",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White,
-                                fontSize = 32.sp
-                            )
-                        }
-
-                        // Big Headline
-                        Text(
-                            text = "You. Music.\nLet it happen",
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.Black,
-                            color = Color.White,
-                            fontSize = 40.sp,
-                            lineHeight = 46.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Subtitle
-                        Text(
-                            text = "Stream, discover, and vibe — all in one place. Free, forever.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.65f),
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(28.dp))
-
-                        // Feature Pills (FlowRow)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FeaturePill(icon = Icons.Default.MusicNote, text = "Millions of songs")
-                            FeaturePill(icon = Icons.Default.GraphicEq, text = "Live lyrics")
-                            FeaturePill(icon = Icons.AutoMirrored.Filled.QueueMusic, text = "Smart queue")
-                            FeaturePill(icon = Icons.Default.ElectricBolt, text = "No ads")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    // ── BOTTOM ACTION BUTTONS ──
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // 1. Continue with Google
-                        Box(
+                        // ── TOP BRANDING & HEADLINE SECTION ──
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(CircleShape)
-                                .background(Color(0xFF1C1917))
-                                .border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape)
-                                .tactileBounce(scaleDown = 0.96f) {
-                                    onContinueWithGoogle()
-                                }
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(top = 40.dp)
                         ) {
-                            if (authUiState.isSyncing) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        color = Color(0xFF4285F4),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Connecting to Google...",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp
-                                    )
-                                }
-                            } else {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
+                            // App Logo Box with synchronized ambient breathing halo
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 28.dp)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(56.dp)
                                 ) {
-                                    GoogleLogoIcon(modifier = Modifier.size(20.dp))
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Continue with Google",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
+                                    // Ambient breathing glow halo behind logo
+                                    Box(
+                                        modifier = Modifier
+                                            .size((72.dp * pulse).coerceIn(60.dp, 80.dp))
+                                            .background(
+                                                Brush.radialGradient(
+                                                    listOf(
+                                                        ONBOARDING_PEACH.copy(alpha = 0.42f),
+                                                        Color(0xFF7C3AED).copy(alpha = 0.16f),
+                                                        Color.Transparent
+                                                    )
+                                                ),
+                                                shape = CircleShape
+                                            )
+                                    )
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_auralis_logo),
+                                        contentDescription = "Auralis Logo",
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
                                     )
                                 }
+
+                                Spacer(modifier = Modifier.width(16.dp))
+
+                                Text(
+                                    text = "Auralis",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White,
+                                    fontSize = 32.sp
+                                )
+                            }
+
+                            // Big Headline
+                            Text(
+                                text = "You. Music.\nLet it happen",
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White,
+                                fontSize = 40.sp,
+                                lineHeight = 46.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Subtitle
+                            Text(
+                                text = "Stream, discover, and vibe — all in one place. Free, forever.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(28.dp))
+
+                            // Feature Pills (FlowRow)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FeaturePill(icon = Icons.Default.MusicNote, text = "Millions of songs")
+                                FeaturePill(icon = Icons.Default.GraphicEq, text = "Live lyrics")
+                                FeaturePill(icon = Icons.AutoMirrored.Filled.QueueMusic, text = "Smart queue")
+                                FeaturePill(icon = Icons.Default.ElectricBolt, text = "No ads")
                             }
                         }
 
-                        // 2. Sign up / in with Email (Warm Peach Button)
-                        Box(
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        // ── BOTTOM ACTION BUTTONS ──
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(CircleShape)
-                                .background(ONBOARDING_PEACH)
-                                .tactileBounce(scaleDown = 0.96f) {
-                                    isEmailAuthOpen = true
-                                }
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(bottom = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text(
-                                text = "Sign up / in with Email",
-                                color = Color(0xFF140D05),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
+                            // 1. Continue with Google
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(CircleShape)
+                                    .background(Color(0xCC181614))
+                                    .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                                    .tactileBounce(scaleDown = 0.96f) {
+                                        onContinueWithGoogle()
+                                    }
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (authUiState.isSyncing) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            color = Color(0xFF4285F4),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = "Connecting to Google...",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 15.sp
+                                        )
+                                    }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        GoogleLogoIcon(modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = "Continue with Google",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 2. Sign up / in with Email (Warm Peach Gradient Button)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                ONBOARDING_PEACH,
+                                                Color(0xFFFFAA66)
+                                            )
+                                        )
+                                    )
+                                    .tactileBounce(scaleDown = 0.96f) {
+                                        isEmailAuthOpen = true
+                                    }
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Sign up / in with Email",
+                                    color = Color(0xFF140D05),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+
+                            if (!authUiState.syncMessage.isNullOrBlank()) {
+                                val isError = authUiState.syncMessage.contains("error", ignoreCase = true) ||
+                                              authUiState.syncMessage.contains("failed", ignoreCase = true)
+                                Text(
+                                    text = authUiState.syncMessage,
+                                    color = if (isError) Color(0xFFFF6B6B) else Color(0xFFFFB67A),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp, bottom = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -284,7 +503,7 @@ private fun EmailAuthFullScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0C0C0C))
+            .background(Color.Transparent)
             .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 24.dp)
@@ -520,8 +739,8 @@ private fun DarkInputField(
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xFF141414))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(28.dp))
+            .background(Color(0xBF181614))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(28.dp))
             .padding(horizontal = 18.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -582,8 +801,8 @@ private fun FeaturePill(icon: ImageVector, text: String) {
     Row(
         modifier = Modifier
             .clip(CircleShape)
-            .background(Color(0xFF1E1813))
-            .border(1.dp, Color(0xFF382D24), CircleShape)
+            .background(Color(0x991E1813))
+            .border(1.dp, ONBOARDING_PEACH.copy(alpha = 0.28f), CircleShape)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

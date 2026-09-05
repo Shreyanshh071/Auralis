@@ -61,14 +61,10 @@ class PlaybackLatencyBenchmarkTest {
             assertEquals("Warm stream must match cold stream", coldStream, warmStream)
             assertTrue("Warm resolution must be instant (< 50ms)", tWarmMs < 50)
 
-            // 3. Fingerprint resolution (different ID, same title & artist)
+            // 3. Different video ID must NOT get contaminated with another track's cached stream
             val dummyDifferentId = "alt_$id"
-            val t0Fp = System.currentTimeMillis()
-            val fpStream = AudioStreamResolver.resolveAudioStream(dummyDifferentId, title, artist)
-            val tFpMs = System.currentTimeMillis() - t0Fp
-            println("  Fingerprint Resolution (different ID): ${tFpMs}ms")
-            assertEquals("Fingerprint stream must match cached stream", coldStream, fpStream)
-            assertTrue("Fingerprint resolution must be instant (< 50ms)", tFpMs < 50)
+            val diffCached = AudioStreamResolver.getCachedStream(dummyDifferentId)
+            org.junit.Assert.assertNull("Different video ID must never share another video's cached stream", diffCached)
         }
     }
 }

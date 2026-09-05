@@ -53,6 +53,8 @@ object TtmlParser {
         }
 
         val lines = mutableListOf<LyricLine>()
+        var durationMs: Long? = null
+        var leadingSilenceMs: Long? = null
 
         try {
             val factory = DocumentBuilderFactory.newInstance()
@@ -64,6 +66,47 @@ object TtmlParser {
 
             val builder = factory.newDocumentBuilder()
             val doc = builder.parse(ByteArrayInputStream(ttmlXml.toByteArray(Charsets.UTF_8)))
+
+            // 1. Extract duration from <body> dur attribute or <tt> dur/duration attribute
+            val bodyNodes = doc.getElementsByTagName("body")
+            if (bodyNodes.length > 0) {
+                val bodyElem = bodyNodes.item(0) as? Element
+                if (bodyElem != null) {
+                    val durAttr = attr(bodyElem, "dur").takeIf { it.isNotBlank() }
+                    if (durAttr != null) {
+                        val parsed = parseTimestamp(durAttr)
+                        if (parsed > 0L) durationMs = parsed
+                    }
+                }
+            }
+            if (durationMs == null) {
+                val ttNodes = doc.getElementsByTagName("tt")
+                if (ttNodes.length > 0) {
+                    val ttElem = ttNodes.item(0) as? Element
+                    if (ttElem != null) {
+                        val durAttr = attr(ttElem, "dur").takeIf { it.isNotBlank() }
+                            ?: attr(ttElem, "duration").takeIf { it.isNotBlank() }
+                        if (durAttr != null) {
+                            val parsed = parseTimestamp(durAttr)
+                            if (parsed > 0L) durationMs = parsed
+                        }
+                    }
+                }
+            }
+
+            // 2. Extract leadingSilence from <iTunesMetadata>
+            val metaNodes = doc.getElementsByTagName("iTunesMetadata")
+            for (i in 0 until metaNodes.length) {
+                val metaElem = metaNodes.item(i) as? Element ?: continue
+                val silenceAttr = attr(metaElem, "leadingSilence").takeIf { it.isNotBlank() }
+                if (silenceAttr != null) {
+                    val parsed = parseTimestamp(silenceAttr)
+                    if (parsed >= 0L) {
+                        leadingSilenceMs = parsed
+                        break
+                    }
+                }
+            }
 
             val pNodes = doc.getElementsByTagName("p")
             for (i in 0 until pNodes.length) {
@@ -102,7 +145,9 @@ object TtmlParser {
             syncType = syncType,
             lines = resolved,
             plainLyrics = resolved.joinToString("\n") { it.text }.ifBlank { null },
-            provider = provider
+            provider = provider,
+            durationMs = durationMs,
+            leadingSilenceMs = leadingSilenceMs
         )
     }
 
@@ -217,9 +262,9 @@ object TtmlParser {
             return Pair(text, null)
         }
 
-        val wordList = mutableListOf<LyricWord>()
+        val rawWords = mutableListOf<LyricWord>()
         for (syl in syllables) {
-            wordList.add(
+            rawWords.add(
                 LyricWord(
                     word = syl.text,
                     time = syl.start,
@@ -227,6 +272,11 @@ object TtmlParser {
                 )
             )
         }
+
+        // Merge contiguous syllable spans belonging to the same word (e.g. "beauti" + "ful" -> "beautiful")
+        // matching Metrolist, Echo, and NomaTune behavior without altering provider timing intervals.
+        val mergedWords = WordTiming.mergeContiguousSyllables(rawWords) ?: rawWords
+        val wordList = mergedWords.toMutableList()
 
         // XML pretty-printing puts a newline between the last span and `</p>`,
         // which reaches the final syllable as a trailing space. The line text is

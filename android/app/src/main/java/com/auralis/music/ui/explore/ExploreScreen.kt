@@ -695,7 +695,14 @@ private fun SearchResultsView(
     val allArtists = (listOfNotNull(results.primaryArtist) + results.artists).distinctBy { it.id }
     val allAlbums = (listOfNotNull(results.primaryAlbum) + results.albums + results.playlists).distinctBy { it.id }
     val primaryArtist = results.primaryArtist ?: results.artists.firstOrNull()
-    val primaryAlbum = results.primaryAlbum
+    val primaryAlbum = results.primaryAlbum?.takeIf { album ->
+        primaryArtist == null || com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
+    }
+    val singleTrack = (results.topResult as? SearchTopResult.SongResult)?.track
+        ?: results.songs.firstOrNull()
+    val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
+        (results.primaryArtist != null && query.isNotBlank() &&
+            com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist.name, query))
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -725,7 +732,7 @@ private fun SearchResultsView(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { onTrackClick(track, results.songs.ifEmpty { listOf(track) }) },
+                                .clickable { onTrackClick(track, listOf(track)) },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
                             shape = RoundedCornerShape(16.dp)
                         ) {
@@ -860,11 +867,21 @@ private fun SearchResultsView(
 
         // ====================================================================
         // STEP 2 — ARTIST & ALBUM (EXACT SIDE-BY-SIDE CARDS)
+        // Only shown when searching for songs/general queries. When searching
+        // specifically for an artist, the artist is already in Top Result,
+        // so we skip this section to directly show their top famous songs.
         // ====================================================================
-        if (primaryArtist != null || primaryAlbum != null) {
+        if (!isArtistSearch && (primaryArtist != null || primaryAlbum != null)) {
             item(key = "header_artist_album") {
+                val headerTitle = when {
+                    primaryArtist != null && primaryAlbum != null -> "Artist & Album"
+                    primaryAlbum != null -> "Album"
+                    primaryArtist != null && singleTrack != null -> "Artist & Single"
+                    primaryArtist != null -> "Artist"
+                    else -> "Single"
+                }
                 Text(
-                    text = "Artist & Album",
+                    text = headerTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -996,12 +1013,12 @@ private fun SearchResultsView(
                                 }
                             }
                         }
-                    } else {
-                        // Clean 'No album' card for standalone singles / non-album songs
+                    } else if (singleTrack != null) {
                         Card(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(16.dp)),
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { onTrackClick(singleTrack, results.songs.ifEmpty { listOf(singleTrack) }) },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
                             shape = RoundedCornerShape(16.dp)
                         ) {
@@ -1011,31 +1028,23 @@ private fun SearchResultsView(
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
+                                ArtworkCard(
+                                    url = singleTrack.thumbnail,
+                                    modifier = Modifier.size(46.dp),
+                                    cornerRadius = 8.dp,
+                                    contentDescription = singleTrack.title
+                                )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "ALBUM",
+                                        text = "SINGLE",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontSize = 10.sp
                                     )
                                     Text(
-                                        text = "No album",
+                                        text = singleTrack.title,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onBackground,
@@ -1043,7 +1052,7 @@ private fun SearchResultsView(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = primaryArtist?.name ?: "Single",
+                                        text = singleTrack.artist.ifBlank { primaryArtist?.name ?: "Single" },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1052,6 +1061,8 @@ private fun SearchResultsView(
                                 }
                             }
                         }
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -1062,7 +1073,7 @@ private fun SearchResultsView(
         // ====================================================================
         item(key = "header_matching_songs") {
             Text(
-                text = "Songs",
+                text = if (isArtistSearch) "Top Songs" else "Songs",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -1077,7 +1088,7 @@ private fun SearchResultsView(
                     track = track,
                     isCurrent = isCurrent,
                     isPlaying = isPlaying,
-                    playlist = results.songs,
+                    playlist = listOf(track),
                     onTrackClick = onTrackClick,
                     onPlayNext = onPlayNext,
                     onAddToQueue = onAddToQueue,
@@ -1143,7 +1154,7 @@ private fun SearchResultsView(
                     track = track,
                     isCurrent = isCurrent,
                     isPlaying = isPlaying,
-                    playlist = recommendations,
+                    playlist = listOf(track),
                     onTrackClick = onTrackClick,
                     onPlayNext = onPlayNext,
                     onAddToQueue = onAddToQueue,
@@ -1207,7 +1218,7 @@ private fun TrackRowItem(
                     if (!track.views.isNullOrBlank()) {
                         append(" • ${track.views}")
                     } else if (track.album.isNullOrBlank()) {
-                        append(" • no album")
+                        append(" • Single")
                     }
                 }
                 Text(

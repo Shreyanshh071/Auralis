@@ -102,6 +102,14 @@ fun ArtistScreen(
             .background(DARK_BG)
     ) {
         val artistBottomPad = if (currentTrackId != null) 180.dp else 100.dp
+        val stableTopSongKeys = remember(artistPage.topSongs) {
+            val counts = HashMap<String, Int>()
+            artistPage.topSongs.map { track ->
+                val count = counts[track.id] ?: 0
+                counts[track.id] = count + 1
+                if (count == 0) track.id else "${track.id}__dup$count"
+            }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = artistBottomPad)
@@ -417,7 +425,7 @@ fun ArtistScreen(
             } else {
                 itemsIndexed(
                     items = artistPage.topSongs,
-                    key = { index, it -> "${it.id}_$index" },
+                    key = { index, track -> stableTopSongKeys.getOrElse(index) { "${track.id}_$index" } },
                     contentType = { _, _ -> "track" }
                 ) { index, track ->
                     val isCurrent = track.id == currentTrackId

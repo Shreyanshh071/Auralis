@@ -7,6 +7,7 @@ data class SongFingerprint(
     val id: String,
     val normalizedTitle: String,
     val normalizedCoreTitle: String,
+    val normalizedBaseTitle: String,
     val normalizedArtist: String,
     val cleanedTitle: String,
     val thumbnail: String
@@ -59,13 +60,19 @@ object TrackDeduplicator {
     )
     private val ALL_BRACKETS_REGEX = Regex("""[\(\[\{][^)\]\}]*[\)\]\}]""")
 
+    private val TRAILING_VERSION_SUFFIX_REGEX = Regex(
+        """(?i)\s*[-–—/|:]\s*(?:remix.*|mix.*|edit.*|slowed.*|reverb.*|sped\s*up.*|speed\s*up.*|phonk.*|cover.*|acoustic.*|live.*|instrumental.*|vip.*|dub.*|extended.*|radio\s*edit.*|version.*|remaster(?:ed)?(?:\s*\d{4})?.*|\d{4}\s*remaster(?:ed)?.*|bonus.*|deluxe.*|mono.*|stereo.*|anniversary.*|session.*|unplugged.*|orchestral.*|piano.*|original\s*mix.*|club\s*mix.*|clean.*|explicit.*|single\s*version.*|album\s*version.*|audio|video|official.*)$"""
+    )
+
     /**
-     * Extracts a bare base song title stripped of all versions, remix tags, slowed/reverb tags, and brackets
+     * Extracts a bare base song title stripped of all versions, remix tags, slowed/reverb tags,
+     * bracket noise, and trailing version suffixes (e.g. " - Remastered", " - Live", " - Acoustic")
      * to eliminate all alternate cuts and duplicate versions of the same song from queues.
      */
     fun extractBaseSongTitle(rawTitle: String): String {
         if (rawTitle.isBlank()) return ""
         var t = TitleCleaner.cleanTitle(rawTitle).ifBlank { rawTitle.trim() }
+        t = TRAILING_VERSION_SUFFIX_REGEX.replace(t, " ")
         t = VERSION_AND_REMIX_REGEX.replace(t, " ")
         t = ALL_BRACKETS_REGEX.replace(t, " ")
         t = t.replace(MOVIE_ATTRIBUTION_REGEX, " ")
@@ -83,6 +90,8 @@ object TrackDeduplicator {
         val coreTitle = cleaned.replace(MOVIE_ATTRIBUTION_REGEX, "").trim().ifBlank { cleaned }
         val normCoreTitle = coreTitle.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
 
+        val baseTitle = extractBaseSongTitle(rawTitle)
+
         val cleanedArt = TitleCleaner.cleanArtist(rawArtist).ifBlank { rawArtist.trim() }
         val normArtist = if (isInvalidArtistName(cleanedArt)) "" else {
             cleanedArt.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
@@ -92,6 +101,7 @@ object TrackDeduplicator {
             id = track.id.trim(),
             normalizedTitle = normTitle,
             normalizedCoreTitle = normCoreTitle,
+            normalizedBaseTitle = baseTitle,
             normalizedArtist = normArtist,
             cleanedTitle = cleaned,
             thumbnail = track.thumbnail.trim()
@@ -100,8 +110,11 @@ object TrackDeduplicator {
 
     /**
      * Determines whether two tracks represent the same song.
+     * When [matchAlternateVersions] is true, different cuts/versions (e.g. live, acoustic, remaster)
+     * of the same base song are treated as duplicates (ideal for radio queues & recommendations).
+     * When false, only exact or near-identical versions are considered duplicates (ideal for search matches).
      */
-    fun isDuplicateSong(a: SongFingerprint, b: SongFingerprint): Boolean {
+    fun isDuplicateSong(a: SongFingerprint, b: SongFingerprint, matchAlternateVersions: Boolean = false): Boolean {
         // 1. Direct ID match
         if (a.id.isNotBlank() && b.id.isNotBlank() && a.id == b.id) {
             return true
@@ -111,6 +124,7 @@ object TrackDeduplicator {
         if (a.thumbnail.isNotBlank() && b.thumbnail.isNotBlank() && a.thumbnail == b.thumbnail) {
             if (a.normalizedTitle == b.normalizedTitle ||
                 a.normalizedCoreTitle == b.normalizedCoreTitle ||
+                (matchAlternateVersions && a.normalizedBaseTitle == b.normalizedBaseTitle) ||
                 a.normalizedTitle.contains(b.normalizedTitle) ||
                 b.normalizedTitle.contains(a.normalizedTitle)
             ) {
@@ -118,8 +132,16 @@ object TrackDeduplicator {
             }
         }
 
-        // Check title match: exact normalized title, core title match, or cleaned title match
-        val titlesMatch = (a.normalizedTitle.isNotBlank() && a.normalizedTitle == b.normalizedTitle) ||
+        // 3. Base song title match (matches different versions of the same song: e.g. "Creep", "Creep - Live", "Creep (Acoustic)", "Creep - 2011 Remaster")
+        val baseTitlesMatch = matchAlternateVersions &&
+                a.normalizedBaseTitle.isNotBlank() &&
+                b.normalizedBaseTitle.isNotBlank() &&
+                a.normalizedBaseTitle == b.normalizedBaseTitle &&
+                a.normalizedBaseTitle.length >= 3
+
+        // Check standard title match: exact normalized title, core title match, or cleaned title match
+        val titlesMatch = baseTitlesMatch ||
+                (a.normalizedTitle.isNotBlank() && a.normalizedTitle == b.normalizedTitle) ||
                 (a.normalizedCoreTitle.isNotBlank() && a.normalizedCoreTitle == b.normalizedCoreTitle) ||
                 a.cleanedTitle.equals(b.cleanedTitle, ignoreCase = true)
 
@@ -127,7 +149,7 @@ object TrackDeduplicator {
             return false
         }
 
-        // 3. If normalized titles match:
+        // 4. If titles match (or base titles match):
         // If either artist is blank or generic (unknown artist, topic, etc.)
         if (a.normalizedArtist.isBlank() || b.normalizedArtist.isBlank()) {
             return true
@@ -177,8 +199,8 @@ object TrackDeduplicator {
     /**
      * Convenience method comparing two Track objects directly.
      */
-    fun isDuplicateTrack(a: Track, b: Track): Boolean {
-        return isDuplicateSong(getSongFingerprint(a), getSongFingerprint(b))
+    fun isDuplicateTrack(a: Track, b: Track, matchAlternateVersions: Boolean = false): Boolean {
+        return isDuplicateSong(getSongFingerprint(a), getSongFingerprint(b), matchAlternateVersions)
     }
 
     /**
@@ -186,7 +208,7 @@ object TrackDeduplicator {
      * When a duplicate is encountered, studio album audio tracks are strictly prioritized
      * over music video versions and extended video takes.
      */
-    fun deduplicateTracks(tracks: List<Track>): List<Track> {
+    fun deduplicateTracks(tracks: List<Track>, matchAlternateVersions: Boolean = false): List<Track> {
         val uniqueTracks = mutableListOf<Track>()
         val fingerprints = mutableListOf<SongFingerprint>()
 
@@ -194,7 +216,7 @@ object TrackDeduplicator {
             if (track.title.isBlank() && track.id.isBlank()) continue
 
             val fp = getSongFingerprint(track)
-            val existingIndex = fingerprints.indexOfFirst { isDuplicateSong(it, fp) }
+            val existingIndex = fingerprints.indexOfFirst { isDuplicateSong(it, fp, matchAlternateVersions) }
 
             if (existingIndex == -1) {
                 val cleanTitle = fp.cleanedTitle.ifBlank { track.title }

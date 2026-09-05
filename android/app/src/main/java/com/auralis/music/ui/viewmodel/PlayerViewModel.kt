@@ -54,11 +54,32 @@ class PlayerViewModel(
     private val sleepTimerManager = SleepTimerManager()
     private val currentPlaybackRequestId = java.util.concurrent.atomic.AtomicLong(0L)
 
-    private val _uiState = MutableStateFlow(PlayerUiState())
-    val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+    private val initialPlayerPosition: Long = audioPlayer?.let { player ->
+        val raw = player.rawPositionMs()
+        if (raw > 0L) raw else player.playbackPositionMs.value
+    } ?: 0L
 
-    private val _playbackPositionMs = MutableStateFlow(0L)
+    private val _playbackPositionMs = MutableStateFlow(initialPlayerPosition)
     val playbackPositionMs: StateFlow<Long> = _playbackPositionMs.asStateFlow()
+
+    private val _uiState = MutableStateFlow(
+        audioPlayer?.let { player ->
+            val track = player.currentTrack.value
+            val qState = player.queueState.value
+            val pos = initialPlayerPosition
+            PlayerUiState(
+                currentTrack = track,
+                isPlaying = player.isPlaying.value,
+                playbackPositionMs = pos,
+                durationMs = player.durationMs.value.takeIf { it > 0L } ?: ((track?.duration ?: 0L) * 1000L),
+                queue = qState.queue,
+                currentIndex = qState.currentIndex,
+                isShuffled = qState.isShuffled,
+                repeatMode = qState.repeatMode
+            )
+        } ?: PlayerUiState()
+    )
+    val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private val _playerSettings = MutableStateFlow(com.auralis.music.domain.model.PlayerSettings())
     val playerSettings: StateFlow<com.auralis.music.domain.model.PlayerSettings> = _playerSettings.asStateFlow()
@@ -110,6 +131,8 @@ class PlayerViewModel(
         audioPlayer?.let { player ->
             val initialTrack = player.currentTrack.value
             val initialQState = player.queueState.value
+            val currentPos = if (player.rawPositionMs() > 0L) player.rawPositionMs() else player.playbackPositionMs.value
+            _playbackPositionMs.value = currentPos
             if (initialTrack != null) {
                 _uiState.update {
                     it.copy(
@@ -119,7 +142,7 @@ class PlayerViewModel(
                         isShuffled = initialQState.isShuffled,
                         repeatMode = initialQState.repeatMode,
                         isPlaying = player.isPlaying.value,
-                        playbackPositionMs = player.playbackPositionMs.value,
+                        playbackPositionMs = currentPos,
                         durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (initialTrack.duration * 1000L)
                     )
                 }
@@ -207,10 +230,9 @@ class PlayerViewModel(
             }
 
             player.setOnGaplessTransitionCallback { nextTrack ->
-                val advanced = queueManager.advanceNext()
-                val effectiveTrack = advanced ?: nextTrack
+                val effectiveTrack = nextTrack
                 val reqId = currentPlaybackRequestId.incrementAndGet()
-                val qState = queueManager.state
+                val qState = player.queueState.value
                 _uiState.update {
                     it.copy(
                         currentTrack = effectiveTrack,
@@ -496,6 +518,7 @@ class PlayerViewModel(
     fun seekTo(positionMs: Long) {
         val clamped = positionMs.coerceIn(0, _uiState.value.durationMs.coerceAtLeast(0))
         _playbackPositionMs.value = clamped
+        _uiState.update { it.copy(playbackPositionMs = clamped) }
         if (audioPlayer != null) {
             audioPlayer.seekTo(clamped)
         }
@@ -909,6 +932,9 @@ class PlayerViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        closePlayer()
+        // Do NOT call closePlayer() here.
+        // PlayerViewModel lifecycle is bound to the Activity/UI, while AuralisAudioPlayer
+        // and AuralisMediaService are bound to the application/service lifecycle for
+        // persistent background playback. Clearing the UI must never stop or reset audio.
     }
 }

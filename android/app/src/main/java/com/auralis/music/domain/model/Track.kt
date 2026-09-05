@@ -17,6 +17,7 @@ data class Track(
     val title: String = "",
     val artist: String = "",
     val album: String? = null,
+    val albumId: String? = null,
     val duration: Long = 0L,
     val thumbnail: String = "",
     val source: TrackSource = TrackSource.YOUTUBE,

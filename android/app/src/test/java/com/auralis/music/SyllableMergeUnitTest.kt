@@ -1,0 +1,255 @@
+package com.auralis.music
+
+import com.auralis.music.data.parser.TtmlParser
+import com.auralis.music.data.parser.WordTiming
+import com.auralis.music.domain.model.LyricWord
+import com.auralis.music.domain.model.LyricsProvider
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class SyllableMergeUnitTest {
+
+    // ── 1. CONTIGUOUS SYLLABLES MERGING INTO ONE WORD ──────────────────────────
+
+    @Test
+    fun testContiguousSyllablesMergeIntoSingleWord() {
+        val input = listOf(
+            LyricWord(word = "beauti", time = 45626L, duration = 256L),
+            LyricWord(word = "ful ", time = 45882L, duration = 684L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals("Two contiguous syllables must merge into 1 word", 1, merged!!.size)
+        assertEquals("beautiful ", merged[0].word)
+        assertEquals("Start time must be first syllable start", 45626L, merged[0].time)
+        assertEquals("Duration must be exact combined interval (46566 - 45626)", 940L, merged[0].duration)
+    }
+
+    @Test
+    fun testThreeContiguousSyllablesMerge() {
+        val input = listOf(
+            LyricWord(word = "un", time = 1000L, duration = 200L),
+            LyricWord(word = "break", time = 1200L, duration = 300L),
+            LyricWord(word = "able ", time = 1500L, duration = 500L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(1, merged!!.size)
+        assertEquals("unbreakable ", merged[0].word)
+        assertEquals(1000L, merged[0].time)
+        assertEquals(1000L, merged[0].duration) // 2000 - 1000
+    }
+
+    // ── 2. WHITESPACE-SEPARATED WORDS REMAIN SEPARATE ──────────────────────────
+
+    @Test
+    fun testWhitespaceSeparatedWordsRemainSeparate() {
+        val input = listOf(
+            LyricWord(word = "I'll ", time = 18989L, duration = 245L),
+            LyricWord(word = "meet ", time = 19234L, duration = 272L),
+            LyricWord(word = "you ", time = 19506L, duration = 368L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals("Words with trailing space must remain separate", 3, merged!!.size)
+        assertEquals("I'll ", merged[0].word)
+        assertEquals(18989L, merged[0].time)
+        assertEquals(245L, merged[0].duration)
+
+        assertEquals("meet ", merged[1].word)
+        assertEquals(19234L, merged[1].time)
+        assertEquals(272L, merged[1].duration)
+
+        assertEquals("you ", merged[2].word)
+        assertEquals(19506L, merged[2].time)
+        assertEquals(368L, merged[2].duration)
+    }
+
+    // ── 3. PUNCTUATION AND HYPHEN BEHAVIOR ────────────────────────────────────
+
+    @Test
+    fun testHyphenatedSyllablesMerge() {
+        // "well-" has no trailing space, so it merges with "known "
+        val input = listOf(
+            LyricWord(word = "well-", time = 2000L, duration = 300L),
+            LyricWord(word = "known ", time = 2300L, duration = 400L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(1, merged!!.size)
+        assertEquals("well-known ", merged[0].word)
+        assertEquals(2000L, merged[0].time)
+        assertEquals(700L, merged[0].duration)
+    }
+
+    @Test
+    fun testPunctuationWithSpaceDoesNotMerge() {
+        // "now, " has a trailing space, so it must not merge with next word "I "
+        val input = listOf(
+            LyricWord(word = "now, ", time = 17405L, duration = 405L),
+            LyricWord(word = "I ", time = 17938L, duration = 275L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(2, merged!!.size)
+        assertEquals("now, ", merged[0].word)
+        assertEquals("I ", merged[1].word)
+    }
+
+    // ── 4. EXACT COMBINED START/END TIMING ─────────────────────────────────────
+
+    @Test
+    fun testExactCombinedStartAndEndTimingCalculation() {
+        val input = listOf(
+            LyricWord(word = "con", time = 5000L, duration = 150L),      // 5000 -> 5150
+            LyricWord(word = "nec", time = 5150L, duration = 250L),      // 5150 -> 5400
+            LyricWord(word = "tion ", time = 5400L, duration = 600L)     // 5400 -> 6000
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(1, merged!!.size)
+        val word = merged[0]
+        assertEquals("connection ", word.word)
+        assertEquals("Start must match first syllable start exactly", 5000L, word.time)
+        assertEquals("Duration must span from 5000L to 6000L (1000L)", 1000L, word.duration)
+    }
+
+    @Test
+    fun testContiguousSyllablesWithInterveningGapPreservesTotalInterval() {
+        // Even if there is a tiny acoustic gap between syllables, interval is [start1, end2]
+        val input = listOf(
+            LyricWord(word = "star", time = 1000L, duration = 300L),    // 1000 -> 1300
+            LyricWord(word = "light ", time = 1350L, duration = 450L)   // 1350 -> 1800 (gap 50ms)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(1, merged!!.size)
+        assertEquals("starlight ", merged[0].word)
+        assertEquals(1000L, merged[0].time)
+        assertEquals(800L, merged[0].duration) // 1800 - 1000 = 800ms
+    }
+
+    // ── 5. EXISTING BACKGROUND-VOCAL BEHAVIOR ─────────────────────────────────
+
+    @Test
+    fun testBackgroundAndLeadSyllablesDoNotMergeTogether() {
+        val input = listOf(
+            LyricWord(word = "lead", time = 1000L, duration = 500L, isBackground = false),
+            LyricWord(word = "(bg)", time = 1500L, duration = 500L, isBackground = true)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals("Lead and background words must not merge", 2, merged!!.size)
+        assertFalse(merged[0].isBackground)
+        assertTrue(merged[1].isBackground)
+    }
+
+    // ── 6. CJK PRESERVATION (CHARACTER-LEVEL TIMING KEPT UNMERGED) ────────────
+
+    @Test
+    fun testCjkCharactersRemainUnmerged() {
+        val cjkInput = listOf(
+            LyricWord(word = "我", time = 1000L, duration = 500L),
+            LyricWord(word = "爱", time = 1500L, duration = 500L),
+            LyricWord(word = "你", time = 2000L, duration = 500L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(cjkInput)
+        assertNotNull(merged)
+        assertEquals("CJK characters must not be merged; character timing preserved", 3, merged!!.size)
+        assertEquals("我", merged[0].word)
+        assertEquals("爱", merged[1].word)
+        assertEquals("你", merged[2].word)
+    }
+
+    // ── 7. REAL-WORLD TTML: RADIOHEAD - CREEP ("beautiful" 940ms) ─────────────
+
+    @Test
+    fun testRealCreepTtmlMergesBeautifulIntoSingle940msWord() {
+        val creepFile = File("c:/Users/shrey/OneDrive/Desktop/Auralis/creep_raw.ttml")
+        assertTrue("creep_raw.ttml must exist", creepFile.exists())
+
+        val lyrics = TtmlParser.parse(creepFile.readText(), LyricsProvider.BETTER_LYRICS)
+        val line = lyrics.lines.firstOrNull { it.text.contains("beautiful", ignoreCase = true) }
+        assertNotNull("Line with 'beautiful' must be found", line)
+        assertEquals("In a beautiful world", line!!.text)
+
+        val words = line.words
+        assertNotNull("Line must have word timing", words)
+        assertEquals("Must have 4 words: 'In', 'a', 'beautiful', 'world'", 4, words!!.size)
+
+        val inWord = words[0]
+        val aWord = words[1]
+        val beautifulWord = words[2]
+        val worldWord = words[3]
+
+        assertEquals("In ", inWord.word)
+        assertEquals(45146L, inWord.time)
+        assertEquals(321L, inWord.duration)
+
+        assertEquals("a ", aWord.word)
+        assertEquals(45467L, aWord.time)
+        assertEquals(159L, aWord.duration)
+
+        assertEquals("beautiful ", beautifulWord.word)
+        assertEquals("beautiful start must be 45626ms", 45626L, beautifulWord.time)
+        assertEquals("beautiful duration must be exact combined 940ms", 940L, beautifulWord.duration)
+
+        assertEquals("world", worldWord.word)
+        assertEquals(46567L, worldWord.time)
+        assertEquals(1443L, worldWord.duration)
+    }
+
+    // ── 8. REAL-WORLD TTML: RAVYN LENAE - LOVE ME NOT (SEPARATE WORDS KEPT) ───
+
+    @Test
+    fun testRealLoveMeNotTtmlKeepsSeparateWordsSeparate() {
+        val lmnFile = File("C:/Users/shrey/.gemini/antigravity-ide/brain/11fe7950-e4f6-477b-b08d-8884078404a2/scratch/love_me_not.ttml")
+        assertTrue("love_me_not.ttml must exist", lmnFile.exists())
+
+        val lyrics = TtmlParser.parse(lmnFile.readText(), LyricsProvider.BETTER_LYRICS)
+        val line = lyrics.lines.firstOrNull { it.text.contains("meet you", ignoreCase = true) }
+        assertNotNull("Line 0 of Love Me Not must be found", line)
+        assertEquals("See, right now, I need you, I'll meet you somewhere now", line!!.text)
+
+        val words = line.words
+        assertNotNull("Line must have word timing", words)
+        assertEquals("All 11 genuine words in Love Me Not must remain separate", 11, words!!.size)
+
+        val expectedWords = listOf(
+            "See, ", "right ", "now, ", "I ", "need ", "you, ",
+            "I'll ", "meet ", "you ", "somewhere ", "now"
+        )
+        for (i in expectedWords.indices) {
+            assertEquals("Word $i text mismatch", expectedWords[i], words[i].word)
+        }
+
+        // Verify exact timings of Phrase 2 words are untouched
+        val ill = words[6]
+        assertEquals("I'll ", ill.word)
+        assertEquals(18989L, ill.time)
+        assertEquals(245L, ill.duration)
+
+        val meet = words[7]
+        assertEquals("meet ", meet.word)
+        assertEquals(19234L, meet.time)
+        assertEquals(272L, meet.duration)
+
+        val you = words[8]
+        assertEquals("you ", you.word)
+        assertEquals(19506L, you.time)
+        assertEquals(368L, you.duration)
+    }
+}

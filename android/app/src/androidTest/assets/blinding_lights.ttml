@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+  <head>
+    <metadata>
+      <ttm:title>Blinding Lights</ttm:title>
+      <ttm:agent type="person">The Weeknd</ttm:agent>
+    </metadata>
+  </head>
+  <body>
+    <div>
+      <p begin="00:00:26.500" end="00:00:30.200">
+        <span begin="00:00:26.500" end="00:00:27.100">Yeah </span>
+      </p>
+      <p begin="00:00:31.000" end="00:00:35.800">
+        <span begin="00:00:31.000" end="00:00:31.350">I've </span>
+        <span begin="00:00:31.350" end="00:00:31.650">been </span>
+        <span begin="00:00:31.650" end="00:00:32.100">on </span>
+        <span begin="00:00:32.100" end="00:00:32.400">my </span>
+        <span begin="00:00:32.400" end="00:00:33.200">own </span>
+        <span begin="00:00:33.200" end="00:00:33.600">for </span>
+        <span begin="00:00:33.600" end="00:00:34.000">long </span>
+        <span begin="00:00:34.000" end="00:00:35.200">enough </span>
+      </p>
+      <p begin="00:00:36.000" end="00:00:41.000">
+        <span begin="00:00:36.000" end="00:00:36.350">Maybe </span>
+        <span begin="00:00:36.350" end="00:00:36.700">you </span>
+        <span begin="00:00:36.700" end="00:00:37.050">can </span>
+        <span begin="00:00:37.050" end="00:00:37.500">show </span>
+        <span begin="00:00:37.500" end="00:00:37.850">me </span>
+        <span begin="00:00:37.850" end="00:00:38.300">how </span>
+        <span begin="00:00:38.300" end="00:00:38.700">to </span>
+        <span begin="00:00:38.700" end="00:00:39.800">love, </span>
+        <span begin="00:00:39.800" end="00:00:40.800">maybe </span>
+      </p>
+    </div>
+  </body>
+</tt>
