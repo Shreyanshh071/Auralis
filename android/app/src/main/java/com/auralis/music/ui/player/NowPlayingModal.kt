@@ -243,6 +243,15 @@ fun NowPlayingModal(
         initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    var userSwiped by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isDragged) {
+        if (isDragged) {
+            userSwiped = true
+        }
+    }
+
     // 1. Programmatically animate pager when the active track changes externally
     LaunchedEffect(currentTrackIndex) {
         if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
@@ -255,12 +264,13 @@ fun NowPlayingModal(
         }
     }
 
-    // 2. Reliably trigger track change when user swipes the carousel to a new page
+    // 2. Reliably trigger track change ONLY when user physically swipes the carousel to a new page
     LaunchedEffect(pagerState, queue) {
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { settledPage ->
-                if (settledPage != currentTrackIndex && queue.isNotEmpty()) {
+                if (userSwiped && settledPage != currentTrackIndex && queue.isNotEmpty()) {
+                    userSwiped = false
                     if (settledPage in queue.indices) {
                         onSelectQueueTrack(settledPage)
                     }
@@ -724,7 +734,8 @@ fun NowPlayingModal(
                             offsetMs = uiState.lyricsOffsetMs,
                             onOffsetChange = onLyricsOffsetChange,
                             onSearchManually = { showManualLyricsSearch = true },
-                            track = uiState.currentTrack
+                            track = uiState.currentTrack,
+                            lyricsClockSource = lyricsClockSource
                         )
                     }
                 }

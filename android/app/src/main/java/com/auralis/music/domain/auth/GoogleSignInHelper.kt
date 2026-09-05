@@ -2,6 +2,7 @@ package com.auralis.music.domain.auth
 
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -10,6 +11,7 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import com.auralis.music.BuildConfig
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,9 +31,31 @@ class GoogleSignInHelper(
 
     /**
      * Authenticates with Google Credential Manager (ID Token).
-     * Requires an Activity context to display the system account selector bottom sheet.
+     * Uses GetSignInWithGoogleOption for explicit button clicks (showing full system account chooser)
+     * with graceful fallback to GetGoogleIdOption if needed.
      */
     suspend fun signIn(activity: Activity): GoogleUserAccount? = withContext(Dispatchers.IO) {
+        // 1. Primary: GetSignInWithGoogleOption (Official Google API for explicit "Sign in with Google" button click)
+        try {
+            val signInOption = GetSignInWithGoogleOption.Builder(webClientId)
+                .build()
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(signInOption)
+                .build()
+
+            val account = executeCredentialRequest(activity, request)
+            if (account != null) {
+                return@withContext account
+            }
+        } catch (e: GetCredentialCancellationException) {
+            // User explicitly dismissed or cancelled the Google Account picker dialog
+            Log.d("GoogleSignInHelper", "User cancelled Google Sign-In account chooser")
+            return@withContext null
+        } catch (e: Exception) {
+            Log.w("GoogleSignInHelper", "GetSignInWithGoogleOption failed, attempting fallback to GetGoogleIdOption: ${e.message}")
+        }
+
+        // 2. Fallback: GetGoogleIdOption (for devices/accounts configured via Google ID option)
         try {
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
@@ -43,31 +67,36 @@ class GoogleSignInHelper(
                 .addCredentialOption(googleIdOption)
                 .build()
 
-            val response: GetCredentialResponse = credentialManager.getCredential(
-                context = activity,
-                request = request
-            )
-
-            val credential = response.credential
-            if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data)
-                return@withContext GoogleUserAccount(
-                    email = googleIdToken.id,
-                    displayName = googleIdToken.displayName ?: googleIdToken.givenName ?: "Google User",
-                    avatarUrl = googleIdToken.profilePictureUri?.toString(),
-                    idToken = googleIdToken.idToken
-                )
-            }
-            null
+            return@withContext executeCredentialRequest(activity, request)
         } catch (e: GetCredentialCancellationException) {
-            // User dismissed or cancelled the Google Account picker dialog
-            null
+            Log.d("GoogleSignInHelper", "User cancelled fallback Google Sign-In dialog")
+            return@withContext null
         } catch (e: GetCredentialException) {
-            // Surface real Credential Manager error (e.g. Developer Error / SHA-1 / configuration)
+            Log.e("GoogleSignInHelper", "Google Sign-In Credential Manager error: ${e.message}", e)
             throw RuntimeException(e.localizedMessage ?: "Google Sign-In failed (${e::class.simpleName})", e)
         } catch (e: Exception) {
+            Log.e("GoogleSignInHelper", "Google Sign-In unexpected error: ${e.message}", e)
             throw e
         }
+    }
+
+    private suspend fun executeCredentialRequest(activity: Activity, request: GetCredentialRequest): GoogleUserAccount? {
+        val response: GetCredentialResponse = credentialManager.getCredential(
+            context = activity,
+            request = request
+        )
+
+        val credential = response.credential
+        if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+            val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data)
+            return GoogleUserAccount(
+                email = googleIdToken.id,
+                displayName = googleIdToken.displayName ?: googleIdToken.givenName ?: "Google User",
+                avatarUrl = googleIdToken.profilePictureUri?.toString(),
+                idToken = googleIdToken.idToken
+            )
+        }
+        return null
     }
 }
 

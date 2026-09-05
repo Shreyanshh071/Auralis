@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.LyricLine
+import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsMode
 import com.auralis.music.domain.model.SyncType
@@ -482,6 +483,7 @@ fun SyncedLyricsView(
                     ) {
                         LyricLineRow(
                             line = line,
+                            nextLineTime = effectiveLines.getOrNull(index + 1)?.time,
                             isCurrent = isCurrent,
                             isPast = isPast,
                             lyricsMode = lyricsMode,
@@ -556,17 +558,6 @@ fun SyncedLyricsView(
                 }
             }
         }
-
-        // ── DIAGNOSTIC TIMING HUD & CONTINUOUS LOGGER (Requirements 2 & 3) ──
-        LyricsTimingDebugOverlay(
-            lyrics = lyrics,
-            positionState = positionState,
-            lyricsClockSource = lyricsClockSource,
-            effectiveLines = effectiveLines,
-            activeIndexState = activeIndexState,
-            offsetMs = offsetMs,
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
     }
 
     if (showShareSheet && track != null) {
@@ -578,172 +569,6 @@ fun SyncedLyricsView(
                 selectedIndices = emptySet()
             }
         )
-    }
-}
-
-/**
- * Diagnostic On-Screen HUD & Continuous Logger.
- * Strictly diagnostic: displays real-time AUDIO (ExoPlayer currentPosition), CLOCK (LyricsClock carried position),
- * active LINE, active WORD, and WORD RANGE on screen, and continuously logs every 100ms or on word change to Logcat.
- */
-@Composable
-private fun LyricsTimingDebugOverlay(
-    lyrics: LyricsData?,
-    positionState: State<Long>,
-    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource?,
-    effectiveLines: List<LyricLine>,
-    activeIndexState: State<Int>,
-    offsetMs: Long,
-    modifier: Modifier = Modifier
-) {
-    var rawAudioMs by remember { mutableLongStateOf(0L) }
-    var clockMs by remember { mutableLongStateOf(0L) }
-    var activeWordText by remember { mutableStateOf("—") }
-    var activeWordRange by remember { mutableStateOf("—") }
-    var activeWordProgress by remember { mutableFloatStateOf(0f) }
-    var activeLineText by remember { mutableStateOf("") }
-
-    var lastLoggedWordIdx by remember { mutableIntStateOf(-1) }
-    var lastLoggedLineIdx by remember { mutableIntStateOf(-1) }
-    var lastPeriodicLogTime by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(lyrics, activeIndexState.value) {
-        while (true) {
-            val raw = lyricsClockSource?.rawPositionMs() ?: -1L
-            val clock = positionState.value
-            val lineIdx = activeIndexState.value
-            val line = effectiveLines.getOrNull(lineIdx)
-            val currentLineText = line?.text ?: ""
-            activeLineText = currentLineText
-
-            rawAudioMs = raw
-            clockMs = clock
-
-            var currentWordIdx = -1
-            var wText = "—"
-            var wRange = "—"
-            var prog = 0f
-
-            if (line != null && !line.words.isNullOrEmpty()) {
-                val words = line.words
-                var found = false
-                for (i in words.indices) {
-                    val w = words[i]
-                    val p = LyricsEngine.calculateWordProgress(w, clock, offsetMs)
-                    val wEnd = w.endTime ?: (w.time + (w.duration ?: 0L))
-                    if ((clock in w.time until wEnd) || (p > 0f && p < 1f)) {
-                        currentWordIdx = i
-                        wText = w.word.trim()
-                        wRange = "${w.time}–${wEnd}ms"
-                        prog = p
-                        found = true
-                        break
-                    }
-                }
-                if (!found) {
-                    val nextIdx = words.indexOfFirst { it.time > clock }
-                    if (nextIdx > 0) {
-                        val prevW = words[nextIdx - 1]
-                        val prevEnd = prevW.endTime ?: (prevW.time + (prevW.duration ?: 0L))
-                        currentWordIdx = nextIdx - 1
-                        wText = prevW.word.trim()
-                        wRange = "${prevW.time}–${prevEnd}ms"
-                        prog = 1.0f
-                    } else if (nextIdx == 0) {
-                        val firstW = words[0]
-                        val firstEnd = firstW.endTime ?: (firstW.time + (firstW.duration ?: 0L))
-                        currentWordIdx = 0
-                        wText = firstW.word.trim()
-                        wRange = "${firstW.time}–${firstEnd}ms"
-                        prog = 0.0f
-                    } else {
-                        val lastW = words.last()
-                        val lastEnd = lastW.endTime ?: (lastW.time + (lastW.duration ?: 0L))
-                        currentWordIdx = words.lastIndex
-                        wText = lastW.word.trim()
-                        wRange = "${lastW.time}–${lastEnd}ms"
-                        prog = 1.0f
-                    }
-                }
-            }
-
-            activeWordText = wText
-            activeWordRange = wRange
-            activeWordProgress = prog
-
-            val now = System.currentTimeMillis()
-            val wordChanged = currentWordIdx != lastLoggedWordIdx || lineIdx != lastLoggedLineIdx
-            if (line != null && wordChanged && currentWordIdx >= 0) {
-                val w = line.words?.getOrNull(currentWordIdx)
-                if (w != null) {
-                    val wEnd = w.endTime ?: (w.time + (w.duration ?: 0L))
-                    android.util.Log.i(
-                        "LYRICS_DIAG",
-                        "[ACTIVATION] word=\"${w.word.trim()}\" | providerStart=${w.time}ms | providerEnd=${wEnd}ms | exoPos=${raw}ms | clockPos=${clock}ms"
-                    )
-                }
-            }
-
-            if (line != null && (wordChanged || (now - lastPeriodicLogTime >= 100))) {
-                lastPeriodicLogTime = now
-                lastLoggedWordIdx = currentWordIdx
-                lastLoggedLineIdx = lineIdx
-                val w = line.words?.getOrNull(currentWordIdx)
-                val wStart = w?.time ?: -1L
-                val wEnd = w?.endTime ?: (w?.time?.plus(w.duration ?: 0L) ?: -1L)
-                android.util.Log.d(
-                    "LYRICS_DIAG",
-                    "[CONTINUOUS] audio=${raw}ms | clock=${clock}ms | lineIdx=$lineIdx (\"${line.text}\") | wordIdx=$currentWordIdx (\"$wText\") | start=${wStart}ms | end=${wEnd}ms | progress=${String.format(java.util.Locale.US, "%.3f", prog)}"
-                )
-            }
-
-            kotlinx.coroutines.delay(16)
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .padding(top = 10.dp, start = 12.dp, end = 12.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color.Black.copy(alpha = 0.88f))
-            .border(1.5.dp, Color(0xFF00E5FF), RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-    ) {
-        Column {
-            Text(
-                text = "AUDIO: %,dms".format(java.util.Locale.US, rawAudioMs),
-                color = Color(0xFF00E5FF),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-            )
-            Text(
-                text = "CLOCK: %,dms".format(java.util.Locale.US, clockMs),
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-            )
-            Text(
-                text = "LINE: \"$activeLineText\"",
-                color = Color(0xFFFFEB3B),
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "WORD: \"$activeWordText\"",
-                color = Color(0xFFFF9100),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Text(
-                text = "WORD RANGE: $activeWordRange (prog: ${String.format(java.util.Locale.US, "%.2f", activeWordProgress)})",
-                color = Color(0xFF76FF03),
-                fontSize = 12.sp,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-            )
-        }
     }
 }
 
@@ -893,6 +718,7 @@ private fun buildWordLayouts(
 @Composable
 private fun LyricLineRow(
     line: LyricLine,
+    nextLineTime: Long? = null,
     isCurrent: Boolean,
     isPast: Boolean,
     lyricsMode: LyricsMode,
@@ -904,7 +730,38 @@ private fun LyricLineRow(
     rowMaxWidthPx: Int
 ) {
     val isPlain = syncType == SyncType.PLAIN
-    val hasWordTiming = line.hasWordTiming
+
+    // Metrolist-identical word flow:
+    // If genuine per-word timing exists from TTML/BetterLyrics/Binimum, use it directly.
+    // If the track is synced but only has line timestamps (.lrc from LRCLIB/KuGou),
+    // synthesize smooth word pacing across the singing interval so every synced song
+    // flows word-by-word with luxurious karaoke animation instead of sitting as a flat, static line.
+    val effectiveWords = remember(line, nextLineTime, isPlain) {
+        if (!line.words.isNullOrEmpty()) {
+            line.words
+        } else if (!isPlain && line.text.isNotBlank() && line.time > 0L) {
+            val tokens = line.text.split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (tokens.isNotEmpty()) {
+                val lineDur = if (nextLineTime != null && nextLineTime > line.time) {
+                    (nextLineTime - line.time).coerceIn(1000L, 6500L)
+                } else {
+                    (tokens.size * 320L).coerceIn(1200L, 3500L)
+                }
+                val singDur = (lineDur * 0.78f).toLong().coerceAtLeast(600L)
+                val stepMs = singDur / tokens.size.coerceAtLeast(1)
+                val wordDur = (stepMs * 1.25f).toLong().coerceIn(180L, 800L)
+                tokens.mapIndexed { idx, token ->
+                    LyricWord(
+                        word = if (idx < tokens.size - 1) "$token " else token,
+                        time = line.time + (idx * stepMs),
+                        duration = wordDur
+                    )
+                }
+            } else null
+        } else null
+    }
+
+    val hasWordTiming = !effectiveWords.isNullOrEmpty()
 
     val targetAlpha = when {
         isPlain -> 0.95f
@@ -940,8 +797,8 @@ private fun LyricLineRow(
     }
 
     // Precompute character mapping for words when line changes
-    val wordRanges = remember(line) {
-        if (hasWordTiming) LyricsEngine.mapWordsToLineSpans(line.text, line.words)
+    val wordRanges = remember(line, effectiveWords) {
+        if (hasWordTiming) LyricsEngine.mapWordsToLineSpans(line.text, effectiveWords)
         else emptyList()
     }
 
@@ -1101,7 +958,8 @@ private fun LyricLineRow(
                                         }
 
                                         // Feathered leading-edge horizontal gradient mask matching reference players (Echo/NomaTune)
-                                        val edgeWidth = (14.dp.toPx()).coerceAtMost(bounds.width * 0.45f).coerceAtLeast(6f)
+                                        // A/B experiment: tighter leading edge (6dp vs previous 14dp) to reduce perceived sync delay
+                                        val edgeWidth = (6.dp.toPx()).coerceAtMost(bounds.width * 0.45f).coerceAtLeast(4f)
                                         val maskBrush = if (activeItem.isRtl) {
                                             val center = bounds.right - (bounds.width + edgeWidth * 2) * progress + edgeWidth
                                             Brush.horizontalGradient(

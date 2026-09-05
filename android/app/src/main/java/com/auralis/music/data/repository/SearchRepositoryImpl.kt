@@ -284,85 +284,88 @@ class SearchRepositoryImpl(
                 resolvedTopResult is SearchTopResult.SongResult -> {
                     val track = resolvedTopResult.track
                     val targetArtist = primaryArtist?.name ?: track.artist
-                    val albumTitle = track.album?.takeIf { it.isNotBlank() && !it.equals("Single", ignoreCase = true) && !it.equals("Unknown Album", ignoreCase = true) }
-                        ?: finalMatchedSongs.firstOrNull {
+
+                    // 1. If the song already has a verified albumId from YouTube Music, use it directly!
+                    if (!track.albumId.isNullOrBlank() && !track.album.isNullOrBlank() &&
+                        !track.album.equals("Single", ignoreCase = true) &&
+                        !track.album.equals("Unknown Album", ignoreCase = true)) {
+                        PlaylistResult(
+                            id = track.albumId,
+                            title = track.album,
+                            thumbnail = track.thumbnail.ifBlank { null },
+                            author = targetArtist
+                        )
+                    } else if (!track.albumId.isNullOrBlank() && track.album.isNullOrBlank()) {
+                        PlaylistResult(
+                            id = track.albumId,
+                            title = track.title,
+                            thumbnail = track.thumbnail.ifBlank { null },
+                            author = targetArtist
+                        )
+                    } else {
+                        val albumTitle = track.album?.takeIf {
+                            it.isNotBlank() && !it.equals("Single", ignoreCase = true) && !it.equals("Unknown Album", ignoreCase = true)
+                        } ?: finalMatchedSongs.firstOrNull {
                             (it.id == track.id || it.title.equals(track.title, ignoreCase = true)) &&
                             !it.album.isNullOrBlank() &&
                             !it.album.equals("Single", ignoreCase = true) &&
                             !it.album.equals("Unknown Album", ignoreCase = true)
                         }?.album
 
-                    if (!albumTitle.isNullOrBlank()) {
-                        // 1. Check if the album is already present in rankedAlbums
-                        var found = rankedAlbums.find { album ->
-                            val auth = album.author ?: ""
-                            val matchesArtist = auth.isNotBlank() && (
-                                auth.contains(targetArtist, ignoreCase = true) ||
-                                targetArtist.contains(auth, ignoreCase = true)
-                            )
-                            val matchesTitle = album.title.equals(albumTitle, ignoreCase = true) ||
-                                               album.title.contains(albumTitle, ignoreCase = true) ||
-                                               albumTitle.contains(album.title, ignoreCase = true)
-                            matchesArtist && matchesTitle
-                        }
+                        if (!albumTitle.isNullOrBlank()) {
+                            // Check if the album is already present in rankedAlbums with STRICT author match
+                            var found = rankedAlbums.find { album ->
+                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) && (
+                                    album.title.equals(albumTitle, ignoreCase = true) ||
+                                    album.title.contains(albumTitle, ignoreCase = true) ||
+                                    albumTitle.contains(album.title, ignoreCase = true)
+                                )
+                            }
 
-                        // 2. If not found in original query results, fetch specifically by album title & artist from YouTube Music
-                        if (found == null) {
-                            try {
-                                val albumSearch = innerTubeClient.search("$albumTitle $targetArtist", InnerTubeClient.FILTER_ALBUMS).albums
-                                found = albumSearch.find { album ->
-                                    val auth = album.author ?: ""
-                                    val matchesArtist = auth.isBlank() || auth.contains(targetArtist, ignoreCase = true) || targetArtist.contains(auth, ignoreCase = true)
-                                    val matchesTitle = album.title.equals(albumTitle, ignoreCase = true) ||
-                                                       album.title.contains(albumTitle, ignoreCase = true) ||
-                                                       albumTitle.contains(album.title, ignoreCase = true)
-                                    matchesArtist && matchesTitle
-                                } ?: albumSearch.firstOrNull()
-                            } catch (_: Exception) { null }
+                            // If not found in original query results, fetch specifically by album title & artist from YouTube Music
+                            if (found == null) {
+                                try {
+                                    val albumSearch = innerTubeClient.search("$albumTitle $targetArtist", InnerTubeClient.FILTER_ALBUMS).albums
+                                    found = albumSearch.find { album ->
+                                        com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) && (
+                                            album.title.equals(albumTitle, ignoreCase = true) ||
+                                            album.title.contains(albumTitle, ignoreCase = true) ||
+                                            albumTitle.contains(album.title, ignoreCase = true)
+                                        )
+                                    }
+                                } catch (_: Exception) { null }
+                            }
+                            found
+                        } else {
+                            // Song has no album tag; search for an album strictly by this artist
+                            var found = rankedAlbums.find { album ->
+                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) && (
+                                    album.title.contains(track.title, ignoreCase = true) || track.title.contains(album.title, ignoreCase = true)
+                                )
+                            }
+                            if (found == null && targetArtist.isNotBlank() && !targetArtist.equals("Unknown Artist", ignoreCase = true)) {
+                                try {
+                                    val artistAlbums = innerTubeClient.search(targetArtist, InnerTubeClient.FILTER_ALBUMS).albums
+                                    found = artistAlbums.find { album ->
+                                        com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist)
+                                    }
+                                } catch (_: Exception) { null }
+                            }
+                            found
                         }
-                        found
-                    } else {
-                        // Song has no album tag; search for an album by this artist
-                        var found = rankedAlbums.find { album ->
-                            val auth = album.author ?: ""
-                            val matchesArtist = auth.isNotBlank() && (
-                                auth.contains(targetArtist, ignoreCase = true) ||
-                                targetArtist.contains(auth, ignoreCase = true)
-                            )
-                            val matchesSongTitle = album.title.contains(track.title, ignoreCase = true) || track.title.contains(album.title, ignoreCase = true)
-                            matchesArtist && matchesSongTitle
-                        }
-                        if (found == null && targetArtist.isNotBlank() && !targetArtist.equals("Unknown Artist", ignoreCase = true)) {
-                            try {
-                                val artistAlbums = innerTubeClient.search(targetArtist, InnerTubeClient.FILTER_ALBUMS).albums
-                                found = artistAlbums.find { album ->
-                                    val auth = album.author ?: ""
-                                    auth.isBlank() || auth.contains(targetArtist, ignoreCase = true) || targetArtist.contains(auth, ignoreCase = true)
-                                } ?: artistAlbums.firstOrNull()
-                            } catch (_: Exception) { null }
-                        }
-                        found
                     }
                 }
-                exactAlbumMatch != null && primaryArtist != null && (
-                    exactAlbumMatch.author?.contains(primaryArtist.name, ignoreCase = true) == true ||
-                    primaryArtist.name.contains(exactAlbumMatch.author ?: "", ignoreCase = true)
-                ) -> exactAlbumMatch
+                exactAlbumMatch != null && primaryArtist != null && com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(exactAlbumMatch.author, primaryArtist.name) -> exactAlbumMatch
                 primaryArtist != null -> {
                     var found = rankedAlbums.find { album ->
-                        val auth = album.author ?: ""
-                        auth.isNotBlank() && (
-                            auth.contains(primaryArtist.name, ignoreCase = true) ||
-                            primaryArtist.name.contains(auth, ignoreCase = true)
-                        )
+                        com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
                     }
                     if (found == null && !primaryArtist.name.equals("Unknown Artist", ignoreCase = true)) {
                         try {
                             val artistAlbums = innerTubeClient.search(primaryArtist.name, InnerTubeClient.FILTER_ALBUMS).albums
                             found = artistAlbums.firstOrNull { album ->
-                                val auth = album.author ?: ""
-                                auth.isBlank() || auth.contains(primaryArtist.name, ignoreCase = true) || primaryArtist.name.contains(auth, ignoreCase = true)
-                            } ?: artistAlbums.firstOrNull()
+                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
+                            }
                         } catch (_: Exception) { null }
                     }
                     found

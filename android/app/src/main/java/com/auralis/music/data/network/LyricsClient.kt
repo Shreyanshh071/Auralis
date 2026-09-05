@@ -81,20 +81,46 @@ class LyricsClient(
         }
 
         /**
-         * Lexicographic `(tier, score)` comparison. Tier is compared first and
-         * absolutely: a word-synced candidate scoring 60 outranks a line-synced
-         * one scoring 150, which is exactly the case the old flat score got wrong.
+         * Alignment-aware lexicographic `(tier, score)` comparison.
+         *
+         * Requirements:
+         * - A candidate with [com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH]
+         *   must NOT beat an aligned candidate (even if the candidate has word-level sync and the
+         *   aligned one has line-level sync).
+         * - Between two aligned candidates (or between two candidates with identical alignment status),
+         *   genuine word timing outranks line timing outranks nothing.
          */
-        internal fun outranks(tier: Int, score: Double, bestTier: Int, bestScore: Double): Boolean =
-            tier > bestTier || (tier == bestTier && score > bestScore)
+        internal fun outranks(
+            tier: Int,
+            score: Double,
+            bestTier: Int,
+            bestScore: Double,
+            masterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH,
+            bestMasterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH
+        ): Boolean {
+            val isAligned = masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
+            val bestIsAligned = bestMasterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
+
+            return when {
+                isAligned && !bestIsAligned -> true
+                !isAligned && bestIsAligned -> false
+                else -> tier > bestTier || (tier == bestTier && score > bestScore)
+            }
+        }
 
         /**
          * Whether a candidate is good enough to cancel the remaining providers.
-         * Gated on the word tier so a strong line-synced result can never settle
-         * the race before a word source has had its chance to answer.
+         * Gated on:
+         * 1. Word tier.
+         * 2. High quality score (>= INSTANT_WIN_SCORE).
+         * 3. Verified audio master alignment (must REJECT MasterMatchStatus.MASTER_MISMATCH).
          */
-        internal fun isInstantWinner(tier: Int, score: Double): Boolean =
-            tier == TIER_WORD && score >= INSTANT_WIN_SCORE
+        internal fun isInstantWinner(
+            tier: Int,
+            score: Double,
+            masterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH
+        ): Boolean =
+            tier == TIER_WORD && score >= INSTANT_WIN_SCORE && masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
     }
 
     /**
@@ -174,6 +200,7 @@ class LyricsClient(
             var bestCandidate: LyricsCandidate? = null
             var bestTier = TIER_NONE
             var bestScore = 0.0
+            var bestMasterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             var completedCount = 0
             var graceDeadlineMs = Long.MAX_VALUE
 
@@ -209,24 +236,24 @@ class LyricsClient(
                         lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
                     )
 
+                    val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(correctedCand.lyricsData, durationSec)
                     val score = calculateQualityScore(correctedCand, durationSec)
-                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] tier=$tier, score=$score, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
+                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] tier=$tier, masterMatch=$masterMatch, score=$score, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
                     if (score < 0) continue
 
-                    // Lexicographic (tier, score): a word-synced candidate scoring
-                    // 60 beats a line-synced one scoring 150. Completeness bonuses
-                    // can no longer buy a worse timing format the win.
-                    if (outranks(tier, score, bestTier, bestScore)) {
+                    // Alignment-aware comparison: matching line sync beats mismatched word sync
+                    if (bestCandidate == null || outranks(tier, score, bestTier, bestScore, masterMatch, bestMasterMatch)) {
                         bestTier = tier
                         bestScore = score
+                        bestMasterMatch = masterMatch
                         bestCandidate = correctedCand
                         if (graceDeadlineMs == Long.MAX_VALUE) {
                             graceDeadlineMs = System.currentTimeMillis() + WORD_SYNC_GRACE_MS
                         }
                     }
 
-                    if (isInstantWinner(tier, score)) {
-                        Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} tier=$tier in ${System.currentTimeMillis() - t0}ms (Score: $score)")
+                    if (isInstantWinner(tier, score, masterMatch)) {
+                        Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} tier=$tier masterMatch=$masterMatch in ${System.currentTimeMillis() - t0}ms (Score: $score)")
                         providerJobs.forEach { it.cancel() }
                         return@coroutineScope correctedCand.lyricsData
                     }
@@ -234,7 +261,7 @@ class LyricsClient(
             }
             providerJobs.forEach { it.cancel() }
             bestCandidate?.let {
-                Log.d(TAG, "[RACE SETTLED] ${it.provider} tier=$bestTier score=$bestScore in ${System.currentTimeMillis() - t0}ms")
+                Log.d(TAG, "[RACE SETTLED] ${it.provider} tier=$bestTier masterMatch=$bestMasterMatch score=$bestScore in ${System.currentTimeMillis() - t0}ms")
             }
             bestCandidate?.lyricsData
         }
@@ -319,6 +346,14 @@ class LyricsClient(
             score += 10.0
         } else if (cand.provider == LyricsProvider.MUSIXMATCH && firstLineTime > 350L) {
             score += 8.0
+        }
+
+        // 6. Master Alignment evaluation against playback duration
+        val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(cand.lyricsData, queryDurationSec)
+        if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH) {
+            score -= 50.0
+        } else if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH && (queryDurationSec ?: 0L) > 0L) {
+            score += 10.0
         }
 
         return score

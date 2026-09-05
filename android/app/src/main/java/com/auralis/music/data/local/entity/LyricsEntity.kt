@@ -24,5 +24,7 @@ data class LyricsEntity(
      * written by an older pipeline are purged once on first launch after an
      * upgrade, instead of the whole table being wiped on every process start.
      */
-    val pipelineVersion: Int = 0
+    val pipelineVersion: Int = 0,
+    val durationMs: Long? = null,
+    val leadingSilenceMs: Long? = null
 )

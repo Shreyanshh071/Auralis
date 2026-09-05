@@ -127,6 +127,13 @@ open class InnerTubeClient(
      * - Maximum 1-2 songs from any other artist
      * - Shuffles and interleaves artists so no two consecutive songs are by the same artist
      */
+    private fun extractFirstSignificantWord(title: String): String {
+        val clean = title.lowercase().replace(Regex("""[^a-z0-9\s]"""), " ")
+        val words = clean.split(Regex("""\s+""")).filter { it.isNotBlank() }
+        val stopWords = setOf("the", "a", "an", "in", "on", "at", "to", "for", "of", "and", "is", "it", "with")
+        return words.firstOrNull { it !in stopWords } ?: ""
+    }
+
     fun curateDiverseGenreQueue(
         candidates: List<Track>,
         seedVideoId: String,
@@ -136,6 +143,7 @@ open class InnerTubeClient(
         if (candidates.isEmpty()) return emptyList()
 
         val seedBaseTitle = if (!seedTitle.isNullOrBlank()) TrackDeduplicator.extractBaseSongTitle(seedTitle) else ""
+        val seedFirstWord = if (!seedTitle.isNullOrBlank()) extractFirstSignificantWord(seedTitle) else ""
 
         // 1. Filter out seed track itself, invalid artist names, and all remixes/versions/edits of the seed track
         val validCandidates = candidates.filter { track ->
@@ -154,12 +162,19 @@ open class InnerTubeClient(
                     return@filter false
                 }
             }
+            // Filter out songs sharing the exact same first significant word as the seed track (e.g. "Middle of the Ocean" vs "Middle of the Night")
+            if (seedFirstWord.length >= 4) {
+                val candidateFirstWord = extractFirstSignificantWord(track.title)
+                if (candidateFirstWord.isNotBlank() && candidateFirstWord == seedFirstWord) {
+                    return@filter false
+                }
+            }
             true
         }
 
         // 2. Comprehensive Deduplication: Ensure only ONE version of ANY song title exists in the queue,
         // prioritizing authentic studio audio tracks over music video uploads.
-        val deduplicated = TrackDeduplicator.deduplicateTracks(validCandidates)
+        val deduplicated = TrackDeduplicator.deduplicateTracks(validCandidates, matchAlternateVersions = true)
 
         val cleanSeedArtist = seedArtist?.split("&", ",", "feat.", "ft.", "Feat.", "Ft.", "with")
             ?.firstOrNull()?.trim()?.lowercase() ?: seedArtist?.trim()?.lowercase() ?: ""
@@ -186,24 +201,76 @@ open class InnerTubeClient(
             }
         }
 
-        // 5. Interleave & Shuffle Artists (Round-Robin with non-repeating artist constraints)
+        // 5. Interleave & Shuffle Artists (Round-Robin with non-repeating artist & non-repeating first-word constraints)
         val result = mutableListOf<Track>()
+        val seenBaseTitles = mutableSetOf<String>()
+        val seenFirstWords = mutableSetOf<String>()
+        if (seedBaseTitle.isNotBlank()) {
+            seenBaseTitles.add(seedBaseTitle)
+        }
+        if (seedFirstWord.isNotBlank()) {
+            seenFirstWords.add(seedFirstWord)
+        }
         val activeQueues = cappedArtistQueues.shuffled().toMutableList()
         var lastArtist = ""
 
         while (activeQueues.isNotEmpty() && result.size < 35) {
-            // Find a queue whose next track is not by the last artist
+            // Find a queue whose next track is:
+            // 1. Not by the last artist
+            // 2. Unseen base title
+            // 3. Unseen first significant word (so no two songs start with the same word)
             val nextQueueIndex = activeQueues.indexOfFirst { queue ->
                 val nextTrack = queue.firstOrNull() ?: return@indexOfFirst false
+                val base = TrackDeduplicator.extractBaseSongTitle(nextTrack.title)
+                if (base.isNotBlank() && base in seenBaseTitles) {
+                    return@indexOfFirst false
+                }
+                val firstWord = extractFirstSignificantWord(nextTrack.title)
+                if (firstWord.length >= 3 && firstWord in seenFirstWords) {
+                    return@indexOfFirst false
+                }
                 val nextArtist = nextTrack.artist.lowercase()
                 lastArtist.isBlank() || (nextArtist != lastArtist && !nextArtist.contains(lastArtist) && !lastArtist.contains(nextArtist))
             }
 
-            val chosenIndex = if (nextQueueIndex != -1) nextQueueIndex else 0
+            val chosenIndex = if (nextQueueIndex != -1) {
+                nextQueueIndex
+            } else {
+                // Secondary fallback: relaxing strict artist alternation but still enforcing unique first word & unseen title
+                activeQueues.indexOfFirst { queue ->
+                    val nextTrack = queue.firstOrNull() ?: return@indexOfFirst false
+                    val base = TrackDeduplicator.extractBaseSongTitle(nextTrack.title)
+                    if (base.isNotBlank() && base in seenBaseTitles) return@indexOfFirst false
+                    val firstWord = extractFirstSignificantWord(nextTrack.title)
+                    firstWord.length < 3 || firstWord !in seenFirstWords
+                }.let { idx ->
+                    if (idx != -1) idx else {
+                        // Ultimate fallback: any queue with an unseen base title
+                        activeQueues.indexOfFirst { queue ->
+                            val nextTrack = queue.firstOrNull() ?: return@indexOfFirst false
+                            val base = TrackDeduplicator.extractBaseSongTitle(nextTrack.title)
+                            base.isBlank() || base !in seenBaseTitles
+                        }
+                    }
+                }
+            }
+
+            if (chosenIndex == -1) {
+                // All remaining candidate tracks across all queues are duplicates
+                break
+            }
+
             val chosenQueue = activeQueues[chosenIndex]
             val track = chosenQueue.removeAt(0)
-            result.add(track)
-            lastArtist = track.artist.lowercase()
+            val base = TrackDeduplicator.extractBaseSongTitle(track.title)
+            val firstWord = extractFirstSignificantWord(track.title)
+
+            if (base.isBlank() || base !in seenBaseTitles) {
+                if (base.isNotBlank()) seenBaseTitles.add(base)
+                if (firstWord.isNotBlank()) seenFirstWords.add(firstWord)
+                result.add(track)
+                lastArtist = track.artist.lowercase()
+            }
 
             if (chosenQueue.isEmpty()) {
                 activeQueues.removeAt(chosenIndex)
@@ -283,19 +350,16 @@ open class InnerTubeClient(
                     } catch (_: Exception) {}
                 }
             }
-
-            // ── SOURCE 3: Artist Top Tracks & Similar Artists Pool ──
-            if (!primaryArtist.isNullOrBlank()) {
-                launch(Dispatchers.IO) {
-                    try {
-                        val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs
-                        candidatesPool.addAll(artistSongs)
-                    } catch (_: Exception) {}
-                }
-            }
         }
 
-        // Fallback: If still empty, attempt basic next request
+        // Fallback: If radio / related returned very few tracks, supplement with artist songs & basic next
+        if (candidatesPool.size < 5 && !primaryArtist.isNullOrBlank()) {
+            try {
+                val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs
+                candidatesPool.addAll(artistSongs)
+            } catch (_: Exception) {}
+        }
+
         if (candidatesPool.isEmpty()) {
             try {
                 val requestBody = JSONObject().apply {
@@ -333,9 +397,26 @@ open class InnerTubeClient(
             val singleCol = root.optJSONObject("contents")
                 ?.optJSONObject("singleColumnMusicWatchNextResultsRenderer")
 
-            val playlistContents = singleCol?.optJSONObject("playlist")
+            // 1. Direct playlist panel (legacy / desktop)
+            var playlistContents = singleCol?.optJSONObject("playlist")
                 ?.optJSONObject("playlistPanelRenderer")
                 ?.optJSONArray("contents")
+
+            // 2. Modern tabbedRenderer (Tab 0 Up Next / MusicQueue)
+            if (playlistContents == null || playlistContents.length() == 0) {
+                val tabs = singleCol?.optJSONObject("tabbedRenderer")
+                    ?.optJSONObject("watchNextTabbedResultsRenderer")
+                    ?.optJSONArray("tabs")
+                if (tabs != null && tabs.length() > 0) {
+                    playlistContents = tabs.optJSONObject(0)
+                        ?.optJSONObject("tabRenderer")
+                        ?.optJSONObject("content")
+                        ?.optJSONObject("musicQueueRenderer")
+                        ?.optJSONObject("content")
+                        ?.optJSONObject("playlistPanelRenderer")
+                        ?.optJSONArray("contents")
+                }
+            }
 
             if (playlistContents != null) {
                 for (i in 0 until playlistContents.length()) {
@@ -360,11 +441,12 @@ open class InnerTubeClient(
 
         for (i in 0 until tabs.length()) {
             val tabRenderer = tabs.optJSONObject(i)?.optJSONObject("tabRenderer")
+            val title = tabRenderer?.optString("title", "")?.lowercase() ?: ""
             val endpoint = tabRenderer?.optJSONObject("endpoint")?.optJSONObject("browseEndpoint")
             if (endpoint != null) {
                 val browseId = endpoint.optString("browseId")
                 val params = endpoint.optString("params")
-                if (browseId.isNotBlank() || params.isNotBlank()) {
+                if (browseId.startsWith("MPTR") || title.contains("related")) {
                     return Pair(browseId.ifBlank { null }, params.ifBlank { null })
                 }
             }
@@ -1107,10 +1189,26 @@ open class InnerTubeClient(
             if (durStr != null) {
                 duration = parseDurationToSeconds(durStr)
             }
+            var cardAlbumName: String? = null
+            var cardAlbumId: String? = null
+            if (subtitleRuns != null) {
+                for (r in 0 until subtitleRuns.length()) {
+                    val runObj = subtitleRuns.optJSONObject(r)
+                    val runBrowseId = runObj?.optJSONObject("navigationEndpoint")
+                        ?.optJSONObject("browseEndpoint")
+                        ?.optString("browseId")
+                    if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK"))) {
+                        cardAlbumId = runBrowseId
+                        cardAlbumName = runObj.optString("text")
+                    }
+                }
+            }
             val track = Track(
                 id = videoId,
                 title = TitleCleaner.cleanTitle(title),
                 artist = artist,
+                album = cardAlbumName,
+                albumId = cardAlbumId,
                 duration = duration,
                 thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
                 source = TrackSource.YOUTUBE
@@ -1182,6 +1280,7 @@ open class InnerTubeClient(
 
         var artistName = "Unknown Artist"
         var albumName: String? = null
+        var albumIdStr: String? = null
         var durationSec: Long = 0
         var viewsStr: String? = null
         var itemType = ""
@@ -1202,8 +1301,9 @@ open class InnerTubeClient(
 
                 if (runBrowseId != null && runBrowseId.startsWith("UC")) {
                     artistName = text
-                } else if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic"))) {
+                } else if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK"))) {
                     albumName = text
+                    albumIdStr = runBrowseId
                 } else if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
                     durationSec = parseDurationToSeconds(text)
                 } else if (lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener") || lowerText.contains("subscriber")) {
@@ -1234,7 +1334,14 @@ open class InnerTubeClient(
                 if (text.isBlank() || text == "•") continue
                 val lowerText = text.lowercase()
 
-                if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
+                val runBrowseId = runObj.optJSONObject("navigationEndpoint")
+                    ?.optJSONObject("browseEndpoint")
+                    ?.optString("browseId")
+
+                if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK"))) {
+                    if (albumName == null) albumName = text
+                    if (albumIdStr == null) albumIdStr = runBrowseId
+                } else if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
                     if (durationSec == 0L) durationSec = parseDurationToSeconds(text)
                 } else if (lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener")) {
                     if (viewsStr == null) viewsStr = text
@@ -1305,6 +1412,7 @@ open class InnerTubeClient(
                         title = TitleCleaner.cleanTitle(title),
                         artist = cleanArtist,
                         album = cleanAlbum,
+                        albumId = albumIdStr,
                         duration = durationSec,
                         thumbnail = thumbUrl,
                         views = viewsStr,

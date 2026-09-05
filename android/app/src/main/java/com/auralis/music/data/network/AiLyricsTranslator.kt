@@ -141,15 +141,10 @@ object AiLyricsTranslator {
                 )
             }
 
-            val translatedLyrics = LyricsData(
-                syncType = lyrics.syncType,
+            val translatedLyrics = lyrics.copy(
                 lines = resultLines,
-                plainLyrics = lyrics.plainLyrics,
                 translatedPlainLyrics = resultLines.mapNotNull { it.translatedText }.joinToString("\n"),
-                translatedLanguage = settings.targetLanguage,
-                provider = lyrics.provider,
-                trackName = lyrics.trackName,
-                artistName = lyrics.artistName
+                translatedLanguage = settings.targetLanguage
             )
 
             translationCache[cacheKey] = translatedLyrics

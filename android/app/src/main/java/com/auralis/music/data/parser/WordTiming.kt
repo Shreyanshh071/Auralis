@@ -156,4 +156,83 @@ object WordTiming {
         if (sb.isNotEmpty()) out.add(sb.toString())
         return if (out.isEmpty()) listOf(text) else out
     }
+
+    /**
+     * Merges contiguous syllable spans belonging to the same visual word into a single
+     * [LyricWord], matching Metrolist, Echo, and NomaTune behavior.
+     *
+     * In TTML and similar providers, multi-syllable words (such as "beauti" + "ful") are
+     * emitted as separate spans without whitespace between them. Rendering these syllables
+     * as independent visual words causes rapid, disproportionate sweep speeds across short
+     * syllables.
+     *
+     * Contiguous spans are merged when:
+     * 1. The previous span does not end with whitespace.
+     * 2. Neither span contains CJK characters (where character-level timing is authentic and expected).
+     * 3. Both spans share the same background-vocal status.
+     *
+     * The merged word spans the exact provider interval: from the start of the first syllable
+     * to the end of the final syllable, preserving genuine provider timing accuracy.
+     */
+    fun mergeContiguousSyllables(words: List<LyricWord>?): List<LyricWord>? {
+        if (words.isNullOrEmpty() || words.size < 2) return words
+
+        val merged = ArrayList<LyricWord>(words.size)
+        var acc = words[0]
+
+        for (i in 1 until words.size) {
+            val curr = words[i]
+            val prevWord = acc.word
+            val hasTrailingSpace = prevWord.isNotEmpty() && prevWord.last().isWhitespace()
+            val canMerge = !hasTrailingSpace &&
+                !isCjk(prevWord) &&
+                !isCjk(curr.word) &&
+                acc.isBackground == curr.isBackground
+
+            if (canMerge) {
+                val combinedText = prevWord + curr.word
+                val startTime = acc.time
+                val currEnd = curr.duration?.let { curr.time + it }
+                val accEnd = acc.duration?.let { acc.time + it }
+                val effectiveEnd = currEnd ?: accEnd
+                val combinedDuration = if (effectiveEnd != null && effectiveEnd > startTime) {
+                    effectiveEnd - startTime
+                } else null
+
+                acc = acc.copy(
+                    word = combinedText,
+                    time = startTime,
+                    duration = combinedDuration
+                )
+            } else {
+                merged.add(acc)
+                acc = curr
+            }
+        }
+        merged.add(acc)
+        return merged
+    }
+
+    /**
+     * Identifies characters belonging to CJK (Chinese, Japanese, Korean) Unicode blocks,
+     * where each character typically represents an independent syllable/morpheme without
+     * word-separating spaces. Syllable merging is bypassed for CJK to preserve natural
+     * character-by-character karaoke progression.
+     */
+    fun isCjk(text: String): Boolean = text.any { c ->
+        Character.UnicodeBlock.of(c) in CJK_UNICODE_BLOCKS
+    }
+
+    private val CJK_UNICODE_BLOCKS = setOf(
+        Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS,
+        Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A,
+        Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B,
+        Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS,
+        Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT,
+        Character.UnicodeBlock.HIRAGANA,
+        Character.UnicodeBlock.KATAKANA,
+        Character.UnicodeBlock.HANGUL_SYLLABLES,
+        Character.UnicodeBlock.HANGUL_JAMO,
+        Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO
+    )
 }

@@ -447,8 +447,9 @@ object SearchQueryMatcher {
             )
             .map { it.track }
 
-        // Deduplicate matched songs so higher quality studio audio tracks take precedence over music videos
-        val rankedMatches = com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(sortedMatchedTracks)
+        // Deduplicate matched songs so higher quality studio audio tracks take precedence over music videos,
+        // while preserving distinct performance cuts (e.g. Live, Acoustic, Remix) for user search queries.
+        val rankedMatches = com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(sortedMatchedTracks, matchAlternateVersions = false)
 
         val matchedFingerprints = rankedMatches.map { com.auralis.music.domain.recommendations.TrackDeduplicator.getSongFingerprint(it) }
         val matchedArtists = rankedMatches.map { normalize(it.artist) }.filter { it.isNotBlank() }.toSet()
@@ -664,5 +665,37 @@ object SearchQueryMatcher {
             }
         }
         return dp[s1.length][s2.length]
+    }
+
+    /**
+     * Strictly verifies whether an album's author matches the target artist name.
+     * Prevents unrelated artists (e.g. Ojax, Various Artists, Karaoke bands)
+     * from being falsely attributed to the target artist.
+     */
+    fun isAuthorMatch(albumAuthor: String?, artistName: String): Boolean {
+        if (albumAuthor.isNullOrBlank() || artistName.isBlank()) return false
+        val normAuth = normalize(albumAuthor)
+        val normArt = normalize(artistName)
+        if (normAuth.isBlank() || normArt.isBlank()) return false
+        if (normAuth == normArt) return true
+
+        // Reject generic author strings that do not represent the specific artist
+        val genericAuthors = setOf("various artists", "various", "unknown artist", "soundtrack", "original soundtrack", "va")
+        if (normAuth in genericAuthors) return false
+
+        // Split multi-artist tokens (handles commas, &, feat, ft, with, /)
+        val splitRegex = Regex("[,&/]|\\b(feat|ft|with)\\b")
+        val authArtists = normAuth.split(splitRegex).map { it.trim() }.filter { it.length > 1 }
+        val targetArtists = normArt.split(splitRegex).map { it.trim() }.filter { it.length > 1 }
+
+        for (target in targetArtists) {
+            for (auth in authArtists) {
+                if (auth == target) return true
+                if (auth.length >= 4 && target.length >= 4) {
+                    if (auth.contains(target) || target.contains(auth)) return true
+                }
+            }
+        }
+        return false
     }
 }

@@ -355,9 +355,7 @@ class YouTubeAudioEngine(private val context: Context) {
 
                 function calculateTargetSeekSec() {
                     if (baseSeekMs <= 0) return 0;
-                    var elapsed = (loadStartTime > 0) ? Math.max(0, Date.now() - loadStartTime) : 0;
-                    var totalMs = baseSeekMs + (elapsed < 60000 ? elapsed : 0);
-                    return Math.max(0, totalMs / 1000.0);
+                    return Math.max(0, baseSeekMs / 1000.0);
                 }
 
                 // 1. Spoof visibility state & Pre-seed YouTube volume state to 100% unmuted
@@ -429,15 +427,12 @@ class YouTubeAudioEngine(private val context: Context) {
                 function killAdsImmediately() {
                     try {
                         var v = document.querySelector('.html5-main-video') || document.querySelector('video');
-                        var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay') !== null ||
+                        var isAd = document.querySelector('.ad-showing, .ad-interrupting') !== null ||
                                    (v && v.src && (v.src.indexOf('ctier') !== -1 || v.src.indexOf('&ad_') !== -1 || v.src.indexOf('ptracking') !== -1));
                         
                         if (isAd && v) {
                             v.muted = true;
                             v.playbackRate = 16.0;
-                            if (v.duration > 0 && !isNaN(v.duration)) {
-                                v.currentTime = v.duration;
-                            }
                         }
 
                         var skipButtons = document.querySelectorAll(
@@ -712,8 +707,12 @@ class YouTubeAudioEngine(private val context: Context) {
         }
     }
 
+    fun hasActiveStream(): Boolean = currentVideoId != null && webView != null
+
     fun stop() {
         val activeReq = currentRequestId.incrementAndGet()
+        currentVideoId = null
+        lastEmittedState = -1
         Log.d("AuralisPlayback", "[Stop Command #$activeReq]")
         mainHandler.post {
             _isPlaying.value = false

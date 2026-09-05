@@ -228,9 +228,16 @@ class LrcLibLyricsSource(
             )
         } else null
 
-        if (result != null && com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(result)) {
+        val candDurationSec = json.optDouble("duration", 0.0).takeIf { it > 0.0 }
+        val finalResult = if (result != null && result.durationMs == null && candDurationSec != null) {
+            result.copy(durationMs = (candDurationSec * 1000).toLong())
+        } else {
+            result
+        }
+
+        if (finalResult != null && com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(finalResult)) {
             return null
         }
-        return result
+        return finalResult
     }
 }

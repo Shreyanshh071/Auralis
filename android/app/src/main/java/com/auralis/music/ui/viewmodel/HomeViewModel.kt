@@ -220,8 +220,7 @@ class HomeViewModel(
                             launch(Dispatchers.IO) {
                                 for (trk in tracksToPrewarm) {
                                     try {
-                                        val isCached = AudioStreamResolver.getCachedStream(trk.id) != null ||
-                                            AudioStreamResolver.getCachedStreamByFingerprint(AudioStreamResolver.getSongFingerprintKey(trk.title, trk.artist)) != null
+                                        val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
                                         if (!isCached) {
                                             AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist)
                                         }

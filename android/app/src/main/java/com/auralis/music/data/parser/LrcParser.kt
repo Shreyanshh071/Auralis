@@ -34,6 +34,7 @@ object LrcParser {
 
         val lines = mutableListOf<LyricLine>()
         var globalLrcOffsetMs = 0L
+        var parsedDurationMs: Long? = null
 
         val rawLines = lrcContent.lines()
         for (rawLine in rawLines) {
@@ -43,6 +44,14 @@ object LrcParser {
                 val parsedOffset = numStr.toLongOrNull()
                 if (parsedOffset != null) {
                     globalLrcOffsetMs = parsedOffset
+                }
+                continue
+            }
+            if (trimmed.startsWith("[length:", ignoreCase = true)) {
+                val numStr = trimmed.substringAfter(":").substringBefore("]").trim()
+                val parsed = TtmlParser.parseTimestamp(numStr)
+                if (parsed > 0L) {
+                    parsedDurationMs = parsed
                 }
                 continue
             }
@@ -139,7 +148,8 @@ object LrcParser {
             syncType = syncType,
             lines = sorted,
             plainLyrics = sorted.joinToString("\n") { it.text },
-            provider = provider
+            provider = provider,
+            durationMs = parsedDurationMs
         )
     }
 

@@ -84,8 +84,22 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
 
     fun appendTracks(newTracks: List<Track>): QueueState {
         if (newTracks.isEmpty()) return state
-        val existingIds = state.queue.map { it.id }.toSet()
-        val uniqueNew = newTracks.filter { it.id !in existingIds }
+        val existingIds = state.queue.map { it.id }.toMutableSet()
+        val existingBaseTitles = state.queue.mapNotNull {
+            val base = com.auralis.music.domain.recommendations.TrackDeduplicator.extractBaseSongTitle(it.title)
+            if (base.isNotBlank()) base else null
+        }.toMutableSet()
+
+        val uniqueNew = mutableListOf<Track>()
+        for (track in newTracks) {
+            if (track.id in existingIds) continue
+            val base = com.auralis.music.domain.recommendations.TrackDeduplicator.extractBaseSongTitle(track.title)
+            if (base.isNotBlank() && base in existingBaseTitles) continue
+            uniqueNew.add(track)
+            existingIds.add(track.id)
+            if (base.isNotBlank()) existingBaseTitles.add(base)
+        }
+
         if (uniqueNew.isEmpty()) return state
 
         val updatedQueue = state.queue + uniqueNew
@@ -240,7 +254,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
             addToQueueList.addLast(track)
         }
         val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
-        state = state.copy(queue = q, currentIndex = nextIndex)
+        state = state.copy(queue = q, currentIndex = nextIndex, isUserQueue = true)
         return state
     }
 
@@ -250,7 +264,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         q.add(insertIndex, track)
         playNextQueue.addFirst(track)
         val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
-        state = state.copy(queue = q, currentIndex = nextIndex)
+        state = state.copy(queue = q, currentIndex = nextIndex, isUserQueue = true)
         return state
     }
 

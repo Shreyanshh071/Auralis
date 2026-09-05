@@ -229,5 +229,29 @@ class AudioQueueManagerTest {
         assertEquals("Single Song", state.currentTrack?.title)
         assertEquals(1, state.queue.size)
     }
+
+    @Test
+    fun `playNext marks queue as isUserQueue true`() {
+        val manager = AudioQueueManager()
+        val track = sampleTrack("single", "Single Song")
+        manager.playTrack(track, isUserQueue = false)
+        assertFalse(manager.state.isUserQueue)
+
+        val nextTrack = sampleTrack("next", "Next Song")
+        val updated = manager.playNext(nextTrack)
+        assertTrue(updated.isUserQueue)
+    }
+
+    @Test
+    fun `addToQueue marks queue as isUserQueue true`() {
+        val manager = AudioQueueManager()
+        val track = sampleTrack("single", "Single Song")
+        manager.playTrack(track, isUserQueue = false)
+        assertFalse(manager.state.isUserQueue)
+
+        val atqTrack = sampleTrack("atq", "Queue Song")
+        val updated = manager.addToQueue(atqTrack)
+        assertTrue(updated.isUserQueue)
+    }
 }
 
