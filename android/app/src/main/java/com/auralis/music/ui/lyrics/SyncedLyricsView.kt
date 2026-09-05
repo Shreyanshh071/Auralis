@@ -644,7 +644,28 @@ private fun updateWordHighlightState(
                 finishedPath.addPath(item.wordPath)
             }
         } else {
-            // Word is currently sweeping across its measured interval (0f < progress < 1f)
+            // Word is currently sweeping across its measured interval (0f < progress < 1f).
+            // When synthetic word pacing produces overlapping durations (wordDur > stepMs),
+            // two consecutive words can be simultaneously active. Promote the earlier word
+            // to finishedPath so it is never dropped from rendering (fixes blink/flicker).
+            if (activeSweep != null) {
+                val prevItem = activeSweep!!.activeItem
+                val prevBounds = prevItem.bounds
+                if (!prevBounds.isEmpty && prevItem.isSingleLine) {
+                    val clampedTop = (prevBounds.top - 2f).coerceAtLeast(prevItem.lineTop)
+                    val clampedBottom = (prevBounds.bottom + 2f).coerceAtMost(prevItem.lineBottom)
+                    finishedPath.addRect(
+                        androidx.compose.ui.geometry.Rect(
+                            left = prevBounds.left - 1f,
+                            top = clampedTop,
+                            right = prevBounds.right + 1f,
+                            bottom = clampedBottom
+                        )
+                    )
+                } else {
+                    finishedPath.addPath(prevItem.wordPath)
+                }
+            }
             activeSweep = WordHighlightSweep(item, progress)
         }
     }
