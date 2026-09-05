@@ -1335,22 +1335,26 @@ private fun PlaylistDetailView(
         }
     }
 
-    val baseTracks = when (sortOption) {
-        PlaylistSortOption.CUSTOM -> if (isCustomSort) localTracks else playlist.tracks
-        PlaylistSortOption.NEWEST -> playlist.tracks.reversed()
-        PlaylistSortOption.OLDEST -> playlist.tracks
-        PlaylistSortOption.ALPHABETICAL -> playlist.tracks.sortedBy { it.title.lowercase() }
-        PlaylistSortOption.BY_ARTIST -> playlist.tracks.sortedBy { it.artist.lowercase() }
+    val baseTracks = remember(sortOption, isCustomSort, localTracks.toList(), playlist.tracks) {
+        when (sortOption) {
+            PlaylistSortOption.CUSTOM -> if (isCustomSort) localTracks.toList() else playlist.tracks
+            PlaylistSortOption.NEWEST -> playlist.tracks.reversed()
+            PlaylistSortOption.OLDEST -> playlist.tracks
+            PlaylistSortOption.ALPHABETICAL -> playlist.tracks.sortedBy { it.title.lowercase() }
+            PlaylistSortOption.BY_ARTIST -> playlist.tracks.sortedBy { it.artist.lowercase() }
+        }
     }
 
-    val displayedTracks = (if (searchQuery.isBlank()) {
-        baseTracks
-    } else {
-        baseTracks.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-            it.artist.contains(searchQuery, ignoreCase = true)
-        }
-    }).filter { !it.title.startsWith("Track ") && it.title.isNotBlank() }
+    val displayedTracks = remember(baseTracks, searchQuery) {
+        (if (searchQuery.isBlank()) {
+            baseTracks
+        } else {
+            baseTracks.filter {
+                it.title.contains(searchQuery, ignoreCase = true) ||
+                it.artist.contains(searchQuery, ignoreCase = true)
+            }
+        }).filter { !it.title.startsWith("Track ") && it.title.isNotBlank() }
+    }
 
     val stableKeys = remember(displayedTracks) {
         val counts = HashMap<String, Int>()

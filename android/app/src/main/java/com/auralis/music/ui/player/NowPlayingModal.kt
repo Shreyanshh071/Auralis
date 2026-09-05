@@ -455,8 +455,9 @@ fun NowPlayingModal(
                     if (!track.thumbnail.isNullOrBlank()) {
                         val blurImageRequest = remember(track.thumbnail) {
                             coil.request.ImageRequest.Builder(context)
-                                .data(getHighResArtworkUrl(track.thumbnail))
-                                .crossfade(true)
+                                .data(track.thumbnail)
+                                .size(128, 128)
+                                .crossfade(false)
                                 .build()
                         }
                         coil.compose.AsyncImage(
@@ -470,7 +471,7 @@ fun NowPlayingModal(
                                     scaleY = 1.15f
                                     alpha = 0.88f
                                 }
-                                .blur(radius = 40.dp)
+                                .blur(radius = 24.dp)
                         )
                     }
                     // Soft vignette overlay so text & controls pop while allowing full spectrum of artwork colors to shine
@@ -744,38 +745,51 @@ fun NowPlayingModal(
                 // ≡♪ B. QUEUE VIEW
                 // ============================================================
                 NowPlayingTab.QUEUE -> {
+                    // Hoist queue snapshot and index so item lambdas don't
+                    // capture the entire uiState (avoids full-list recomposition
+                    // when unrelated uiState fields change during playback).
+                    val queueSnapshot = uiState.queue
+                    val queueCurrentIndex = uiState.currentIndex
+                    val queueItemShape = remember { RoundedCornerShape(14.dp) }
+                    val queueArtworkCorner = remember { 8.dp }
+                    val inactiveRowBg = remember { Color.White.copy(alpha = 0.08f) }
+                    val subtitleColor = remember { Color.White.copy(alpha = 0.6f) }
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF0C0D10).copy(alpha = 0.88f))
                             .graphicsLayer { alpha = controlsAlpha }
+                            .padding(horizontal = 8.dp)
                     ) {
                         Text(
-                            text = "Up Next (${uiState.queue.size} songs)",
+                            text = "Up Next (${queueSnapshot.size} songs)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            modifier = Modifier.padding(vertical = 8.dp)
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                         )
 
-                        val animateQueueItems = !LocalReducedMotion.current
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             itemsIndexed(
-                                items = uiState.queue,
+                                items = queueSnapshot,
                                 // Keys let reorders/removals animate instead of the list
                                 // silently re-binding rows. A queue may legitimately hold
                                 // the same track twice, so the index is part of the key.
-                                key = { index, item -> "${item.id}#$index" }
+                                key = { index, item -> "${item.id}#$index" },
+                                contentType = { _, _ -> "queue_track" }
                             ) { index, item ->
-                                val isCurrent = index == uiState.currentIndex
+                                val isCurrent = index == queueCurrentIndex
+                                val primaryColor = MaterialTheme.colorScheme.primary
                                 Row(
                                     modifier = Modifier
-                                        .then(if (animateQueueItems) Modifier.animateItem() else Modifier)
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.08f))
+                                        .clip(queueItemShape)
+                                        .background(if (isCurrent) primaryColor.copy(alpha = 0.20f) else inactiveRowBg)
                                         .clickable {
                                             onSelectQueueTrack(index)
                                             currentTab = NowPlayingTab.PLAYER
@@ -786,7 +800,7 @@ fun NowPlayingModal(
                                     ArtworkCard(
                                         url = item.thumbnail,
                                         modifier = Modifier.size(44.dp),
-                                        cornerRadius = 8.dp,
+                                        cornerRadius = queueArtworkCorner,
                                         contentDescription = item.title
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
@@ -795,14 +809,14 @@ fun NowPlayingModal(
                                             text = item.title,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White,
+                                            color = if (isCurrent) primaryColor else Color.White,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = item.artist,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = Color.White.copy(alpha = 0.6f),
+                                            color = subtitleColor,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -811,7 +825,7 @@ fun NowPlayingModal(
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
                                             contentDescription = "Playing",
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            tint = primaryColor,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }

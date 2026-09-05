@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@androidx.compose.runtime.Immutable
 data class PlayerUiState(
     val currentTrack: Track? = null,
     val isPlaying: Boolean = false,
@@ -210,17 +211,21 @@ class PlayerViewModel(
             }
 
             viewModelScope.launch {
-                player.durationMs.collect { dur ->
-                    if (dur > 0) {
-                        _uiState.update { it.copy(durationMs = dur) }
+                player.durationMs
+                    .collect { dur ->
+                        if (dur > 0 && dur != _uiState.value.durationMs) {
+                            _uiState.update { it.copy(durationMs = dur) }
+                        }
                     }
-                }
             }
 
             viewModelScope.launch {
-                player.isBuffering.collect { buffering ->
-                    _uiState.update { it.copy(isBuffering = buffering) }
-                }
+                player.isBuffering
+                    .collect { buffering ->
+                        if (buffering != _uiState.value.isBuffering) {
+                            _uiState.update { it.copy(isBuffering = buffering) }
+                        }
+                    }
             }
 
             viewModelScope.launch {

@@ -430,18 +430,20 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
         }
 
-        // High-frequency real-time ticker for ExoPlayer progress (16ms ~ 60fps for ultra-smooth seekbar & lyrics sync)
+        // Real-time progress ticker for ExoPlayer UI seekbars & time indicators (100ms is completely smooth
+        // for seekbars and stops main-thread flooding. Lyrics has its own dedicated 60fps withFrameMillis clock).
         scope.launch {
             var lastPersistTickMs = System.currentTimeMillis()
             while (isActive) {
-                delay(16)
+                delay(100)
                 if (isUsingExoPlayer && (exoPlayer.isPlaying || _isPlaying.value)) {
                     val pos = exoPlayer.currentPosition
-                    if (pos >= 0L) {
+                    if (pos >= 0L && pos != _playbackPositionMs.value) {
                         _playbackPositionMs.value = pos
                     }
-                    if (exoPlayer.duration > 0) {
-                        _durationMs.value = exoPlayer.duration
+                    val dur = exoPlayer.duration
+                    if (dur > 0 && dur != _durationMs.value) {
+                        _durationMs.value = dur
                     }
                     val now = System.currentTimeMillis()
                     if (now - lastPersistTickMs >= 3000L) {

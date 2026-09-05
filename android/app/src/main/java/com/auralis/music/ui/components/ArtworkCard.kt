@@ -31,6 +31,8 @@ private val GOOGLE_W_REGEX = Regex("""=w\d+-h\d+.*""")
 private val GOOGLE_S_REGEX = Regex("""=s\d+.*""")
 private val MZSTATIC_REGEX = Regex("""\d+x\d+bb""")
 
+private val YOUTUBE_VIDEO_ID_REGEX = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
+
 /**
  * Optimizes thumbnail URLs to crisp, hardware-accelerated HD artwork (544x544 or 480x360),
  * avoiding memory bloat and maximizing scroll framerates without causing 404 error cascades.
@@ -47,8 +49,7 @@ fun getHighResArtworkUrl(url: String?): String? {
     }
     // YouTube video thumbnail (reliable 100% available 480x360 HD artwork):
     if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu")) {
-        val videoIdRegex = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
-        val match = videoIdRegex.find(cleaned)?.groupValues?.getOrNull(1)
+        val match = YOUTUBE_VIDEO_ID_REGEX.find(cleaned)?.groupValues?.getOrNull(1)
         return if (!match.isNullOrBlank()) {
             "https://i.ytimg.com/vi/$match/hqdefault.jpg"
         } else {
@@ -149,7 +150,7 @@ fun ArtworkCard(
                 .allowHardware(true)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
-                .crossfade(100)
+                .crossfade(false)
                 .build()
         } else null
     }
@@ -175,9 +176,7 @@ fun ArtworkCard(
                         }
                     }
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (isYouTubeVideoThumb) Modifier.graphicsLayer { scaleX = 1.34f; scaleY = 1.34f } else Modifier)
+                modifier = Modifier.fillMaxSize()
             )
         } else {
             Icon(

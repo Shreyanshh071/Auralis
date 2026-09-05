@@ -1,6 +1,7 @@
 package com.auralis.music
 
 import androidx.lifecycle.ViewModel
+import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.LibraryRepository
@@ -32,6 +33,14 @@ class PlaybackPositionPreservationTest {
         duration = 200,
         thumbnail = "https://thumb/$id.jpg"
     )
+
+    private class MockInnerTubeClient : InnerTubeClient() {
+        override suspend fun getRadioTracks(
+            videoId: String,
+            artist: String?,
+            title: String?
+        ): List<Track> = emptyList()
+    }
 
     private class MockLibraryRepo : LibraryRepository {
         override fun getFavoriteTracks(): Flow<List<Track>> = flowOf(emptyList())
@@ -116,7 +125,8 @@ class PlaybackPositionPreservationTest {
             historyRepository = MockHistoryRepo(),
             lyricsRepository = MockLyricsRepo(),
             settingsRepository = MockSettingsRepo(),
-            audioPlayer = null
+            audioPlayer = null,
+            innerTubeClient = MockInnerTubeClient()
         )
 
         val track = sampleTrack("t1", "Track One")
@@ -147,7 +157,8 @@ class PlaybackPositionPreservationTest {
             historyRepository = MockHistoryRepo(),
             lyricsRepository = MockLyricsRepo(),
             settingsRepository = MockSettingsRepo(),
-            audioPlayer = null
+            audioPlayer = null,
+            innerTubeClient = MockInnerTubeClient()
         )
 
         val track = sampleTrack("t1", "Track One")
@@ -171,7 +182,8 @@ class PlaybackPositionPreservationTest {
             historyRepository = MockHistoryRepo(),
             lyricsRepository = MockLyricsRepo(),
             settingsRepository = MockSettingsRepo(),
-            audioPlayer = null
+            audioPlayer = null,
+            innerTubeClient = MockInnerTubeClient()
         )
 
         val track = sampleTrack("t1", "Track One")
