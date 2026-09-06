@@ -27,19 +27,8 @@ import android.content.Context
 import com.auralis.music.data.datastore.HomeRecommendationsCache
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.flow.collect
-
-data class SpeedDialItem(
-    val id: String,
-    val name: String,
-    val type: SpeedDialType,
-    val image: String? = null,
-    val track: Track? = null,
-    val artistQuery: String? = null,
-    val isPinned: Boolean = false
-)
-
-enum class SpeedDialType { TRACK, ARTIST, SURPRISE, MORE, PLACEHOLDER }
+typealias SpeedDialItem = com.auralis.music.domain.model.SpeedDialItem
+typealias SpeedDialType = com.auralis.music.domain.model.SpeedDialType
 
 data class HomeRecommendationSection(
     val id: String,
@@ -49,10 +38,46 @@ data class HomeRecommendationSection(
     val tracks: List<Track> = emptyList()
 )
 
+private fun buildInitialSeedSpeedDial(): List<List<SpeedDialItem>> {
+    val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+    val allItems = mutableListOf<SpeedDialItem>()
+    for ((idx, t) in seedTracks.take(26).withIndex()) {
+        val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
+        allItems.add(
+            SpeedDialItem(
+                id = "track-${t.id}-$idx",
+                name = displayName,
+                type = SpeedDialType.TRACK,
+                track = t.copy(title = displayName),
+                image = t.thumbnail
+            )
+        )
+    }
+
+    val pages = mutableListOf<List<SpeedDialItem>>()
+    val page0Items = allItems.take(8).toMutableList()
+    if (page0Items.isNotEmpty()) {
+        page0Items.add(
+            SpeedDialItem(
+                id = "surprise-me-0",
+                name = "Surprise Me",
+                type = SpeedDialType.SURPRISE,
+                image = null
+            )
+        )
+        pages.add(page0Items)
+    }
+    val page1Items = allItems.drop(8).take(9)
+    if (page1Items.isNotEmpty()) pages.add(page1Items)
+    val page2Items = allItems.drop(17).take(9)
+    if (page2Items.isNotEmpty()) pages.add(page2Items)
+    return pages
+}
+
 data class HomeUiState(
     val recentTracks: List<HistoryEntry> = emptyList(),
     val topPlayedTracks: List<PlayCountEntry> = emptyList(),
-    val speedDialPages: List<List<SpeedDialItem>> = emptyList(),
+    val speedDialPages: List<List<SpeedDialItem>> = buildInitialSeedSpeedDial(),
     val forgottenFavorites: List<Track> = emptyList(),
     val keepListening: List<Track> = emptyList(),
     val quickPicks: List<Track> = emptyList(),
@@ -88,14 +113,16 @@ class HomeViewModel(
     private val artistAvatarCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
 
     init {
-        // 1. Immediately restore cached recommendation shelves to UI (0ms cold start latency)
+        // 1. Immediately restore cached speed dial & recommendation shelves to UI (0ms cold start latency)
         viewModelScope.launch(Dispatchers.IO) {
             context?.let { ctx ->
+                val cachedSpeedDial = HomeRecommendationsCache.getCachedSpeedDial(ctx)
                 val cachedRecs = HomeRecommendationsCache.getCachedSimilarRecommendations(ctx)
                 val cachedDiscover = HomeRecommendationsCache.getCachedDailyDiscover(ctx)
-                if (cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty()) {
+                if (cachedSpeedDial.isNotEmpty() || cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty()) {
                     _uiState.update {
                         it.copy(
+                            speedDialPages = if (cachedSpeedDial.isNotEmpty()) cachedSpeedDial else it.speedDialPages,
                             similarRecommendations = if (it.similarRecommendations.isEmpty()) cachedRecs else it.similarRecommendations,
                             dailyDiscover = if (it.dailyDiscover.isEmpty()) cachedDiscover else it.dailyDiscover
                         )
@@ -104,7 +131,7 @@ class HomeViewModel(
             }
         }
 
-        // 2. Load fresh home data
+        // 2. Load fresh home data from local DB and start background feeds
         loadHomeData()
 
         // 3. Continuously collect listening history & top played in real-time
@@ -130,7 +157,8 @@ class HomeViewModel(
                             recentTracks = emptyList(),
                             topPlayedTracks = emptyList(),
                             tasteProfile = profile,
-                            speedDialPages = speedDial
+                            speedDialPages = speedDial,
+                            isLoading = false
                         )
                     }
                 } else {
@@ -142,16 +170,16 @@ class HomeViewModel(
                             recentTracks = historyList,
                             topPlayedTracks = topPlayed,
                             tasteProfile = profile,
-                            speedDialPages = speedDial
+                            speedDialPages = speedDial,
+                            isLoading = false
                         )
                     }
-                    fetchSimilarRecommendations()
-                    fetchQuickPicks()
-                    fetchDailyDiscover()
+                    context?.let { HomeRecommendationsCache.saveSpeedDial(it, speedDial) }
                 }
             }
         }
     }
+
 
     private fun hasListeningHistory(history: List<HistoryEntry>, topPlayed: List<PlayCountEntry>): Boolean {
         return history.isNotEmpty() || topPlayed.isNotEmpty()
@@ -169,139 +197,52 @@ class HomeViewModel(
      *          (Daily Discover, Similar recommendations, Community Playlists, Quick Picks).
      */
     fun loadHomeData() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+        // Do not display blocking skeleton if Speed Dial or recommendations are already present
+        _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty(), error = null) }
 
-            // Phase 1: Fast Parallel Fetch
-            coroutineScope {
-                // 1. Local history & top played
-                launch(Dispatchers.IO) {
-                    try {
-                        val history = historyRepository.getHistory().first()
-                        val topPlayed = historyRepository.getTopPlayedTracks().first()
-                        val isNewUser = !hasListeningHistory(history, topPlayed)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Phase 1: Ultra-fast local SQLite queries (completes in ~5-15ms)
+                val history = historyRepository.getHistory().first()
+                val topPlayed = historyRepository.getTopPlayedTracks().first()
+                val isNewUser = !hasListeningHistory(history, topPlayed)
 
-                        val profile = if (isNewUser) {
-                            TasteProfile(recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS, primaryVibe = "Welcome to Auralis")
-                        } else {
-                            TasteProfiler.computeTasteProfile(history, topPlayed)
-                        }
-
-                        val topTracks = topPlayed.map { it.track }
-                        val historyTracks = history.map { it.track }
-                        val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
-                        val heavy = historyRepository.getRecentHeavyRotation()
-
-                        val speedDial = if (isNewUser) {
-                            val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
-                            buildSpeedDialPages(emptyList(), emptyList(), seedTracks)
-                        } else {
-                            buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
-                        }
-
-                        _uiState.update {
-                            it.copy(
-                                recentTracks = history,
-                                topPlayedTracks = topPlayed,
-                                speedDialPages = speedDial,
-                                tasteProfile = profile,
-                                isLoading = false
-                            )
-                        }
-
-                        // Pre-warm audio streams for top 2 visible Speed Dial tracks in background
-                        val firstPageTrackIds = speedDial.firstOrNull()
-                            ?.filter { it.type == SpeedDialType.TRACK }
-                            ?.map { it.id }
-                            ?.take(2) ?: emptyList()
-                        val candidatePool = if (isNewUser) NewUserSeedProvider.getInitialSeedTracks() else (topTracks + historyTracks + likedSeeds + heavy)
-                        val tracksToPrewarm = firstPageTrackIds.mapNotNull { id -> candidatePool.firstOrNull { it.id == id } }
-                        if (tracksToPrewarm.isNotEmpty()) {
-                            launch(Dispatchers.IO) {
-                                for (trk in tracksToPrewarm) {
-                                    try {
-                                        val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
-                                        if (!isCached) {
-                                            AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist)
-                                        }
-                                    } catch (_: Exception) {}
-                                }
-                            }
-                        }
-
-                        if (!isNewUser) {
-                            // Asynchronously resolve authentic artist avatar photos for Speed Dial
-                            val artistsToResolve = (topTracks + historyTracks + likedSeeds + heavy)
-                                .map { it.artist }
-                                .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
-                                .distinct()
-
-                            if (artistsToResolve.isNotEmpty()) {
-                                launch(Dispatchers.IO) {
-                                    var hasUpdates = false
-                                    for (art in artistsToResolve.take(12)) {
-                                        try {
-                                            val searchHits = searchRepository.search(art)
-                                            val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
-                                                ?: searchHits.artists.firstOrNull()
-                                            if (match != null && !match.thumbnail.isNullOrBlank()) {
-                                                artistAvatarCache[art] = Pair(match.id, match.thumbnail)
-                                                hasUpdates = true
-                                            }
-                                        } catch (_: Exception) {}
-                                    }
-                                    if (hasUpdates) {
-                                        val updatedPages = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
-                                        _uiState.update { it.copy(speedDialPages = updatedPages) }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Asynchronously resolve missing thumbnails in recent tracks and history
-                        launch(Dispatchers.IO) {
-                            val blankTracks = (historyTracks + topTracks).filter { it.thumbnail.isBlank() }.distinctBy { it.id }
-                            if (blankTracks.isNotEmpty()) {
-                                for (trk in blankTracks) {
-                                    val thumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(trk)
-                                    if (!thumb.isNullOrBlank()) {
-                                        historyRepository.addToHistory(trk.copy(thumbnail = thumb))
-                                    }
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {}
+                val profile = if (isNewUser) {
+                    TasteProfile(recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS, primaryVibe = "Welcome to Auralis")
+                } else {
+                    TasteProfiler.computeTasteProfile(history, topPlayed)
                 }
 
-                // 2. Forgotten Favorites (local DB)
-                launch(Dispatchers.IO) {
-                    try {
-                        val forgotten = historyRepository.getForgottenFavorites().shuffled().take(15)
-                        if (forgotten.isNotEmpty()) {
-                            _uiState.update { it.copy(forgottenFavorites = forgotten) }
-                        }
-                    } catch (_: Exception) {}
+                val topTracks = topPlayed.map { it.track }
+                val historyTracks = history.map { it.track }
+                val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+                val heavy = historyRepository.getRecentHeavyRotation()
+                val forgotten = historyRepository.getForgottenFavorites().shuffled().take(15)
+
+                val speedDial = if (isNewUser) {
+                    buildSpeedDialPages(emptyList(), emptyList(), NewUserSeedProvider.getInitialSeedTracks())
+                } else {
+                    buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
                 }
 
-                // 3. Keep Listening / Heavy Rotation (last 2 weeks)
-                launch(Dispatchers.IO) {
-                    try {
-                        val heavy = historyRepository.getRecentHeavyRotation().distinctBy { it.id }.take(15)
-                        if (heavy.isNotEmpty()) {
-                            _uiState.update { it.copy(keepListening = heavy) }
-                        }
-                    } catch (_: Exception) {}
+                _uiState.update {
+                    it.copy(
+                        recentTracks = history,
+                        topPlayedTracks = topPlayed,
+                        speedDialPages = speedDial,
+                        forgottenFavorites = forgotten,
+                        keepListening = heavy.distinctBy { trk -> trk.id }.take(15),
+                        tasteProfile = profile,
+                        isLoading = false
+                    )
                 }
 
-                // 4. Quick Picks (recent + trending + related)
-                launch(Dispatchers.IO) {
-                    try {
-                        fetchQuickPicks()
-                    } catch (_: Exception) {}
-                }
+                // Persist current speed dial to disk cache
+                context?.let { HomeRecommendationsCache.saveSpeedDial(it, speedDial) }
 
-                // 5. YouTube Music Home Feed (FEmusic_home)
-                launch(Dispatchers.IO) {
+                // Phase 2: Decoupled background network calls (never block UI or startup frame)
+                // 1. YouTube Music Home feed
+                viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val (chips, sections) = innerTubeClient.getHome()
                         val cleanChips = chips.filter { !isUnwantedNoiseChip(it) }
@@ -314,25 +255,90 @@ class HomeViewModel(
                         }
                     } catch (_: Exception) {}
                 }
-            }
 
-            // Mark Phase 1 complete immediately so UI is responsive
-            _uiState.update { it.copy(isLoading = false) }
+                // 2. Quick Picks
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchQuickPicks()
+                    } catch (_: Exception) {}
+                }
 
-            // Phase 2: Heavy multi-request operations dispatched asynchronously
-            viewModelScope.launch(Dispatchers.IO) {
-                fetchDailyDiscover()
-            }
+                // 3. Daily Discover
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchDailyDiscover()
+                    } catch (_: Exception) {}
+                }
 
-            viewModelScope.launch(Dispatchers.IO) {
-                fetchSimilarRecommendations()
-            }
+                // 4. Similar Recommendations
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchSimilarRecommendations()
+                    } catch (_: Exception) {}
+                }
 
-            viewModelScope.launch(Dispatchers.IO) {
-                fetchCommunityPlaylists()
+                // 5. Community Playlists
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchCommunityPlaylists()
+                    } catch (_: Exception) {}
+                }
+
+                // 6. Pre-warm audio streams for top 2 visible Speed Dial tracks
+                val firstPageTrackIds = speedDial.firstOrNull()
+                    ?.filter { it.type == SpeedDialType.TRACK }
+                    ?.map { it.id }
+                    ?.take(2) ?: emptyList()
+                val candidatePool = if (isNewUser) NewUserSeedProvider.getInitialSeedTracks() else (topTracks + historyTracks + likedSeeds + heavy)
+                val tracksToPrewarm = firstPageTrackIds.mapNotNull { id -> candidatePool.firstOrNull { it.id == id } }
+                if (tracksToPrewarm.isNotEmpty()) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        for (trk in tracksToPrewarm) {
+                            try {
+                                val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
+                                if (!isCached) {
+                                    AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+
+                // 7. Background artist avatar photo resolution (limited to 6)
+                if (!isNewUser) {
+                    val artistsToResolve = (topTracks + historyTracks + likedSeeds + heavy)
+                        .map { it.artist }
+                        .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
+                        .distinct()
+
+                    if (artistsToResolve.isNotEmpty()) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            var hasUpdates = false
+                            for (art in artistsToResolve.take(6)) {
+                                try {
+                                    val searchHits = searchRepository.search(art)
+                                    val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
+                                        ?: searchHits.artists.firstOrNull()
+                                    if (match != null && !match.thumbnail.isNullOrBlank()) {
+                                        artistAvatarCache[art] = Pair(match.id, match.thumbnail)
+                                        hasUpdates = true
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                            if (hasUpdates) {
+                                val updatedPages = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+                                _uiState.update { it.copy(speedDialPages = updatedPages) }
+                                context?.let { HomeRecommendationsCache.saveSpeedDial(it, updatedPages) }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
             }
         }
     }
+
 
     fun refresh() {
         viewModelScope.launch {

@@ -123,6 +123,26 @@ object LyricsMatcher {
             return false
         }
 
+        // Subtitle / Soundtrack / Parenthetical extension match:
+        // e.g. query "Sunflower", candidate "Sunflower (Spider-Man: Into the Spider-Verse)"
+        // or query "Starboy", candidate "Starboy (feat. Daft Punk)"
+        val cWithoutSub = cClean.substringBefore(" (").substringBefore(" [").substringBefore(" - ").substringBefore(": ").trim()
+        val qWithoutSub = qClean.substringBefore(" (").substringBefore(" [").substringBefore(" - ").substringBefore(": ").trim()
+        if ((cWithoutSub.isNotBlank() && qClean == cWithoutSub) ||
+            (qWithoutSub.isNotBlank() && cClean == qWithoutSub) ||
+            (qWithoutSub.isNotBlank() && qWithoutSub == cWithoutSub)
+        ) {
+            return true
+        }
+
+        // Prefix check for small queries: if candidate starts with full query and subsequent text is parenthetical/separator
+        if (cClean.startsWith(qClean) && (cClean.length == qClean.length || cClean[qClean.length] in " ([-:")) {
+            return true
+        }
+        if (qClean.startsWith(cClean) && (qClean.length == cClean.length || qClean[cClean.length] in " ([-:")) {
+            return true
+        }
+
         val qPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(qClean)
         val cPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(cClean)
         if (qPhonetic == cPhonetic) return true
@@ -134,6 +154,11 @@ object LyricsMatcher {
         val qTokens = tokenize(qCanonical)
         val cTokens = tokenize(cCanonical)
         if (qTokens.isEmpty() || cTokens.isEmpty()) return false
+
+        // Exact prefix token match (e.g. query ["sunflower"] in ["sunflower", "spider", "man", ...])
+        if (cTokens.size >= qTokens.size && cTokens.subList(0, qTokens.size) == qTokens) {
+            return true
+        }
 
         val qSet = qTokens.toSet()
         val cSet = cTokens.toSet()

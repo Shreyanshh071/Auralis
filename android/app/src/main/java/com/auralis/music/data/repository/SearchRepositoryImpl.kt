@@ -14,11 +14,15 @@ import com.auralis.music.domain.model.SearchTopResult
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.search.SearchQueryMatcher
+import com.auralis.music.data.network.NetworkClientProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import okhttp3.Request
+import org.json.JSONObject
+import java.net.URLEncoder
 
 /**
  * Dedicated YouTube Music search repository powered by InnerTube WEB_REMIX API
@@ -86,7 +90,8 @@ class SearchRepositoryImpl(
             val generalResults: SearchResults = generalDeferred.await()
             val suggestionSongs: List<Track> = topSuggestionDeferred.await()
 
-            val allSongs: List<Track> = (officialSongs + generalResults.songs + suggestionSongs).distinctBy { it.id }
+            val cardTrack = (generalResults.topResult as? SearchTopResult.SongResult)?.track
+            val allSongs: List<Track> = (officialSongs + generalResults.songs + suggestionSongs + listOfNotNull(cardTrack)).distinctBy { it.id }
             val allAlbums: List<PlaylistResult> = (officialAlbums + generalResults.albums + generalResults.playlists.filter { it.id.startsWith("MPRE") }).distinctBy { it.id }
 
             // 1. Partition matched songs and supplementary recommendations
@@ -131,22 +136,38 @@ class SearchRepositoryImpl(
 
             val enrichedArtists: List<Artist> = (allFoundArtists + missingArtists).distinctBy { it.name.lowercase() }
 
-            val officialThumbsByTitle = officialSongs
-                .filter { !it.thumbnail.isNullOrBlank() && !it.thumbnail.contains("i.ytimg.com/vi/") }
-                .associateBy { it.title.lowercase() }
-
             val officialThumbsById = officialSongs
                 .filter { !it.thumbnail.isNullOrBlank() && !it.thumbnail.contains("i.ytimg.com/vi/") }
                 .associateBy { it.id }
 
             fun upgradeTrackThumb(t: Track): Track {
                 if (t.thumbnail.contains("i.ytimg.com/vi/") || t.thumbnail.isBlank()) {
-                    val match = officialThumbsById[t.id] ?: officialThumbsByTitle[t.title.lowercase()]
-                    if (match != null && !match.thumbnail.isNullOrBlank()) {
+                    val matchById = officialThumbsById[t.id]
+                    if (matchById != null && !matchById.thumbnail.isNullOrBlank()) {
+                        val bestViews = listOfNotNull(t.views, matchById.views).maxByOrNull { SearchQueryMatcher.parsePlayCount(it) } ?: t.views
                         return t.copy(
-                            thumbnail = match.thumbnail,
-                            album = if (t.album.isNullOrBlank()) match.album else t.album,
-                            views = if (t.views.isNullOrBlank()) match.views else t.views
+                            thumbnail = matchById.thumbnail,
+                            album = if (t.album.isNullOrBlank()) matchById.album else t.album,
+                            views = bestViews
+                        )
+                    }
+
+                    // Only match by title if the artist ALSO matches!
+                    val matchByTitleAndArtist = officialSongs
+                        .filter { cand ->
+                            !cand.thumbnail.isNullOrBlank() &&
+                            !cand.thumbnail.contains("i.ytimg.com/vi/") &&
+                            cand.title.equals(t.title, ignoreCase = true) &&
+                            SearchQueryMatcher.isAuthorMatch(cand.artist, t.artist)
+                        }
+                        .maxByOrNull { SearchQueryMatcher.parsePlayCount(it.views) }
+
+                    if (matchByTitleAndArtist != null && !matchByTitleAndArtist.thumbnail.isNullOrBlank()) {
+                        val bestViews = listOfNotNull(t.views, matchByTitleAndArtist.views).maxByOrNull { SearchQueryMatcher.parsePlayCount(it) } ?: t.views
+                        return t.copy(
+                            thumbnail = matchByTitleAndArtist.thumbnail,
+                            album = if (t.album.isNullOrBlank()) matchByTitleAndArtist.album else t.album,
+                            views = bestViews
                         )
                     }
                 }
@@ -166,20 +187,56 @@ class SearchRepositoryImpl(
             val topSongViews = SearchQueryMatcher.parsePlayCount(topMatchedSong?.views)
 
             val normQuery = SearchQueryMatcher.normalize(trimmed)
+            val normQueryStem = normQuery.removeSuffix("s")
             val topSongNormTitle = topMatchedSong?.let { SearchQueryMatcher.normalize(it.title) } ?: ""
             val topSongCleanTitle = topMatchedSong?.let { SearchQueryMatcher.normalize(it.title.replace(Regex("\\(.*\\)|\\[.*\\]"), "")) } ?: ""
-            val topSongIsExactTitle = topMatchedSong != null && (topSongNormTitle == normQuery || topSongCleanTitle == normQuery)
+            val topSongNormStem = topSongNormTitle.removeSuffix("s")
+            val topSongCleanStem = topSongCleanTitle.removeSuffix("s")
+            val topSongIsExactTitle = topMatchedSong != null && (
+                topSongNormTitle == normQuery ||
+                topSongCleanTitle == normQuery ||
+                (normQueryStem.length >= 3 && (topSongNormStem == normQueryStem || topSongCleanStem == normQueryStem))
+            )
 
-            // Resolve Top Result with highest fidelity to YouTube Music's global classification:
-            // 1. If YouTube Music returned an official Album Top Result (e.g. "Graduation" by Kanye West, "OK Computer" by Radiohead, "Starboy" by The Weeknd)
-            // 2. If YouTube Music returned an official Artist Top Result (e.g. "Kanye West", "The Weeknd")
-            // 3. If YouTube Music returned a Song Top Result or matched songs exist
-            val resolvedTopResult: SearchTopResult? = when {
-                generalResults.topResult is SearchTopResult.AlbumResult -> {
-                    generalResults.topResult
+            val topSongWins = topMatchedSong != null && topSongIsExactTitle && (
+                topSongViews >= 1_000_000L ||
+                (exactArtistMatch == null && exactAlbumMatch == null)
+            )
+
+            val ytmAlbumResult = generalResults.topResult as? SearchTopResult.AlbumResult
+            val isYtmAlbumValidMatch = ytmAlbumResult != null &&
+                !ytmAlbumResult.album.title.startsWith("Radio •", ignoreCase = true) &&
+                !ytmAlbumResult.album.title.endsWith(" Radio", ignoreCase = true) &&
+                !ytmAlbumResult.album.id.startsWith("VLRD") &&
+                !ytmAlbumResult.album.id.startsWith("pl:") &&
+                (SearchQueryMatcher.normalize(ytmAlbumResult.album.title) == normQuery ||
+                 ytmAlbumResult.album.id == exactAlbumMatch?.id ||
+                 ytmAlbumResult.album.title.equals(trimmed, ignoreCase = true))
+
+            val ytmArtistResult = generalResults.topResult as? SearchTopResult.ArtistResult
+            val isYtmArtistValidMatch = ytmArtistResult != null &&
+                (SearchQueryMatcher.normalize(ytmArtistResult.artist.name) == normQuery ||
+                 ytmArtistResult.artist.id == exactArtistMatch?.id ||
+                 ytmArtistResult.artist.name.equals(trimmed, ignoreCase = true))
+
+            // Resolve Top Result with highest fidelity:
+            // 1. High-popularity exact title song match takes absolute precedence (e.g. TV Girl - Lovers Rock 303M plays, The Weeknd - Starboy 3.5B plays)
+            // 2. YouTube Music verified Artist card matching query (e.g. "Radiohead", "Taylor Swift")
+            // 3. YouTube Music verified Album card matching query (e.g. "OK Computer", "French Exit")
+            // 4. Exact Artist match (when query is an artist name)
+            // 5. Exact Album match (when query is an album name)
+            // 6. Top matched song
+            // 7. YouTube Music general song card
+            // 8. Fallback exact matches
+            var resolvedTopResult: SearchTopResult? = when {
+                topSongWins -> {
+                    SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
-                generalResults.topResult is SearchTopResult.ArtistResult -> {
-                    generalResults.topResult
+                isYtmArtistValidMatch -> {
+                    ytmArtistResult
+                }
+                isYtmAlbumValidMatch -> {
+                    ytmAlbumResult
                 }
                 exactArtistMatch != null && (topMatchedSong == null || !topSongIsExactTitle) -> {
                     SearchTopResult.ArtistResult(exactArtistMatch)
@@ -188,28 +245,31 @@ class SearchRepositoryImpl(
                     SearchTopResult.AlbumResult(exactAlbumMatch)
                 }
                 topMatchedSong != null -> {
-                    SearchTopResult.SongResult(topMatchedSong)
+                    // Check if YouTube Music returned an official song card that is an exact query match and has substantially more views than topMatchedSong
+                    val ytmTopTrack = (generalResults.topResult as? SearchTopResult.SongResult)?.track
+                    val ytmTrackMatch = ytmTopTrack?.let { SearchQueryMatcher.evaluateMatch(it, trimmed) }
+                    val ytmTrackViews = SearchQueryMatcher.parsePlayCount(ytmTopTrack?.views)
+
+                    val authoritativeSong = if (
+                        ytmTopTrack != null &&
+                        ytmTrackMatch != null &&
+                        ytmTrackMatch.tier == com.auralis.music.domain.search.SearchQueryMatcher.MatchTier.EXACT_TITLE &&
+                        ytmTrackViews > (topSongViews.coerceAtLeast(1L) * 2L)
+                    ) {
+                        ytmTopTrack
+                    } else {
+                        topMatchedSong
+                    }
+                    SearchTopResult.SongResult(upgradeTrackThumb(authoritativeSong))
                 }
-                exactAlbumMatch != null -> {
-                    SearchTopResult.AlbumResult(exactAlbumMatch)
+                generalResults.topResult is SearchTopResult.SongResult -> {
+                    SearchTopResult.SongResult(upgradeTrackThumb((generalResults.topResult as SearchTopResult.SongResult).track))
                 }
                 exactArtistMatch != null -> {
                     SearchTopResult.ArtistResult(exactArtistMatch)
                 }
-                generalResults.topResult != null -> {
-                    when (val tr = generalResults.topResult) {
-                        is SearchTopResult.SongResult -> {
-                            val topTrack = tr.track
-                            val studioMatch = officialSongs.find {
-                                com.auralis.music.domain.recommendations.TrackDeduplicator.isDuplicateTrack(it, topTrack)
-                            } ?: finalMatchedSongs.find {
-                                com.auralis.music.domain.recommendations.TrackDeduplicator.isDuplicateTrack(it, topTrack)
-                            }
-                            val bestTrack = studioMatch ?: topTrack
-                            SearchTopResult.SongResult(upgradeTrackThumb(bestTrack))
-                        }
-                        else -> tr
-                    }
+                exactAlbumMatch != null -> {
+                    SearchTopResult.AlbumResult(exactAlbumMatch)
                 }
                 else -> null
             }
@@ -278,98 +338,54 @@ class SearchRepositoryImpl(
                 }
             }
 
-            // Resolve Primary Album (e.g. "Death of a Party Girl" for "Blue Hair", "Graduation" for "Graduation", "OK Computer" for "OK Computer")
-            val primaryAlbum: PlaylistResult? = when {
+            // Resolve Primary Album (Metrolist / InnerTube get_queue specification)
+            var primaryAlbum: PlaylistResult? = when {
                 resolvedTopResult is SearchTopResult.AlbumResult -> resolvedTopResult.album
                 resolvedTopResult is SearchTopResult.SongResult -> {
                     val track = resolvedTopResult.track
                     val targetArtist = primaryArtist?.name ?: track.artist
 
-                    // 1. If the song already has a verified albumId from YouTube Music, use it directly!
-                    if (!track.albumId.isNullOrBlank() && !track.album.isNullOrBlank() &&
-                        !track.album.equals("Single", ignoreCase = true) &&
-                        !track.album.equals("Unknown Album", ignoreCase = true)) {
+                    // 1. If the track already has verified album metadata from InnerTube
+                    if (!track.albumId.isNullOrBlank() && !track.album.isNullOrBlank()) {
                         PlaylistResult(
                             id = track.albumId,
                             title = track.album,
                             thumbnail = track.thumbnail.ifBlank { null },
                             author = targetArtist
                         )
-                    } else if (!track.albumId.isNullOrBlank() && track.album.isNullOrBlank()) {
-                        PlaylistResult(
-                            id = track.albumId,
-                            title = track.title,
-                            thumbnail = track.thumbnail.ifBlank { null },
-                            author = targetArtist
-                        )
                     } else {
-                        val albumTitle = track.album?.takeIf {
-                            it.isNotBlank() && !it.equals("Single", ignoreCase = true) && !it.equals("Unknown Album", ignoreCase = true)
-                        } ?: finalMatchedSongs.firstOrNull {
-                            (it.id == track.id || it.title.equals(track.title, ignoreCase = true)) &&
-                            !it.album.isNullOrBlank() &&
-                            !it.album.equals("Single", ignoreCase = true) &&
-                            !it.album.equals("Unknown Album", ignoreCase = true)
-                        }?.album
+                        // 2. Fetch authentic album metadata via getSongDetails (matching Metrolist YouTube.queue)
+                        val detailedTrack = try {
+                            innerTubeClient.getSongDetails(track.id)
+                        } catch (_: Exception) { null }
 
-                        if (!albumTitle.isNullOrBlank()) {
-                            // Check if the album is already present in rankedAlbums with STRICT author match
-                            var found = rankedAlbums.find { album ->
-                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) && (
-                                    album.title.equals(albumTitle, ignoreCase = true) ||
-                                    album.title.contains(albumTitle, ignoreCase = true) ||
-                                    albumTitle.contains(album.title, ignoreCase = true)
+                        if (detailedTrack != null && !detailedTrack.albumId.isNullOrBlank() && !detailedTrack.album.isNullOrBlank()) {
+                            // Update resolvedTopResult so the top song card reflects the authentic album
+                            resolvedTopResult = SearchTopResult.SongResult(
+                                track.copy(
+                                    album = detailedTrack.album,
+                                    albumId = detailedTrack.albumId
                                 )
-                            }
-
-                            // If not found in original query results, fetch specifically by album title & artist from YouTube Music
-                            if (found == null) {
-                                try {
-                                    val albumSearch = innerTubeClient.search("$albumTitle $targetArtist", InnerTubeClient.FILTER_ALBUMS).albums
-                                    found = albumSearch.find { album ->
-                                        com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) && (
-                                            album.title.equals(albumTitle, ignoreCase = true) ||
-                                            album.title.contains(albumTitle, ignoreCase = true) ||
-                                            albumTitle.contains(album.title, ignoreCase = true)
-                                        )
-                                    }
-                                } catch (_: Exception) { null }
-                            }
-                            found
+                            )
+                            PlaylistResult(
+                                id = detailedTrack.albumId,
+                                title = detailedTrack.album,
+                                thumbnail = track.thumbnail.ifBlank { null },
+                                author = targetArtist
+                            )
                         } else {
-                            // Song has no album tag; search for an album strictly by this artist
-                            var found = rankedAlbums.find { album ->
-                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) && (
-                                    album.title.contains(track.title, ignoreCase = true) || track.title.contains(album.title, ignoreCase = true)
-                                )
+                            // 3. Match against rankedAlbums if an album by this artist matches the song title
+                            val matchingAlbum = rankedAlbums.firstOrNull { album ->
+                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) &&
+                                (album.title.equals(track.title, ignoreCase = true) ||
+                                 track.title.contains(album.title, ignoreCase = true) ||
+                                 album.title.contains(track.title, ignoreCase = true))
                             }
-                            if (found == null && targetArtist.isNotBlank() && !targetArtist.equals("Unknown Artist", ignoreCase = true)) {
-                                try {
-                                    val artistAlbums = innerTubeClient.search(targetArtist, InnerTubeClient.FILTER_ALBUMS).albums
-                                    found = artistAlbums.find { album ->
-                                        com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist)
-                                    }
-                                } catch (_: Exception) { null }
-                            }
-                            found
+                            matchingAlbum
                         }
                     }
                 }
-                exactAlbumMatch != null && primaryArtist != null && com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(exactAlbumMatch.author, primaryArtist.name) -> exactAlbumMatch
-                primaryArtist != null -> {
-                    var found = rankedAlbums.find { album ->
-                        com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
-                    }
-                    if (found == null && !primaryArtist.name.equals("Unknown Artist", ignoreCase = true)) {
-                        try {
-                            val artistAlbums = innerTubeClient.search(primaryArtist.name, InnerTubeClient.FILTER_ALBUMS).albums
-                            found = artistAlbums.firstOrNull { album ->
-                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
-                            }
-                        } catch (_: Exception) { null }
-                    }
-                    found
-                }
+                exactAlbumMatch != null -> exactAlbumMatch
                 else -> null
             }
 

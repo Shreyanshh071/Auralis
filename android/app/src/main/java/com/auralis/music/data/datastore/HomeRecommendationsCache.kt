@@ -3,6 +3,7 @@ package com.auralis.music.data.datastore
 import android.content.Context
 import com.auralis.music.domain.model.DailyDiscoverItem
 import com.auralis.music.domain.model.SimilarRecommendation
+import com.auralis.music.domain.model.SpeedDialItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
@@ -12,7 +13,7 @@ import java.io.File
 
 /**
  * High-performance disk & memory persistence for Home recommendation shelves
- * ("Similar to [Artist]" & "Similar to [Song]" & "Daily Discover").
+ * ("Similar to [Artist]" & "Similar to [Song]" & "Daily Discover" & "Speed Dial").
  * Guarantees that recommendations are instantly visible upon opening the app (0ms latency),
  * persisting seamlessly across app sessions and updates.
  */
@@ -25,10 +26,17 @@ object HomeRecommendationsCache {
     }
 
     @Volatile
+    private var inMemorySpeedDial: List<List<SpeedDialItem>>? = null
+
+    @Volatile
     private var inMemorySimilarRecs: List<SimilarRecommendation>? = null
 
     @Volatile
     private var inMemoryDailyDiscover: List<DailyDiscoverItem>? = null
+
+    private fun getSpeedDialFile(context: Context): File {
+        return File(context.filesDir, "speed_dial_cache.json")
+    }
 
     private fun getSimilarRecsFile(context: Context): File {
         return File(context.filesDir, "similar_recommendations_cache.json")
@@ -37,6 +45,38 @@ object HomeRecommendationsCache {
     private fun getDailyDiscoverFile(context: Context): File {
         return File(context.filesDir, "daily_discover_cache.json")
     }
+
+    suspend fun getCachedSpeedDial(context: Context): List<List<SpeedDialItem>> {
+        inMemorySpeedDial?.let { if (it.isNotEmpty()) return it }
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val file = getSpeedDialFile(context)
+                if (file.exists()) {
+                    val content = file.readText()
+                    if (content.isNotBlank()) {
+                        val parsed = json.decodeFromString<List<List<SpeedDialItem>>>(content)
+                        inMemorySpeedDial = parsed
+                        return@withContext parsed
+                    }
+                }
+            } catch (_: Exception) {}
+            emptyList()
+        }
+    }
+
+    suspend fun saveSpeedDial(context: Context, pages: List<List<SpeedDialItem>>) {
+        if (pages.isEmpty()) return
+        inMemorySpeedDial = pages
+        withContext(Dispatchers.IO) {
+            try {
+                val file = getSpeedDialFile(context)
+                val content = json.encodeToString(pages)
+                file.writeText(content)
+            } catch (_: Exception) {}
+        }
+    }
+
 
     suspend fun getCachedSimilarRecommendations(context: Context): List<SimilarRecommendation> {
         inMemorySimilarRecs?.let { if (it.isNotEmpty()) return it }

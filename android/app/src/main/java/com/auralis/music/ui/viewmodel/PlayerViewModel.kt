@@ -275,6 +275,9 @@ class PlayerViewModel(
                                 artist = nextInQueue.artist,
                                 durationSec = nextInQueue.duration,
                                 videoId = nextInQueue.id,
+                                album = nextInQueue.album,
+                                channelTitle = nextInQueue.channelTitle,
+                                durationMs = nextInQueue.duration * 1000L,
                                 forceRefresh = false
                             )
                         } catch (_: Exception) {}
@@ -806,12 +809,19 @@ class PlayerViewModel(
         }
         lyricsJob = viewModelScope.launch {
             // 1. Instant check in local cache (memory + Room DB) for 0ms display
+            val exactDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
+                ?: _uiState.value.durationMs.takeIf { it > 0L }
+                ?: (track.duration * 1000L)
+
             val cached = withContext(Dispatchers.IO) {
                 lyricsRepository.getCachedLyrics(
                     title = track.title,
                     artist = track.artist,
                     durationSec = track.duration,
-                    videoId = track.id
+                    videoId = track.id,
+                    album = track.album,
+                    channelTitle = track.channelTitle,
+                    durationMs = exactDurationMs
                 )
             }
             // A cached RICHSYNC entry is already the best tier available; nothing to
@@ -836,7 +846,8 @@ class PlayerViewModel(
                 }
             }
 
-            if (cachedIsUsable && !lyricsUpgradeAttempted.add(track.id)) {
+            val trackKey = (track.id.takeIf { it.isNotBlank() } ?: "${track.title}::${track.artist}::${track.duration}").lowercase()
+            if (cachedIsUsable && !lyricsUpgradeAttempted.add(trackKey)) {
                 return@launch
             }
 
@@ -848,6 +859,9 @@ class PlayerViewModel(
                         artist = track.artist,
                         durationSec = track.duration,
                         videoId = track.id,
+                        album = track.album,
+                        channelTitle = track.channelTitle,
+                        durationMs = exactDurationMs,
                         // The caches were already consulted above; without this the
                         // upgrade query would just return the same cached row.
                         forceRefresh = true
@@ -863,7 +877,11 @@ class PlayerViewModel(
                         _uiState.update { it.copy(lyrics = cached ?: data, isLoadingLyrics = false) }
                     }
                 }
+                if (data == null || lyricsTier(data) <= lyricsTier(cached)) {
+                    lyricsUpgradeAttempted.remove(trackKey)
+                }
             } catch (_: Exception) {
+                lyricsUpgradeAttempted.remove(trackKey)
                 if (requestId == currentPlaybackRequestId.get()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                 }
@@ -917,12 +935,18 @@ class PlayerViewModel(
         _uiState.update { it.copy(isLoadingLyrics = true) }
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
+            val exactDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
+                ?: _uiState.value.durationMs.takeIf { it > 0L }
+                ?: (track.duration * 1000L)
             val data = withContext(Dispatchers.IO) {
                 lyricsRepository.getLyrics(
                     title = customTitle.ifBlank { track.title },
                     artist = customArtist.ifBlank { track.artist },
                     durationSec = track.duration,
                     videoId = track.id,
+                    album = track.album,
+                    channelTitle = track.channelTitle,
+                    durationMs = exactDurationMs,
                     forceRefresh = true
                 )
             }

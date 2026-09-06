@@ -34,7 +34,8 @@ import kotlin.math.roundToInt
 
 /**
  * Wraps a track item row with swipe-to-queue, swipe-to-play-next, and swipe-to-remove actions.
- * Optimized for 120fps buttery smooth list scrolling.
+ * Optimized for 120fps buttery smooth list scrolling — swipe state is only allocated
+ * when swipe gestures are enabled, not per-item unconditionally.
  */
 @Composable
 fun SwipeableTrackContainer(
@@ -49,11 +50,17 @@ fun SwipeableTrackContainer(
     val isSwipeQueueNextEnabled = appearance.swipeLeftQueueRightPlayNext
     val isSwipeRemoveEnabled = appearance.swipeToRemoveSongFromPlaylist && isPlaylistContext && onRemoveFromPlaylist != null
 
+    // Fast path: no swipe features enabled — render content directly with zero overhead
     if (!isSwipeQueueNextEnabled && !isSwipeRemoveEnabled) {
-        Box(modifier = modifier) { content() }
+        if (modifier == Modifier) {
+            content()
+        } else {
+            Box(modifier = modifier) { content() }
+        }
         return
     }
 
+    // Swipe state — only allocated when at least one swipe feature is enabled
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
@@ -68,6 +75,10 @@ fun SwipeableTrackContainer(
             offsetX.snapTo(target)
         }
     }
+
+    // Defer state reads using derivedStateOf to prevent recomposition on every sub-pixel scroll/animation frame
+    val isSwipingRight by remember { derivedStateOf { offsetX.value > 8f } }
+    val isSwipingLeft by remember { derivedStateOf { offsetX.value < -8f } }
 
     Box(
         modifier = modifier
@@ -105,8 +116,8 @@ fun SwipeableTrackContainer(
                 }
             )
     ) {
-        // Background action indicators (only evaluated during swipe)
-        if (offsetX.value > 8f) {
+        // Background action indicators (only composed when swiping — zero overhead during idle scroll)
+        if (isSwipingRight) {
             // Swiping Right -> Play Next (Left background revealed)
             Box(
                 modifier = Modifier
@@ -133,7 +144,7 @@ fun SwipeableTrackContainer(
                     )
                 }
             }
-        } else if (offsetX.value < -8f) {
+        } else if (isSwipingLeft) {
             // Swiping Left -> Add to Queue OR Remove from Playlist
             val isDelete = isSwipeRemoveEnabled
             val bgColor = if (isDelete) Color(0xFF331414) else Color(0xFF162B1E)

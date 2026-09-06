@@ -289,7 +289,7 @@ fun MiniPlayer(
                 ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(it.thumbnail)
         }
     }
-    var extractedColors by remember(currentTrack?.id) {
+    var extractedColors by remember {
         mutableStateOf(cachedPalette ?: com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette)
     }
     LaunchedEffect(currentTrack?.id, currentTrack?.thumbnail) {

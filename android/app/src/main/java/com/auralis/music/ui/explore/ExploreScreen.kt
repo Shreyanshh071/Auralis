@@ -698,8 +698,6 @@ private fun SearchResultsView(
     val primaryAlbum = results.primaryAlbum?.takeIf { album ->
         primaryArtist == null || com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
     }
-    val singleTrack = (results.topResult as? SearchTopResult.SongResult)?.track
-        ?: results.songs.firstOrNull()
     val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
         (results.primaryArtist != null && query.isNotBlank() &&
             com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist.name, query))
@@ -876,9 +874,7 @@ private fun SearchResultsView(
                 val headerTitle = when {
                     primaryArtist != null && primaryAlbum != null -> "Artist & Album"
                     primaryAlbum != null -> "Album"
-                    primaryArtist != null && singleTrack != null -> "Artist & Single"
-                    primaryArtist != null -> "Artist"
-                    else -> "Single"
+                    else -> "Artist"
                 }
                 Text(
                     text = headerTitle,
@@ -890,12 +886,12 @@ private fun SearchResultsView(
             }
 
             item(key = "row_artist_album") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Artist Card (Left)
-                    if (primaryArtist != null) {
+                if (primaryArtist != null && primaryAlbum != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Artist Card (Left)
                         Card(
                             modifier = Modifier
                                 .weight(1f)
@@ -960,12 +956,8 @@ private fun SearchResultsView(
                                 }
                             }
                         }
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
 
-                    // Album Card (Right)
-                    if (primaryAlbum != null) {
+                        // Album Card (Right)
                         Card(
                             modifier = Modifier
                                 .weight(1f)
@@ -1013,56 +1005,119 @@ private fun SearchResultsView(
                                 }
                             }
                         }
-                    } else if (singleTrack != null) {
-                        Card(
+                    }
+                } else if (primaryArtist != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onArtistClick(primaryArtist) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { onTrackClick(singleTrack, results.songs.ifEmpty { listOf(singleTrack) }) },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                            shape = RoundedCornerShape(16.dp)
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail.contains("i.ytimg.com/vi/")) {
                                 ArtworkCard(
-                                    url = singleTrack.thumbnail,
-                                    modifier = Modifier.size(46.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = singleTrack.title
+                                    url = primaryArtist.thumbnail,
+                                    modifier = Modifier.size(50.dp).clip(CircleShape),
+                                    cornerRadius = 25.dp,
+                                    contentDescription = primaryArtist.name
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "SINGLE",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = singleTrack.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = singleTrack.artist.ifBlank { primaryArtist?.name ?: "Single" },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(26.dp)
                                     )
                                 }
                             }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ARTIST",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = primaryArtist.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Top songs & albums",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                } else if (primaryAlbum != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onPlaylistClick(primaryAlbum) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ArtworkCard(
+                                url = primaryAlbum.thumbnail,
+                                modifier = Modifier.size(50.dp),
+                                cornerRadius = 8.dp,
+                                contentDescription = primaryAlbum.title
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ALBUM",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = primaryAlbum.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = primaryAlbum.author ?: "Album",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1082,7 +1137,11 @@ private fun SearchResultsView(
         }
 
         if (results.songs.isNotEmpty()) {
-            items(results.songs, key = { "match_${it.id}" }) { track ->
+            items(
+                items = results.songs,
+                key = { "match_${it.id}" },
+                contentType = { "song" }
+            ) { track ->
                 val isCurrent = track.id == currentTrackId
                 TrackRowItem(
                     track = track,
@@ -1148,7 +1207,11 @@ private fun SearchResultsView(
                 }
             }
 
-            items(recommendations, key = { "rec_${it.id}" }) { track ->
+            items(
+                items = recommendations,
+                key = { "rec_${it.id}" },
+                contentType = { "song" }
+            ) { track ->
                 val isCurrent = track.id == currentTrackId
                 TrackRowItem(
                     track = track,
@@ -1185,10 +1248,7 @@ private fun TrackRowItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .combinedClickable(
-                    onClick = { onTrackClick(track, playlist) },
-                    onLongClick = { onMenuClick(track) }
-                )
+                .clickable { onTrackClick(track, playlist) }
                 .padding(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1208,17 +1268,19 @@ private fun TrackRowItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val subtitleText = buildString {
-                    if (track.artist.isNotBlank()) {
-                        append(track.artist)
-                    }
-                    if (!track.album.isNullOrBlank()) {
-                        append(" • ${track.album}")
-                    }
-                    if (!track.views.isNullOrBlank()) {
-                        append(" • ${track.views}")
-                    } else if (track.album.isNullOrBlank()) {
-                        append(" • Single")
+                val subtitleText = remember(track.artist, track.album, track.views) {
+                    buildString {
+                        if (track.artist.isNotBlank()) {
+                            append(track.artist)
+                        }
+                        if (!track.album.isNullOrBlank()) {
+                            append(" • ${track.album}")
+                        }
+                        if (!track.views.isNullOrBlank()) {
+                            append(" • ${track.views}")
+                        } else if (track.album.isNullOrBlank()) {
+                            append(" • Single")
+                        }
                     }
                 }
                 Text(

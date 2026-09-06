@@ -37,7 +37,6 @@ class AuralisApplication : Application(), ImageLoaderFactory {
             }
             .respectCacheHeaders(false)
             .allowHardware(true)
-            .allowRgb565(true)
             .networkCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)

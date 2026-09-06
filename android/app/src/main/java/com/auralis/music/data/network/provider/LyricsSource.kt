@@ -9,7 +9,9 @@ data class LyricsSearchQuery(
     val artist: String,
     val durationSec: Long? = null,
     val videoId: String? = null,
-    val album: String? = null
+    val album: String? = null,
+    val channelTitle: String? = null,
+    val durationMs: Long? = null
 )
 
 data class LyricsCandidate(

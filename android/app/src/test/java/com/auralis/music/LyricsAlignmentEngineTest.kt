@@ -272,4 +272,195 @@ class LyricsAlignmentEngineTest {
         assertEquals(10_000L, originalWord.time)
         assertEquals(500L, originalWord.duration)
     }
+
+    @Test
+    fun `LyricsSearchQuery propagates album, channelTitle, and durationMs`() {
+        val query = com.auralis.music.data.network.provider.LyricsSearchQuery(
+            title = "Blinding Lights",
+            artist = "The Weeknd",
+            durationSec = 200L,
+            videoId = "fHI8X483mQw",
+            album = "After Hours",
+            channelTitle = "The Weeknd",
+            durationMs = 200_040L
+        )
+
+        assertEquals("Blinding Lights", query.title)
+        assertEquals("The Weeknd", query.artist)
+        assertEquals(200L, query.durationSec)
+        assertEquals("fHI8X483mQw", query.videoId)
+        assertEquals("After Hours", query.album)
+        assertEquals("The Weeknd", query.channelTitle)
+        assertEquals(200_040L, query.durationMs)
+    }
+
+    @Test
+    fun `master match evaluates version alterations as MASTER_MISMATCH`() {
+        val studioLyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            provider = LyricsProvider.BETTER_LYRICS,
+            trackName = "Hotel California (Live On MTV)",
+            durationMs = 200_000L,
+            lines = listOf(LyricLine(time = 10_000L, text = "Welcome"))
+        )
+
+        // Playback is studio version
+        val status1 = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = studioLyrics,
+            playbackDurationMs = 200_000L,
+            playbackTitle = "Hotel California",
+            candidateTitle = studioLyrics.trackName
+        )
+        assertEquals(MasterMatchStatus.MASTER_MISMATCH, status1)
+
+        // Playback is acoustic, candidate is regular
+        val regularLyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            provider = LyricsProvider.BETTER_LYRICS,
+            trackName = "Creep",
+            durationMs = 238_000L,
+            lines = listOf(LyricLine(time = 10_000L, text = "When you were here"))
+        )
+        val status2 = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = regularLyrics,
+            playbackDurationMs = 238_000L,
+            playbackTitle = "Creep (Acoustic Version)",
+            candidateTitle = regularLyrics.trackName
+        )
+        assertEquals(MasterMatchStatus.MASTER_MISMATCH, status2)
+
+        // Playback is remix, candidate is regular
+        val status3 = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = regularLyrics,
+            playbackDurationMs = 238_000L,
+            playbackTitle = "Creep (Club Remix)",
+            candidateTitle = regularLyrics.trackName
+        )
+        assertEquals(MasterMatchStatus.MASTER_MISMATCH, status3)
+
+        // Playback is slowed + reverb
+        val status4 = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = regularLyrics,
+            playbackDurationMs = 238_000L,
+            playbackTitle = "Creep (Slowed + Reverb)",
+            candidateTitle = regularLyrics.trackName
+        )
+        assertEquals(MasterMatchStatus.MASTER_MISMATCH, status4)
+    }
+
+    @Test
+    fun `master match detects music video with duration delta greater than 1_5s as MASTER_MISMATCH`() {
+        val lyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            provider = LyricsProvider.BETTER_LYRICS,
+            durationMs = 200_000L,
+            lines = listOf(LyricLine(time = 10_000L, text = "Test"))
+        )
+
+        // YouTube title has Official Music Video and audio is 202.2s (delta 2.2s > 1.5s)
+        val status = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = lyrics,
+            playbackDurationMs = 202_200L,
+            playbackTitle = "Espresso (Official Music Video)"
+        )
+        assertEquals(MasterMatchStatus.MASTER_MISMATCH, status)
+
+        // But within 1.5s delta, it is allowed as EXACT_MATCH
+        val statusExact = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = lyrics,
+            playbackDurationMs = 200_800L,
+            playbackTitle = "Espresso (Official Music Video)"
+        )
+        assertEquals(MasterMatchStatus.EXACT_MATCH, statusExact)
+    }
+
+    @Test
+    fun `provider ranking prefers BetterLyrics over NetEase and Musixmatch RichSync`() {
+        // Aligned BetterLyrics word-sync outranks NetEase word-sync even if NetEase has higher raw score
+        assertTrue(
+            "BetterLyrics must outrank NetEase word sync",
+            LyricsClient.outranks(
+                tier = LyricsClient.TIER_WORD,
+                score = 140.0,
+                provider = LyricsProvider.BETTER_LYRICS,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                bestTier = LyricsClient.TIER_WORD,
+                bestScore = 170.0,
+                bestProvider = LyricsProvider.NETEASE,
+                bestMasterMatch = MasterMatchStatus.EXACT_MATCH
+            )
+        )
+
+        // NetEase word-sync outranks Musixmatch word-sync
+        assertTrue(
+            "NetEase must outrank Musixmatch word sync",
+            LyricsClient.outranks(
+                tier = LyricsClient.TIER_WORD,
+                score = 140.0,
+                provider = LyricsProvider.NETEASE,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                bestTier = LyricsClient.TIER_WORD,
+                bestScore = 160.0,
+                bestProvider = LyricsProvider.MUSIXMATCH,
+                bestMasterMatch = MasterMatchStatus.EXACT_MATCH
+            )
+        )
+
+        // Musixmatch word-sync outranks LRCLIB line-sync
+        assertTrue(
+            "Musixmatch word sync must outrank LRCLIB line sync",
+            LyricsClient.outranks(
+                tier = LyricsClient.TIER_WORD,
+                score = 120.0,
+                provider = LyricsProvider.MUSIXMATCH,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                bestTier = LyricsClient.TIER_LINE,
+                bestScore = 150.0,
+                bestProvider = LyricsProvider.LRCLIB,
+                bestMasterMatch = MasterMatchStatus.EXACT_MATCH
+            )
+        )
+    }
+
+    @Test
+    fun `NetEase does not win instantly so BetterLyrics has a chance to race`() {
+        // NetEase word sync should NOT win instantly
+        assertFalse(
+            "NetEase word sync must not trigger instant settlement",
+            LyricsClient.isInstantWinner(
+                tier = LyricsClient.TIER_WORD,
+                score = 160.0,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                provider = LyricsProvider.NETEASE
+            )
+        )
+
+        // BetterLyrics word sync DOES win instantly
+        assertTrue(
+            "BetterLyrics word sync qualifies for instant settlement",
+            LyricsClient.isInstantWinner(
+                tier = LyricsClient.TIER_WORD,
+                score = 160.0,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                provider = LyricsProvider.BETTER_LYRICS
+            )
+        )
+    }
+
+    @Test
+    fun `word-sync with duration delta exceeding 3_5s is rejected as MASTER_MISMATCH`() {
+        val lyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            provider = LyricsProvider.BETTER_LYRICS,
+            durationMs = 200_000L,
+            lines = listOf(LyricLine(time = 10_000L, text = "Test"))
+        )
+
+        // Delta = 3.6s (> 3.5s limit)
+        val status = LyricsAlignmentEngine.evaluateMasterMatch(
+            lyrics = lyrics,
+            playbackDurationMs = 203_600L
+        )
+        assertEquals(MasterMatchStatus.MASTER_MISMATCH, status)
+    }
 }

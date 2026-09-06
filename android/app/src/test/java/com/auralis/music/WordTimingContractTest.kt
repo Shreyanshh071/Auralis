@@ -9,6 +9,7 @@ import com.auralis.music.data.parser.YrcParser
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.SyncType
+import com.auralis.music.ui.lyrics.resolveEffectiveWords
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -248,5 +249,68 @@ class WordTimingContractTest {
         assertEquals(200L, words!![0].duration)
         assertEquals(300L, words[1].duration)
         assertNoWordOverlapsTheNext("TTML (with ends)", data.lines)
+    }
+
+    @Test
+    fun `TIER_LINE lyric does not receive fabricated word timing`() {
+        // Line-synced track (e.g. Touch by Cigarettes After Sex from LRCLIB)
+        val line = LyricLine(
+            time = 145_000L,
+            text = "And I know it's been awhile since I needed a distraction",
+            words = null
+        )
+
+        val result = resolveEffectiveWords(line, SyncType.LINE_SYNC)
+        assertNull("TIER_LINE lyric must return null words to prevent fabricated word sweep", result)
+
+        // Line with empty words list under LINE_SYNC
+        val emptyWordsLine = LyricLine(
+            time = 145_000L,
+            text = "And I know it's been awhile since I needed a distraction",
+            words = emptyList()
+        )
+        assertNull("Empty words under LINE_SYNC must resolve to null", resolveEffectiveWords(emptyWordsLine, SyncType.LINE_SYNC))
+
+        // Line that has words attached but syncType is LINE_SYNC: must still be rejected
+        val fakeWordsLine = LyricLine(
+            time = 145_000L,
+            text = "Hold on",
+            words = listOf(
+                com.auralis.music.domain.model.LyricWord("Hold ", 145_000L),
+                com.auralis.music.domain.model.LyricWord("on", 145_500L)
+            )
+        )
+        assertNull("TIER_LINE must reject word timing even if words are present on LyricLine", resolveEffectiveWords(fakeWordsLine, SyncType.LINE_SYNC))
+
+        // PLAIN sync must also resolve to null
+        assertNull("PLAIN sync must resolve to null words", resolveEffectiveWords(line, SyncType.PLAIN))
+    }
+
+    @Test
+    fun `genuine TIER_WORD lyrics retain their exact word timings`() {
+        val genuineWords = listOf(
+            com.auralis.music.domain.model.LyricWord("I ", 12_000L, 220L, isBackground = false),
+            com.auralis.music.domain.model.LyricWord("said ", 12_260L, 300L, isBackground = false),
+            com.auralis.music.domain.model.LyricWord("ooh", 12_600L, 480L, isBackground = false),
+            com.auralis.music.domain.model.LyricWord("(yeah)", 13_100L, 350L, isBackground = true)
+        )
+        val line = LyricLine(
+            time = 12_000L,
+            text = "I said ooh (yeah)",
+            words = genuineWords
+        )
+
+        val result = resolveEffectiveWords(line, SyncType.RICHSYNC)
+        assertNotNull("TIER_WORD with genuine words must return non-null words", result)
+        assertEquals("Word count must match exactly", genuineWords.size, result!!.size)
+        assertEquals("Genuine word list must be returned verbatim", genuineWords, result)
+
+        // Verify each word timestamp, duration, background flag is 100% preserved
+        for (i in genuineWords.indices) {
+            assertEquals("Word text must be unchanged", genuineWords[i].word, result[i].word)
+            assertEquals("Word time must be unchanged", genuineWords[i].time, result[i].time)
+            assertEquals("Word duration must be unchanged", genuineWords[i].duration, result[i].duration)
+            assertEquals("Word isBackground must be unchanged", genuineWords[i].isBackground, result[i].isBackground)
+        }
     }
 }

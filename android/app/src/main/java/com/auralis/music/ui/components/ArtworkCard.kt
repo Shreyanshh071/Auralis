@@ -33,42 +33,52 @@ private val MZSTATIC_REGEX = Regex("""\d+x\d+bb""")
 
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
 
+// High-performance LRU cache to eliminate redundant regex evaluation on thousands of track items during scrolling
+private val artworkUrlCache = androidx.collection.LruCache<String, String>(500)
+
 /**
- * Optimizes thumbnail URLs to crisp, hardware-accelerated HD artwork (544x544 or 480x360),
- * avoiding memory bloat and maximizing scroll framerates without causing 404 error cascades.
+ * Optimizes thumbnail URLs to uncompressed studio master HD artwork (1200x1200 or 720p),
+ * providing razor-sharp, crystal-clear album covers.
  */
 fun getHighResArtworkUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
+    artworkUrlCache[url]?.let { return it }
+
     var cleaned = url.trim()
     if (cleaned.startsWith("//")) cleaned = "https:$cleaned"
 
-    // YouTube Music & Google User Content (1:1 square crisp 544x544 artwork):
-    if (cleaned.contains("googleusercontent.com") || cleaned.contains("ggpht.com")) {
-        return cleaned.replace(GOOGLE_W_REGEX, "=w544-h544-l90-rj")
-            .replace(GOOGLE_S_REGEX, "=s544-c")
-    }
-    // YouTube video thumbnail (reliable 100% available 480x360 HD artwork):
-    if (cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu")) {
-        val match = YOUTUBE_VIDEO_ID_REGEX.find(cleaned)?.groupValues?.getOrNull(1)
-        return if (!match.isNullOrBlank()) {
-            "https://i.ytimg.com/vi/$match/hqdefault.jpg"
-        } else {
-            val noQuery = cleaned.substringBefore('?')
-            noQuery.replace("default.jpg", "hqdefault.jpg")
-                .replace("mqdefault.jpg", "hqdefault.jpg")
-                .replace("hq720.jpg", "hqdefault.jpg")
+    val result = when {
+        // YouTube Music & Google User Content: upgrade to studio master 1200x1200 uncompressed artwork:
+        cleaned.contains("googleusercontent.com") || cleaned.contains("ggpht.com") -> {
+            cleaned.replace(GOOGLE_W_REGEX, "=w1200-h1200-l90-rj")
+                .replace(GOOGLE_S_REGEX, "=s1200-c")
         }
+        // YouTube video thumbnail: upgrade to 1280x720 HD hq720
+        cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu") -> {
+            val match = YOUTUBE_VIDEO_ID_REGEX.find(cleaned)?.groupValues?.getOrNull(1)
+            if (!match.isNullOrBlank()) {
+                "https://i.ytimg.com/vi/$match/hq720.jpg"
+            } else {
+                val noQuery = cleaned.substringBefore('?')
+                noQuery.replace("hqdefault.jpg", "hq720.jpg")
+                    .replace("mqdefault.jpg", "hq720.jpg")
+                    .replace("default.jpg", "hq720.jpg")
+            }
+        }
+        // iTunes / Apple Music artwork: 1200x1200bb uncompressed
+        cleaned.contains("mzstatic.com") -> {
+            cleaned.replace(MZSTATIC_REGEX, "1200x1200bb")
+        }
+        // Spotify artwork: 640x640 highest resolution
+        cleaned.contains("i.scdn.co/image/ab67616d00004851") || cleaned.contains("i.scdn.co/image/ab67616d00001e02") -> {
+            cleaned.replace("ab67616d00004851", "ab67616d0000b273")
+                .replace("ab67616d00001e02", "ab67616d0000b273")
+        }
+        else -> cleaned
     }
-    // iTunes / Apple Music artwork:
-    if (cleaned.contains("mzstatic.com")) {
-        return cleaned.replace(MZSTATIC_REGEX, "600x600bb")
-    }
-    // Spotify artwork:
-    if (cleaned.contains("i.scdn.co/image/ab67616d00004851") || cleaned.contains("i.scdn.co/image/ab67616d00001e02")) {
-        return cleaned.replace("ab67616d00004851", "ab67616d0000b273")
-            .replace("ab67616d00001e02", "ab67616d0000b273")
-    }
-    return cleaned
+
+    artworkUrlCache.put(url, result)
+    return result
 }
 
 @Composable
@@ -112,9 +122,8 @@ fun ArtworkCard(
     contentScale: ContentScale = ContentScale.Crop
 ) {
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-    val context = LocalContext.current
 
-    // Resolve the best primary URL instantly without network cascades
+    // Resolve the best primary URL instantly with LRU cache lookup
     val resolvedUrl = remember(url) {
         if (!url.isNullOrBlank()) getHighResArtworkUrl(url) ?: url else null
     }
@@ -122,37 +131,44 @@ fun ArtworkCard(
     val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail) {
         when {
             fallbackTrack != null && !fallbackTrack.thumbnail.isNullOrBlank() -> getHighResArtworkUrl(fallbackTrack.thumbnail) ?: fallbackTrack.thumbnail
-            fallbackTrack != null && !fallbackTrack.id.startsWith("sp_") && fallbackTrack.id.length in 8..15 -> "https://i.ytimg.com/vi/${fallbackTrack.id}/hqdefault.jpg"
+            fallbackTrack != null && fallbackTrack.id.length in 8..15 -> "https://i.ytimg.com/vi/${fallbackTrack.id}/hqdefault.jpg"
             else -> null
         }
     }
 
     var isPrimaryError by remember(resolvedUrl) { mutableStateOf(false) }
 
-    val activeUrl = remember(resolvedUrl, fallbackUrl, isPrimaryError) {
-        if (!resolvedUrl.isNullOrBlank() && !isPrimaryError) {
-            resolvedUrl
-        } else {
-            fallbackUrl
-        }
-    }
-
-    val isYouTubeVideoThumb = remember(activeUrl) {
-        activeUrl != null && (activeUrl.contains("i.ytimg.com") || activeUrl.contains("img.youtube.com"))
+    val activeUrl = if (!resolvedUrl.isNullOrBlank() && !isPrimaryError) {
+        resolvedUrl
+    } else {
+        fallbackUrl
     }
 
     var isError by remember(activeUrl) { mutableStateOf(false) }
 
-    val request = remember(activeUrl) {
-        if (!activeUrl.isNullOrBlank()) {
+    val context = LocalContext.current
+    val imageRequest = remember(activeUrl) {
+        if (activeUrl.isNullOrBlank()) null else {
             ImageRequest.Builder(context)
                 .data(activeUrl)
                 .allowHardware(true)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
-                .crossfade(false)
+                .crossfade(true)
                 .build()
-        } else null
+        }
+    }
+
+    val onStateCallback = remember(resolvedUrl, fallbackUrl) {
+        { state: AsyncImagePainter.State ->
+            if (state is AsyncImagePainter.State.Error) {
+                if (!isPrimaryError && !resolvedUrl.isNullOrBlank() && !fallbackUrl.isNullOrBlank() && resolvedUrl != fallbackUrl) {
+                    isPrimaryError = true
+                } else {
+                    isError = true
+                }
+            }
+        }
     }
 
     Box(
@@ -162,20 +178,12 @@ fun ArtworkCard(
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
-        if (request != null && !isError) {
+        if (!activeUrl.isNullOrBlank() && !isError) {
             AsyncImage(
-                model = request,
+                model = imageRequest ?: activeUrl,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
-                onState = { state ->
-                    if (state is AsyncImagePainter.State.Error) {
-                        if (!isPrimaryError && !resolvedUrl.isNullOrBlank() && !fallbackUrl.isNullOrBlank() && resolvedUrl != fallbackUrl) {
-                            isPrimaryError = true
-                        } else {
-                            isError = true
-                        }
-                    }
-                },
+                onState = onStateCallback,
                 modifier = Modifier.fillMaxSize()
             )
         } else {

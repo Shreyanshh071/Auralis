@@ -6,6 +6,9 @@ import com.auralis.music.data.parser.BetterLyricsParser
 import com.auralis.music.data.parser.LyricsMatcher
 import com.auralis.music.domain.model.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -44,33 +47,76 @@ class BetterLyricsSource(
 
         if (cleanTitle.isBlank()) return@withContext null
 
+        val targetDurSec = query.durationSec?.takeIf { it > 0 }
+            ?: query.durationMs?.let { it / 1000L }?.takeIf { it > 0 }
+        val effectiveQuery = if (query.durationSec == null && targetDurSec != null) {
+            query.copy(durationSec = targetDurSec)
+        } else query
+
         val artistToUse = primaryArtist.ifBlank { cleanArtist }
-        val boiduCand = fetchFromBetterLyrics(cleanTitle, artistToUse, query)
-            ?: (if (artistToUse != cleanArtist) fetchFromBetterLyrics(cleanTitle, cleanArtist, query) else null)
 
-        // If boidu returned rich word-level TTML, return immediately
-        if (boiduCand != null && boiduCand.lyricsData.lines.any { it.hasWordTiming }) {
-            return@withContext boiduCand
+        coroutineScope {
+            val boiduDeferred = async {
+                var cand = fetchFromBetterLyrics(cleanTitle, artistToUse, effectiveQuery, useAlbum = true)
+                    ?: (if (artistToUse != cleanArtist) fetchFromBetterLyrics(cleanTitle, cleanArtist, effectiveQuery, useAlbum = true) else null)
+                if (cand == null && !effectiveQuery.album.isNullOrBlank()) {
+                    cand = fetchFromBetterLyrics(cleanTitle, artistToUse, effectiveQuery, useAlbum = false)
+                        ?: (if (artistToUse != cleanArtist) fetchFromBetterLyrics(cleanTitle, cleanArtist, effectiveQuery, useAlbum = false) else null)
+                }
+                cand
+            }
+
+            val binimumDeferred = async {
+                fetchFromBinimum(cleanTitle, artistToUse, effectiveQuery)
+                    ?: (if (artistToUse != cleanArtist) fetchFromBinimum(cleanTitle, cleanArtist, effectiveQuery) else null)
+            }
+
+            select<LyricsCandidate?> {
+                boiduDeferred.onAwait { cand: LyricsCandidate? ->
+                    if (cand != null && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(cand.lyricsData.lines)) {
+                        binimumDeferred.cancel()
+                        cand
+                    } else {
+                        val bini = binimumDeferred.await()
+                        if (bini != null && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(bini.lyricsData.lines)) {
+                            bini
+                        } else cand ?: bini
+                    }
+                }
+                binimumDeferred.onAwait { cand: LyricsCandidate? ->
+                    if (cand != null && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(cand.lyricsData.lines)) {
+                        boiduDeferred.cancel()
+                        cand
+                    } else {
+                        val boidu = boiduDeferred.await()
+                        if (boidu != null && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(boidu.lyricsData.lines)) {
+                            boidu
+                        } else boidu ?: cand
+                    }
+                }
+            }
         }
-
-        // If boidu returned 401 (uncached query) or lacked word timing, try Binimum (Metrolist's LyricsPlus mirror)
-        val binimumCand = fetchFromBinimum(cleanTitle, artistToUse, query)
-            ?: (if (artistToUse != cleanArtist) fetchFromBinimum(cleanTitle, cleanArtist, query) else null)
-
-        if (binimumCand != null && binimumCand.lyricsData.lines.any { it.hasWordTiming }) {
-            return@withContext binimumCand
-        }
-
-        boiduCand ?: binimumCand
     }
 
-    private fun fetchFromBetterLyrics(cleanTitle: String, artistToUse: String, query: LyricsSearchQuery): LyricsCandidate? {
+    private fun fetchFromBetterLyrics(
+        cleanTitle: String,
+        artistToUse: String,
+        query: LyricsSearchQuery,
+        useAlbum: Boolean = true,
+        useDuration: Boolean = true
+    ): LyricsCandidate? {
         try {
             val encSong = URLEncoder.encode(cleanTitle, "UTF-8")
             val encArtist = URLEncoder.encode(artistToUse, "UTF-8")
-            val durationParam = query.durationSec?.takeIf { it > 0 }?.let { "&d=$it" } ?: ""
-            val albumParam = query.album?.takeIf { it.isNotBlank() }
-                ?.let { "&al=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            val durSec = if (useDuration) {
+                query.durationSec?.takeIf { it > 0 }
+                    ?: query.durationMs?.let { it / 1000L }?.takeIf { it > 0 }
+            } else null
+            val durationParam = durSec?.let { "&d=$it" } ?: ""
+            val albumParam = if (useAlbum) {
+                query.album?.takeIf { it.isNotBlank() }
+                    ?.let { "&al=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            } else ""
             val url = "$BASE_URL/getLyrics?s=$encSong&a=$encArtist$durationParam$albumParam"
 
             val req = Request.Builder()
@@ -80,7 +126,19 @@ class BetterLyricsSource(
                 .build()
 
             val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) return null
+            if (!resp.isSuccessful) {
+                // If query with duration fails with 401 or 404, retry immediately without duration
+                if (useDuration && (resp.code == 401 || resp.code == 404)) {
+                    return fetchFromBetterLyrics(
+                        cleanTitle = cleanTitle,
+                        artistToUse = artistToUse,
+                        query = query,
+                        useAlbum = useAlbum,
+                        useDuration = false
+                    )
+                }
+                return null
+            }
 
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
@@ -173,17 +231,36 @@ class BetterLyricsSource(
             var candTitle = cleanTitle
             var candArtist = artistToUse
             var candDuration: Long? = null
+            var bestDurDiff = Long.MAX_VALUE
+            var bestIsWord = false
+
+            val targetDurSec = query.durationSec?.takeIf { it > 0 }
+                ?: query.durationMs?.let { it / 1000L }?.takeIf { it > 0 }
 
             for (i in 0 until results.length()) {
                 val item = results.getJSONObject(i)
                 val lUrl = item.optString("lyricsUrl")
                 if (lUrl.isNotBlank()) {
-                    bestUrl = lUrl
-                    candTitle = item.optString("track_name").ifBlank { cleanTitle }
-                    candArtist = item.optString("artist_name").ifBlank { artistToUse }
-                    candDuration = item.optLong("duration", 0L).takeIf { it > 0 }
-                    if (item.optString("timing_type").equals("word", ignoreCase = true)) {
-                        break
+                    val itemTitle = item.optString("track_name").ifBlank { cleanTitle }
+                    val itemArtist = item.optString("artist_name").ifBlank { artistToUse }
+                    val itemDur = item.optLong("duration", 0L).takeIf { it > 0 }
+                    val isWord = item.optString("timing_type").equals("word", ignoreCase = true)
+
+                    val durDiff = if (targetDurSec != null && itemDur != null) {
+                        kotlin.math.abs(targetDurSec - itemDur)
+                    } else 0L
+
+                    val isBetter = bestUrl == null ||
+                            (isWord && !bestIsWord) ||
+                            (isWord == bestIsWord && durDiff < bestDurDiff)
+
+                    if (isBetter) {
+                        bestUrl = lUrl
+                        candTitle = itemTitle
+                        candArtist = itemArtist
+                        candDuration = itemDur
+                        bestDurDiff = durDiff
+                        bestIsWord = isWord
                     }
                 }
             }
@@ -210,7 +287,8 @@ class BetterLyricsSource(
                 candidateTitle = candTitle,
                 candidateArtist = candArtist,
                 queryDurationSec = query.durationSec,
-                candidateDurationSec = candDuration
+                candidateDurationSec = candDuration,
+                queryAlbum = query.album
             )
 
             if (confidence < 50) return null

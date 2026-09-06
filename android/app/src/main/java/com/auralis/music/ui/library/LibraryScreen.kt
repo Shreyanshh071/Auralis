@@ -540,7 +540,7 @@ fun LibraryScreen(
                         if (searchQuery.isBlank()) {
                             // 1. Liked Playlist
                             if (appearance.showLikedPlaylist) {
-                                item {
+                                item(key = "smart_liked", contentType = "smart_card") {
                                     SmartLibraryCard(
                                         title = "Liked",
                                         subtitle = "${uiState.favorites.size} songs",
@@ -553,7 +553,7 @@ fun LibraryScreen(
 
                             // 2. Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
                             if (appearance.showDownloadedPlaylist && uiState.downloadedTracks.isNotEmpty()) {
-                                item {
+                                item(key = "smart_downloaded", contentType = "smart_card") {
                                     SmartLibraryCard(
                                         title = "Downloaded",
                                         subtitle = "${uiState.downloadedTracks.size} songs",
@@ -566,7 +566,7 @@ fun LibraryScreen(
 
                             // 3. Top Most Played Playlist
                             if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
-                                item {
+                                item(key = "smart_top_50", contentType = "smart_card") {
                                     SmartLibraryCard(
                                         title = "Top Most Played",
                                         subtitle = "${uiState.top50Tracks.size} songs",
@@ -579,7 +579,7 @@ fun LibraryScreen(
 
                             // 4. Cached Playlist
                             if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
-                                item {
+                                item(key = "smart_cached", contentType = "smart_card") {
                                     SmartLibraryCard(
                                         title = "Cached Streamed",
                                         subtitle = "${uiState.cachedTracks.size} songs",
@@ -612,7 +612,7 @@ fun LibraryScreen(
                     ) {
                         if (searchQuery.isBlank()) {
                             if (appearance.showLikedPlaylist) {
-                                item {
+                                item(key = "list_smart_liked", contentType = "smart_row") {
                                     SmartLibraryListRow(
                                         title = "Liked",
                                         subtitle = "${uiState.favorites.size} songs",
@@ -625,7 +625,7 @@ fun LibraryScreen(
 
                             // Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
                             if (appearance.showDownloadedPlaylist && uiState.downloadedTracks.isNotEmpty()) {
-                                item {
+                                item(key = "list_smart_downloaded", contentType = "smart_row") {
                                     SmartLibraryListRow(
                                         title = "Downloaded",
                                         subtitle = "${uiState.downloadedTracks.size} songs",
@@ -637,7 +637,7 @@ fun LibraryScreen(
                             }
 
                             if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
-                                item {
+                                item(key = "list_smart_top_50", contentType = "smart_row") {
                                     SmartLibraryListRow(
                                         title = "Top Most Played",
                                         subtitle = "${uiState.top50Tracks.size} songs",
@@ -649,7 +649,7 @@ fun LibraryScreen(
                             }
 
                             if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
-                                item {
+                                item(key = "list_smart_cached", contentType = "smart_row") {
                                     SmartLibraryListRow(
                                         title = "Cached Streamed",
                                         subtitle = "${uiState.cachedTracks.size} songs",
@@ -810,7 +810,7 @@ private fun SmartLibraryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .tactileBounce(scaleDown = 0.96f, onClick = onClick)
+            .clickable(onClick = onClick)
     ) {
         Box(
             modifier = Modifier
@@ -949,7 +949,7 @@ private fun UserPlaylistGridCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .tactileBounce(scaleDown = 0.96f, onClick = onClick)
+            .clickable(onClick = onClick)
     ) {
         Box(
             modifier = Modifier
@@ -1053,7 +1053,7 @@ private fun SmartLibraryListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
-            .tactileBounce(scaleDown = 0.97f, onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1126,7 +1126,7 @@ private fun UserPlaylistListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
-            .tactileBounce(scaleDown = 0.97f, onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1162,6 +1162,144 @@ private fun UserPlaylistListRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
+    }
+}
+
+// ============================================================================
+// 🎵 PLAYLIST TRACK ROW ITEM (Optimized for 120fps Buttery Smooth Scrolling)
+// ============================================================================
+
+@Composable
+private fun PlaylistTrackRowItem(
+    track: Track,
+    index: Int,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    isCustomSort: Boolean,
+    isItemBeingDragged: Boolean,
+    onTrackClick: (Track) -> Unit,
+    onMenuClick: (Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToQueue: (Track) -> Unit,
+    onRemoveFromPlaylist: (Track) -> Unit,
+    onDragStart: (Int, String, Float) -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val trackDurationStr = remember(track.duration) {
+        val trackMin = track.duration / 60
+        val trackSec = track.duration % 60
+        "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec"
+    }
+    val subtitleText = remember(track.artist, track.duration, trackDurationStr) {
+        if (track.duration > 0 && track.duration != 210L) {
+            "${track.artist} • $trackDurationStr"
+        } else {
+            track.artist
+        }
+    }
+
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+
+    com.auralis.music.ui.components.SwipeableTrackContainer(
+        onPlayNext = { onPlayNext(track) },
+        onAddToQueue = { onAddToQueue(track) },
+        onRemoveFromPlaylist = { onRemoveFromPlaylist(track) },
+        isPlaylistContext = true,
+        modifier = modifier
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .graphicsLayer {
+                alpha = if (isItemBeingDragged) 0.2f else 1f
+            }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onTrackClick(track) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArtworkCard(
+                url = track.thumbnail,
+                modifier = Modifier.size(48.dp),
+                cornerRadius = 8.dp,
+                contentDescription = track.title,
+                fallbackTrack = track
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isCurrent) LIME_TEXT else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitleText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (isCurrent) {
+                EqualizerBars(
+                    isPlaying = isPlaying,
+                    modifier = Modifier.size(18.dp),
+                    color = LIME_TEXT
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            if (isCustomSort) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .pointerInput(track.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { _ ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val itemHeight = density.run { 56.dp.toPx() }
+                                    onDragStart(index, track.id, itemHeight)
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    onDrag(dragAmount.y)
+                                },
+                                onDragEnd = onDragEnd,
+                                onDragCancel = onDragCancel
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder song",
+                        tint = if (isItemBeingDragged) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.45f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            IconButton(onClick = { onMenuClick(track) }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
     }
 }
 
@@ -1335,7 +1473,7 @@ private fun PlaylistDetailView(
         }
     }
 
-    val baseTracks = remember(sortOption, isCustomSort, localTracks.toList(), playlist.tracks) {
+    val baseTracks = remember(sortOption, isCustomSort, localTracks.size, playlist.tracks) {
         when (sortOption) {
             PlaylistSortOption.CUSTOM -> if (isCustomSort) localTracks.toList() else playlist.tracks
             PlaylistSortOption.NEWEST -> playlist.tracks.reversed()
@@ -1365,14 +1503,70 @@ private fun PlaylistDetailView(
         }
     }
 
-    val totalSeconds = playlist.tracks.map { it.duration }.sum()
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    val durationFormatted = if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
+    val durationFormatted = remember(playlist.tracks) {
+        val totalSeconds = playlist.tracks.sumOf { it.duration }
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%d:%02d", minutes, seconds)
+        }
+    }
+
+    val handleTrackClick = remember(isDragging, displayedTracks) {
+        { track: Track ->
+            if (!isDragging) {
+                onPlayTrack(track, displayedTracks)
+            }
+        }
+    }
+    val handleMenuClick = remember { { track: Track -> onMenuClick(track) } }
+    val handlePlayNext = remember { { track: Track -> onPlayNextTrack?.invoke(track); Unit } }
+    val handleAddToQueue = remember { { track: Track -> onAddToQueueTrack?.invoke(track); Unit } }
+    val handleRemoveTrack = remember { { track: Track -> onRemoveTrack(track.id) } }
+
+    val handleDragStart = remember {
+        { songIdx: Int, trackId: String, itemHeight: Float ->
+            val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
+            val hitItem = visibleSongItems.find { (it.key as? String)?.startsWith(trackId) == true }
+            val realSongIdx = if (hitItem != null) (hitItem.index - 1) else songIdx
+            val itemTop = hitItem?.offset?.toFloat() ?: 0f
+            val realItemHeight = hitItem?.size?.toFloat() ?: itemHeight
+            originalDragIndex = realSongIdx
+            draggingIndex = realSongIdx
+            grabOffsetY = realItemHeight / 2f
+            currentPointerY = itemTop + grabOffsetY
+            isDragging = true
+        }
+    }
+    val handleDrag = remember {
+        { dragAmountY: Float ->
+            currentPointerY += dragAmountY
+            checkTargetSwap(currentPointerY)
+        }
+    }
+    val handleDragEnd = remember {
+        {
+            val finalIdx = draggingIndex
+            val startIdx = originalDragIndex
+            isDragging = false
+            draggingIndex = -1
+            originalDragIndex = -1
+            if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
+                onReorderTracks?.invoke(startIdx, finalIdx)
+            }
+        }
+    }
+    val handleDragCancel = remember {
+        {
+            localTracks.clear()
+            localTracks.addAll(playlist.tracks)
+            isDragging = false
+            draggingIndex = -1
+            originalDragIndex = -1
+        }
     }
 
     androidx.activity.compose.BackHandler(enabled = true) {
@@ -1509,7 +1703,7 @@ private fun PlaylistDetailView(
                 contentPadding = PaddingValues(bottom = playlistBottomPad)
             ) {
                 // Header Content
-                item {
+                item(key = "playlist_header") {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1865,155 +2059,23 @@ private fun PlaylistDetailView(
                     key = { index, track -> stableKeys.getOrElse(index) { "${track.id}_$index" } },
                     contentType = { _, _ -> "song" }
                 ) { index, track ->
-                    val isCurrent = track.id == currentTrackId
-                    val trackMin = track.duration / 60
-                    val trackSec = track.duration % 60
-                    val trackDurationStr = "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec"
-                    val isItemBeingDragged = isDragging && draggingIndex == index
-
-                    com.auralis.music.ui.components.SwipeableTrackContainer(
-                        onPlayNext = { onPlayNextTrack?.invoke(track) },
-                        onAddToQueue = { onAddToQueueTrack?.invoke(track) },
-                        onRemoveFromPlaylist = { onRemoveTrack(track.id) },
-                        isPlaylistContext = true,
-                        modifier = Modifier
-                            .then(
-                                if (isCustomSort && isDragging && !isItemBeingDragged) {
-                                    Modifier.animateItemPlacement(
-                                        animationSpec = tween(
-                                            durationMillis = 150,
-                                            easing = FastOutSlowInEasing
-                                        )
-                                    )
-                                } else Modifier
-                            )
-                            .padding(horizontal = 16.dp, vertical = 2.dp)
-                            .graphicsLayer {
-                                alpha = if (isItemBeingDragged) 0.2f else 1f
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    if (!isDragging) {
-                                        onPlayTrack(track, displayedTracks)
-                                    }
-                                }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ArtworkCard(
-                                url = track.thumbnail,
-                                modifier = Modifier.size(48.dp),
-                                cornerRadius = 8.dp,
-                                contentDescription = track.title,
-                                fallbackTrack = track
-                            )
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isCurrent) LIME_TEXT else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val subtitleText = if (track.duration > 0 && track.duration != 210L) {
-                                        "${track.artist} • $trackDurationStr"
-                                    } else {
-                                        track.artist
-                                    }
-                                    Text(
-                                        text = subtitleText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            if (isCurrent) {
-                                EqualizerBars(
-                                    isPlaying = isPlaying,
-                                    modifier = Modifier.size(18.dp),
-                                    color = LIME_TEXT
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-
-                            if (isCustomSort) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .pointerInput(track.id) {
-                                            detectDragGestures(
-                                                onDragStart = { _ ->
-                                                    val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
-                                                    val currentItemKey = stableKeys.getOrElse(index) { track.id }
-                                                    val hitItem = visibleSongItems.find { it.key == currentItemKey }
-                                                    val songIdx = if (hitItem != null) (hitItem.index - 1) else index
-                                                    val itemTop = hitItem?.offset?.toFloat() ?: 0f
-                                                    val itemHeight = hitItem?.size?.toFloat() ?: density.run { 56.dp.toPx() }
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    originalDragIndex = songIdx
-                                                    draggingIndex = songIdx
-                                                    grabOffsetY = itemHeight / 2f
-                                                    currentPointerY = itemTop + grabOffsetY
-                                                    isDragging = true
-                                                },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    currentPointerY += dragAmount.y
-                                                    checkTargetSwap(currentPointerY)
-                                                },
-                                                onDragEnd = {
-                                                    val finalIdx = draggingIndex
-                                                    val startIdx = originalDragIndex
-                                                    isDragging = false
-                                                    draggingIndex = -1
-                                                    originalDragIndex = -1
-                                                    if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
-                                                        onReorderTracks?.invoke(startIdx, finalIdx)
-                                                    }
-                                                },
-                                                onDragCancel = {
-                                                    localTracks.clear()
-                                                    localTracks.addAll(playlist.tracks)
-                                                    isDragging = false
-                                                    draggingIndex = -1
-                                                    originalDragIndex = -1
-                                                }
-                                            )
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DragHandle,
-                                        contentDescription = "Drag to reorder song",
-                                        tint = if (isItemBeingDragged) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.45f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            IconButton(onClick = { onMenuClick(track) }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
+                    PlaylistTrackRowItem(
+                        track = track,
+                        index = index,
+                        isCurrent = track.id == currentTrackId,
+                        isPlaying = isPlaying,
+                        isCustomSort = isCustomSort,
+                        isItemBeingDragged = isDragging && draggingIndex == index,
+                        onTrackClick = handleTrackClick,
+                        onMenuClick = handleMenuClick,
+                        onPlayNext = handlePlayNext,
+                        onAddToQueue = handleAddToQueue,
+                        onRemoveFromPlaylist = handleRemoveTrack,
+                        onDragStart = handleDragStart,
+                        onDrag = handleDrag,
+                        onDragEnd = handleDragEnd,
+                        onDragCancel = handleDragCancel
+                    )
                 }
             }
 

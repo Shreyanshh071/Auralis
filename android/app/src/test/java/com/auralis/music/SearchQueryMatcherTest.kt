@@ -462,22 +462,61 @@ class SearchQueryMatcherTest {
     }
 
     @Test
-    fun `testLiveSearchGraduation`() = kotlinx.coroutines.runBlocking {
+    fun `testLiveGetSongDetails`() = kotlinx.coroutines.runBlocking {
         val client = com.auralis.music.data.network.InnerTubeClient()
-        val generalRes = client.search("graduation")
-        val albumsRes = client.search("graduation", com.auralis.music.data.network.InnerTubeClient.FILTER_ALBUMS)
-        val artistsRes = client.search("graduation", com.auralis.music.data.network.InnerTubeClient.FILTER_ARTISTS)
-        val songsRes = client.search("graduation", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS)
+        val creepDetails = client.getSongDetails("9RfVp-GhKfs")
+        println("=== CREEP DETAILS ===")
+        println(creepDetails)
+        assertNotNull(creepDetails)
+        assertEquals("Creep", creepDetails?.album)
+        assertEquals("MPREb_TgQPwAzodvg", creepDetails?.albumId)
+        assertEquals("Radiohead", creepDetails?.artist)
 
-        println("=== GENERAL TOP RESULT ===")
-        println(generalRes.topResult)
-        println("=== GENERAL ALBUMS ===")
-        generalRes.albums.forEach { println("Album: ${it.title} by ${it.author} (id=${it.id})") }
-        println("=== FILTER_ALBUMS ===")
-        albumsRes.albums.forEach { println("Filter Album: ${it.title} by ${it.author} (id=${it.id})") }
-        println("=== FILTER_ARTISTS ===")
-        artistsRes.artists.forEach { println("Filter Artist: ${it.name} (id=${it.id})") }
-        println("=== SONGS ===")
-        songsRes.songs.take(10).forEach { println("Song: ${it.title} by ${it.artist} (${it.views})") }
+        val starboyDetails = client.getSongDetails("3_g2un5M350")
+        println("=== STARBOY DETAILS ===")
+        println(starboyDetails)
+        assertNotNull(starboyDetails)
+        assertEquals("Starboy", starboyDetails?.album)
+        assertEquals("MPREb_FWIMEPTHFsY", starboyDetails?.albumId)
+
+        val blueHairDetails = client.getSongDetails("abW7Cr9Vo_M")
+        println("=== BLUE HAIR DETAILS ===")
+        println(blueHairDetails)
+        assertNotNull(blueHairDetails)
+        assertEquals("Death of a Party Girl", blueHairDetails?.album)
+        assertEquals("MPREb_tMEptgCkK2O", blueHairDetails?.albumId)
+
+        val loversRockDetails = client.getSongDetails("j_sG_Juncn8")
+        println("=== LOVERS ROCK DETAILS ===")
+        println(loversRockDetails)
+        assertNotNull(loversRockDetails)
+        assertEquals("French Exit", loversRockDetails?.album)
+        assertEquals("TV Girl", loversRockDetails?.artist)
+    }
+
+    @Test
+    fun `testLoversRockSearchPrioritizes303MPlaysTVGirlAtTop`() {
+        val candidates = listOf(
+            Track(id = "sade", title = "Lovers Rock", artist = "Sade", album = "Lovers Rock", duration = 250L, thumbnail = "thumb1", views = "6.3M plays"),
+            Track(id = "sublime", title = "Lovers Rock", artist = "Sublime With Rome", album = "Yours Truly", duration = 200L, thumbnail = "thumb2", views = "1.3M plays"),
+            Track(id = "tv_girl", title = "Lovers Rock", artist = "TV Girl", album = "French Exit", duration = 210L, thumbnail = "thumb3", views = "303M plays"),
+            Track(id = "angel", title = "LOVERS ROCK!", artist = "Angel Arevalo", album = "LOVERS ROCK!", duration = 180L, thumbnail = "thumb4", views = "452K plays")
+        )
+
+        val (matches, _) = SearchQueryMatcher.partitionResults(candidates, "lovers rock")
+
+        assertEquals(4, matches.size)
+        // 303M plays TV Girl must be #1!
+        assertEquals("tv_girl", matches[0].id)
+        assertEquals("TV Girl", matches[0].artist)
+        assertEquals("303M plays", matches[0].views)
+
+        // 6.3M plays Sade must be #2!
+        assertEquals("sade", matches[1].id)
+        assertEquals("Sade", matches[1].artist)
+
+        // 1.3M plays Sublime With Rome must be #3!
+        assertEquals("sublime", matches[2].id)
     }
 }
+

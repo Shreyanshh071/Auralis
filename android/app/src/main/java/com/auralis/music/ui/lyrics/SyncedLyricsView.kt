@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -16,6 +17,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -32,19 +35,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Paint
+
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -69,7 +72,11 @@ import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.dynamicPalette
 import com.auralis.music.ui.theme.motionTween
+import androidx.compose.runtime.withFrameMillis
+
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -248,13 +255,12 @@ fun SyncedLyricsView(
         return
     }
 
-    val rawFirstLineTime = effectiveLines.firstOrNull()?.time ?: 0L
-    val introDurationMs = remember(effectiveLines) {
-        if (rawFirstLineTime >= 1500L) {
-            rawFirstLineTime
-        } else {
-            0L
-        }
+    val playbackDurationMs = (track?.duration ?: 0L) * 1000L
+    val rawFirstLineTime = effectiveLines.firstOrNull { !it.isInstrumental }?.time ?: 0L
+    val introDurationMs = remember(effectiveLines, playbackDurationMs) {
+        val isValidIntro = rawFirstLineTime >= 1500L &&
+            (playbackDurationMs <= 0L || rawFirstLineTime < playbackDurationMs - 5000L)
+        if (isValidIntro) rawFirstLineTime else 0L
     }
 
     val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
@@ -281,15 +287,21 @@ fun SyncedLyricsView(
     var showShareSheet by remember { mutableStateOf(false) }
     var shareLyricsText by remember { mutableStateOf("") }
 
+    var dragResetJob by remember { mutableStateOf<Job?>(null) }
+
     LaunchedEffect(listState.interactionSource) {
         listState.interactionSource.interactions.collect { interaction ->
             when (interaction) {
                 is DragInteraction.Start -> {
+                    dragResetJob?.cancel()
                     isUserInteracting = true
                 }
                 is DragInteraction.Stop, is DragInteraction.Cancel -> {
-                    delay(3500)
-                    isUserInteracting = false
+                    dragResetJob?.cancel()
+                    dragResetJob = launch {
+                        delay(3500)
+                        isUserInteracting = false
+                    }
                 }
             }
         }
@@ -314,47 +326,106 @@ fun SyncedLyricsView(
         val viewportHeightPx = with(density) { maxHeight.toPx() }
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val rowMaxWidthPx = (viewportWidthPx - with(density) { 48.dp.toPx() }).toInt().coerceAtLeast(100)
-        // Offset so active lyric line stays in the comfortable upper-middle zone
-        val centerOffsetPx = (viewportHeightPx * 0.25f).toInt()
+
+        // Target center position: 0.45f keeps the active lyric line directly in
+        // the user's natural reading focal point while providing generous space for
+        // reading upcoming lines below.
+        val targetCenterFraction = 0.45f
+        val topPaddingDp = 20.dp
+        val bottomPaddingDp = (maxHeight * (1f - targetCenterFraction) + 40.dp).coerceAtLeast(160.dp)
 
         // Track whether initial scroll has completed
         var hasInitialCentered by remember { mutableStateOf(false) }
+        // Track last centered index to detect large jumps (tap-to-seek) vs natural progression
+        var lastCenteredIndex by remember { mutableIntStateOf(-1) }
 
         // Initial centering on first composition / tab switch
         LaunchedEffect(lyrics) {
             hasInitialCentered = false
+            lastCenteredIndex = -1
+        }
+
+        // Suspend function to accurately and smoothly center any lyric line in the viewport
+        val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
+            if (targetIndex in effectiveLines.indices) {
+                var layoutInfo = listState.layoutInfo
+                var viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+                if (viewportHeight <= 0) {
+                    try {
+                        withFrameMillis { }
+                    } catch (_: Exception) {
+                        delay(16L)
+                    }
+                    layoutInfo = listState.layoutInfo
+                    viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+                }
+
+                if (viewportHeight > 0) {
+                    val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * targetCenterFraction)
+                    var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                    if (itemInfo == null) {
+                        listState.scrollToItem(targetIndex)
+                        try {
+                            withFrameMillis { }
+                        } catch (_: Exception) {
+                            delay(16L)
+                        }
+                        layoutInfo = listState.layoutInfo
+                        itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                    }
+
+                    if (itemInfo != null) {
+                        val itemCenterY = itemInfo.offset + (itemInfo.size / 2f)
+                        val scrollDelta = itemCenterY - targetCenterY
+                        if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                            try {
+                                if (animate) {
+                                    listState.animateScrollBy(
+                                        value = scrollDelta,
+                                        animationSpec = tween(
+                                            durationMillis = 260,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    )
+                                } else {
+                                    listState.scrollBy(scrollDelta)
+                                }
+                            } catch (e: Exception) {
+                                if (e is kotlinx.coroutines.CancellationException) throw e
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Automatic, smooth centering of active lyric line.
         // Driven by a snapshotFlow so the position clock never re-runs this
         // composable — the effect wakes only when the active index or the user's
         // touch state actually changes.
-        LaunchedEffect(activeIndexState, isSynced, appearance.autoScrollLyrics, centerOffsetPx, effectiveLines) {
+        LaunchedEffect(activeIndexState, isSynced, appearance.autoScrollLyrics, effectiveLines) {
             if (!isSynced || !appearance.autoScrollLyrics) return@LaunchedEffect
-            snapshotFlow { activeIndexState.value to isUserInteracting }
+            snapshotFlow {
+                Triple(activeIndexState.value, isUserInteracting, selectedIndices.isNotEmpty())
+            }
                 .distinctUntilChanged()
-                .collect { (activeIndex, interacting) ->
-                    if (interacting) return@collect
+                .collectLatest { (activeIndex, interacting, selecting) ->
+                    if (interacting || selecting) return@collectLatest
                     if (activeIndex < 0) {
-                        listState.animateScrollToItem(0, 0)
-                        return@collect
+                        if (effectiveLines.isNotEmpty()) {
+                            centerActiveLine(0, hasInitialCentered)
+                        }
+                        return@collectLatest
                     }
-                    if (activeIndex >= effectiveLines.size) return@collect
+                    if (activeIndex >= effectiveLines.size) return@collectLatest
 
-                    val scrollTargetOffset = if (activeIndex <= 0) 0 else -centerOffsetPx
-
-                    if (!hasInitialCentered) {
-                        listState.scrollToItem(
-                            index = activeIndex,
-                            scrollOffset = scrollTargetOffset
-                        )
-                        hasInitialCentered = true
-                    } else {
-                        listState.animateScrollToItem(
-                            index = activeIndex,
-                            scrollOffset = scrollTargetOffset
-                        )
-                    }
+                    // Snap (no animation) for large index jumps like tap-to-seek;
+                    // animate smoothly only for natural 1-2 line progressions.
+                    val indexDelta = if (lastCenteredIndex >= 0) kotlin.math.abs(activeIndex - lastCenteredIndex) else Int.MAX_VALUE
+                    val shouldAnimate = hasInitialCentered && indexDelta <= 2
+                    centerActiveLine(activeIndex, shouldAnimate)
+                    lastCenteredIndex = activeIndex
+                    hasInitialCentered = true
                 }
         }
 
@@ -384,15 +455,16 @@ fun SyncedLyricsView(
                         brush = Brush.verticalGradient(
                             0.0f to Color.Transparent,
                             0.05f to Color.Black,
-                            0.55f to Color.Black,
-                            0.92f to Color.Transparent
+                            0.78f to Color.Black,
+                            0.94f to Color.Transparent,
+                            1.0f to Color.Transparent
                         ),
                         blendMode = BlendMode.DstIn
                     )
                 },
             contentPadding = PaddingValues(
-                top = 20.dp,
-                bottom = 220.dp,
+                top = if (isSynced) topPaddingDp else 36.dp,
+                bottom = if (isSynced) bottomPaddingDp else 220.dp,
                 start = 16.dp,
                 end = 16.dp
             ),
@@ -409,6 +481,7 @@ fun SyncedLyricsView(
                 val activeIndex = activeIndexState.value
                 val isCurrent = isSynced && index == activeIndex
                 val isPast = isSynced && index < activeIndex
+                val pastDistance = if (isPast) (activeIndex - index).coerceAtLeast(1) else 0
 
                 val isSelected = selectedIndices.contains(index)
                 val isSelectionMode = selectedIndices.isNotEmpty()
@@ -458,12 +531,6 @@ fun SyncedLyricsView(
                                     } else if (isSynced && appearance.changeLyricsOnTap) {
                                         isUserInteracting = false
                                         onSeekTo(line.time)
-                                        coroutineScope.launch {
-                                            listState.animateScrollToItem(
-                                                index = index,
-                                                scrollOffset = if (index <= 0) 0 else -centerOffsetPx
-                                            )
-                                        }
                                     }
                                 },
                                 onLongClick = {
@@ -486,6 +553,8 @@ fun SyncedLyricsView(
                             nextLineTime = effectiveLines.getOrNull(index + 1)?.time,
                             isCurrent = isCurrent,
                             isPast = isPast,
+                            pastDistance = pastDistance,
+                            isSelected = isSelected,
                             lyricsMode = lyricsMode,
                             syncType = lyrics.syncType,
                             textAlign = textAlign,
@@ -498,6 +567,8 @@ fun SyncedLyricsView(
                 }
             }
         }
+
+
 
         // Floating Action Bar for Selected Lyrics
         val isSelectionMode = selectedIndices.isNotEmpty()
@@ -630,14 +701,12 @@ private fun updateWordHighlightState(
             // Fully sung word / syllable
             val bounds = item.bounds
             if (!bounds.isEmpty && item.isSingleLine) {
-                val clampedTop = (bounds.top - 2f).coerceAtLeast(item.lineTop)
-                val clampedBottom = (bounds.bottom + 2f).coerceAtMost(item.lineBottom)
                 finishedPath.addRect(
                     androidx.compose.ui.geometry.Rect(
-                        left = bounds.left - 1f,
-                        top = clampedTop,
-                        right = bounds.right + 1f,
-                        bottom = clampedBottom
+                        left = bounds.left - 4f,
+                        top = item.lineTop,
+                        right = bounds.right + 4f,
+                        bottom = item.lineBottom
                     )
                 )
             } else {
@@ -652,14 +721,12 @@ private fun updateWordHighlightState(
                 val prevItem = activeSweep!!.activeItem
                 val prevBounds = prevItem.bounds
                 if (!prevBounds.isEmpty && prevItem.isSingleLine) {
-                    val clampedTop = (prevBounds.top - 2f).coerceAtLeast(prevItem.lineTop)
-                    val clampedBottom = (prevBounds.bottom + 2f).coerceAtMost(prevItem.lineBottom)
                     finishedPath.addRect(
                         androidx.compose.ui.geometry.Rect(
-                            left = prevBounds.left - 1f,
-                            top = clampedTop,
-                            right = prevBounds.right + 1f,
-                            bottom = clampedBottom
+                            left = prevBounds.left - 4f,
+                            top = prevItem.lineTop,
+                            right = prevBounds.right + 4f,
+                            bottom = prevItem.lineBottom
                         )
                     )
                 } else {
@@ -729,6 +796,24 @@ private fun buildWordLayouts(
 }
 
 /**
+ * Resolves the effective words for lyric line rendering.
+ *
+ * Phase 4B-B Contract:
+ * - When [syncType] is [SyncType.RICHSYNC] and [line.words] is non-empty, returns [line.words] verbatim
+ *   (preserving genuine provider timestamps without modification).
+ * - For line-synced lyrics ([SyncType.LINE_SYNC]), static lyrics ([SyncType.PLAIN]), or lines with no
+ *   genuine word timing, returns `null`. Under NO circumstances are word timestamps fabricated or durations
+ *   subdivided across words.
+ */
+internal fun resolveEffectiveWords(line: LyricLine, syncType: SyncType): List<LyricWord>? {
+    return if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
+        line.words
+    } else {
+        null
+    }
+}
+
+/**
  * Clean, high-performance word-by-word karaoke lyric line row:
  * - When [line.hasWordTiming] && [isCurrent]: paints active word sweep in Draw phase with zero recompositions.
  * - When [line.hasWordTiming] is false: falls back gracefully to line-synced highlighting.
@@ -742,6 +827,8 @@ private fun LyricLineRow(
     nextLineTime: Long? = null,
     isCurrent: Boolean,
     isPast: Boolean,
+    pastDistance: Int = 0,
+    isSelected: Boolean = false,
     lyricsMode: LyricsMode,
     syncType: SyncType,
     textAlign: TextAlign,
@@ -752,34 +839,30 @@ private fun LyricLineRow(
 ) {
     val isPlain = syncType == SyncType.PLAIN
 
-    // Metrolist-identical word flow:
-    // If genuine per-word timing exists from TTML/BetterLyrics/Binimum, use it directly.
-    // If the track is synced but only has line timestamps (.lrc from LRCLIB/KuGou),
-    // synthesize smooth word pacing across the singing interval so every synced song
-    // flows word-by-word with luxurious karaoke animation instead of sitting as a flat, static line.
-    val effectiveWords = remember(line, nextLineTime, isPlain) {
-        if (!line.words.isNullOrEmpty()) {
-            line.words
-        } else if (!isPlain && line.text.isNotBlank() && line.time > 0L) {
-            val tokens = line.text.split(Regex("\\s+")).filter { it.isNotBlank() }
-            if (tokens.isNotEmpty()) {
-                val lineDur = if (nextLineTime != null && nextLineTime > line.time) {
-                    (nextLineTime - line.time).coerceIn(1000L, 6500L)
-                } else {
-                    (tokens.size * 320L).coerceIn(1200L, 3500L)
-                }
-                val singDur = (lineDur * 0.78f).toLong().coerceAtLeast(600L)
-                val stepMs = singDur / tokens.size.coerceAtLeast(1)
-                val wordDur = (stepMs * 1.25f).toLong().coerceIn(180L, 800L)
-                tokens.mapIndexed { idx, token ->
-                    LyricWord(
-                        word = if (idx < tokens.size - 1) "$token " else token,
-                        time = line.time + (idx * stepMs),
-                        duration = wordDur
-                    )
-                }
-            } else null
-        } else null
+    // Depth-of-field is conveyed via alpha + subtle scale only (zero GPU blur cost).
+    // Modifier.blur() was removed because it forced an offscreen render pass per item
+    // (~20 simultaneous GPU texture allocations during scroll, destroying frame budgets).
+    val targetScale = when {
+        isPlain || isCurrent || isSelected -> 1.0f
+        isPast -> when (pastDistance) {
+            1 -> 0.98f
+            2 -> 0.96f
+            else -> 0.94f
+        }
+        else -> 1.0f
+    }
+    val animatedScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = motionTween(AuralisDuration.Standard, AuralisEasing.Standard),
+        label = "LyricScale"
+    )
+
+    // Phase 4B-B: Word-level karaoke sweep/progression runs ONLY when genuine word timing
+    // (RICHSYNC) is supplied by the provider. For line-synced lyrics with no genuine word timing,
+    // do NOT fabricate word timestamps or subdivide durations. The entire active line is
+    // presented as active for the line's genuine interval.
+    val effectiveWords = remember(line.words, syncType) {
+        resolveEffectiveWords(line, syncType)
     }
 
     val hasWordTiming = !effectiveWords.isNullOrEmpty()
@@ -801,10 +884,12 @@ private fun LyricLineRow(
     // Ordinary line-synced lyrics and past transitions retain smooth alpha motion.
     val effectiveAlpha = if (hasWordTiming && isCurrent) 1.0f else animAlpha
 
+    // Issue 2 Fix: Deterministic line wrapping based on active typography metrics.
+    // Layout measurements and wrapping remain constant regardless of active state to eliminate jumping/reflow.
     val baseFontSize = when {
         isPlain -> 22.sp
-        isCurrent -> if (lyricsMode == LyricsMode.CINEMA) 31.sp else 28.sp
-        else -> if (lyricsMode == LyricsMode.CINEMA) 22.sp else 20.sp
+        lyricsMode == LyricsMode.CINEMA -> 30.sp
+        else -> 26.sp
     }
     // Background vocals (ad-libs, harmonies) styled distinctly
     val fontSize = if (line.isBackground) (baseFontSize.value * 0.85f).sp else baseFontSize
@@ -828,7 +913,7 @@ private fun LyricLineRow(
     // on the exact frame isCurrent flips to true, eliminating the 1-2 frame layout dead zone.
     val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
     val activeTextStyle = remember(lyricsMode, line.isBackground, textAlign) {
-        val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) 31.sp else 28.sp
+        val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) 30.sp else 26.sp
         val activeSize = if (line.isBackground) (activeBaseSize.value * 0.85f).sp else activeBaseSize
         val activeFontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal
         TextStyle(
@@ -862,7 +947,6 @@ private fun LyricLineRow(
     var textLayoutResult by remember(line) { mutableStateOf(precomputedLayout) }
     var wordLayouts by remember(line) { mutableStateOf(precomputedWordLayouts) }
     val finishedHighlightPath = remember(line) { androidx.compose.ui.graphics.Path() }
-    val layerPaint = remember(line) { androidx.compose.ui.graphics.Paint() }
 
     LaunchedEffect(precomputedLayout, precomputedWordLayouts) {
         if (textLayoutResult == null && precomputedLayout != null) {
@@ -878,6 +962,8 @@ private fun LyricLineRow(
             .fillMaxWidth()
             .graphicsLayer {
                 alpha = effectiveAlpha
+                scaleX = animatedScale
+                scaleY = animatedScale
             }
             .padding(vertical = if (line.isBackground) 2.dp else 4.dp, horizontal = 4.dp),
         horizontalAlignment = horizontalAlignment
@@ -927,15 +1013,18 @@ private fun LyricLineRow(
                                     textLayoutResult = layout,
                                     color = Color.White,
                                     shadow = Shadow(
-                                        color = Color.White.copy(alpha = 0.55f),
-                                        blurRadius = 12f,
+                                        color = Color.White.copy(alpha = 0.60f),
+                                        blurRadius = 8f,
                                         offset = Offset.Zero
                                     )
                                 )
                             }
                         }
 
-                        // 4. Draw currently active sweeping word with soft feathered leading edge
+                        // 4. Draw currently active sweeping word with a clean clipRect sweep
+                        // (Replaces the previous saveLayer + DstIn approach which allocated
+                        //  an offscreen bitmap every single frame — one of the most expensive
+                        //  Canvas operations on Android.)
                         if (activeSweep != null && activeSweep.progress > 0f) {
                             val activeItem = activeSweep.activeItem
                             val progress = activeSweep.progress
@@ -943,68 +1032,36 @@ private fun LyricLineRow(
 
                             if (!bounds.isEmpty) {
                                 if (activeItem.isSingleLine) {
-                                    val blurPad = 16f
                                     val wordLineTop = activeItem.lineTop
                                     val wordLineBottom = activeItem.lineBottom
-                                    // Vertically limited to the active word's visual line (plus blur padding, strictly bounded to line)
-                                    val sweepTop = (bounds.top - blurPad).coerceAtLeast(wordLineTop)
-                                    val sweepBottom = (bounds.bottom + blurPad).coerceAtMost(wordLineBottom)
+                                    val sweepTop = wordLineTop
+                                    val sweepBottom = wordLineBottom
 
-                                    val saveRect = androidx.compose.ui.geometry.Rect(
-                                        left = bounds.left - blurPad,
+                                    // Sweep edge: progress maps linearly across the word bounds
+                                    val sweepEdge = if (activeItem.isRtl) {
+                                        bounds.right - bounds.width * progress
+                                    } else {
+                                        bounds.left + bounds.width * progress
+                                    }
+
+                                    val clipLeft = if (activeItem.isRtl) sweepEdge else bounds.left - 6f
+                                    val clipRight = if (activeItem.isRtl) bounds.right + 6f else sweepEdge
+
+                                    clipRect(
+                                        left = clipLeft,
                                         top = sweepTop,
-                                        right = bounds.right + blurPad,
+                                        right = clipRight,
                                         bottom = sweepBottom
-                                    )
-
-                                    drawIntoCanvas { canvas ->
-                                        canvas.saveLayer(saveRect, layerPaint)
-
-                                        // Draw highlighted text inside active word bounds (strictly bounded to visual line)
-                                        clipRect(
-                                            left = bounds.left - blurPad,
-                                            top = sweepTop,
-                                            right = bounds.right + blurPad,
-                                            bottom = sweepBottom
-                                        ) {
-                                            drawText(
-                                                textLayoutResult = layout,
-                                                color = Color.White,
-                                                shadow = Shadow(
-                                                    color = Color.White.copy(alpha = 0.55f),
-                                                    blurRadius = 12f,
-                                                    offset = Offset.Zero
-                                                )
+                                    ) {
+                                        drawText(
+                                            textLayoutResult = layout,
+                                            color = Color.White,
+                                            shadow = Shadow(
+                                                color = Color.White.copy(alpha = 0.60f),
+                                                blurRadius = 8f,
+                                                offset = Offset.Zero
                                             )
-                                        }
-
-                                        // Feathered leading-edge horizontal gradient mask matching reference players (Echo/NomaTune)
-                                        // A/B experiment: tighter leading edge (6dp vs previous 14dp) to reduce perceived sync delay
-                                        val edgeWidth = (6.dp.toPx()).coerceAtMost(bounds.width * 0.45f).coerceAtLeast(4f)
-                                        val maskBrush = if (activeItem.isRtl) {
-                                            val center = bounds.right - (bounds.width + edgeWidth * 2) * progress + edgeWidth
-                                            Brush.horizontalGradient(
-                                                colors = listOf(Color.Transparent, Color.Black),
-                                                startX = center - edgeWidth,
-                                                endX = center + edgeWidth
-                                            )
-                                        } else {
-                                            val center = bounds.left + (bounds.width + edgeWidth * 2) * progress - edgeWidth
-                                            Brush.horizontalGradient(
-                                                colors = listOf(Color.Black, Color.Transparent),
-                                                startX = center - edgeWidth,
-                                                endX = center + edgeWidth
-                                            )
-                                        }
-
-                                        drawRect(
-                                            brush = maskBrush,
-                                            topLeft = Offset(bounds.left - blurPad, sweepTop),
-                                            size = Size(bounds.width + blurPad * 2, sweepBottom - sweepTop),
-                                            blendMode = BlendMode.DstIn
                                         )
-
-                                        canvas.restore()
                                     }
                                 } else {
                                     // Multi-line wrapped span fallback: clip to the actual word path
@@ -1013,8 +1070,8 @@ private fun LyricLineRow(
                                             textLayoutResult = layout,
                                             color = Color.White,
                                             shadow = Shadow(
-                                                color = Color.White.copy(alpha = 0.55f),
-                                                blurRadius = 12f,
+                                                color = Color.White.copy(alpha = 0.60f),
+                                                blurRadius = 8f,
                                                 offset = Offset.Zero
                                             )
                                         )

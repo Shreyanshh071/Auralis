@@ -38,4 +38,9 @@ secrets.properties
 *.tar.gz
 shazam_pkg/
 nomatune_src/
+scratch/
+*.db
+*.sqlite
+scratch_yt_res.json
+
 

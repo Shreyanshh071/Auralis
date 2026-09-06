@@ -72,7 +72,9 @@ class LrcLibLyricsSource(
         try {
             val encTitle = URLEncoder.encode(title, "UTF-8")
             val encArtist = URLEncoder.encode(artist, "UTF-8")
-            val url = "$BASE_URL/get?track_name=$encTitle&artist_name=$encArtist"
+            val durParam = durationSec?.takeIf { it > 0 }?.let { "&duration=$it" } ?: ""
+            val albParam = album?.takeIf { it.isNotBlank() }?.let { "&album_name=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            val url = "$BASE_URL/get?track_name=$encTitle&artist_name=$encArtist$durParam$albParam"
 
             val req = Request.Builder()
                 .url(url)
@@ -80,7 +82,16 @@ class LrcLibLyricsSource(
                 .header("Lrclib-Client", CLIENT_HEADER)
                 .build()
 
-            val resp = client.newCall(req).execute()
+            var resp = client.newCall(req).execute()
+            if (!resp.isSuccessful && (durParam.isNotBlank() || albParam.isNotBlank())) {
+                val fallbackUrl = "$BASE_URL/get?track_name=$encTitle&artist_name=$encArtist"
+                val fallbackReq = Request.Builder()
+                    .url(fallbackUrl)
+                    .header("User-Agent", CLIENT_HEADER)
+                    .header("Lrclib-Client", CLIENT_HEADER)
+                    .build()
+                resp = client.newCall(fallbackReq).execute()
+            }
             if (!resp.isSuccessful) return null
 
             val body = resp.body?.string() ?: return null

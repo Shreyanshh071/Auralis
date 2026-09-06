@@ -287,6 +287,17 @@ object TtmlParser {
         wordList[wordList.lastIndex] = wordList.last().let { it.copy(word = it.word.trimEnd()) }
         wordList.removeAll { it.word.isEmpty() }
 
+        // Guarantee space between adjacent distinct non-CJK words in both wordList and line text
+        for (i in 0 until wordList.size - 1) {
+            val curr = wordList[i]
+            val next = wordList[i + 1]
+            if (!curr.word.endsWith(" ") && !curr.word.endsWith("-") && !next.word.startsWith(" ") &&
+                !WordTiming.isCjk(curr.word) && !WordTiming.isCjk(next.word)
+            ) {
+                wordList[i] = curr.copy(word = "${curr.word} ")
+            }
+        }
+
         val finalText = wordList.joinToString("") { it.word }
         return Pair(finalText, wordList.takeIf { it.isNotEmpty() })
     }

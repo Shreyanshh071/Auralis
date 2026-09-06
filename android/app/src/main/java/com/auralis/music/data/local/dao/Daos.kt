@@ -291,6 +291,15 @@ interface LyricsDao {
      */
     @Query("DELETE FROM lyrics_cache WHERE pipelineVersion != :version")
     suspend fun purgeStalePipeline(version: Int)
+
+    /**
+     * Safely and selectively drops only cached entries that lack genuine word timing
+     * (hasWordTiming == false) from older pipeline versions, allowing them to be
+     * upgraded by genuine word-sync providers, while leaving all existing valid
+     * genuine word-sync rows (hasWordTiming == true) completely untouched.
+     */
+    @Query("DELETE FROM lyrics_cache WHERE hasWordTiming = 0 AND pipelineVersion < :version")
+    suspend fun purgeStaleLineSync(version: Int)
 }
 
 @Dao

@@ -6,6 +6,20 @@ import kotlinx.serialization.Serializable
  * Model definitions for Home recommendations matching Metrolist architecture.
  */
 @Serializable
+data class SpeedDialItem(
+    val id: String,
+    val name: String,
+    val type: SpeedDialType,
+    val image: String? = null,
+    val track: Track? = null,
+    val artistQuery: String? = null,
+    val isPinned: Boolean = false
+)
+
+@Serializable
+enum class SpeedDialType { TRACK, ARTIST, SURPRISE, MORE, PLACEHOLDER }
+
+@Serializable
 data class DailyDiscoverItem(
     val seed: Track,
     val recommendation: Track,

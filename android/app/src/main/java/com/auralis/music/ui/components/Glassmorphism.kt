@@ -8,10 +8,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -112,12 +112,13 @@ fun Modifier.specularHighlight(
  * @param enabled Whether interaction is enabled
  * @param onClick Optional callback triggered on click release
  */
+@Composable
 fun Modifier.tactileBounce(
     scaleDown: Float = 0.94f,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null
-): Modifier = composed {
-    if (!enabled) return@composed this
+): Modifier {
+    if (!enabled) return this
 
     val reducedMotion = LocalReducedMotion.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -128,7 +129,7 @@ fun Modifier.tactileBounce(
         label = "tactileBounceScale"
     )
 
-    this
+    return this
         .then(
             if (reducedMotion) {
                 Modifier
@@ -155,6 +156,7 @@ fun Modifier.tactileBounce(
 /**
  * Pre-configured glassmorphic card container with optional tactile bounce and specular top highlight.
  */
+@Composable
 fun Modifier.auralisGlassCard(
     shape: Shape = RoundedCornerShape(18.dp),
     backgroundColor: Color = AuralisSurfaceElevated,
@@ -181,6 +183,7 @@ fun Modifier.auralisGlassCard(
 /**
  * Pre-configured pill badge / floating action button with glass styling and tactile spring feedback.
  */
+@Composable
 fun Modifier.auralisPill(
     shape: Shape = CircleShape,
     backgroundColor: Color = AuralisSurfaceElevated,

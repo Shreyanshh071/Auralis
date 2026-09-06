@@ -252,4 +252,75 @@ class SyllableMergeUnitTest {
         assertEquals(19506L, you.time)
         assertEquals(368L, you.duration)
     }
+
+    // ── 9. FAKE PLASTIC TREES WORD SPACING REGRESSION ─────────────────────────
+
+    @Test
+    fun testFakePlasticTreesMultiWordPreservation() {
+        val input = listOf(
+            LyricWord(word = "A", time = 3346L, duration = 309L),
+            LyricWord(word = "green", time = 3655L, duration = 311L),
+            LyricWord(word = "plastic", time = 3966L, duration = 785L),
+            LyricWord(word = "watering ", time = 4751L, duration = 1529L),
+            LyricWord(word = "can ", time = 6280L, duration = 903L)
+        )
+
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals("Must have 5 separate words with proper spacing preserved", 5, merged!!.size)
+        assertEquals("A ", merged[0].word)
+        assertEquals("green ", merged[1].word)
+        assertEquals("plastic ", merged[2].word)
+        assertEquals("watering ", merged[3].word)
+        assertEquals("can ", merged[4].word)
+
+        // Raw TTML snippet simulation
+        val ttmlXml = """
+            <tt xmlns="http://www.w3.org/ns/ttml">
+            <body>
+            <div>
+            <p begin="3.346" end="7.183">
+            <span begin="3.346" end="3.655">A</span> <span begin="3.655" end="3.966">green</span> <span begin="3.966" end="4.751">plastic</span><span begin="4.751" end="6.280">watering</span> <span begin="6.280" end="7.183">can</span>
+            </p>
+            </div>
+            </body>
+            </tt>
+        """.trimIndent()
+
+        val parsed = TtmlParser.parse(ttmlXml, LyricsProvider.BETTER_LYRICS)
+        assertEquals(1, parsed.lines.size)
+        val line = parsed.lines[0]
+        assertEquals("A green plastic watering can", line.text)
+        assertNotNull(line.words)
+        assertEquals(5, line.words!!.size)
+        assertEquals("plastic ", line.words!![2].word)
+        assertEquals("watering ", line.words!![3].word)
+    }
+
+    // ── 10. TITLE MATCHER SUBTITLE & SOUNDTRACK MATCHING ──────────────────────
+
+    @Test
+    fun testTitleMatcherWithSoundtrackAndSubtitles() {
+        assertTrue(
+            "Sunflower must match Sunflower (Spider-Man: Into the Spider-Verse)",
+            com.auralis.music.data.parser.LyricsMatcher.isTitleMatching(
+                "Sunflower",
+                "Sunflower (Spider-Man: Into the Spider-Verse)"
+            )
+        )
+        assertTrue(
+            "Starboy must match Starboy (feat. Daft Punk)",
+            com.auralis.music.data.parser.LyricsMatcher.isTitleMatching(
+                "Starboy",
+                "Starboy (feat. Daft Punk)"
+            )
+        )
+        assertTrue(
+            "Bitter Sweet Symphony must match Bitter Sweet Symphony (Radio Edit)",
+            com.auralis.music.data.parser.LyricsMatcher.isTitleMatching(
+                "Bitter Sweet Symphony",
+                "Bitter Sweet Symphony (Radio Edit)"
+            )
+        )
+    }
 }

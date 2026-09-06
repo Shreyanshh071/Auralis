@@ -121,6 +121,106 @@ open class InnerTubeClient(
     }
 
     /**
+     * Calls YouTube Music get_queue endpoint (matching Metrolist YouTube.queue)
+     * to fetch verified authentic track metadata including real album, artist, and duration.
+     */
+    open suspend fun getQueue(videoIds: List<String>): List<Track> = withContext(Dispatchers.IO) {
+        if (videoIds.isEmpty()) return@withContext emptyList()
+        try {
+            val validIds = videoIds.filter { it.isNotBlank() }.take(50)
+            if (validIds.isEmpty()) return@withContext emptyList()
+
+            val requestBody = JSONObject().apply {
+                put("context", createClientContext())
+                put("videoIds", JSONArray().apply { validIds.forEach { put(it) } })
+            }
+
+            val request = Request.Builder()
+                .url("$YT_MUSIC_API/music/get_queue?prettyPrint=false")
+                .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+
+            val body = response.body?.string() ?: return@withContext emptyList()
+            val json = JSONObject(body)
+            val queueDatas = json.optJSONArray("queueDatas") ?: return@withContext emptyList()
+
+            val tracks = mutableListOf<Track>()
+            for (i in 0 until queueDatas.length()) {
+                val qObj = queueDatas.optJSONObject(i) ?: continue
+                val renderer = qObj.optJSONObject("content")?.optJSONObject("playlistPanelVideoRenderer") ?: continue
+
+                val vid = renderer.optString("videoId")
+                if (vid.isBlank()) continue
+
+                val title = renderer.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
+                val longRuns = renderer.optJSONObject("longBylineText")?.optJSONArray("runs")
+
+                var artistName = ""
+                var albumName: String? = null
+                var albumId: String? = null
+
+                if (longRuns != null) {
+                    for (r in 0 until longRuns.length()) {
+                        val runObj = longRuns.optJSONObject(r) ?: continue
+                        val text = runObj.optString("text").trim()
+                        if (text.isBlank() || text == "•") continue
+
+                        val nav = runObj.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                        val bId = nav?.optString("browseId")
+                        val pageType = nav?.optJSONObject("browseEndpointContextSupportedConfigs")
+                            ?.optJSONObject("browseEndpointContextMusicConfig")
+                            ?.optString("pageType")
+
+                        if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || (bId != null && bId.startsWith("UC"))) {
+                            if (artistName.isBlank()) artistName = text
+                        } else if (pageType == "MUSIC_PAGE_TYPE_ALBUM" || (bId != null && (bId.startsWith("MPRE") || bId.startsWith("OLAK") || bId.startsWith("FEmusic")))) {
+                            albumName = text
+                            albumId = bId
+                        }
+                    }
+                }
+
+                var durationSec = 0L
+                val lengthText = renderer.optJSONObject("lengthText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                if (!lengthText.isNullOrBlank()) {
+                    durationSec = parseDurationToSeconds(lengthText)
+                }
+
+                val thumbnails = renderer.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                val thumbUrl = getBestThumbnailUrl(thumbnails, vid)
+
+                tracks.add(
+                    Track(
+                        id = vid,
+                        title = TitleCleaner.cleanTitle(title),
+                        artist = artistName.ifBlank { "YouTube Artist" },
+                        album = albumName,
+                        albumId = albumId,
+                        duration = durationSec,
+                        thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
+                        source = TrackSource.YOUTUBE
+                    )
+                )
+            }
+            tracks
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Resolves authentic album and artist details for a single video ID via get_queue.
+     */
+    open suspend fun getSongDetails(videoId: String): Track? = withContext(Dispatchers.IO) {
+        getQueue(listOf(videoId)).firstOrNull()
+    }
+
+    /**
      * Curates a fully diverse, genre-matched random radio queue:
      * - Zero duplicate song titles or live/alternate takes (via TrackDeduplicator)
      * - Maximum 2 songs from the seed artist
@@ -1158,30 +1258,45 @@ open class InnerTubeClient(
         val thumbUrl = getBestThumbnailUrl(thumbnails, null)
 
         val onTap = card.optJSONObject("onTap")
-        val browseId = onTap?.optJSONObject("browseEndpoint")?.optString("browseId")
+        val onTapNav = onTap?.optJSONObject("browseEndpoint")
+        val onTapBrowseId = onTapNav?.optString("browseId")
+        val onTapPageType = onTapNav?.optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType")
+
+        val browseId = onTapBrowseId
         val videoId = onTap?.optJSONObject("watchEndpoint")?.optString("videoId")
             ?: card.optJSONArray("buttons")?.optJSONObject(0)?.optJSONObject("buttonRenderer")?.optJSONObject("command")?.optJSONObject("watchEndpoint")?.optString("videoId")
 
-        if (cardType.contains("artist") || (browseId != null && browseId.startsWith("UC") && videoId.isNullOrBlank())) {
+        val isRadio = title.startsWith("Radio •", ignoreCase = true) ||
+            title.endsWith(" Radio", ignoreCase = true) ||
+            (browseId != null && browseId.startsWith("VLRD"))
+
+        if (isRadio) {
+            return null
+        }
+
+        if (onTapPageType == "MUSIC_PAGE_TYPE_ARTIST" || cardType.contains("artist") || (browseId != null && browseId.startsWith("UC") && videoId.isNullOrBlank())) {
             val artist = Artist(id = browseId ?: "yt:$title", name = title, thumbnail = thumbUrl.ifBlank { null }, query = "$title top songs")
             if (artists.none { it.id == browseId || it.name.equals(title, ignoreCase = true) }) {
                 artists.add(0, artist)
             }
             return SearchTopResult.ArtistResult(artist)
-        } else if (cardType.contains("album") || cardType.contains("ep") || cardType.contains("single") || (browseId != null && browseId.startsWith("MPRE") && videoId.isNullOrBlank())) {
+        } else if (onTapPageType == "MUSIC_PAGE_TYPE_ALBUM" || cardType.contains("album") || cardType.contains("ep") || cardType.contains("single") || (browseId != null && (browseId.startsWith("MPRE") || browseId.startsWith("OLAK")) && videoId.isNullOrBlank())) {
             val author = if (subParts.size > 1) subParts[1] else null
             val album = PlaylistResult(id = browseId ?: "pl:$title", title = title, thumbnail = thumbUrl.ifBlank { null }, author = author)
             if (albums.none { it.id == browseId || it.title.equals(title, ignoreCase = true) }) {
                 albums.add(0, album)
             }
             return SearchTopResult.AlbumResult(album)
-        } else if (cardType.contains("playlist") || (browseId != null && (browseId.startsWith("VL") || browseId.startsWith("PL")) && videoId.isNullOrBlank())) {
+        } else if (onTapPageType == "MUSIC_PAGE_TYPE_PLAYLIST" || cardType.contains("playlist") || (browseId != null && (browseId.startsWith("VL") || browseId.startsWith("PL")) && videoId.isNullOrBlank())) {
             val author = if (subParts.size > 1) subParts[1] else null
             val pl = PlaylistResult(id = browseId ?: "pl:$title", title = title, thumbnail = thumbUrl.ifBlank { null }, author = author)
             if (playlists.none { it.id == browseId || it.title.equals(title, ignoreCase = true) }) {
                 playlists.add(0, pl)
             }
-            return SearchTopResult.AlbumResult(pl)
+            // Do not return a playlist/radio as an AlbumResult
+            return null
         } else if (!videoId.isNullOrBlank()) {
             val artist = if (subParts.size > 1) subParts[1] else "YouTube Artist"
             var duration = 200L
@@ -1194,14 +1309,20 @@ open class InnerTubeClient(
             if (subtitleRuns != null) {
                 for (r in 0 until subtitleRuns.length()) {
                     val runObj = subtitleRuns.optJSONObject(r)
-                    val runBrowseId = runObj?.optJSONObject("navigationEndpoint")
-                        ?.optJSONObject("browseEndpoint")
-                        ?.optString("browseId")
-                    if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK"))) {
+                    val runNav = runObj?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                    val runBrowseId = runNav?.optString("browseId")
+                    val runPageType = runNav?.optJSONObject("browseEndpointContextSupportedConfigs")
+                        ?.optJSONObject("browseEndpointContextMusicConfig")
+                        ?.optString("pageType")
+                    if (runPageType == "MUSIC_PAGE_TYPE_ALBUM" || (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK")))) {
                         cardAlbumId = runBrowseId
                         cardAlbumName = runObj.optString("text")
                     }
                 }
+            }
+            val viewsStr = subParts.find {
+                val lower = it.lowercase()
+                lower.contains("play") || lower.contains("view") || lower.contains("listener")
             }
             val track = Track(
                 id = videoId,
@@ -1211,6 +1332,7 @@ open class InnerTubeClient(
                 albumId = cardAlbumId,
                 duration = duration,
                 thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
+                views = viewsStr,
                 source = TrackSource.YOUTUBE
             )
             if (songs.none { it.id == videoId }) {
@@ -1237,8 +1359,12 @@ open class InnerTubeClient(
         val title = col0Runs.optJSONObject(0)?.optString("text") ?: return
         val itemNav = item.optJSONObject("navigationEndpoint")
         val navEndpoint = col0Runs.optJSONObject(0)?.optJSONObject("navigationEndpoint") ?: itemNav
-        var browseId = navEndpoint?.optJSONObject("browseEndpoint")?.optString("browseId")
+        val navBrowse = navEndpoint?.optJSONObject("browseEndpoint")
+        var browseId = navBrowse?.optString("browseId")
             ?: itemNav?.optJSONObject("browseEndpoint")?.optString("browseId")
+        val itemPageType = navBrowse?.optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType")
 
         // Also check menu endpoints for album playlistId (e.g. OLAK5uy_...)
         if (browseId.isNullOrBlank()) {
@@ -1293,15 +1419,17 @@ open class InnerTubeClient(
                 val text = runObj.optString("text").trim()
                 if (text.isBlank() || text == "•") continue
 
-                val runBrowseId = runObj.optJSONObject("navigationEndpoint")
-                    ?.optJSONObject("browseEndpoint")
-                    ?.optString("browseId")
+                val nav = runObj.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                val runBrowseId = nav?.optString("browseId")
+                val pageType = nav?.optJSONObject("browseEndpointContextSupportedConfigs")
+                    ?.optJSONObject("browseEndpointContextMusicConfig")
+                    ?.optString("pageType")
 
                 val lowerText = text.lowercase()
 
-                if (runBrowseId != null && runBrowseId.startsWith("UC")) {
+                if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || (runBrowseId != null && runBrowseId.startsWith("UC"))) {
                     artistName = text
-                } else if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK"))) {
+                } else if (pageType == "MUSIC_PAGE_TYPE_ALBUM" || (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK")))) {
                     albumName = text
                     albumIdStr = runBrowseId
                 } else if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
@@ -1334,11 +1462,13 @@ open class InnerTubeClient(
                 if (text.isBlank() || text == "•") continue
                 val lowerText = text.lowercase()
 
-                val runBrowseId = runObj.optJSONObject("navigationEndpoint")
-                    ?.optJSONObject("browseEndpoint")
-                    ?.optString("browseId")
+                val nav = runObj.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                val runBrowseId = nav?.optString("browseId")
+                val pageType = nav?.optJSONObject("browseEndpointContextSupportedConfigs")
+                    ?.optJSONObject("browseEndpointContextMusicConfig")
+                    ?.optString("pageType")
 
-                if (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK"))) {
+                if (pageType == "MUSIC_PAGE_TYPE_ALBUM" || (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK")))) {
                     if (albumName == null) albumName = text
                     if (albumIdStr == null) albumIdStr = runBrowseId
                 } else if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
@@ -1358,8 +1488,8 @@ open class InnerTubeClient(
 
         val thumbUrl = getBestThumbnailUrl(thumbnails, videoId)
 
-        val isAlbum = itemType.contains("album") || itemType.contains("ep") || itemType.contains("single") || (browseId != null && browseId.startsWith("MPRE"))
-        val isPlaylist = itemType.contains("playlist") || (browseId != null && (browseId.startsWith("VL") || browseId.startsWith("PL")))
+        val isAlbum = itemPageType == "MUSIC_PAGE_TYPE_ALBUM" || itemType.contains("album") || itemType.contains("ep") || itemType.contains("single") || (browseId != null && browseId.startsWith("MPRE"))
+        val isPlaylist = itemPageType == "MUSIC_PAGE_TYPE_PLAYLIST" || itemType.contains("playlist") || (browseId != null && (browseId.startsWith("VL") || browseId.startsWith("PL")))
 
         val cleanArtist = if (artistName.equals("Song", ignoreCase = true) || artistName.equals("Video", ignoreCase = true) || artistName.equals("Unknown Artist", ignoreCase = true)) {
             if (!albumName.isNullOrBlank() && !typeKeywords.contains(albumName.lowercase())) {
@@ -1371,7 +1501,7 @@ open class InnerTubeClient(
 
         val cleanAlbum = if (albumName?.contains("play", ignoreCase = true) == true || albumName?.contains("view", ignoreCase = true) == true) null else albumName
 
-        if (itemType.contains("artist") || (browseId != null && browseId.startsWith("UC") && videoId.isNullOrBlank())) {
+        if (itemPageType == "MUSIC_PAGE_TYPE_ARTIST" || itemType.contains("artist") || (browseId != null && browseId.startsWith("UC") && videoId.isNullOrBlank())) {
             if (artists.none { it.id == browseId || it.name.equals(title, ignoreCase = true) }) {
                 artists.add(
                     Artist(
