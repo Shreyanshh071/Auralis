@@ -157,22 +157,68 @@ object WordTiming {
         return if (out.isEmpty()) listOf(text) else out
     }
 
+    private val COMMON_PREFIXES_STEMS = setOf(
+        "un", "dis", "mis", "pre", "re", "sub", "super", "inter", "trans",
+        "in", "im", "non", "con", "nec", "beauti", "delic", "fantas", "won",
+        "to", "ye", "mor", "al", "ex", "com", "de", "pro"
+    )
+
+    private val COMMON_SUFFIXES = setOf(
+        "ful", "able", "ible", "tion", "sion", "ment", "ness", "less", "ly",
+        "er", "est", "ing", "ed", "al", "ic", "ity", "ous", "ious", "ize", "ise", "bar"
+    )
+
+    private val KNOWN_COMPOUND_WORDS = setOf(
+        "starlight", "sunflower", "forever", "into", "inside", "without", "someone",
+        "something", "somewhere", "everyday", "rainbow", "butterfly", "moonlight",
+        "sunlight", "heartbeat", "everywhere", "anywhere", "myself", "yourself",
+        "himself", "herself", "itself", "themselves", "tonight", "today", "tomorrow",
+        "wunderbar"
+    )
+
+    /**
+     * Determines whether two adjacent unspaced spans are genuine syllables belonging to
+     * the same word (e.g. "beauti" + "ful", "well-" + "known") vs distinct independent words
+     * that merely lacked whitespace in provider markup (e.g. "plastic" + "watering").
+     */
+    fun shouldMergeSyllables(firstWord: String, secondWord: String): Boolean {
+        val f = firstWord.trim()
+        val s = secondWord.trim().trimEnd(',', '.', '!', '?', ';', ':', '"', '\'')
+        if (f.isEmpty() || s.isEmpty()) return false
+
+        // Hyphenated compounds/syllables always merge (e.g. "well-", "re-")
+        if (f.endsWith("-")) return true
+
+        val fLower = f.lowercase().trimEnd('-', '\'', '’')
+        val sLower = s.lowercase().trimStart('-', '\'', '’')
+        val combined = fLower + sLower
+
+        if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
+        if (fLower in COMMON_PREFIXES_STEMS || sLower in COMMON_SUFFIXES) return true
+
+        // Complete independent multi-syllable words (e.g. "plastic" [7], "watering" [8], "chinese" [7], "rubber" [6], "plant" [5])
+        // should never be merged together.
+        if (fLower.length >= 4 && sLower.length >= 4) {
+            return false
+        }
+
+        return false
+    }
+
     /**
      * Merges contiguous syllable spans belonging to the same visual word into a single
      * [LyricWord], matching Metrolist, Echo, and NomaTune behavior.
      *
      * In TTML and similar providers, multi-syllable words (such as "beauti" + "ful") are
-     * emitted as separate spans without whitespace between them. Rendering these syllables
-     * as independent visual words causes rapid, disproportionate sweep speeds across short
-     * syllables.
+     * emitted as separate spans without whitespace between them.
      *
      * Contiguous spans are merged when:
-     * 1. The previous span does not end with whitespace.
-     * 2. Neither span contains CJK characters (where character-level timing is authentic and expected).
+     * 1. The previous span does not end with whitespace and meets [shouldMergeSyllables].
+     * 2. Neither span contains CJK characters.
      * 3. Both spans share the same background-vocal status.
      *
-     * The merged word spans the exact provider interval: from the start of the first syllable
-     * to the end of the final syllable, preserving genuine provider timing accuracy.
+     * When two spans are independent words lacking whitespace (e.g. "plastic" + "watering"),
+     * merging is rejected and a proper word-separating space is preserved.
      */
     fun mergeContiguousSyllables(words: List<LyricWord>?): List<LyricWord>? {
         if (words.isNullOrEmpty() || words.size < 2) return words
@@ -187,7 +233,8 @@ object WordTiming {
             val canMerge = !hasTrailingSpace &&
                 !isCjk(prevWord) &&
                 !isCjk(curr.word) &&
-                acc.isBackground == curr.isBackground
+                acc.isBackground == curr.isBackground &&
+                shouldMergeSyllables(prevWord, curr.word)
 
             if (canMerge) {
                 val combinedText = prevWord + curr.word
@@ -205,7 +252,15 @@ object WordTiming {
                     duration = combinedDuration
                 )
             } else {
-                merged.add(acc)
+                // If previous word had no trailing space and current word has no leading space,
+                // preserve normal word boundary space between distinct words.
+                val needsSpace = !hasTrailingSpace &&
+                    !prevWord.endsWith("-") &&
+                    !curr.word.startsWith(" ") &&
+                    !isCjk(prevWord) &&
+                    !isCjk(curr.word)
+
+                merged.add(if (needsSpace) acc.copy(word = "$prevWord ") else acc)
                 acc = curr
             }
         }

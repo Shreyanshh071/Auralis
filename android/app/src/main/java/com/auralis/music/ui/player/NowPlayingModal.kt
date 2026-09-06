@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -37,8 +38,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -344,8 +347,28 @@ fun NowPlayingModal(
         }
     }
 
+    // Proactively pre-extract artwork palettes for neighboring tracks in the queue
+    // so tapping Next or Previous immediately hits memory cache with zero delay or color interruption.
+    LaunchedEffect(currentTrackIndex, queue) {
+        if (queue.isNotEmpty()) {
+            val nextTrack = queue.getOrNull(currentTrackIndex + 1)
+            val prevTrack = queue.getOrNull(currentTrackIndex - 1)
+            withContext(Dispatchers.IO) {
+                listOfNotNull(nextTrack, prevTrack).forEach { neighborTrack ->
+                    if (com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(neighborTrack.id) == null) {
+                        com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                            context = context,
+                            key = neighborTrack.id,
+                            artworkUrl = neighborTrack.thumbnail
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // Smooth continuous color interpolation executed on song/palette change, completely static while playing
-    val colorSpec = motionTween<Color>(AuralisDuration.Large, AuralisEasing.Standard)
+    val colorSpec = tween<Color>(durationMillis = 650, easing = FastOutSlowInEasing)
     val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedColors.primary, colorSpec, label = "animPrimary")
     val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedColors.secondary, colorSpec, label = "animSecondary")
     val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, colorSpec, label = "animTertiary")
@@ -446,33 +469,47 @@ fun NowPlayingModal(
                 )
             }
             "Blur" -> {
-                // Photo 3: Fullscreen Vivid Album Artwork Blur
+                // Photo 3: Fullscreen Vivid Album Artwork Blur with seamless color crossfade
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF040608))
-                ) {
-                    if (!track.thumbnail.isNullOrBlank()) {
-                        val blurImageRequest = remember(track.thumbnail) {
-                            coil.request.ImageRequest.Builder(context)
-                                .data(track.thumbnail)
-                                .size(128, 128)
-                                .crossfade(false)
-                                .build()
-                        }
-                        coil.compose.AsyncImage(
-                            model = blurImageRequest,
-                            contentDescription = null,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    scaleX = 1.15f
-                                    scaleY = 1.15f
-                                    alpha = 0.88f
-                                }
-                                .blur(radius = 24.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    gradientTopColor,
+                                    gradientBottomColor
+                                )
+                            )
                         )
+                ) {
+                    Crossfade(
+                        targetState = track.thumbnail,
+                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                        label = "blurArtworkCrossfade",
+                        modifier = Modifier.fillMaxSize()
+                    ) { thumbUrl ->
+                        if (!thumbUrl.isNullOrBlank()) {
+                            val blurImageRequest = remember(thumbUrl) {
+                                coil.request.ImageRequest.Builder(context)
+                                    .data(thumbUrl)
+                                    .size(128, 128)
+                                    .crossfade(300)
+                                    .build()
+                            }
+                            coil.compose.AsyncImage(
+                                model = blurImageRequest,
+                                contentDescription = null,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        scaleX = 1.15f
+                                        scaleY = 1.15f
+                                        alpha = 0.88f
+                                    }
+                                    .blur(radius = 24.dp)
+                            )
+                        }
                     }
                     // Soft vignette overlay so text & controls pop while allowing full spectrum of artwork colors to shine
                     Box(
@@ -758,17 +795,14 @@ fun NowPlayingModal(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF0C0D10).copy(alpha = 0.88f))
                             .graphicsLayer { alpha = controlsAlpha }
-                            .padding(horizontal = 8.dp)
                     ) {
                         Text(
                             text = "Up Next (${queueSnapshot.size} songs)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                            modifier = Modifier.padding(vertical = 8.dp)
                         )
 
                         LazyColumn(

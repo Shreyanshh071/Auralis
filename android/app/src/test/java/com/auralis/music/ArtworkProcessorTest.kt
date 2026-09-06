@@ -11,22 +11,22 @@ class ArtworkProcessorTest {
 
     @Test
     fun testYouTubeThumbnailUpgradesTo16By9WithoutBlackBars() {
-        // YouTube video URL: should maintain reliable hqdefault.jpg without causing 404 cascades
+        // YouTube video URL: should upgrade to 1280x720 HD hq720
         val input = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
         val upgraded = getHighResArtworkUrl(input)
-        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", upgraded)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg", upgraded)
 
         // Video URL with default.jpg
         val input2 = "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg"
         val upgraded2 = getHighResArtworkUrl(input2)
-        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", upgraded2)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg", upgraded2)
     }
 
     @Test
     fun testGoogleCdnSquareArtworkPreserved() {
         val googleCdn = "https://lh3.googleusercontent.com/abc123xyz=w120-h120-l90-rj"
         val upgraded = getHighResArtworkUrl(googleCdn)
-        assertEquals("https://lh3.googleusercontent.com/abc123xyz=w544-h544-l90-rj", upgraded)
+        assertEquals("https://lh3.googleusercontent.com/abc123xyz=w1200-h1200-l90-rj", upgraded)
     }
 
     @Test

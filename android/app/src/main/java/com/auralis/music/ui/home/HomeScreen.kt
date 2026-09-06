@@ -128,7 +128,7 @@ fun HomeScreen(
             // ================================================================
             // 1. TOP APP BAR: "Home" Title + Action Icons
             // ================================================================
-            item {
+            item(key = "home_top_bar", contentType = "header") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -182,7 +182,7 @@ fun HomeScreen(
 
             // ── SKELETON GHOST TILES ON INITIAL LOAD ──
             if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
-                item {
+                item(key = "home_skeleton", contentType = "skeleton") {
                     HomeGhostTilesSkeleton(
                         modifier = Modifier.padding(top = 4.dp)
                     )
@@ -192,7 +192,7 @@ fun HomeScreen(
                 // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
                 // ================================================================
                 if (uiState.speedDialPages.isNotEmpty()) {
-                    item {
+                    item(key = "home_speed_dial", contentType = "speed_dial") {
                         Text(
                             text = "Speed dial",
                             style = MaterialTheme.typography.titleLarge,
@@ -303,7 +303,7 @@ fun HomeScreen(
             // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
             // ================================================================
             if (uiState.quickPicks.isNotEmpty()) {
-                item {
+                item(key = "home_quick_picks", contentType = "quick_picks") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -418,7 +418,7 @@ fun HomeScreen(
             // ================================================================
             val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
             if (keepList.isNotEmpty()) {
-                item {
+                item(key = "home_keep_listening", contentType = "keep_listening") {
                     Text(
                         text = "Keep listening",
                         style = MaterialTheme.typography.titleLarge,
@@ -481,9 +481,9 @@ fun HomeScreen(
             // ================================================================
             // 7. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
             // ================================================================
-            uiState.similarRecommendations.forEach { simRec ->
+            uiState.similarRecommendations.forEachIndexed { idx, simRec ->
                 if (simRec.items.isNotEmpty()) {
-                    item {
+                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -583,9 +583,9 @@ fun HomeScreen(
             // ================================================================
             // 8. DYNAMIC YOUTUBE MUSIC CAROUSEL SHELVES (FEmusic_home)
             // ================================================================
-            uiState.dynamicSections.forEach { section ->
+            uiState.dynamicSections.forEachIndexed { sIdx, section ->
                 if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
-                    item {
+                    item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
                                 text = section.title,
@@ -783,7 +783,7 @@ private fun SpeedDialTile(
                     ),
                     RoundedCornerShape(14.dp)
                 )
-                .tactileBounce(scaleDown = 0.88f, onClick = onClick)
+                .clickable(onClick = onClick)
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {

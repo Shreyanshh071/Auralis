@@ -15,7 +15,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -374,12 +377,29 @@ class LibraryViewModel(
         if (cached != null) {
             _uiState.update { it.copy(selectedPlaylist = cached, selectedSmartCollection = null) }
         }
+        // Keep the Room Flow subscription for live updates (track adds/removes/reorders),
+        // but use distinctUntilChanged to skip redundant emissions that match the cached data.
         selectPlaylistJob = viewModelScope.launch {
-            libraryRepository.getPlaylist(playlistId).collect { pl ->
-                _uiState.update { it.copy(selectedPlaylist = pl, selectedSmartCollection = null) }
-                if (pl != null) {
+            libraryRepository.getPlaylist(playlistId)
+                .distinctUntilChanged { old, new ->
+                    old?.id == new?.id &&
+                    old?.tracks?.size == new?.tracks?.size &&
+                    old?.title == new?.title &&
+                    old?.coverUrl == new?.coverUrl &&
+                    old?.tracks?.map { it.id } == new?.tracks?.map { it.id }
                 }
-            }
+                .collectLatest { pl ->
+                    // Only update if the data actually differs from current state
+                    val current = _uiState.value.selectedPlaylist
+                    if (current?.id != pl?.id ||
+                        current?.tracks?.size != pl?.tracks?.size ||
+                        current?.tracks?.map { it.id } != pl?.tracks?.map { it.id } ||
+                        current?.title != pl?.title ||
+                        current?.coverUrl != pl?.coverUrl
+                    ) {
+                        _uiState.update { it.copy(selectedPlaylist = pl, selectedSmartCollection = null) }
+                    }
+                }
         }
     }
 

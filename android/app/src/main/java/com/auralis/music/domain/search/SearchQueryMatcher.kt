@@ -148,15 +148,22 @@ object SearchQueryMatcher {
         }
 
         val result = when {
-            // 1. Exact song title matches (ignoring case, punctuation, diacritics)
+            // 1. Exact song title matches (ignoring case, punctuation, diacritics, and trailing plural 's')
             normTitle == normQuery -> ScoredTrack(track, MatchTier.EXACT_TITLE, 100.0)
 
             // Title without parenthetical extras (e.g. "Dracula (feat. JENNIE)" -> "Dracula")
             cleanTitle == normQuery -> ScoredTrack(track, MatchTier.EXACT_TITLE, 95.0)
 
-            // Query contains both Title and Artist (e.g. "Dracula Tame Impala")
-            (normQuery.startsWith(normTitle) || normQuery.startsWith(cleanTitle)) && normArtist.isNotBlank() &&
-                    artistTokens.any { aTok -> aTok.length > 2 && normQuery.contains(aTok) } -> {
+            // Singular/plural stemming match (e.g. "flashing light" matching "flashing lights")
+            normQuery.length >= 3 && (normTitle.removeSuffix("s") == normQuery.removeSuffix("s") || cleanTitle.removeSuffix("s") == normQuery.removeSuffix("s")) -> {
+                ScoredTrack(track, MatchTier.EXACT_TITLE, 94.0)
+            }
+
+            // Query contains both Title and Artist (e.g. "Dracula Tame Impala" or "Tame Impala Dracula", "Love Me Not Ravyn Lenae" or "Ravyn Lenae Love Me Not")
+            ((normQuery.startsWith(normTitle) || normQuery.startsWith(cleanTitle)) && normArtist.isNotBlank() &&
+                    artistTokens.any { aTok -> aTok.length > 2 && normQuery.contains(aTok) }) ||
+            (normArtist.isNotBlank() && (normQuery.startsWith(normArtist) || (artistTokens.isNotEmpty() && artistTokens.all { aTok -> aTok.length > 2 && normQuery.contains(aTok) })) &&
+                    (normQuery.contains(normTitle) || normQuery.contains(cleanTitle))) -> {
                 ScoredTrack(track, MatchTier.EXACT_TITLE, 98.0)
             }
 
