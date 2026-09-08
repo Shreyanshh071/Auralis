@@ -12,6 +12,8 @@ import com.auralis.music.data.network.provider.LyricsSearchQuery
 import com.auralis.music.data.network.provider.LyricsSource
 import com.auralis.music.data.network.provider.MusixmatchLyricsSource
 import com.auralis.music.data.network.provider.NetEaseLyricsSource
+import com.auralis.music.data.network.provider.PaxsenixLyricsSource
+import com.auralis.music.data.network.provider.UnisonLyricsSource
 import com.auralis.music.data.network.provider.YouTubeInnerTubeLyricsSource
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsProvider
@@ -28,6 +30,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class LyricsClient(
     private val amllSource: AmllLyricsSource = AmllLyricsSource(),
     private val betterLyricsSource: BetterLyricsSource = BetterLyricsSource(),
+    private val unisonSource: UnisonLyricsSource = UnisonLyricsSource(),
+    private val paxsenixSource: PaxsenixLyricsSource = PaxsenixLyricsSource(),
     private val lrcLibSource: LrcLibLyricsSource = LrcLibLyricsSource(),
     private val jioSaavnSource: JioSaavnLyricsSource = JioSaavnLyricsSource(),
     private val netEaseSource: NetEaseLyricsSource = NetEaseLyricsSource(),
@@ -71,7 +75,9 @@ class LyricsClient(
          * BetterLyrics (Apple Music studio TTML) > NetEase (AMLL TTML / YRC) > Musixmatch (RichSync).
          */
         internal fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
-            LyricsProvider.BETTER_LYRICS -> 3
+            LyricsProvider.BETTER_LYRICS -> 5
+            LyricsProvider.PAXSENIX -> 4
+            LyricsProvider.UNISON -> 3
             LyricsProvider.NETEASE -> 2
             LyricsProvider.MUSIXMATCH -> 1
             else -> 0
@@ -117,7 +123,9 @@ class LyricsClient(
             masterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH,
             bestMasterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH,
             provider: LyricsProvider = LyricsProvider.LRCLIB,
-            bestProvider: LyricsProvider = LyricsProvider.LRCLIB
+            bestProvider: LyricsProvider = LyricsProvider.LRCLIB,
+            isExactVideoMatch: Boolean = false,
+            bestIsExactVideoMatch: Boolean = false
         ): Boolean {
             val isAligned = masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             val bestIsAligned = bestMasterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
@@ -129,11 +137,16 @@ class LyricsClient(
                 tier > bestTier -> true
                 tier < bestTier -> false
                 tier == TIER_WORD -> {
-                    val p = providerWordPriority(provider)
-                    val bp = providerWordPriority(bestProvider)
-                    if (p > bp) true
-                    else if (p < bp) false
-                    else score > bestScore
+                    // Exact-video-match genuine word sync takes precedence over metadata-only word sync
+                    if (isExactVideoMatch && !bestIsExactVideoMatch) true
+                    else if (!isExactVideoMatch && bestIsExactVideoMatch) false
+                    else {
+                        val p = providerWordPriority(provider)
+                        val bp = providerWordPriority(bestProvider)
+                        if (p > bp) true
+                        else if (p < bp) false
+                        else score > bestScore
+                    }
                 }
                 else -> score > bestScore
             }
@@ -145,18 +158,104 @@ class LyricsClient(
          * 1. Word tier.
          * 2. High quality score (>= INSTANT_WIN_SCORE).
          * 3. Verified audio master alignment (must REJECT MasterMatchStatus.MASTER_MISMATCH).
-         * 4. Top provider preference (BetterLyrics).
+         * 4. Top provider preference (BetterLyrics, or Unison when exact-video matched).
          */
         internal fun isInstantWinner(
             tier: Int,
             score: Double,
             masterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH,
-            provider: LyricsProvider = LyricsProvider.BETTER_LYRICS
+            provider: LyricsProvider = LyricsProvider.BETTER_LYRICS,
+            isExactVideoMatch: Boolean = false
         ): Boolean =
             tier == TIER_WORD &&
             score >= INSTANT_WIN_SCORE &&
             masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH &&
-            provider == LyricsProvider.BETTER_LYRICS
+            (provider == LyricsProvider.BETTER_LYRICS || (provider == LyricsProvider.UNISON && isExactVideoMatch))
+
+        internal fun calculateQualityScore(
+            cand: LyricsCandidate,
+            queryDurationSec: Long?,
+            queryDurationMs: Long? = null,
+            queryTitle: String? = null,
+            queryChannelTitle: String? = null,
+            queryVideoId: String? = null,
+            audioLeadingSilenceMs: Long? = null
+        ): Double {
+            if (com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cand.lyricsData)) {
+                return -1000.0
+            }
+            var score = cand.confidence.toDouble() // base 0 - 100
+            val lines = cand.lyricsData.lines
+            if (lines.isEmpty()) return 0.0
+
+            val firstLineTime = lines.firstOrNull { !it.isInstrumental }?.time ?: 0L
+            val isLongTrack = (queryDurationSec ?: 0L) >= 45L || (lines.size >= 15)
+
+            // 1. Timing Sanity: If a standard track starts at 0ms (or < 350ms), it's a defective crowdsourced submission lacking intro offset
+            if (isLongTrack && firstLineTime <= 350L) {
+                score -= 30.0
+            } else if (firstLineTime >= 1000L) {
+                score += 15.0 // Valid non-zero intro timing present (enables spinning countdown circle)
+            }
+
+            // 2. Line count & completeness
+            score += (lines.size.coerceAtMost(60) * 0.4) // up to +24
+
+            // 3. Backing vocals & ad-libs retention
+            val hasBackingVocals = lines.any { it.text.contains("(") && it.text.contains(")") }
+            if (hasBackingVocals) {
+                score += 15.0
+            }
+
+            // 4. Word-timing bonus: genuine word sync outranks line-sync
+            val tier = tierOf(cand.lyricsData)
+            if (tier == TIER_WORD) {
+                score += 20.0
+            }
+
+            // 5. Source bonuses: Word providers ranked BetterLyrics > NetEase > Musixmatch RichSync
+            // Exact-video-match genuine word-sync receives a strong ranking bonus
+            when (cand.provider) {
+                LyricsProvider.BETTER_LYRICS -> if (tier == TIER_WORD) score += 30.0
+                LyricsProvider.PAXSENIX -> if (tier == TIER_WORD) score += 28.0
+                LyricsProvider.UNISON -> if (tier == TIER_WORD) {
+                    score += if (cand.isExactVideoMatch) 45.0 else 25.0
+                }
+                LyricsProvider.NETEASE -> if (tier == TIER_WORD) score += 20.0 else if (firstLineTime > 350L) score += 6.0
+                LyricsProvider.MUSIXMATCH -> if (tier == TIER_WORD) score += 10.0 else if (firstLineTime > 350L) score += 8.0
+                LyricsProvider.LRCLIB -> if (firstLineTime > 350L) score += 10.0
+                LyricsProvider.KUGOU -> if (firstLineTime > 350L) score += 6.0
+                LyricsProvider.JIOSAAVN -> if (firstLineTime > 350L) score += 4.0
+                else -> {}
+            }
+
+            // 6. Master Alignment evaluation against playback duration
+            val playbackMs = queryDurationMs?.takeIf { it > 0L } ?: ((queryDurationSec ?: 0L) * 1000L)
+            val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
+                lyrics = cand.lyricsData,
+                playbackDurationMs = playbackMs,
+                playbackTitle = queryTitle,
+                candidateTitle = cand.lyricsData.trackName,
+                playbackChannelTitle = queryChannelTitle,
+                playbackVideoId = queryVideoId
+            )
+            val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                lyrics = cand.lyricsData,
+                playbackDurationMs = playbackMs,
+                playbackTitle = queryTitle,
+                candidateTitle = cand.lyricsData.trackName,
+                playbackChannelTitle = queryChannelTitle,
+                playbackVideoId = queryVideoId,
+                audioLeadingSilenceMs = audioLeadingSilenceMs
+            )
+            if (!isAcceptable) {
+                score -= 50.0
+            } else if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH && (playbackMs > 0L || cand.isExactVideoMatch)) {
+                score += 10.0
+            }
+
+            return score
+        }
     }
 
     /**
@@ -172,7 +271,8 @@ class LyricsClient(
         videoId: String? = null,
         album: String? = null,
         channelTitle: String? = null,
-        durationMs: Long? = null
+        durationMs: Long? = null,
+        audioLeadingSilenceMs: Long? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
         val (splitArtist, splitTitle) = TitleCleaner.splitArtistAndTitle(title, artist)
         val cleanedTitle = TitleCleaner.cleanTitle(splitTitle)
@@ -202,6 +302,8 @@ class LyricsClient(
         // returns.
         val primaryProviders: List<LyricsSource> = listOf(
             betterLyricsSource,
+            unisonSource,
+            paxsenixSource,
             lrcLibSource,
             musixmatchSource,
             kuGouSource,
@@ -249,16 +351,26 @@ class LyricsClient(
 
             while (completedCount < primaryProviders.size) {
                 val betterLyricsActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true
+                val unisonActive = providerJobMap[LyricsProvider.UNISON]?.isActive == true
+                val paxsenixActive = providerJobMap[LyricsProvider.PAXSENIX]?.isActive == true
+                val netEaseActive = providerJobMap[LyricsProvider.NETEASE]?.isActive == true
+                val musixmatchActive = providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
+                val anyWordProviderActive = betterLyricsActive || unisonActive || paxsenixActive || netEaseActive || musixmatchActive
 
                 val candidate = if (bestCandidate != null) {
                     if (bestTier == TIER_WORD) {
+                        val canBeBeaten = (bestCandidate.provider != LyricsProvider.BETTER_LYRICS && !bestCandidate.isExactVideoMatch) &&
+                            (betterLyricsActive || (bestCandidate.provider != LyricsProvider.PAXSENIX && paxsenixActive))
+                        if (!canBeBeaten) {
+                            break
+                        }
                         val remainingMs = graceDeadlineMs - System.currentTimeMillis()
                         if (remainingMs <= 0L) break
                         withTimeoutOrNull(remainingMs) { resultChannel.receive() } ?: break
                     } else {
                         // We have a LINE_SYNC candidate in hand.
-                        if (!betterLyricsActive) {
-                            // BetterLyrics has already completed or failed; settle immediately without waiting.
+                        if (!anyWordProviderActive) {
+                            // None of top word providers are active; settle immediately without waiting.
                             break
                         }
                         val remainingMs = graceDeadlineMs - System.currentTimeMillis()
@@ -295,36 +407,56 @@ class LyricsClient(
                         playbackDurationMs = queryDurationMs,
                         playbackTitle = title,
                         candidateTitle = correctedCand.lyricsData.trackName,
-                        playbackChannelTitle = channelTitle
+                        playbackChannelTitle = channelTitle,
+                        playbackVideoId = videoId
                     )
 
-                    // Rejection gate: >3.5s duration mismatch or timing-altering version mismatch MUST reject word candidate.
-                    // For line-sync candidates: reject severe master mismatch (>15s delta) to prevent playing wrong song version (e.g. 5:58 album cut on 4:36 radio edit)
                     val lyricDurMs = correctedCand.lyricsData.effectiveDurationMs
-                    val deltaMs = if (queryDurationMs > 0L && lyricDurMs > 0L) kotlin.math.abs(queryDurationMs - lyricDurMs) else 0L
-                    if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH) {
-                        if (tier == TIER_WORD) {
-                            Log.w(TAG, "[Candidate REJECTED: ${correctedCand.provider}] Word sync rejected due to MASTER_MISMATCH (playback=${queryDurationMs}ms, lyric=${lyricDurMs}ms)")
-                            continue
-                        } else if (deltaMs > 15_000L) {
-                            Log.w(TAG, "[Candidate REJECTED: ${correctedCand.provider}] Line sync rejected due to severe MASTER_MISMATCH (delta=${deltaMs}ms > 15s)")
-                            continue
-                        }
+                    val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                        lyrics = correctedCand.lyricsData,
+                        playbackDurationMs = queryDurationMs,
+                        playbackTitle = title,
+                        candidateTitle = correctedCand.lyricsData.trackName,
+                        playbackChannelTitle = channelTitle,
+                        playbackVideoId = videoId,
+                        audioLeadingSilenceMs = audioLeadingSilenceMs
+                    )
+
+                    // Rejection gate:
+                    // 1. Definite master mismatch (MASTER_MISMATCH) for ALL candidates (both word-sync and line-sync)
+                    // 2. Unverified compatible offset (COMPATIBLE_OFFSET when audioLeadingSilenceMs is null and candidate is not a genuine exact video match)
+                    if (!isAcceptable) {
+                        Log.w(TAG, "[Candidate REJECTED: ${correctedCand.provider}] ${correctedCand.syncType} rejected (masterMatch=$masterMatch, acceptable=false, playback=${queryDurationMs}ms, lyric=${lyricDurMs}ms)")
+                        continue
                     }
 
-                    val score = calculateQualityScore(correctedCand, durationSec, queryDurationMs, title, channelTitle)
-                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] tier=$tier, masterMatch=$masterMatch, score=$score, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
+                    val score = calculateQualityScore(correctedCand, durationSec, queryDurationMs, title, channelTitle, videoId, audioLeadingSilenceMs)
+                    Log.d(TAG, "[Candidate: ${correctedCand.provider}] tier=$tier, masterMatch=$masterMatch, score=$score, exactVideo=${correctedCand.isExactVideoMatch}, firstLine=${correctedCand.lyricsData.lines.firstOrNull()?.time}ms, lines=${correctedCand.lyricsData.lines.size}")
                     if (score < 0) continue
 
                     // Alignment-aware comparison: matching line sync beats mismatched word sync; BetterLyrics > NetEase > Musixmatch RichSync
                     val currentBestProvider = bestCandidate?.provider ?: LyricsProvider.LRCLIB
-                    if (bestCandidate == null || outranks(tier, score, bestTier, bestScore, masterMatch, bestMasterMatch, correctedCand.provider, currentBestProvider)) {
+                    val currentBestIsExactVideo = bestCandidate?.isExactVideoMatch == true
+                    if (bestCandidate == null || outranks(
+                            tier = tier,
+                            score = score,
+                            bestTier = bestTier,
+                            bestScore = bestScore,
+                            masterMatch = masterMatch,
+                            bestMasterMatch = bestMasterMatch,
+                            provider = correctedCand.provider,
+                            bestProvider = currentBestProvider,
+                            isExactVideoMatch = correctedCand.isExactVideoMatch,
+                            bestIsExactVideoMatch = currentBestIsExactVideo
+                        )) {
                         bestTier = tier
                         bestScore = score
                         bestMasterMatch = masterMatch
                         bestCandidate = correctedCand
                         if (tier == TIER_LINE) {
                             val wordProviderActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true ||
+                                providerJobMap[LyricsProvider.UNISON]?.isActive == true ||
+                                providerJobMap[LyricsProvider.PAXSENIX]?.isActive == true ||
                                 providerJobMap[LyricsProvider.NETEASE]?.isActive == true ||
                                 providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
                             if (wordProviderActive) {
@@ -334,10 +466,19 @@ class LyricsClient(
                                 // No word provider running; settle immediately
                                 graceDeadlineMs = System.currentTimeMillis()
                             }
+                        } else if (tier == TIER_WORD) {
+                            // When an exact-video word candidate arrives, settle immediately without waiting for studio sources
+                            if (correctedCand.isExactVideoMatch) {
+                                graceDeadlineMs = System.currentTimeMillis()
+                            } else if (correctedCand.provider != LyricsProvider.BETTER_LYRICS && providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true) {
+                                graceDeadlineMs = minOf(graceDeadlineMs, t0 + WORD_SYNC_GRACE_MS)
+                            } else {
+                                graceDeadlineMs = System.currentTimeMillis()
+                            }
                         }
                     }
 
-                    if (isInstantWinner(tier, score, masterMatch, correctedCand.provider)) {
+                    if (isInstantWinner(tier, score, masterMatch, correctedCand.provider, correctedCand.isExactVideoMatch)) {
                         Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} tier=$tier masterMatch=$masterMatch in ${System.currentTimeMillis() - t0}ms (Score: $score)")
                         providerJobs.forEach { it.cancel() }
                         return@coroutineScope correctedCand.lyricsData
@@ -370,8 +511,22 @@ class LyricsClient(
                 )
                 val lrcFallback = withTimeoutOrNull(2000L) { lrcLibSource.search(fallbackQuery) }
                 if (lrcFallback != null && lrcFallback.confidence >= 50 && lrcFallback.lyricsData.lines.isNotEmpty()) {
-                    Log.d(TAG, "[RAW TITLE WINNER] LRCLIB in ${System.currentTimeMillis() - t0}ms")
-                    return@withContext lrcFallback.lyricsData.copy(syncType = SyncType.LINE_SYNC)
+                    val queryDurationMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
+                    val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                        lyrics = lrcFallback.lyricsData,
+                        playbackDurationMs = queryDurationMs,
+                        playbackTitle = title,
+                        candidateTitle = lrcFallback.lyricsData.trackName,
+                        playbackChannelTitle = channelTitle,
+                        playbackVideoId = videoId,
+                        audioLeadingSilenceMs = audioLeadingSilenceMs
+                    )
+                    if (isAcceptable) {
+                        Log.d(TAG, "[RAW TITLE WINNER] LRCLIB in ${System.currentTimeMillis() - t0}ms")
+                        return@withContext lrcFallback.lyricsData.copy(syncType = SyncType.LINE_SYNC)
+                    } else {
+                        Log.w(TAG, "[RAW TITLE REJECTED] LRCLIB master mismatch for '$title' (playback=${queryDurationMs}ms, lyric=${lrcFallback.lyricsData.durationMs}ms)")
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -395,72 +550,5 @@ class LyricsClient(
         Log.d(TAG, "No lyrics found after ${System.currentTimeMillis() - t0}ms for '$coreTitle'")
         null
     }
-
-    private fun calculateQualityScore(
-        cand: LyricsCandidate,
-        queryDurationSec: Long?,
-        queryDurationMs: Long? = null,
-        queryTitle: String? = null,
-        queryChannelTitle: String? = null
-    ): Double {
-        if (com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cand.lyricsData)) {
-            return -1000.0
-        }
-        var score = cand.confidence.toDouble() // base 0 - 100
-        val lines = cand.lyricsData.lines
-        if (lines.isEmpty()) return 0.0
-
-        val firstLineTime = lines.firstOrNull { !it.isInstrumental }?.time ?: 0L
-        val isLongTrack = (queryDurationSec ?: 0L) >= 45L || (lines.size >= 15)
-
-        // 1. Timing Sanity: If a standard track starts at 0ms (or < 350ms), it's a defective crowdsourced submission lacking intro offset
-        if (isLongTrack && firstLineTime <= 350L) {
-            score -= 30.0
-        } else if (firstLineTime >= 1000L) {
-            score += 15.0 // Valid non-zero intro timing present (enables spinning countdown circle)
-        }
-
-        // 2. Line count & completeness
-        score += (lines.size.coerceAtMost(60) * 0.4) // up to +24
-
-        // 3. Backing vocals & ad-libs retention
-        val hasBackingVocals = lines.any { it.text.contains("(") && it.text.contains(")") }
-        if (hasBackingVocals) {
-            score += 15.0
-        }
-
-        // 4. Word-timing bonus: genuine word sync outranks line-sync
-        val tier = tierOf(cand.lyricsData)
-        if (tier == TIER_WORD) {
-            score += 20.0
-        }
-
-        // 5. Source bonuses: Word providers ranked BetterLyrics > NetEase > Musixmatch RichSync
-        when (cand.provider) {
-            LyricsProvider.BETTER_LYRICS -> if (tier == TIER_WORD) score += 30.0
-            LyricsProvider.NETEASE -> if (tier == TIER_WORD) score += 20.0 else if (firstLineTime > 350L) score += 6.0
-            LyricsProvider.MUSIXMATCH -> if (tier == TIER_WORD) score += 10.0 else if (firstLineTime > 350L) score += 8.0
-            LyricsProvider.LRCLIB -> if (firstLineTime > 350L) score += 10.0
-            LyricsProvider.KUGOU -> if (firstLineTime > 350L) score += 6.0
-            LyricsProvider.JIOSAAVN -> if (firstLineTime > 350L) score += 4.0
-            else -> {}
-        }
-
-        // 6. Master Alignment evaluation against playback duration
-        val playbackMs = queryDurationMs?.takeIf { it > 0L } ?: ((queryDurationSec ?: 0L) * 1000L)
-        val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
-            lyrics = cand.lyricsData,
-            playbackDurationMs = playbackMs,
-            playbackTitle = queryTitle,
-            candidateTitle = cand.lyricsData.trackName,
-            playbackChannelTitle = queryChannelTitle
-        )
-        if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH) {
-            score -= 50.0
-        } else if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH && playbackMs > 0L) {
-            score += 10.0
-        }
-
-        return score
-    }
 }
+

@@ -10,6 +10,8 @@ object LrcParser {
 
     private val LINE_TIMESTAMP_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?]""")
     private val WORD_TIMESTAMP_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>([^<]*)""")
+    private val AGENT_REGEX = Regex("""\{agent:([^}]+)\}""")
+    private val BACKGROUND_REGEX = Regex("""^\{bg\}""")
     private val METADATA_PREFIX_REGEX = Regex(
         """^(作词|作曲|编曲|制作人|制作|监制|混音|母带|吉他|贝斯|鼓|键盘|录音|和音|合音|企划|统筹|出品|发行|封面|弦乐|长笛|萨克斯|演唱|原唱|词|曲|OP|SP|Written\s+by|Composed\s+by|Produced\s+by|Lyrics\s+by|Music\s+by|Arranged\s+by|Mixed\s+by|Mastered\s+by|Recorded\s+by|Vocals\s+by|Vocal\s+by|Performed\s+by|Credits|Publisher|Release|Source|Transcribed\s+by|Translated\s+by)\s*[:：]""",
         RegexOption.IGNORE_CASE
@@ -66,7 +68,18 @@ object LrcParser {
 
             // The text comes after all leading [mm:ss.xx] timestamps
             val lastMatch = lineMatches.last()
-            val textPart = trimmed.substring(lastMatch.range.last + 1).trim()
+            var textPart = trimmed.substring(lastMatch.range.last + 1).trim()
+
+            // Parse optional provider agent {agent:v1} and background {bg} tags if present
+            val agentMatch = AGENT_REGEX.find(textPart)
+            val agent = agentMatch?.groupValues?.get(1)
+            if (agentMatch != null) {
+                textPart = textPart.replaceFirst(AGENT_REGEX, "").trim()
+            }
+            val isBackground = BACKGROUND_REGEX.containsMatchIn(textPart) || textPart.startsWith("{bg}") || textPart.startsWith("(bg)")
+            if (isBackground) {
+                textPart = textPart.replaceFirst(BACKGROUND_REGEX, "").removePrefix("{bg}").removePrefix("(bg)").trim()
+            }
 
             // Check for enhanced word-level sync: <00:12.34>Word <00:13.00>Word2
             //
@@ -99,7 +112,7 @@ object LrcParser {
                             wordText = "$wordText "
                         }
                     }
-                    list.add(LyricWord(word = wordText, time = wTime, duration = null))
+                    list.add(LyricWord(word = wordText, time = wTime, duration = null, isBackground = isBackground))
                 }
                 list
             } else null
@@ -126,7 +139,9 @@ object LrcParser {
                     LyricLine(
                         time = lineTime,
                         text = cleanLineText,
-                        words = words
+                        words = words,
+                        isBackground = isBackground,
+                        agent = agent
                     )
                 )
             }

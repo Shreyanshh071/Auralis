@@ -42,13 +42,15 @@ class LyricsRepositoryImpl(
          * Bump when parser timing semantics change, so rows written under the old
          * meaning are dropped once instead of being trusted forever.
          *
-         * 1 = the `duration == null` contract is enforced in every parser.
-         * 2 = Phase 4B-C: selective purge of stale line-sync rows to allow genuine word-sync upgrade.
+         * 1 = Initial baseline
+         * 2 = Phase 4B: BetterLyrics Boidu/Binimum integration.
          * 3 = Phase 4C: concurrent BetterLyrics (Boidu/Binimum race) and inline stale line-sync purge.
          * 4 = Phase 4C final: purge stale line-sync cache entries to allow genuine word-sync upgrade.
          * 5 = Phase 4D: recovered Binimum Apple Music word-sync, subtitle matching, space preservation, and intro alignment.
+         * 6 = Phase 5: Paxsenix Apple Music syllable-synced lyrics provider integration.
+         * 7 = Phase 5.1: strict cache revalidation, downgrade protection, and duration alignment fix.
          */
-        const val LYRICS_PIPELINE_VERSION = 5
+        const val LYRICS_PIPELINE_VERSION = 7
 
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
@@ -58,6 +60,8 @@ class LyricsRepositoryImpl(
                 lineObj.put("text", line.text)
                 lineObj.put("isInstrumental", line.isInstrumental)
                 if (line.isBackground) lineObj.put("isBackground", true)
+                if (line.endTime != null) lineObj.put("endTime", line.endTime)
+                if (line.agent != null) lineObj.put("agent", line.agent)
                 if (!line.words.isNullOrEmpty()) {
                     val wordsArray = JSONArray()
                     for (w in line.words) {
@@ -106,6 +110,8 @@ class LyricsRepositoryImpl(
                     val time = lineObj.getLong("time")
                     val text = lineObj.getString("text")
                     val isInst = lineObj.optBoolean("isInstrumental", false)
+                    val endTime = if (lineObj.has("endTime")) lineObj.getLong("endTime") else null
+                    val agent = if (lineObj.has("agent")) lineObj.getString("agent") else null
 
                     val wordsArray = lineObj.optJSONArray("words")
                     val words = if (wordsArray != null && wordsArray.length() > 0) {
@@ -130,7 +136,9 @@ class LyricsRepositoryImpl(
                             text = text,
                             words = words,
                             isInstrumental = isInst,
-                            isBackground = lineObj.optBoolean("isBackground", false)
+                            isBackground = lineObj.optBoolean("isBackground", false),
+                            endTime = endTime,
+                            agent = agent
                         )
                     )
                 }
@@ -149,6 +157,14 @@ class LyricsRepositoryImpl(
                     else -> SyncType.PLAIN
                 }
 
+                val isGenuineVideoKey = !entity.trackId.contains("::") &&
+                    entity.trackId.isNotBlank() &&
+                    !entity.trackId.startsWith("sp_") &&
+                    !entity.trackId.startsWith("spotify:")
+                val isExactVideo = isGenuineVideoKey &&
+                    provider == LyricsProvider.UNISON &&
+                    entity.hasWordTiming
+
                 return LyricsData(
                     syncType = resolvedSyncType,
                     lines = resolvedLines,
@@ -157,7 +173,9 @@ class LyricsRepositoryImpl(
                     trackName = candTitle,
                     artistName = candArtist,
                     durationMs = entity.durationMs,
-                    leadingSilenceMs = entity.leadingSilenceMs
+                    leadingSilenceMs = entity.leadingSilenceMs,
+                    isExactVideoMatch = isExactVideo,
+                    matchedVideoId = if (isGenuineVideoKey) entity.trackId else null
                 )
             } catch (_: Exception) {
                 return null
@@ -172,7 +190,8 @@ class LyricsRepositoryImpl(
         videoId: String?,
         album: String?,
         channelTitle: String?,
-        durationMs: Long?
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?
     ): LyricsData? {
         val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
@@ -189,16 +208,18 @@ class LyricsRepositoryImpl(
                 queryDurationSec = durationSec,
                 queryAlbum = album
             )
-            val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
+            val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
                 lyrics = cached,
                 playbackDurationMs = playbackMs,
                 playbackTitle = title,
                 candidateTitle = candTitle,
-                playbackChannelTitle = channelTitle
+                playbackChannelTitle = channelTitle,
+                playbackVideoId = videoId,
+                audioLeadingSilenceMs = audioLeadingSilenceMs
             )
-            if (confidence >= 50 && masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cached)) {
+            if (confidence >= 50 && isAcceptable && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cached)) {
                 val aligned = if (playbackMs > 0L) {
-                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(cached, playbackMs)
+                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(cached, playbackMs, audioLeadingSilenceMs)
                 } else cached
                 if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                     return aligned
@@ -217,39 +238,41 @@ class LyricsRepositoryImpl(
                         android.util.Log.d("AuralisLyrics", "[getCachedLyrics] Purging stale line-sync cache entry for '$trackKey' (pipelineVersion=${entity.pipelineVersion} < $LYRICS_PIPELINE_VERSION)")
                         lyricsDao.deleteLyrics(trackKey)
                         memoryCache.remove(trackKey)
-                        return null
-                    }
-                    val domainLyrics = entityToDomain(entity, title, artist)
-                    if (domainLyrics != null) {
-                        val candTitle = domainLyrics.trackName ?: title
-                        val candArtist = domainLyrics.artistName ?: artist
-                        val confidence = com.auralis.music.data.parser.LyricsMatcher.calculateConfidence(
-                            queryTitle = title,
-                            queryArtist = artist,
-                            candidateTitle = candTitle,
-                            candidateArtist = candArtist,
-                            queryDurationSec = durationSec,
-                            queryAlbum = album
-                        )
-                        val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
-                            lyrics = domainLyrics,
-                            playbackDurationMs = playbackMs,
-                            playbackTitle = title,
-                            candidateTitle = candTitle,
-                            playbackChannelTitle = channelTitle
-                        )
-                        if (confidence >= 50 && masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
-                            val aligned = if (playbackMs > 0L) {
-                                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs)
+                    } else {
+                        val domainLyrics = entityToDomain(entity, title, artist)
+                        if (domainLyrics != null) {
+                            val candTitle = domainLyrics.trackName ?: title
+                            val candArtist = domainLyrics.artistName ?: artist
+                            val confidence = com.auralis.music.data.parser.LyricsMatcher.calculateConfidence(
+                                queryTitle = title,
+                                queryArtist = artist,
+                                candidateTitle = candTitle,
+                                candidateArtist = candArtist,
+                                queryDurationSec = durationSec,
+                                queryAlbum = album
+                            )
+                            val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                                lyrics = domainLyrics,
+                                playbackDurationMs = playbackMs,
+                                playbackTitle = title,
+                                candidateTitle = candTitle,
+                                playbackChannelTitle = channelTitle,
+                                playbackVideoId = videoId,
+                                audioLeadingSilenceMs = audioLeadingSilenceMs
+                            )
+                            if (confidence >= 50 && isAcceptable && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
+                                val aligned = if (playbackMs > 0L) {
+                                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs, audioLeadingSilenceMs)
+                                } else {
+                                    domainLyrics
+                                }
+                                if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
+                                    memoryCache[trackKey] = aligned
+                                    return aligned
+                                }
                             } else {
-                                domainLyrics
+                                lyricsDao.deleteLyrics(trackKey)
                             }
-                            if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
-                                memoryCache[trackKey] = aligned
-                                return aligned
-                            }
-                        } else {
-                            lyricsDao.deleteLyrics(trackKey)
                         }
                     }
                 }
@@ -266,7 +289,8 @@ class LyricsRepositoryImpl(
         forceRefresh: Boolean,
         album: String?,
         channelTitle: String?,
-        durationMs: Long?
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?
     ): LyricsData? {
         val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
@@ -285,16 +309,18 @@ class LyricsRepositoryImpl(
                     queryDurationSec = durationSec,
                     queryAlbum = album
                 )
-                val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
+                val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
                     lyrics = cached,
                     playbackDurationMs = playbackMs,
                     playbackTitle = title,
                     candidateTitle = candTitle,
-                    playbackChannelTitle = channelTitle
+                    playbackChannelTitle = channelTitle,
+                    playbackVideoId = videoId,
+                    audioLeadingSilenceMs = audioLeadingSilenceMs
                 )
-                if (confidence >= 50 && masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH) {
+                if (confidence >= 50 && isAcceptable) {
                     val aligned = if (playbackMs > 0L) {
-                        com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(cached, playbackMs)
+                        com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(cached, playbackMs, audioLeadingSilenceMs)
                     } else cached
                     if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                         if (com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(aligned.lines)) {
@@ -331,16 +357,18 @@ class LyricsRepositoryImpl(
                                 queryDurationSec = durationSec,
                                 queryAlbum = album
                             )
-                            val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
+                            val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
                                 lyrics = domainLyrics,
                                 playbackDurationMs = playbackMs,
                                 playbackTitle = title,
                                 candidateTitle = candTitle,
-                                playbackChannelTitle = channelTitle
+                                playbackChannelTitle = channelTitle,
+                                playbackVideoId = videoId,
+                                audioLeadingSilenceMs = audioLeadingSilenceMs
                             )
-                            if (confidence >= 50 && masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH) {
+                            if (confidence >= 50 && isAcceptable) {
                                 val aligned = if (playbackMs > 0L) {
-                                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs)
+                                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs, audioLeadingSilenceMs)
                                 } else domainLyrics
                                 if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                                     if (entity.hasWordTiming && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(aligned.lines)) {
@@ -372,23 +400,69 @@ class LyricsRepositoryImpl(
             videoId = videoId,
             album = album,
             channelTitle = channelTitle,
-            durationMs = playbackMs
+            durationMs = playbackMs,
+            audioLeadingSilenceMs = audioLeadingSilenceMs
         )
         if (networkResult != null && networkResult.lines.isNotEmpty()) {
             val alignedNetwork = if (playbackMs > 0L) {
-                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(networkResult, playbackMs)
+                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(networkResult, playbackMs, audioLeadingSilenceMs)
             } else {
                 networkResult
             }
+
+            // Check if existing Room cache or memory cache holds a valid aligned RichSync result
+            val existingEntity = lyricsDao?.getLyrics(trackKey)
+            val existingDomain = existingEntity?.let { entityToDomain(it, title, artist) }
+            val existingIsAlignedRichSync = if (existingDomain != null && existingEntity.hasWordTiming) {
+                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                    lyrics = existingDomain,
+                    playbackDurationMs = playbackMs,
+                    playbackTitle = title,
+                    candidateTitle = existingDomain.trackName ?: title,
+                    playbackChannelTitle = channelTitle,
+                    playbackVideoId = videoId,
+                    audioLeadingSilenceMs = audioLeadingSilenceMs
+                ) &&
+                    com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(existingDomain.lines)
+            } else false
+
+            // INVARIANT: If existing cache has valid aligned RICHSYNC, and network returned lower-tier LINE_SYNC,
+            // never downgrade memory cache or return value to LINE_SYNC!
+            if (existingIsAlignedRichSync && alignedNetwork.syncType != SyncType.RICHSYNC) {
+                android.util.Log.d("AuralisLyrics", "[getLyrics] Preserving existing valid RICHSYNC cache entry for '$trackKey' against lower-tier network result (${alignedNetwork.provider} ${alignedNetwork.syncType})")
+                val alignedExisting = if (playbackMs > 0L && existingDomain != null) {
+                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(existingDomain, playbackMs, audioLeadingSilenceMs)
+                } else existingDomain
+                if (alignedExisting != null) {
+                    memoryCache[trackKey] = alignedExisting
+                    return alignedExisting
+                }
+            }
+
             memoryCache[trackKey] = alignedNetwork
             android.util.Log.d("AuralisLyrics", "[getLyrics] Network HIT: provider=${alignedNetwork.provider}, syncType=${alignedNetwork.syncType}, lines=${alignedNetwork.lines.size}")
 
             // Save to SQLite Room database for persistent 0ms instant retrieval
             if (lyricsDao != null) {
                 try {
-                    val existing = lyricsDao.getLyrics(trackKey)
-                    // Guard: Never downgrade a genuine word-sync cache entry to line-sync
-                    if (existing == null || !existing.hasWordTiming || alignedNetwork.syncType == SyncType.RICHSYNC) {
+                    val existing = existingEntity ?: lyricsDao.getLyrics(trackKey)
+                    val existingIsMismatch = if (existing != null) {
+                        val dom = entityToDomain(existing, title, artist)
+                        if (dom != null) {
+                            !com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                                lyrics = dom,
+                                playbackDurationMs = playbackMs,
+                                playbackTitle = title,
+                                candidateTitle = dom.trackName ?: title,
+                                playbackChannelTitle = channelTitle,
+                                playbackVideoId = videoId,
+                                audioLeadingSilenceMs = audioLeadingSilenceMs
+                            )
+                        } else false
+                    } else false
+
+                    // Guard: Never downgrade a genuine word-sync cache entry to line-sync UNLESS existing is a verified MASTER_MISMATCH with playback
+                    if (existing == null || !existing.hasWordTiming || alignedNetwork.syncType == SyncType.RICHSYNC || existingIsMismatch) {
                         val entity = domainToEntity(trackKey, alignedNetwork, title, artist)
                         lyricsDao.insertLyrics(entity)
                         negativeLyricsDao?.removeNegativeEntry(trackKey)
@@ -400,6 +474,28 @@ class LyricsRepositoryImpl(
                 }
             }
             return alignedNetwork
+        }
+
+        // If network cascade returned no lyrics, check if we have a valid aligned RichSync row in Room DB
+        val existingEntity = lyricsDao?.getLyrics(trackKey)
+        val existingDomain = existingEntity?.let { entityToDomain(it, title, artist) }
+        if (existingDomain != null && existingEntity.hasWordTiming && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(existingDomain.lines)) {
+            val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                lyrics = existingDomain,
+                playbackDurationMs = playbackMs,
+                playbackTitle = title,
+                candidateTitle = existingDomain.trackName ?: title,
+                playbackChannelTitle = channelTitle,
+                playbackVideoId = videoId,
+                audioLeadingSilenceMs = audioLeadingSilenceMs
+            )
+            if (isAcceptable) {
+                val alignedExisting = if (playbackMs > 0L) {
+                    com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(existingDomain, playbackMs, audioLeadingSilenceMs)
+                } else existingDomain
+                memoryCache[trackKey] = alignedExisting
+                return alignedExisting
+            }
         }
 
         if (cachedLineSyncFallback != null) {

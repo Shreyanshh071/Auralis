@@ -73,13 +73,15 @@ object YrcParser {
                     lineSb.append(wText)
                 }
 
+                val lineEndMs = if (lineDurMs > 0L) lineStartMs + lineDurMs else null
                 val fullText = lineSb.toString().trim()
                 if (fullText.isNotEmpty()) {
                     lines.add(
                         LyricLine(
                             time = lineStartMs,
                             text = fullText,
-                            words = if (words.isNotEmpty()) words else null
+                            words = if (words.isNotEmpty()) words else null,
+                            endTime = lineEndMs
                         )
                     )
                 }
@@ -113,6 +115,8 @@ object YrcParser {
             for (i in 0 until jsonArray.length()) {
                 val lineObj = jsonArray.optJSONObject(i) ?: continue
                 val lineStartMs = lineObj.optLong("t", 0L)
+                val lineDurMs = if (lineObj.has("d")) lineObj.optLong("d", 0L).takeIf { it > 0L } else null
+                val lineEndMs = lineDurMs?.let { lineStartMs + it }
                 val cArray = lineObj.optJSONArray("c") ?: continue
 
                 val words = mutableListOf<LyricWord>()
@@ -137,7 +141,8 @@ object YrcParser {
                         LyricLine(
                             time = lineStartMs,
                             text = fullText,
-                            words = words
+                            words = words,
+                            endTime = lineEndMs
                         )
                     )
                 }

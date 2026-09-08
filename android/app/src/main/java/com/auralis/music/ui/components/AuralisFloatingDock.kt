@@ -18,6 +18,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material3.*
+import androidx.compose.ui.graphics.luminance
+import com.auralis.music.ui.theme.dynamicPrimary
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,6 +117,50 @@ fun AuralisFloatingDock(
     val buttonSize = if (isSlim) 46.dp else 56.dp
     val pillShape = RoundedCornerShape(30.dp)
 
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val isDark = surfaceColor.luminance() < 0.5f
+
+    val contentColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val secondaryContentColor = if (isDark) Color.White.copy(alpha = 0.65f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
+
+    val dockBorderBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.28f),
+                Color.White.copy(alpha = 0.10f),
+                Color.White.copy(alpha = 0.04f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.Black.copy(alpha = 0.14f),
+                Color.Black.copy(alpha = 0.07f),
+                Color.Black.copy(alpha = 0.02f)
+            )
+        )
+    }
+
+    val fallbackGradient = if (isDark) {
+        listOf(
+            Color.White.copy(alpha = 0.14f),
+            surfaceVariant.copy(alpha = 0.65f),
+            backgroundColor.copy(alpha = 0.78f)
+        )
+    } else {
+        listOf(
+            surfaceColor.copy(alpha = 0.90f),
+            surfaceVariant.copy(alpha = 0.80f),
+            backgroundColor.copy(alpha = 0.88f)
+        )
+    }
+
+    val shadowAmbient = Color.Black.copy(alpha = if (isDark) 0.40f else 0.08f)
+    val shadowSpot = Color.Black.copy(alpha = if (isDark) 0.50f else 0.14f)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -134,8 +180,8 @@ fun AuralisFloatingDock(
                     .shadow(
                         elevation = 16.dp,
                         shape = pillShape,
-                        ambientColor = Color.Black.copy(alpha = 0.40f),
-                        spotColor = Color.Black.copy(alpha = 0.50f)
+                        ambientColor = shadowAmbient,
+                        spotColor = shadowSpot
                     )
                     .clip(pillShape)
                     .then(
@@ -143,33 +189,19 @@ fun AuralisFloatingDock(
                             Modifier.hazeEffect(
                                 state = hazeState,
                                 style = HazeStyle(
-                                    backgroundColor = Color(0xFF141416),
-                                    tint = dev.chrisbanes.haze.HazeTint(Color(0xFF141416).copy(alpha = 0.55f)),
+                                    backgroundColor = surfaceColor,
+                                    tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.58f else 0.72f)),
                                     blurRadius = 24.dp,
                                     noiseFactor = 0.02f
                                 )
                             )
                         } else {
-                            Modifier.background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.16f),
-                                        Color(0xFF202024).copy(alpha = 0.58f),
-                                        Color(0xFF0E0E10).copy(alpha = 0.72f)
-                                    )
-                                )
-                            )
+                            Modifier.background(Brush.verticalGradient(fallbackGradient))
                         }
                     )
                     .border(
                         width = 1.dp,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.28f),
-                                Color.White.copy(alpha = 0.10f),
-                                Color.White.copy(alpha = 0.04f)
-                            )
-                        ),
+                        brush = dockBorderBrush,
                         shape = pillShape
                     )
                     .padding(horizontal = 4.dp, vertical = 4.dp)
@@ -186,6 +218,10 @@ fun AuralisFloatingDock(
                         destination = AppDestination.HOME,
                         icon = Icons.Outlined.Explore,
                         isSelected = currentDestination == AppDestination.HOME,
+                        isDark = isDark,
+                        contentColor = contentColor,
+                        secondaryContentColor = secondaryContentColor,
+                        primaryColor = primaryColor,
                         onClick = { onDestinationClick(AppDestination.HOME) }
                     )
 
@@ -193,6 +229,10 @@ fun AuralisFloatingDock(
                         destination = AppDestination.EXPLORE,
                         icon = Icons.Default.Search,
                         isSelected = currentDestination == AppDestination.EXPLORE,
+                        isDark = isDark,
+                        contentColor = contentColor,
+                        secondaryContentColor = secondaryContentColor,
+                        primaryColor = primaryColor,
                         onClick = { onDestinationClick(AppDestination.EXPLORE) }
                     )
 
@@ -200,6 +240,10 @@ fun AuralisFloatingDock(
                         destination = AppDestination.LIBRARY,
                         icon = Icons.Default.GridView,
                         isSelected = currentDestination == AppDestination.LIBRARY,
+                        isDark = isDark,
+                        contentColor = contentColor,
+                        secondaryContentColor = secondaryContentColor,
+                        primaryColor = primaryColor,
                         onClick = { onDestinationClick(AppDestination.LIBRARY) }
                     )
                 }
@@ -221,8 +265,8 @@ fun AuralisFloatingDock(
                             .shadow(
                                 elevation = 16.dp,
                                 shape = CircleShape,
-                                ambientColor = Color.Black.copy(alpha = 0.40f),
-                                spotColor = Color.Black.copy(alpha = 0.50f)
+                                ambientColor = shadowAmbient,
+                                spotColor = shadowSpot
                             )
                             .clip(CircleShape)
                             .then(
@@ -230,38 +274,24 @@ fun AuralisFloatingDock(
                                     Modifier.hazeEffect(
                                         state = hazeState,
                                         style = HazeStyle(
-                                            backgroundColor = Color(0xFF141416),
-                                            tint = dev.chrisbanes.haze.HazeTint(Color(0xFF141416).copy(alpha = 0.55f)),
+                                            backgroundColor = surfaceColor,
+                                            tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.58f else 0.72f)),
                                             blurRadius = 24.dp,
                                             noiseFactor = 0.02f
                                         )
                                     )
                                 } else {
-                                    Modifier.background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.White.copy(alpha = 0.16f),
-                                                Color(0xFF202024).copy(alpha = 0.58f),
-                                                Color(0xFF0E0E10).copy(alpha = 0.72f)
-                                            )
-                                        )
-                                    )
+                                    Modifier.background(Brush.verticalGradient(fallbackGradient))
                                 }
                             )
                             .border(
                                 width = 1.dp,
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.28f),
-                                        Color.White.copy(alpha = 0.10f),
-                                        Color.White.copy(alpha = 0.04f)
-                                    )
-                                ),
+                                brush = dockBorderBrush,
                                 shape = CircleShape
                             )
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(color = Color.White)
+                                indication = ripple(color = if (isDark) Color.White else primaryColor)
                             ) {
                                 if (currentDestination == AppDestination.HOME) {
                                     onToggleHomeMenu()
@@ -275,14 +305,14 @@ fun AuralisFloatingDock(
                             Icon(
                                 imageVector = Icons.Default.MoreHoriz,
                                 contentDescription = "Menu",
-                                tint = Color.White,
+                                tint = contentColor,
                                 modifier = Modifier.size(24.dp)
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = "Create",
-                                tint = Color.White,
+                                tint = contentColor,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -298,11 +328,46 @@ private fun DockTabItem(
     destination: AppDestination,
     icon: ImageVector,
     isSelected: Boolean,
+    isDark: Boolean,
+    contentColor: Color,
+    secondaryContentColor: Color,
+    primaryColor: Color,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val primaryColor = MaterialTheme.colorScheme.primary
     val tabShape = RoundedCornerShape(22.dp)
+
+    val tabBgBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.16f),
+                Color.White.copy(alpha = 0.06f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                primaryColor.copy(alpha = 0.18f),
+                primaryColor.copy(alpha = 0.06f)
+            )
+        )
+    }
+
+    val tabBorderBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.22f),
+                Color.White.copy(alpha = 0.06f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                primaryColor.copy(alpha = 0.32f),
+                primaryColor.copy(alpha = 0.10f)
+            )
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -312,22 +377,12 @@ private fun DockTabItem(
                 if (isSelected) {
                     Modifier
                         .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.White.copy(alpha = 0.16f),
-                                    Color.White.copy(alpha = 0.06f)
-                                )
-                            ),
+                            tabBgBrush,
                             shape = tabShape
                         )
                         .border(
                             width = 1.dp,
-                            brush = Brush.verticalGradient(
-                                listOf(
-                                    Color.White.copy(alpha = 0.22f),
-                                    Color.White.copy(alpha = 0.06f)
-                                )
-                            ),
+                            brush = tabBorderBrush,
                             shape = tabShape
                         )
                 } else Modifier
@@ -353,7 +408,7 @@ private fun DockTabItem(
             Icon(
                 imageVector = icon,
                 contentDescription = destination.label,
-                tint = if (isSelected) primaryColor else Color.White.copy(alpha = 0.65f),
+                tint = if (isSelected) primaryColor else secondaryContentColor,
                 modifier = Modifier.size(22.dp)
             )
 
@@ -361,7 +416,7 @@ private fun DockTabItem(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = destination.label,
-                    color = Color.White,
+                    color = contentColor,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.5.sp,
                     maxLines = 1

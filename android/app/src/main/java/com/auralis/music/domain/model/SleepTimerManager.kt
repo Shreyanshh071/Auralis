@@ -4,14 +4,26 @@ class SleepTimerManager {
     var deadlineEpochMs: Long? = null
         private set
 
-    val isActive: Boolean
-        get() = deadlineEpochMs != null && deadlineEpochMs!! > System.currentTimeMillis()
+    val isSet: Boolean
+        get() = deadlineEpochMs != null
 
-    fun setTimer(durationMinutes: Int): Long {
-        val durationMs = durationMinutes.toLong() * 60 * 1000
+    fun isActive(nowEpochMs: Long = System.currentTimeMillis()): Boolean {
+        val deadline = deadlineEpochMs ?: return false
+        return deadline > nowEpochMs
+    }
+
+    val isActive: Boolean
+        get() = isActive(System.currentTimeMillis())
+
+    fun setTimerSeconds(durationSeconds: Long): Long {
+        val durationMs = durationSeconds.coerceAtLeast(0L) * 1000L
         val deadline = System.currentTimeMillis() + durationMs
         deadlineEpochMs = deadline
         return deadline
+    }
+
+    fun setTimer(durationMinutes: Int): Long {
+        return setTimerSeconds(durationMinutes.toLong() * 60L)
     }
 
     fun cancel() {
@@ -19,9 +31,9 @@ class SleepTimerManager {
     }
 
     fun getRemainingSeconds(nowEpochMs: Long = System.currentTimeMillis()): Long {
-        val deadline = deadlineEpochMs ?: return 0
-        val remainingMs = (deadline - nowEpochMs).coerceAtLeast(0)
-        return remainingMs / 1000
+        val deadline = deadlineEpochMs ?: return 0L
+        val remainingMs = (deadline - nowEpochMs).coerceAtLeast(0L)
+        return remainingMs / 1000L
     }
 
     fun isExpired(nowEpochMs: Long = System.currentTimeMillis()): Boolean {

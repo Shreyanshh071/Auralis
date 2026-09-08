@@ -184,6 +184,9 @@ dependencies {
     implementation("dev.chrisbanes.haze:haze:1.3.1")
     implementation("dev.chrisbanes.haze:haze-materials:1.3.1")
 
+    // Material 3 Dynamic Color Theming (Google Monet / Material Color Utilities)
+    implementation("com.materialkolor:material-kolor:2.0.2")
+
     // Android Instrumented Testing
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -211,16 +211,16 @@ class PlayerControllerImpl(
 
     private fun startSleepTimerTicker() {
         sleepTimerJob = scope.launch {
-            while (sleepTimerManager.isActive) {
-                delay(1000L)
+            while (sleepTimerManager.isSet) {
                 val remaining = sleepTimerManager.getRemainingSeconds()
                 _sleepTimerSeconds.value = remaining
-                if (sleepTimerManager.isExpired()) {
+                if (remaining <= 0L || sleepTimerManager.isExpired()) {
                     sleepTimerManager.cancel()
                     audioPlayer.pause()
                     _sleepTimerSeconds.value = 0L
                     break
                 }
+                delay(1000L)
             }
         }
     }

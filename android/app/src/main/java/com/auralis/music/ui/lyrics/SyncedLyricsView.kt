@@ -266,11 +266,39 @@ fun SyncedLyricsView(
     val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
 
     // Derived, not remembered against the position: composition re-runs when the
-    // active *line* changes, not when the millisecond does.
-    val activeIndexState = remember(effectiveLines, isSynced, offsetMs, positionState) {
+    // active *lines* change, not when the millisecond does.
+    val activeIndicesState = remember(effectiveLines, isSynced, offsetMs, positionState) {
+        derivedStateOf {
+            if (!isSynced) emptySet<Int>()
+            else LyricsEngine.findActiveLyricIndices(effectiveLines, positionState.value, offsetMs)
+        }
+    }
+
+    val primaryActiveIndexState = remember(effectiveLines, isSynced, offsetMs, positionState) {
         derivedStateOf {
             if (!isSynced) -1
             else LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value, offsetMs)
+        }
+    }
+
+    val pastIndicesState = remember(effectiveLines, isSynced, offsetMs, positionState) {
+        derivedStateOf {
+            if (!isSynced) emptySet<Int>()
+            else {
+                val targetTime = positionState.value + offsetMs
+                val active = LyricsEngine.findActiveLyricIndices(effectiveLines, positionState.value, offsetMs)
+                buildSet {
+                    for (i in effectiveLines.indices) {
+                        if (!active.contains(i)) {
+                            val line = effectiveLines[i]
+                            val lineEnd = line.effectiveEndTime ?: effectiveLines.getOrNull(i + 1)?.time ?: (line.time + 10_000L)
+                            if (targetTime >= lineEnd) {
+                                add(i)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -401,12 +429,13 @@ fun SyncedLyricsView(
 
         // Automatic, smooth centering of active lyric line.
         // Driven by a snapshotFlow so the position clock never re-runs this
-        // composable — the effect wakes only when the active index or the user's
-        // touch state actually changes.
-        LaunchedEffect(activeIndexState, isSynced, appearance.autoScrollLyrics, effectiveLines) {
+        // composable — the effect wakes only when the primary active index or the user's
+        // touch state actually changes. Anchoring to primaryActiveIndex prevents scrolling
+        // jitter when simultaneous secondary/background lines overlap.
+        LaunchedEffect(primaryActiveIndexState, isSynced, appearance.autoScrollLyrics, effectiveLines) {
             if (!isSynced || !appearance.autoScrollLyrics) return@LaunchedEffect
             snapshotFlow {
-                Triple(activeIndexState.value, isUserInteracting, selectedIndices.isNotEmpty())
+                Triple(primaryActiveIndexState.value, isUserInteracting, selectedIndices.isNotEmpty())
             }
                 .distinctUntilChanged()
                 .collectLatest { (activeIndex, interacting, selecting) ->
@@ -475,20 +504,42 @@ fun SyncedLyricsView(
                 items = effectiveLines,
                 key = { index, line -> "${line.time}_$index" }
             ) { index, line ->
-                // Reading the derived index here — inside the item's own
+                // Reading the derived indices here — inside the item's own
                 // recomposition scope — keeps line-change invalidation local to
                 // the rows instead of the whole view.
-                val activeIndex = activeIndexState.value
-                val isCurrent = isSynced && index == activeIndex
-                val isPast = isSynced && index < activeIndex
-                val pastDistance = if (isPast) (activeIndex - index).coerceAtLeast(1) else 0
+                val activeIndices = activeIndicesState.value
+                val pastIndices = pastIndicesState.value
+                val primaryIndex = primaryActiveIndexState.value
+                val isCurrent = isSynced && activeIndices.contains(index)
+                val isPast = isSynced && pastIndices.contains(index)
+                val pastDistance = if (isPast) {
+                    val minActive = activeIndices.minOrNull()
+                    val ref = minActive ?: (primaryIndex + 1)
+                    (ref - index).coerceAtLeast(1)
+                } else 0
+
+                // Vocal agent & background vocal positioning
+                val lineAlignment = when {
+                    line.isBackground -> Alignment.CenterHorizontally
+                    line.agent == "v1" -> Alignment.Start
+                    line.agent == "v2" -> Alignment.End
+                    line.agent == "v1000" -> Alignment.CenterHorizontally
+                    else -> horizontalAlignment
+                }
+                val lineTextAlign = when {
+                    line.isBackground -> TextAlign.Center
+                    line.agent == "v1" -> TextAlign.Start
+                    line.agent == "v2" -> TextAlign.End
+                    line.agent == "v1000" -> TextAlign.Center
+                    else -> textAlign
+                }
 
                 val isSelected = selectedIndices.contains(index)
                 val isSelectionMode = selectedIndices.isNotEmpty()
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = horizontalAlignment
+                    horizontalAlignment = lineAlignment
                 ) {
                     if (index == 0 && isIntroActiveState.value) {
                         InstrumentalIntroIndicator(
@@ -557,8 +608,8 @@ fun SyncedLyricsView(
                             isSelected = isSelected,
                             lyricsMode = lyricsMode,
                             syncType = lyrics.syncType,
-                            textAlign = textAlign,
-                            horizontalAlignment = horizontalAlignment,
+                            textAlign = lineTextAlign,
+                            horizontalAlignment = lineAlignment,
                             positionState = positionState,
                             offsetMs = offsetMs,
                             rowMaxWidthPx = rowMaxWidthPx
@@ -884,12 +935,10 @@ private fun LyricLineRow(
     // Ordinary line-synced lyrics and past transitions retain smooth alpha motion.
     val effectiveAlpha = if (hasWordTiming && isCurrent) 1.0f else animAlpha
 
-    // Issue 2 Fix: Deterministic line wrapping based on active typography metrics.
-    // Layout measurements and wrapping remain constant regardless of active state to eliminate jumping/reflow.
     val baseFontSize = when {
-        isPlain -> 22.sp
-        lyricsMode == LyricsMode.CINEMA -> 30.sp
-        else -> 26.sp
+        isPlain -> 20.sp
+        isCurrent -> if (lyricsMode == LyricsMode.CINEMA) 28.sp else 22.sp
+        else -> if (lyricsMode == LyricsMode.CINEMA) 22.sp else 20.sp
     }
     // Background vocals (ad-libs, harmonies) styled distinctly
     val fontSize = if (line.isBackground) (baseFontSize.value * 0.85f).sp else baseFontSize
@@ -908,12 +957,12 @@ private fun LyricLineRow(
         else emptyList()
     }
 
-    // FIX 2: Precompute active text layout and word layout data using TextMeasurer.
+    // Precompute active text layout and word layout data using TextMeasurer.
     // This ensures textLayoutResult and wordLayouts are ALREADY populated and ready
     // on the exact frame isCurrent flips to true, eliminating the 1-2 frame layout dead zone.
     val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
     val activeTextStyle = remember(lyricsMode, line.isBackground, textAlign) {
-        val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) 30.sp else 26.sp
+        val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) 28.sp else 22.sp
         val activeSize = if (line.isBackground) (activeBaseSize.value * 0.85f).sp else activeBaseSize
         val activeFontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal
         TextStyle(

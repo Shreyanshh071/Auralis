@@ -5,7 +5,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.auralis.music.data.local.AuralisDatabase
 import com.auralis.music.data.network.LyricsClient
+import com.auralis.music.data.repository.LyricsRepositoryImpl
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
@@ -276,4 +278,111 @@ class RealDeviceLyricsSyncTest {
         val ranges = LyricsEngine.mapWordsToLineSpans(firstWordTimedLine.text, firstWordTimedLine.words)
         assertTrue("Word spans must be mapped successfully for live data", ranges.isNotEmpty())
     }
+
+    // ── 12. LIVE TOUCH UNISON EXACT-VIDEO RESOLUTION ON PHYSICAL DEVICE ────────
+
+    @Test
+    fun testLiveTouchUnisonRichSyncOnDevice() = runBlocking {
+        val client = LyricsClient()
+        val result = client.getLyrics(
+            title = "Touch",
+            artist = "KATSEYE",
+            durationSec = 143L,
+            videoId = "H5tO_9wZ0hg",
+            durationMs = 143_000L
+        )
+
+        assertNotNull("Touch must resolve lyrics on live network", result)
+        assertEquals("Touch must resolve RICHSYNC from UNISON", SyncType.RICHSYNC, result!!.syncType)
+        assertEquals(com.auralis.music.domain.model.LyricsProvider.UNISON, result.provider)
+        assertTrue("Touch must have word timing on live network", result.lines.any { it.hasWordTiming })
+
+        val firstWordTimedLine = result.lines.first { it.hasWordTiming }
+        val ranges = LyricsEngine.mapWordsToLineSpans(firstWordTimedLine.text, firstWordTimedLine.words)
+        assertTrue("Word spans must be mapped successfully for Touch live data", ranges.isNotEmpty())
+    }
+
+    // ── 13. LIVE PAXSENIX APPLE MUSIC RESOLUTION ON PHYSICAL DEVICE ─────────
+
+    @Test
+    fun testLivePaxsenixSyllableSyncOnDevice() = runBlocking {
+        val paxsenixSource = com.auralis.music.data.network.provider.PaxsenixLyricsSource()
+        val query = com.auralis.music.data.network.provider.LyricsSearchQuery(
+            title = "Sunflower",
+            artist = "Post Malone & Swae Lee",
+            durationSec = 158L,
+            durationMs = 158_000L
+        )
+        val cand = paxsenixSource.search(query)
+        assertNotNull("Sunflower must resolve Paxsenix syllable lyrics on physical device", cand)
+        assertEquals(SyncType.RICHSYNC, cand!!.syncType)
+        assertEquals(com.auralis.music.domain.model.LyricsProvider.PAXSENIX, cand.provider)
+        assertTrue("Must contain genuine syllable timing", cand.lyricsData.lines.any { it.hasWordTiming })
+    }
+
+    // ── 14. LIVE BITTER SWEET SYMPHONY WRONG-MASTER REJECTION ON PHYSICAL DEVICE ──
+
+    @Test
+    fun testLiveBitterSweetSymphonyRejectionOnDevice() = runBlocking {
+        val paxsenixSource = com.auralis.music.data.network.provider.PaxsenixLyricsSource()
+        val query = com.auralis.music.data.network.provider.LyricsSearchQuery(
+            title = "Bitter Sweet Symphony",
+            artist = "The Verve",
+            durationSec = 276L,
+            durationMs = 276_000L
+        )
+        val cand = paxsenixSource.search(query)
+        org.junit.Assert.assertNull("Paxsenix 357s album lyrics MUST be rejected for 276s radio edit", cand)
+    }
+
+    // ── 15. REAL-DEVICE DATABASE REPOSITORY RESOLUTION FOR BITTER SWEET SYMPHONY ──
+
+    @Test
+    fun testRealDeviceBitterSweetSymphonyRepositoryEndToEnd() = runBlocking {
+        val db = AuralisDatabase.getInstance(context)
+        val repo = LyricsRepositoryImpl(
+            lyricsClient = LyricsClient(),
+            lyricsDao = db.lyricsDao(),
+            negativeLyricsDao = db.negativeLyricsDao()
+        )
+        val trackKey = "sp_1wyedcs7wgjv0rg7rmmx3o"
+        val playbackDurationMs = 276_000L
+
+        // 1. Calling getCachedLyrics: If an old 357s album cut was in Room DB,
+        // it must NOT be returned because it's a MASTER_MISMATCH (> 3.5s).
+        val cached = repo.getCachedLyrics(
+            title = "Bitter Sweet Symphony",
+            artist = "The Verve",
+            durationSec = 276L,
+            videoId = trackKey,
+            durationMs = playbackDurationMs
+        )
+        if (cached != null) {
+            val delta = Math.abs((cached.durationMs ?: playbackDurationMs) - playbackDurationMs)
+            assertTrue("Cached lyrics delta must be <= 3500ms, but was ${delta}ms", delta <= 3500L)
+            val firstLineTime = cached.lines.firstOrNull { it.text.isNotBlank() }?.time ?: 0L
+            assertTrue("Intro vocal must be around 35.9s, not 66.3s (was $firstLineTime)", firstLineTime < 45_000L)
+        }
+
+        // 2. Full getLyrics(): Must resolve radio-edit lyrics from network,
+        // overwrite the bad 357s album entry in Room DB, and return radio-edit timing.
+        val result = repo.getLyrics(
+            title = "Bitter Sweet Symphony",
+            artist = "The Verve",
+            durationSec = 276L,
+            videoId = trackKey,
+            forceRefresh = false,
+            durationMs = playbackDurationMs
+        )
+        assertNotNull("Must resolve lyrics for radio edit", result)
+        val firstLineTime = result!!.lines.firstOrNull { it.text.isNotBlank() }?.time ?: 0L
+        assertTrue("Intro vocal must be around 35.9s, not 66.3s (was $firstLineTime)", firstLineTime < 45_000L)
+
+        // 3. Verify Room DB now holds the correct radio edit
+        val updatedEntity = db.lyricsDao().getLyrics(trackKey)
+        assertNotNull("Room DB row must exist", updatedEntity)
+        assertEquals(276_000L, updatedEntity!!.durationMs)
+    }
 }
+
+

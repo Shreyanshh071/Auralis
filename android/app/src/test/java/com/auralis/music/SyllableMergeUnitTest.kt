@@ -323,4 +323,91 @@ class SyllableMergeUnitTest {
             )
         )
     }
+
+    // ── 11. UNSPACED SYLLABLE MERGING REGRESSION (EYES WITHOUT A FACE) ──────
+
+    @Test
+    fun testUnspacedSyllableFragmentsMergeIntoCompleteWords() {
+        // "ea" + "sy " -> "easy "
+        val easyInput = listOf(
+            LyricWord(word = "ea", time = 49248L, duration = 650L),
+            LyricWord(word = "sy ", time = 49898L, duration = 377L)
+        )
+        val mergedEasy = WordTiming.mergeContiguousSyllables(easyInput)
+        assertNotNull(mergedEasy)
+        assertEquals(1, mergedEasy!!.size)
+        assertEquals("easy ", mergedEasy[0].word)
+        assertEquals(49248L, mergedEasy[0].time)
+        assertEquals(1027L, mergedEasy[0].duration)
+
+        // "vi" + "sage)" -> "visage)"
+        val visageInput = listOf(
+            LyricWord(word = "vi", time = 58334L, duration = 736L),
+            LyricWord(word = "sage)", time = 59070L, duration = 1322L)
+        )
+        val mergedVisage = WordTiming.mergeContiguousSyllables(visageInput)
+        assertNotNull(mergedVisage)
+        assertEquals(1, mergedVisage!!.size)
+        assertEquals("visage)", mergedVisage[0].word)
+
+        // "de" + "ceive " -> "deceive "
+        val deceiveInput = listOf(
+            LyricWord(word = "de", time = 40000L, duration = 400L),
+            LyricWord(word = "ceive ", time = 40400L, duration = 600L)
+        )
+        val mergedDeceive = WordTiming.mergeContiguousSyllables(deceiveInput)
+        assertNotNull(mergedDeceive)
+        assertEquals(1, mergedDeceive!!.size)
+        assertEquals("deceive ", mergedDeceive[0].word)
+
+        // "re" + "lease " -> "release "
+        val releaseInput = listOf(
+            LyricWord(word = "re", time = 50000L, duration = 300L),
+            LyricWord(word = "lease ", time = 50300L, duration = 700L)
+        )
+        val mergedRelease = WordTiming.mergeContiguousSyllables(releaseInput)
+        assertNotNull(mergedRelease)
+        assertEquals(1, mergedRelease!!.size)
+        assertEquals("release ", mergedRelease[0].word)
+    }
+
+    @Test
+    fun testEyesWithoutAFaceTtmlSnippetParsesWithoutSplitWords() {
+        val ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml">
+            <body>
+            <div>
+            <p begin="48.000" end="51.000">
+            <span begin="48.000" end="49.000">It's </span><span begin="49.248" end="49.898">ea</span><span begin="49.898" end="50.275">sy </span><span begin="50.275" end="50.500">to </span><span begin="50.500" end="51.000">tease</span>
+            </p>
+            <p begin="57.000" end="61.000">
+            <span begin="57.000" end="57.500">(Les </span><span begin="57.500" end="57.800">yeux </span><span begin="57.800" end="58.334">sans </span><span begin="58.334" end="59.070">vi</span><span begin="59.070" end="60.392">sage)</span>
+            </p>
+            </div>
+            </body>
+            </tt>
+        """.trimIndent()
+
+        val parsed = TtmlParser.parse(ttml, LyricsProvider.BETTER_LYRICS)
+        assertEquals(2, parsed.lines.size)
+
+        val line1 = parsed.lines[0]
+        assertEquals("It's easy to tease", line1.text)
+        assertNotNull(line1.words)
+        assertEquals(4, line1.words!!.size)
+        assertEquals("It's ", line1.words!![0].word)
+        assertEquals("easy ", line1.words!![1].word)
+        assertEquals("to ", line1.words!![2].word)
+        assertEquals("tease", line1.words!![3].word)
+
+        val line2 = parsed.lines[1]
+        assertEquals("(Les yeux sans visage)", line2.text)
+        assertNotNull(line2.words)
+        assertEquals(4, line2.words!!.size)
+        assertEquals("(Les ", line2.words!![0].word)
+        assertEquals("yeux ", line2.words!![1].word)
+        assertEquals("sans ", line2.words!![2].word)
+        assertEquals("visage)", line2.words!![3].word)
+    }
 }
+

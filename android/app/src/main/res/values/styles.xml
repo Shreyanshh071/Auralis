@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base application theme for Jetpack Compose -->
+    <!-- Base application theme for Jetpack Compose with immersive edge-to-edge support -->
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">@color/black</item>
-        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">@color/black</item>
-        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
     <style name="AppTheme.NoActionBarLaunch" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">@color/black</item>
-        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>

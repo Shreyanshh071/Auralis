@@ -116,18 +116,39 @@ class LrcLibApi(
         null
     }
 
-    private fun parseLrclibItem(json: JSONObject): LyricsData? {
+    internal fun parseLrclibItem(json: JSONObject): LyricsData? {
         val synced = json.optString("syncedLyrics")
         val plain = json.optString("plainLyrics")
         val trackName = json.optString("trackName")
         val artistName = json.optString("artistName")
+        val isInstrumental = json.optBoolean("instrumental", false)
 
-        if (synced.isNotBlank()) {
-            val parsed = LrcParser.parse(synced, LyricsProvider.LRCLIB)
-            return parsed.copy(trackName = trackName, artistName = artistName)
+        val candDurationSec = when {
+            json.has("duration") && !json.isNull("duration") -> {
+                val d = json.optDouble("duration", 0.0)
+                if (d > 0.0 && !d.isNaN() && !d.isInfinite()) d else null
+            }
+            else -> null
         }
-        if (plain.isNotBlank()) {
+        val candDurationMs = candDurationSec?.let { (it * 1000.0).toLong() }
+
+        if (isInstrumental) {
             return LyricsData(
+                syncType = SyncType.PLAIN,
+                lines = listOf(LyricLine(time = 0, text = "♪ Instrumental ♪", isInstrumental = true)),
+                plainLyrics = "[Instrumental]",
+                provider = LyricsProvider.LRCLIB,
+                trackName = trackName,
+                artistName = artistName,
+                durationMs = candDurationMs
+            )
+        }
+
+        val result = if (synced.isNotBlank()) {
+            val parsed = LrcParser.parse(synced, LyricsProvider.LRCLIB)
+            parsed.copy(trackName = trackName, artistName = artistName)
+        } else if (plain.isNotBlank()) {
+            LyricsData(
                 syncType = SyncType.PLAIN,
                 lines = plain.lines().map { LyricLine(time = 0, text = it) },
                 plainLyrics = plain,
@@ -135,7 +156,12 @@ class LrcLibApi(
                 trackName = trackName,
                 artistName = artistName
             )
+        } else null
+
+        val finalResult = result?.copy(durationMs = candDurationMs ?: result.durationMs)
+        if (finalResult != null && com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(finalResult)) {
+            return null
         }
-        return null
+        return finalResult
     }
 }

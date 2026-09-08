@@ -52,6 +52,18 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private var enqueuedNextTrack: Track? = null
     private var onGaplessTransitionCallback: ((Track) -> Unit)? = null
 
+    private val sleepTimerManager = com.auralis.music.domain.model.SleepTimerManager()
+    private var sleepTimerJob: Job? = null
+    private val _sleepTimerSeconds = MutableStateFlow(0L)
+    val sleepTimerSeconds: StateFlow<Long> = _sleepTimerSeconds.asStateFlow()
+
+    private val _isSleepTimerEndOfSong = MutableStateFlow(false)
+    val isSleepTimerEndOfSong: StateFlow<Boolean> = _isSleepTimerEndOfSong.asStateFlow()
+
+    @Volatile
+    var stopAtEndOfTrack: Boolean = false
+        private set
+
     init {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] Initialized singleton instance")
         com.auralis.music.data.network.AudioStreamResolver.init(appContext)
@@ -225,6 +237,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem != null) {
+                            if (stopAtEndOfTrack) {
+                                Log.d("AuralisPlayback", "[SleepTimer] Stop at end of track triggered at gapless boundary. Pausing playback.")
+                                cancelSleepTimer()
+                                pause()
+                                return
+                            }
                             val nextId = mediaItem.mediaId
                             Log.d("AuralisPlayback", "[Gapless Auto-Transition] Seamlessly crossed boundary into next track: $nextId (0ms delay)")
                             val nextTrack = enqueuedNextTrack
@@ -355,6 +373,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             return
         }
         if (lastCompletedSessionId.getAndSet(completedSessionId) != completedSessionId) {
+            if (stopAtEndOfTrack) {
+                Log.d("AuralisPlayback", "[SleepTimer] Stop at end of track triggered for #$completedSessionId in dispatchTrackCompleted. Pausing playback.")
+                cancelSleepTimer()
+                pause()
+                return
+            }
             Log.d("AuralisPlayback", "[Track Completed #$completedSessionId] Advancing queue directly from background audio player")
             val nextTrack = queueManager.advanceNext()
             if (nextTrack != null) {
@@ -710,6 +734,16 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun syncUpcomingGaplessTrack() {
+        if (stopAtEndOfTrack) {
+            prefetchJob?.cancel()
+            if (isUsingExoPlayer && exoPlayer.mediaItemCount > 1) {
+                try {
+                    exoPlayer.removeMediaItem(1)
+                } catch (_: Exception) {}
+            }
+            enqueuedNextTrack = null
+            return
+        }
         val nextUpcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
         if (nextUpcoming?.id != enqueuedNextTrack?.id) {
             prefetchJob?.cancel()
@@ -978,6 +1012,87 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private var onNextCallback: (() -> Unit)? = null
     private var onPreviousCallback: (() -> Unit)? = null
     private var onToggleFavoriteCallback: (() -> Unit)? = null
+
+    // ── SLEEP TIMER ──
+
+    fun setSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        if (minutes <= 0) {
+            cancelSleepTimer()
+            return
+        }
+        stopAtEndOfTrack = false
+        _isSleepTimerEndOfSong.value = false
+        sleepTimerManager.setTimer(minutes)
+        val initialSec = sleepTimerManager.getRemainingSeconds()
+        _sleepTimerSeconds.value = initialSec
+        Log.d("AuralisPlayback", "[SleepTimer] Set sleep timer for $minutes minutes (${initialSec}s)")
+        startSleepTimerTicker()
+    }
+
+    fun setSleepTimerEndOfTrack() {
+        sleepTimerJob?.cancel()
+        stopAtEndOfTrack = true
+        _isSleepTimerEndOfSong.value = true
+
+        val dur = _durationMs.value.takeIf { it > 0L } ?: ((_currentTrack.value?.duration ?: 0L) * 1000L)
+        val pos = rawPositionMs().takeIf { it > 0L } ?: _playbackPositionMs.value
+        val remainingSec = maxOf(1L, (dur - pos) / 1000L)
+        sleepTimerManager.setTimerSeconds(remainingSec)
+        _sleepTimerSeconds.value = remainingSec
+        Log.d("AuralisPlayback", "[SleepTimer] Set sleep timer for End of Track (estimated ${remainingSec}s)")
+        syncUpcomingGaplessTrack()
+        startSleepTimerTicker()
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerManager.cancel()
+        val wasEndOfTrack = stopAtEndOfTrack
+        stopAtEndOfTrack = false
+        _isSleepTimerEndOfSong.value = false
+        _sleepTimerSeconds.value = 0L
+        Log.d("AuralisPlayback", "[SleepTimer] Cancelled sleep timer")
+        if (wasEndOfTrack) {
+            syncUpcomingGaplessTrack()
+        }
+    }
+
+    private fun startSleepTimerTicker() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = scope.launch {
+            Log.d("AuralisPlayback", "[SleepTimer] Ticker started (stopAtEndOfTrack=$stopAtEndOfTrack, deadline=${sleepTimerManager.deadlineEpochMs})")
+            while (sleepTimerManager.isSet) {
+                val remaining = if (stopAtEndOfTrack) {
+                    val dur = _durationMs.value.takeIf { it > 0L } ?: ((_currentTrack.value?.duration ?: 0L) * 1000L)
+                    val pos = rawPositionMs().takeIf { it > 0L } ?: _playbackPositionMs.value
+                    maxOf(0L, (dur - pos) / 1000L)
+                } else {
+                    sleepTimerManager.getRemainingSeconds()
+                }
+
+                _sleepTimerSeconds.value = remaining
+
+                if (stopAtEndOfTrack) {
+                    if (remaining <= 0L) {
+                        Log.d("AuralisPlayback", "[SleepTimer] End of track reached by countdown! Stopping playback now.")
+                        cancelSleepTimer()
+                        pause()
+                        break
+                    }
+                } else {
+                    if (remaining <= 0L || sleepTimerManager.isExpired()) {
+                        Log.d("AuralisPlayback", "[SleepTimer] Sleep timer reached target! Stopping playback now.")
+                        cancelSleepTimer()
+                        pause()
+                        break
+                    }
+                }
+
+                delay(1000L)
+            }
+        }
+    }
     private var onToggleRepeatCallback: (() -> Unit)? = null
 
     fun setNavigationCallbacks(
@@ -1106,12 +1221,20 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun clearQueue() {
         val qState = queueManager.clearQueue()
         _queueState.value = qState
+        _currentTrack.value = null
         syncUpcomingGaplessTrack()
         scope.launch(Dispatchers.IO) {
             try {
                 queueDataStore.clearPersistedQueue()
             } catch (_: Exception) {}
         }
+    }
+
+    fun clearCurrentTrack() {
+        _currentTrack.value = null
+        _isPlaying.value = false
+        _playbackPositionMs.value = 0L
+        _durationMs.value = 0L
     }
 
     fun toggleFavorite() {
@@ -1130,6 +1253,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     fun stop() {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] stop() called -> flushing streams")
+        cancelSleepTimer()
         streamResolveJob?.cancel()
         _isPlaying.value = false
         try {

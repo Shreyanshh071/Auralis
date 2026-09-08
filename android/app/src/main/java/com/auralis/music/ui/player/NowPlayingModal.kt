@@ -31,7 +31,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -218,6 +217,7 @@ fun NowPlayingModal(
 ) {
     val track = uiState.currentTrack ?: return
     val dynamicPalette = MaterialTheme.dynamicPalette
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -235,46 +235,46 @@ fun NowPlayingModal(
     val coroutineScope = rememberCoroutineScope()
     val queue = uiState.queue
     val currentTrackIndex = remember(uiState.currentIndex, queue, track.id) {
-        if (uiState.currentIndex >= 0 && uiState.currentIndex < queue.size) {
-            uiState.currentIndex
-        } else {
-            queue.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
-        }
+        val found = queue.indexOfFirst { it.id == track.id }
+        if (found >= 0) return@remember found
+        if (uiState.currentIndex in queue.indices) uiState.currentIndex else 0
     }
     val pageCount = if (queue.isNotEmpty()) queue.size else 1
     val pagerState = rememberPagerState(
         initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
-    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
-    var userSwiped by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isDragged) {
-        if (isDragged) {
-            userSwiped = true
-        }
-    }
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
+    var lastDispatchedIndex by remember { mutableIntStateOf(currentTrackIndex) }
 
     // 1. Programmatically animate pager when the active track changes externally
     LaunchedEffect(currentTrackIndex) {
-        if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
-            val diff = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
-            if (diff == 1) {
-                pagerState.animateScrollToPage(currentTrackIndex)
-            } else {
-                pagerState.scrollToPage(currentTrackIndex)
+        lastDispatchedIndex = currentTrackIndex
+        if (!pagerState.isScrollInProgress && currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
+            isProgrammaticScroll = true
+            try {
+                val diff = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
+                if (diff == 1) {
+                    pagerState.animateScrollToPage(currentTrackIndex)
+                } else {
+                    pagerState.scrollToPage(currentTrackIndex)
+                }
+            } finally {
+                isProgrammaticScroll = false
             }
         }
     }
 
-    // 2. Reliably trigger track change ONLY when user physically swipes the carousel to a new page
+    // 2. Reliably trigger track change when user physically swipes the carousel to a new page
     LaunchedEffect(pagerState, queue) {
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { settledPage ->
-                if (userSwiped && settledPage != currentTrackIndex && queue.isNotEmpty()) {
-                    userSwiped = false
+                if (!isProgrammaticScroll && settledPage != currentTrackIndex && settledPage != lastDispatchedIndex && queue.isNotEmpty()) {
                     if (settledPage in queue.indices) {
+                        lastDispatchedIndex = settledPage
+                        val targetTrack = queue[settledPage]
+                        com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
                         onSelectQueueTrack(settledPage)
                     }
                 }
@@ -321,31 +321,11 @@ fun NowPlayingModal(
     }
     val totalDurationMs = if (uiState.durationMs > 0) uiState.durationMs else (track.duration * 1000L)
 
-    val context = LocalContext.current
-
-    // Cached and downsampled palette extraction for zero-jank background rendering
-    val cachedPalette = remember(track.id) {
-        com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.id) 
-            ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.thumbnail)
-    }
-
-    var extractedColors by remember {
-        mutableStateOf(cachedPalette ?: com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette)
-    }
-
-    // Async extraction with downsampling and LRU caching on Dispatchers.Default
-    LaunchedEffect(track.id, track.thumbnail) {
-        if (cachedPalette != null) {
-            extractedColors = cachedPalette
-        } else {
-            val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
-                context = context,
-                key = track.id,
-                artworkUrl = track.thumbnail
-            )
-            extractedColors = palette
-        }
-    }
+    // Shared Dynamic Artwork Palette via ArtworkPaletteCache
+    val sharedPalette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
+    val extractedColors = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.id)
+        ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.thumbnail)
+        ?: sharedPalette
 
     // Proactively pre-extract artwork palettes for neighboring tracks in the queue
     // so tapping Next or Previous immediately hits memory cache with zero delay or color interruption.
@@ -399,29 +379,19 @@ fun NowPlayingModal(
     } ?: remember { mutableFloatStateOf(1f) }
 
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
-    val normalizedBackgroundStyle = when (appearance.playerBackgroundStyle) {
-        "Follow theme" -> "Follow theme"
-        "Gradient", "Dynamic Artwork Gradient" -> "Gradient"
-        else -> "Blur"
+    val playerBgStyle = remember(appearance.playerBackgroundStyle) {
+        val resolved = PlayerBackgroundStyle.fromKey(appearance.playerBackgroundStyle)
+        if (resolved == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.BLUR else resolved
     }
 
-    // Metrolist-grade full-bleed gradient colors derived directly from artwork dominant hue
-    val gradientTopColor = remember(animatedPrimaryColor) {
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(animatedPrimaryColor.toArgb(), hsv)
-        val hue = hsv[0]
-        val sat = hsv[1].coerceIn(0.50f, 0.92f)
-        val value = 0.32f
-        Color.hsv(hue, sat, value)
-    }
-
-    val gradientBottomColor = remember(animatedPrimaryColor) {
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(animatedPrimaryColor.toArgb(), hsv)
-        val hue = hsv[0]
-        val sat = hsv[1].coerceIn(0.55f, 0.95f)
-        val value = 0.14f
-        Color.hsv(hue, sat, value)
+    // Vibrant gradient palette derived from artwork colors
+    val fullGradStops = remember(extractedColors) {
+        PlayerGradientPalette.create(
+            primary = extractedColors.primary,
+            secondary = extractedColors.secondary,
+            tertiary = extractedColors.tertiary,
+            isMonochrome = extractedColors.isMonochrome
+        )
     }
 
     val buttonTint = when (appearance.playerButtonColors) {
@@ -449,7 +419,14 @@ fun NowPlayingModal(
                 alpha = 1f - (dragFraction * 0.35f)
                 clip = true
             }
-            .background(if (normalizedBackgroundStyle == "Follow theme") MaterialTheme.colorScheme.background else gradientBottomColor)
+            .background(
+                when (playerBgStyle) {
+                    PlayerBackgroundStyle.FOLLOW_THEME -> MaterialTheme.colorScheme.background
+                    PlayerBackgroundStyle.GLOW_MOTION, PlayerBackgroundStyle.LIVE_MESH -> Color(0xFF050505)
+                    PlayerBackgroundStyle.GRADIENT -> fullGradStops.bottomObsidian
+                    else -> fullGradStops.bottomObsidian
+                }
+            )
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
@@ -457,91 +434,15 @@ fun NowPlayingModal(
             )
     ) {
         // ====================================================================
-        // 1. DYNAMIC BACKGROUND RENDERING (Follow theme, Gradient, Blur)
+        // 1. DYNAMIC BACKGROUND RENDERING (Follow theme, Gradient, Blur, Glow Motion, Apple Music, Live Mesh)
         // ====================================================================
-        when (normalizedBackgroundStyle) {
-            "Follow theme" -> {
-                // Photo 1: Clean Solid Theme Background
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                )
-            }
-            "Blur" -> {
-                // Photo 3: Fullscreen Vivid Album Artwork Blur with seamless color crossfade
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    gradientTopColor,
-                                    gradientBottomColor
-                                )
-                            )
-                        )
-                ) {
-                    Crossfade(
-                        targetState = track.thumbnail,
-                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                        label = "blurArtworkCrossfade",
-                        modifier = Modifier.fillMaxSize()
-                    ) { thumbUrl ->
-                        if (!thumbUrl.isNullOrBlank()) {
-                            val blurImageRequest = remember(thumbUrl) {
-                                coil.request.ImageRequest.Builder(context)
-                                    .data(thumbUrl)
-                                    .size(128, 128)
-                                    .crossfade(300)
-                                    .build()
-                            }
-                            coil.compose.AsyncImage(
-                                model = blurImageRequest,
-                                contentDescription = null,
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        scaleX = 1.15f
-                                        scaleY = 1.15f
-                                        alpha = 0.88f
-                                    }
-                                    .blur(radius = 24.dp)
-                            )
-                        }
-                    }
-                    // Soft vignette overlay so text & controls pop while allowing full spectrum of artwork colors to shine
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.00f to Color.Black.copy(alpha = 0.18f),
-                                    0.40f to Color.Black.copy(alpha = 0.28f),
-                                    0.75f to Color.Black.copy(alpha = 0.48f),
-                                    1.00f to Color.Black.copy(alpha = 0.62f)
-                                )
-                            )
-                    )
-                }
-            }
-            else -> {
-                // Photo 2: Metrolist-grade full-bleed gradient derived from artwork's authentic dominant hue
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    gradientTopColor,
-                                    gradientBottomColor
-                                )
-                            )
-                        )
-                )
-            }
-        }
+        PlayerBackground(
+            style = playerBgStyle,
+            artworkUrl = track.thumbnail,
+            extractedColors = extractedColors,
+            modifier = Modifier.fillMaxSize(),
+            isMiniPlayer = false
+        )
 
         // ====================================================================
         // 2. FOREGROUND CONTENT WITH SEGMENTED SWITCHER (PHOTO 2 DESIGN)
@@ -1036,7 +937,6 @@ fun NowPlayingModal(
                             val isDownloaded = track.id in downloadedIds
                             val activeDownloads by com.auralis.music.data.download.AuralisDownloadManager.activeDownloads.collectAsState()
                             val isDownloading = track.id in activeDownloads
-                            val showDownload = appearance.showDownloadButton
 
                             Row(
                                 modifier = Modifier
@@ -1063,56 +963,54 @@ fun NowPlayingModal(
 
                                 Spacer(modifier = Modifier.width(3.dp))
 
-                                // 2. Middle Segment: Download Button (Rectangularish with soft corners)
-                                if (showDownload) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 38.dp, height = 38.dp)
-                                            .clip(RoundedCornerShape(5.dp))
-                                            .background(Color.White)
-                                            .tactileBounce(
-                                                scaleDown = 0.86f,
-                                                onClick = {
-                                                    if (isDownloaded) {
-                                                        com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
-                                                        Toast.makeText(context, "Download removed", Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        com.auralis.music.data.download.AuralisDownloadManager.downloadTrack(track)
-                                                        Toast.makeText(context, "Downloading song...", Toast.LENGTH_SHORT).show()
-                                                    }
+                                // 2. Middle Segment: Download Button (Permanently visible)
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 38.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(Color.White)
+                                        .tactileBounce(
+                                            scaleDown = 0.86f,
+                                            onClick = {
+                                                if (isDownloaded) {
+                                                    com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
+                                                    Toast.makeText(context, "Download removed", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    com.auralis.music.data.download.AuralisDownloadManager.downloadTrack(track)
+                                                    Toast.makeText(context, "Downloading song...", Toast.LENGTH_SHORT).show()
                                                 }
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        AnimatedContent(
-                                            targetState = if (isDownloading) 1 else if (isDownloaded) 2 else 0,
-                                            transitionSpec = { favoriteEnter togetherWith favoriteExit },
-                                            label = "nowPlayingDownload"
-                                        ) { state ->
-                                            when (state) {
-                                                1 -> CircularProgressIndicator(
-                                                    modifier = Modifier.size(15.dp),
-                                                    color = Color.Black,
-                                                    strokeWidth = 1.8.dp
-                                                )
-                                                2 -> Icon(
-                                                    imageVector = Icons.Default.DownloadDone,
-                                                    contentDescription = "Downloaded",
-                                                    tint = Color.Black,
-                                                    modifier = Modifier.size(19.dp)
-                                                )
-                                                else -> Icon(
-                                                    imageVector = Icons.Default.Download,
-                                                    contentDescription = "Download Song",
-                                                    tint = Color.Black,
-                                                    modifier = Modifier.size(19.dp)
-                                                )
                                             }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AnimatedContent(
+                                        targetState = if (isDownloading) 1 else if (isDownloaded) 2 else 0,
+                                        transitionSpec = { favoriteEnter togetherWith favoriteExit },
+                                        label = "nowPlayingDownload"
+                                    ) { state ->
+                                        when (state) {
+                                            1 -> CircularProgressIndicator(
+                                                modifier = Modifier.size(15.dp),
+                                                color = Color.Black,
+                                                strokeWidth = 1.8.dp
+                                            )
+                                            2 -> Icon(
+                                                imageVector = Icons.Default.DownloadDone,
+                                                contentDescription = "Downloaded",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                            else -> Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = "Download Song",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(19.dp)
+                                            )
                                         }
                                     }
-
-                                    Spacer(modifier = Modifier.width(3.dp))
                                 }
+
+                                Spacer(modifier = Modifier.width(3.dp))
 
                                 // 3. Right Segment: Like Heart Button (Pill curved on right)
                                 Box(
@@ -1278,7 +1176,7 @@ fun NowPlayingModal(
                                 PlayerUtilityIcon(
                                     imageVector = Icons.Default.Bedtime,
                                     contentDescription = "Sleep Timer",
-                                    active = uiState.sleepTimerSeconds > 0,
+                                    active = uiState.sleepTimerSeconds > 0 || uiState.isSleepTimerEndOfSong,
                                     onClick = { showSleepDialog = true }
                                 )
 
@@ -1349,6 +1247,7 @@ fun NowPlayingModal(
     if (showSleepDialog) {
         SleepTimerDialog(
             currentSeconds = uiState.sleepTimerSeconds,
+            isEndOfSongActive = uiState.isSleepTimerEndOfSong,
             onSelectMinutes = { minutes ->
                 onSleepTimerSelect(minutes)
                 showSleepDialog = false
@@ -1570,15 +1469,18 @@ fun NowPlayingSheet(
 @Composable
 private fun SleepTimerDialog(
     currentSeconds: Long,
+    isEndOfSongActive: Boolean = false,
     onSelectMinutes: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var selectedMinutes by remember {
         mutableIntStateOf(
-            if (currentSeconds > 0) ((currentSeconds + 59) / 60).toInt().coerceIn(5, 120) else 30
+            if (currentSeconds > 0 && !isEndOfSongActive) {
+                ((currentSeconds + 59) / 60).toInt().coerceIn(5, 120)
+            } else 30
         )
     }
-    var isEndOfSong by remember { mutableStateOf(false) }
+    var isEndOfSong by remember { mutableStateOf(isEndOfSongActive) }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -1602,11 +1504,35 @@ private fun SleepTimerDialog(
                     fontSize = 22.sp
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // 2. Subtitle readout
+                // 2. Active status badge or duration readout
+                if (currentSeconds > 0) {
+                    val m = currentSeconds / 60
+                    val s = currentSeconds % 60
+                    val timerStatus = if (isEndOfSongActive) {
+                        "Active: Stops at end of song (${m}:${String.format("%02d", s)})"
+                    } else {
+                        "Active: ${m}:${String.format("%02d", s)} remaining"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFD4E157).copy(alpha = 0.15f))
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = timerStatus,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFFD4E157),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
                 val durationText = if (isEndOfSong) {
-                    "End of song"
+                    "Stop at end of current song"
                 } else if (selectedMinutes >= 60) {
                     val h = selectedMinutes / 60
                     val m = selectedMinutes % 60
@@ -1623,9 +1549,39 @@ private fun SleepTimerDialog(
                     fontSize = 15.sp
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // 3. Custom Dotted Slider Track
+                // 3. Quick Preset Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf(15, 30, 45, 60).forEach { mins ->
+                        val isSelected = !isEndOfSong && selectedMinutes == mins
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) Color(0xFFD4E157) else Color.White.copy(alpha = 0.08f))
+                                .clickable {
+                                    selectedMinutes = mins
+                                    isEndOfSong = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${mins}m",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isSelected) Color.Black else Color.White
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 4. Custom Dotted Slider Track
                 val minMinutes = 5f
                 val maxMinutes = 120f
                 val fraction = ((selectedMinutes - minMinutes) / (maxMinutes - minMinutes)).coerceIn(0f, 1f)
@@ -1670,14 +1626,14 @@ private fun SleepTimerDialog(
                             val h = size.height
                             val activeWidth = if (isEndOfSong) 0f else w * fraction
 
-                            // 1. Inactive Track (Dark Olive)
+                            // Inactive Track
                             drawRoundRect(
                                 color = Color(0xFF353C24),
                                 size = Size(w, h),
                                 cornerRadius = CornerRadius(h / 2, h / 2)
                             )
 
-                            // 2. Active Track (Lime Accent)
+                            // Active Track
                             if (activeWidth > 0f) {
                                 drawRoundRect(
                                     color = Color(0xFFD4E157),
@@ -1686,7 +1642,7 @@ private fun SleepTimerDialog(
                                 )
                             }
 
-                            // 3. Dotted Tick Marks along track
+                            // Dotted Tick Marks
                             val numDots = 24
                             for (i in 0..numDots) {
                                 val dotX = (w / numDots) * i
@@ -1714,9 +1670,9 @@ private fun SleepTimerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // 4. "End of song" Quick Preset Pill
+                // 5. "End of song" Quick Preset Pill
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
@@ -1731,16 +1687,16 @@ private fun SleepTimerDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "End of song",
+                        text = "End of current song",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isEndOfSong) Color.Black else Color.White
                     )
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(26.dp))
 
-                // 5. Bottom Buttons (Reset, Cancel, OK)
+                // 6. Bottom Buttons (Reset, Cancel, Start)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1749,6 +1705,7 @@ private fun SleepTimerDialog(
                     TextButton(
                         onClick = {
                             onSelectMinutes(0)
+                            onDismiss()
                         }
                     ) {
                         Text(
@@ -1772,14 +1729,15 @@ private fun SleepTimerDialog(
                         TextButton(
                             onClick = {
                                 if (isEndOfSong) {
-                                    onSelectMinutes(4)
+                                    onSelectMinutes(-1)
                                 } else {
                                     onSelectMinutes(selectedMinutes)
                                 }
+                                onDismiss()
                             }
                         ) {
                             Text(
-                                text = "OK",
+                                text = "Start",
                                 color = Color(0xFFD4E157),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp

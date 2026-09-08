@@ -1,5 +1,6 @@
 package com.auralis.music.ui.home
 
+import com.auralis.music.ui.theme.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
@@ -48,6 +50,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,7 +108,7 @@ fun HomeScreen(
     onSurpriseMe: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
-    onOpenUpdater: () -> Unit = {},
+    onOpenStats: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
@@ -113,6 +117,16 @@ fun HomeScreen(
 ) {
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var activeMood by remember { mutableStateOf<String?>(null) }
+    // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
+    // immediately recompose the screen and visible elements without requiring scroll.
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val appearanceSettings = MaterialTheme.appearanceSettings
+    val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val onBackgroundColorInt = MaterialTheme.colorScheme.onBackground.toArgb()
+    val backgroundColorInt = MaterialTheme.colorScheme.background.toArgb()
+    val primaryColorInt = themePrimary.toArgb()
+    val activeThemeKey = "${currentTrackId ?: "sys"}_${appearanceSettings.colorPalette}_${appearanceSettings.appTheme}_${isDarkTheme}_${backgroundColorInt}_${onBackgroundColorInt}_$primaryColorInt"
+    val dynamicPalette = MaterialTheme.dynamicPalette
 
     Box(
         modifier = modifier
@@ -128,7 +142,7 @@ fun HomeScreen(
             // ================================================================
             // 1. TOP APP BAR: "Home" Title + Action Icons
             // ================================================================
-            item(key = "home_top_bar", contentType = "header") {
+            item(key = "home_top_bar_$activeThemeKey", contentType = "header") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -149,12 +163,12 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            onClick = onOpenUpdater,
+                            onClick = onOpenStats,
                             modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                         ) {
                             Icon(
-                                Icons.Default.SystemUpdate,
-                                contentDescription = "Check for Updates",
+                                Icons.Default.Equalizer,
+                                contentDescription = "Stats",
                                 tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
                             )
                         }
@@ -192,24 +206,22 @@ fun HomeScreen(
                 // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
                 // ================================================================
                 if (uiState.speedDialPages.isNotEmpty()) {
-                    item(key = "home_speed_dial", contentType = "speed_dial") {
+                    item(key = "home_speed_dial_$activeThemeKey", contentType = "speed_dial") {
                         Text(
                             text = "Speed dial",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = themePrimary,
                             fontSize = 20.sp,
                             modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                         )
 
                         val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
 
-                    val speedDialThemeKey = MaterialTheme.colorScheme.background.hashCode() xor MaterialTheme.colorScheme.primary.hashCode()
-
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        HorizontalPager(
-                            state = pagerState,
-                            key = { pageIndex -> "$pageIndex-$speedDialThemeKey" },
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            HorizontalPager(
+                                state = pagerState,
+                                key = { pageIndex -> "$pageIndex-$activeThemeKey" },
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             pageSpacing = 16.dp,
                             modifier = Modifier
@@ -241,7 +253,11 @@ fun HomeScreen(
                                                         onClick = {
                                                             when (item.type) {
                                                                 SpeedDialType.TRACK -> {
-                                                                    item.track?.let { onTrackClick(it, listOf(it)) }
+                                                                    item.track?.let { trk ->
+                                                                        val speedDialTracks = items.mapNotNull { it.track }
+                                                                        val queueToPlay = if (speedDialTracks.size > 1) speedDialTracks else listOf(trk)
+                                                                        onTrackClick(trk, queueToPlay)
+                                                                    }
                                                                 }
                                                                 SpeedDialType.ARTIST -> {
                                                                     onArtistClick(
@@ -290,7 +306,7 @@ fun HomeScreen(
                                         .padding(horizontal = 4.dp)
                                         .size(if (isCurrent) 7.dp else 5.dp)
                                         .clip(CircleShape)
-                                        .background(if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
+                                        .background(if (isCurrent) themePrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
                                 )
                             }
                         }
@@ -303,7 +319,7 @@ fun HomeScreen(
             // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
             // ================================================================
             if (uiState.quickPicks.isNotEmpty()) {
-                item(key = "home_quick_picks", contentType = "quick_picks") {
+                item(key = "home_quick_picks_$activeThemeKey", contentType = "quick_picks") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -315,7 +331,7 @@ fun HomeScreen(
                             text = "Quick picks",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = themePrimary,
                             fontSize = 20.sp
                         )
 
@@ -343,12 +359,11 @@ fun HomeScreen(
                         uiState.quickPicks.chunked(4)
                     }
                     val quickPicksPagerState = rememberPagerState { quickPickPages.size }
-                    val quickPicksThemeKey = MaterialTheme.colorScheme.background.hashCode() xor MaterialTheme.colorScheme.primary.hashCode()
 
                     // 4-Row Snapping Pager of Songs (Eliminates half-scrolled stray 3-dots)
                     HorizontalPager(
                         state = quickPicksPagerState,
-                        key = { pageIndex -> "$pageIndex-$quickPicksThemeKey" },
+                        key = { pageIndex -> "$pageIndex-$activeThemeKey" },
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         pageSpacing = 16.dp,
                         modifier = Modifier
@@ -384,7 +399,7 @@ fun HomeScreen(
                                             text = track.title,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                                            color = if (isCurrent) themePrimary else MaterialTheme.colorScheme.onBackground,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -418,12 +433,12 @@ fun HomeScreen(
             // ================================================================
             val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
             if (keepList.isNotEmpty()) {
-                item(key = "home_keep_listening", contentType = "keep_listening") {
+                item(key = "home_keep_listening_$activeThemeKey", contentType = "keep_listening") {
                     Text(
                         text = "Keep listening",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = themePrimary,
                         fontSize = 20.sp,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                     )
@@ -434,7 +449,7 @@ fun HomeScreen(
                     ) {
                         items(
                             items = keepList,
-                            key = { it.id },
+                            key = { "${it.id}_$activeThemeKey" },
                             contentType = { "track" }
                         ) { track ->
                             Column(
@@ -483,7 +498,7 @@ fun HomeScreen(
             // ================================================================
             uiState.similarRecommendations.forEachIndexed { idx, simRec ->
                 if (simRec.items.isNotEmpty()) {
-                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") {
+                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_${idx}_$activeThemeKey", contentType = "similar_shelf") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -522,7 +537,7 @@ fun HomeScreen(
                                         text = simRec.seedTitle,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                                        color = themePrimary
                                     )
                                 }
                             }
@@ -540,7 +555,7 @@ fun HomeScreen(
                         ) {
                             items(
                                 items = simRec.items,
-                                key = { it.id },
+                                key = { "${it.id}_$activeThemeKey" },
                                 contentType = { "track" }
                             ) { track ->
                                 Column(
@@ -585,13 +600,13 @@ fun HomeScreen(
             // ================================================================
             uiState.dynamicSections.forEachIndexed { sIdx, section ->
                 if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
-                    item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") {
+                    item(key = "dyn_section_${section.title}_${sIdx}_$activeThemeKey", contentType = "dynamic_shelf") {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
                                 text = section.title,
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = themePrimary,
                                 fontSize = 20.sp,
                                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
                             )
@@ -611,7 +626,7 @@ fun HomeScreen(
                                 ) {
                                     items(
                                         items = section.items,
-                                        key = { it.id },
+                                        key = { "${it.id}_$activeThemeKey" },
                                         contentType = { "track" }
                                     ) { track ->
                                         Column(
@@ -658,7 +673,7 @@ fun HomeScreen(
                                 ) {
                                     items(
                                         items = section.albums,
-                                        key = { it.id },
+                                        key = { "${it.id}_$activeThemeKey" },
                                         contentType = { "album" }
                                     ) { album ->
                                         Column(
@@ -747,16 +762,18 @@ private fun SpeedDialTile(
 
     // 9th Tile: 3-Dot Diagonal Dice Pattern with Dynamic Glow Background ("Surprise Me")
     if (item.type == SpeedDialType.SURPRISE || item.type == SpeedDialType.MORE) {
-        val primary = MaterialTheme.colorScheme.primary
-        val secondary = MaterialTheme.colorScheme.secondary
-        val tertiary = MaterialTheme.colorScheme.tertiary
+        val primary = MaterialTheme.dynamicPrimary
+        val secondary = MaterialTheme.dynamicSecondary
+        val tertiary = MaterialTheme.dynamicTertiary
         val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+
+        val surface = MaterialTheme.colorScheme.surface
 
         // Multi-tone dynamic gradient with corner glows matching reference photo
         val gradientBrush = Brush.linearGradient(
             colors = listOf(
                 primary.copy(alpha = 0.38f),
-                Color(0xFF131217),
+                surface,
                 tertiary.copy(alpha = 0.30f)
             ),
             start = Offset(0f, 0f),
@@ -768,7 +785,7 @@ private fun SpeedDialTile(
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF121116))
+                .background(surface)
                 .background(gradientBrush)
                 .border(
                     BorderStroke(

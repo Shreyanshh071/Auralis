@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalView
 import kotlin.math.PI
 import kotlin.math.sin
@@ -86,6 +87,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +105,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
 import com.auralis.music.domain.model.AppearanceSettings
+import com.auralis.music.ui.player.PlayerBackgroundStyle
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -127,6 +130,12 @@ fun AppearanceScreen(
         scope.launch {
             val newSettings = settings.transform()
             dataStore.updateSettings(newSettings)
+        }
+    }
+
+    LaunchedEffect(settings.playerBackgroundStyle) {
+        if (PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle) == PlayerBackgroundStyle.APPLE_MUSIC) {
+            update { copy(playerBackgroundStyle = PlayerBackgroundStyle.BLUR.displayName) }
         }
     }
 
@@ -250,7 +259,7 @@ fun AppearanceScreen(
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = "Mini-player background style",
-                        subtitle = settings.miniPlayerBackgroundStyle,
+                        subtitle = PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
                         onClick = { activeDialog = AppearanceDialogType.MINI_PLAYER_BG }
                     )
                 }
@@ -267,13 +276,13 @@ fun AppearanceScreen(
                     )
                 }
                 item {
+                    val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
+                        if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.BLUR else it
+                    }
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = "Player background style",
-                        subtitle = when (settings.playerBackgroundStyle) {
-                            "Blur" -> "Dynamic Blurred Artwork"
-                            else -> settings.playerBackgroundStyle
-                        },
+                        subtitle = resolvedPlayerBg.displayName,
                         onClick = { activeDialog = AppearanceDialogType.PLAYER_BG }
                     )
                 }
@@ -285,15 +294,6 @@ fun AppearanceScreen(
                         title = "Player slider style",
                         subtitle = settings.playerSliderStyle,
                         onClick = { activeDialog = AppearanceDialogType.PLAYER_SLIDER_STYLE }
-                    )
-                }
-                item {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Download,
-                        title = "Show download button",
-                        subtitle = "Display download button in player controls",
-                        isChecked = settings.showDownloadButton,
-                        onCheckedChange = { update { copy(showDownloadButton = it) } }
                     )
                 }
                 item {
@@ -405,16 +405,11 @@ fun AppearanceScreen(
             )
         }
         AppearanceDialogType.MINI_PLAYER_BG -> {
+            val bgOptions = PlayerBackgroundStyle.entries.map { it.displayName }
             AppearanceOptionsDialog(
                 title = "Mini-player background style",
-                options = listOf("Gradient", "Apple Liquid Glass", "Blur", "Dark Black"),
-                selectedOption = when (settings.miniPlayerBackgroundStyle) {
-                    "Frosted Glass / Blur", "Dynamic Blurred Artwork" -> "Blur"
-                    "Artwork Tinted", "Dynamic Artwork Tint", "Follow theme" -> "Gradient"
-                    "Pure black", "Solid AMOLED Black" -> "Dark Black"
-                    "Liquid Glass", "Apple Liquid Glass", "Apple Glass", "Glass" -> "Apple Liquid Glass"
-                    else -> settings.miniPlayerBackgroundStyle
-                },
+                options = bgOptions,
+                selectedOption = PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
                 onSelect = {
                     update { copy(miniPlayerBackgroundStyle = it) }
                     activeDialog = null
@@ -423,17 +418,18 @@ fun AppearanceScreen(
             )
         }
         AppearanceDialogType.PLAYER_BG -> {
+            val bgOptions = PlayerBackgroundStyle.entries
+                .filter { it != PlayerBackgroundStyle.APPLE_MUSIC }
+                .map { it.displayName }
+            val currentStyle = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
+                if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.BLUR else it
+            }
             AppearanceOptionsDialog(
                 title = "Player background style",
-                options = listOf("Follow theme", "Gradient", "Dynamic Blurred Artwork"),
-                selectedOption = when (settings.playerBackgroundStyle) {
-                    "Follow theme" -> "Follow theme"
-                    "Blur", "Frosted Glass / Blur", "Dynamic Blurred Artwork" -> "Dynamic Blurred Artwork"
-                    else -> "Gradient"
-                },
+                options = bgOptions,
+                selectedOption = currentStyle.displayName,
                 onSelect = {
-                    val savedVal = if (it == "Dynamic Blurred Artwork") "Blur" else it
-                    update { copy(playerBackgroundStyle = savedVal) }
+                    update { copy(playerBackgroundStyle = it) }
                     activeDialog = null
                 },
                 onDismiss = { activeDialog = null }

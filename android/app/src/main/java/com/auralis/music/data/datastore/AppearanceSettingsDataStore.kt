@@ -10,9 +10,13 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.AppearanceSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
 val Context.appearanceSettingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "auralis_appearance_settings")
@@ -21,6 +25,22 @@ class AppearanceSettingsDataStore(
     private val context: Context
 ) {
     private val dataStore = context.appearanceSettingsDataStore
+
+    /**
+     * Synchronously resolves saved settings on cold app start to guarantee Frame 0 renders
+     * with the user's authentic theme, avoiding any momentary flash of default light/dark mode.
+     */
+    fun getInitialSettings(): AppearanceSettings {
+        return try {
+            runBlocking(Dispatchers.IO) {
+                withTimeoutOrNull(250L) {
+                    settingsFlow.first()
+                }
+            } ?: AppearanceSettings()
+        } catch (_: Exception) {
+            AppearanceSettings()
+        }
+    }
 
     companion object {
         // Theme
@@ -84,16 +104,18 @@ class AppearanceSettingsDataStore(
             AppearanceSettings(
                 highRefreshRate = preferences[HIGH_REFRESH_RATE] ?: true,
                 landscapeScaling = preferences[LANDSCAPE_SCALING] ?: false,
-                dynamicTheme = preferences[DYNAMIC_THEME] ?: false,
+                dynamicTheme = preferences[DYNAMIC_THEME] ?: true,
                 dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: true,
                 appTheme = preferences[APP_THEME] ?: "Follow system",
-                colorPalette = preferences[COLOR_PALETTE] ?: "Auralis Lime",
+                colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic",
 
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
                 miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
-                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
+                playerBackgroundStyle = preferences[PLAYER_BG_STYLE]?.let {
+                    if (it.equals("apple music", ignoreCase = true) || it.equals("apple_music", ignoreCase = true)) "Blur" else it
+                } ?: "Blur",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",

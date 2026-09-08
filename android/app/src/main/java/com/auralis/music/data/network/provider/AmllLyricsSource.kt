@@ -56,10 +56,10 @@ class AmllLyricsSource(
                 .header("Accept", "application/json")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return null
-
-            val body = response.body?.string() ?: return null
+            val body = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                response.body?.string() ?: return null
+            }
             val json = JSONObject(body)
             val data = json.optJSONArray("data") ?: return null
 

@@ -97,7 +97,7 @@ class LrcLibLyricsSource(
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
             val rawLyrics = parseLrcItem(json) ?: return null
-            val candDuration = json.optLong("duration", 0L)
+            val candDuration = (rawLyrics.durationMs?.let { it / 1000L }) ?: json.optLong("duration", 0L)
             val lyricsData = LyricsMatcher.autoAlignLyrics(rawLyrics, durationSec, candDuration)
 
             val confidence = LyricsMatcher.calculateConfidence(
@@ -200,12 +200,21 @@ class LrcLibLyricsSource(
         }
     }
 
-    private fun parseLrcItem(json: JSONObject): LyricsData? {
+    internal fun parseLrcItem(json: JSONObject): LyricsData? {
         val syncedLyrics = json.optString("syncedLyrics")
         val plainLyrics = json.optString("plainLyrics")
         val trackName = json.optString("trackName")
         val artistName = json.optString("artistName")
         val isInstrumental = json.optBoolean("instrumental", false)
+
+        val candDurationSec = when {
+            json.has("duration") && !json.isNull("duration") -> {
+                val d = json.optDouble("duration", 0.0)
+                if (d > 0.0 && !d.isNaN() && !d.isInfinite()) d else null
+            }
+            else -> null
+        }
+        val candDurationMs = candDurationSec?.let { (it * 1000.0).toLong() }
 
         if (isInstrumental) {
             return LyricsData(
@@ -214,7 +223,8 @@ class LrcLibLyricsSource(
                 lines = listOf(LyricLine(time = 0L, text = "♪ Instrumental ♪", isInstrumental = true)),
                 plainLyrics = "[Instrumental]",
                 trackName = trackName,
-                artistName = artistName
+                artistName = artistName,
+                durationMs = candDurationMs
             )
         }
 
@@ -239,12 +249,7 @@ class LrcLibLyricsSource(
             )
         } else null
 
-        val candDurationSec = json.optDouble("duration", 0.0).takeIf { it > 0.0 }
-        val finalResult = if (result != null && result.durationMs == null && candDurationSec != null) {
-            result.copy(durationMs = (candDurationSec * 1000).toLong())
-        } else {
-            result
-        }
+        val finalResult = result?.copy(durationMs = candDurationMs ?: result.durationMs)
 
         if (finalResult != null && com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(finalResult)) {
             return null
