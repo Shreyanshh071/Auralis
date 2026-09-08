@@ -5,6 +5,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import dev.chrisbanes.haze.HazeState
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.player.MiniPlayer as PlayerMiniPlayer
 
@@ -33,6 +34,7 @@ fun MiniPlayer(
     onClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     PlayerMiniPlayer(
@@ -55,6 +57,7 @@ fun MiniPlayer(
         onClick = onClick,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
+        hazeState = hazeState,
         modifier = modifier
     )
 }

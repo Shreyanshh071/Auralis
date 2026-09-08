@@ -12,7 +12,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -34,6 +37,7 @@ import com.auralis.music.domain.auth.GoogleAccountSyncManager
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.AuralisApp
 import com.auralis.music.ui.theme.AuralisTheme
+import com.auralis.music.ui.theme.ArtworkPaletteCache
 import com.auralis.music.ui.viewmodel.AuthViewModel
 import com.auralis.music.ui.viewmodel.HomeViewModel
 import com.auralis.music.ui.viewmodel.LibraryViewModel
@@ -100,8 +104,11 @@ class MainActivity : ComponentActivity() {
         val youtubeImporter = YouTubePlaylistImporter()
         val spotifyImporter = SpotifyPlaylistImporter()
 
+        com.auralis.music.data.network.ArtistPhotoProvider.init(applicationContext, innerTubeClient, libraryDao)
+
         val libraryRepository = LibraryRepositoryImpl(trackDao, playlistDao, libraryDao)
-        val historyRepository = HistoryRepositoryImpl(trackDao, historyDao, playCountDao)
+        val historyRepository = HistoryRepositoryImpl(trackDao, historyDao, playCountDao, db.playbackEventDao())
+        val statsRepository = com.auralis.music.data.repository.StatsRepositoryImpl(trackDao, db.playbackEventDao(), historyDao, playCountDao)
         val settingsRepository = SettingsRepositoryImpl(settingsDataStore)
         val searchRepository = SearchRepositoryImpl(innerTubeClient, suggestionsClient, searchHistoryDao)
         val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
@@ -133,9 +140,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Cold app startup: initialize immediately from the phone's CURRENT System Dynamic Color.
+        // Never restore the previous song's artwork palette as the initial theme.
+        ArtworkPaletteCache.resetToDefault()
+
         setContent {
             val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(
-                initial = AppearanceSettings()
+                initial = remember { appearanceDataStore.getInitialSettings() }
             )
             val privacyDataStore = remember { com.auralis.music.data.datastore.PrivacyDataStore(applicationContext) }
             val privacySettings by privacyDataStore.settingsFlow.collectAsState(
@@ -179,7 +190,44 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            AuralisTheme(appearanceSettings = appearanceSettings) {
+            val currentTrack by audioPlayer.currentTrack.collectAsState()
+            val isPlaying by audioPlayer.isPlaying.collectAsState()
+            var hasActiveSongInSession by rememberSaveable { mutableStateOf(false) }
+
+            LaunchedEffect(isPlaying) {
+                if (isPlaying) {
+                    hasActiveSongInSession = true
+                }
+            }
+
+            val activeArtworkPalette by ArtworkPaletteCache.currentPalette.collectAsState()
+            LaunchedEffect(activeArtworkPalette) {
+                if (activeArtworkPalette != ArtworkPaletteCache.defaultPalette && currentTrack != null) {
+                    hasActiveSongInSession = true
+                }
+            }
+
+            // Dynamic Theme Lifecycle:
+            // - Cold app start: currentTrack == null -> phone's CURRENT System Dynamic Color
+            // - Active song / playing: currentTrack != null -> song artwork drives Dynamic theme
+            // - Paused / Stopped: currentTrack != null & hasActiveSongInSession is true -> KEEP artwork theme!
+            // - Player closed / cleared: currentTrack == null -> reset to phone's System Dynamic Color cleanly & synchronously!
+            LaunchedEffect(currentTrack?.id) {
+                if (currentTrack != null) {
+                    hasActiveSongInSession = true
+                    ArtworkPaletteCache.updateForTrack(applicationContext, currentTrack)
+                } else {
+                    hasActiveSongInSession = false
+                    ArtworkPaletteCache.resetToDefault()
+                }
+            }
+            val isSongActive = currentTrack != null && hasActiveSongInSession
+            val artworkPaletteForTheme = if (isSongActive) activeArtworkPalette else ArtworkPaletteCache.defaultPalette
+
+            AuralisTheme(
+                appearanceSettings = appearanceSettings,
+                artworkPalette = artworkPaletteForTheme
+            ) {
                 val homeViewModel: HomeViewModel = viewModel {
                     HomeViewModel(historyRepository, searchRepository, innerTubeClient, applicationContext)
                 }
@@ -210,6 +258,9 @@ class MainActivity : ComponentActivity() {
                 val authViewModel: AuthViewModel = viewModel {
                     AuthViewModel(googleAccountSyncManager)
                 }
+                val statsViewModel: com.auralis.music.ui.viewmodel.StatsViewModel = viewModel {
+                    com.auralis.music.ui.viewmodel.StatsViewModel(statsRepository)
+                }
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -223,6 +274,7 @@ class MainActivity : ComponentActivity() {
                         playerViewModel = playerViewModel,
                         listenTogetherViewModel = listenTogetherViewModel,
                         authViewModel = authViewModel,
+                        statsViewModel = statsViewModel,
                         googleAccountSyncManager = googleAccountSyncManager,
                         appearanceSettings = appearanceSettings,
                         initialNavDestination = liveNavDestination.value

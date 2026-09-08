@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,9 +67,9 @@ fun SettingsScreen(
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val surfaceColor = MaterialTheme.colorScheme.surface
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val cardBackground = if (isDark) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+    val cardBackground = MaterialTheme.colorScheme.surface
     val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.8f)
-    val cardText = MaterialTheme.colorScheme.onBackground
+    val cardText = MaterialTheme.colorScheme.onSurface
     val cardPrimary = MaterialTheme.colorScheme.primary
     val cardIconBg = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.12f else 0.16f)
 
@@ -111,7 +112,7 @@ fun SettingsScreen(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 18.dp),
+                            .padding(horizontal = 16.dp),
                         contentPadding = PaddingValues(bottom = listBottomPadding),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -476,9 +477,11 @@ private fun SettingsCategoryHeader(
     Text(
         text = title,
         color = color,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 13.sp,
-        modifier = Modifier.padding(start = 8.dp, top = 18.dp, bottom = 6.dp)
+        fontWeight = FontWeight.Bold,
+        fontSize = 14.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 10.dp)
     )
 }
 
@@ -493,19 +496,22 @@ private fun SettingsRowItem(
     iconBackground: Color,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(cardBackground)
-            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = cardBackground,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(iconBackground),
                 contentAlignment = Alignment.Center
@@ -517,12 +523,12 @@ private fun SettingsRowItem(
                     modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Text(
                 text = title,
                 color = textColor,
-                fontWeight = FontWeight.Medium,
-                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.5.sp,
                 modifier = Modifier.weight(1f)
             )
         }

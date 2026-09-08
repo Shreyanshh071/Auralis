@@ -13,12 +13,28 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
+import com.materialkolor.ktx.toHct
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -41,14 +57,54 @@ data class AuralisDynamicPalette(
     val isDark: Boolean = true
 )
 
-val LocalAuralisDynamicPalette = staticCompositionLocalOf {
+val LocalAuralisDynamicPalette = compositionLocalOf {
     AuralisDynamicPalette()
 }
+
+val LocalDynamicThemePrimary = compositionLocalOf { Color.Unspecified }
+val LocalDynamicThemeSecondary = compositionLocalOf { Color.Unspecified }
+val LocalDynamicThemeTertiary = compositionLocalOf { Color.Unspecified }
 
 /**
  * Computes an atmospheric, harmonious color palette from an extracted dominant artwork color.
  */
-fun generateDynamicPalette(dominantColor: Color?, isDark: Boolean = true): AuralisDynamicPalette {
+fun generateDynamicPalette(
+    dominantColor: Color?,
+    isDark: Boolean = true,
+    artworkPalette: ArtworkPalette? = null
+): AuralisDynamicPalette {
+    if (artworkPalette != null && artworkPalette != ArtworkPaletteCache.defaultPalette && artworkPalette.seedColor != Color.Unspecified) {
+        if (artworkPalette.isMonochrome) {
+            // Genuinely monochrome/grayscale artwork: pure neutral grayscale hierarchy without any artificial hue
+            val silverPrimary = Color(0xFFE0E0E0)
+            val midGraySecondary = Color(0xFF9E9E9E)
+            val darkGrayTertiary = Color(0xFF616161)
+            val neutralSurfaceTint = if (isDark) Color(0xFF141414) else Color(0xFFF0F0F0)
+            return AuralisDynamicPalette(
+                tintA = silverPrimary,
+                tintB = midGraySecondary,
+                tintC = darkGrayTertiary,
+                surfaceTint = neutralSurfaceTint,
+                accentGlow = silverPrimary.copy(alpha = if (isDark) 0.35f else 0.20f),
+                isDark = isDark
+            )
+        }
+        val pri = artworkPalette.primary
+        val sec = artworkPalette.secondary
+        val tert = artworkPalette.tertiary
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(pri.toArgb(), hsv)
+        val surfaceTint = if (isDark) Color.hsv(hsv[0], 0.08f, 0.11f) else Color.hsv(hsv[0], 0.04f, 0.94f)
+        return AuralisDynamicPalette(
+            tintA = pri,
+            tintB = sec,
+            tintC = tert,
+            surfaceTint = surfaceTint,
+            accentGlow = pri.copy(alpha = if (isDark) 0.5f else 0.35f),
+            isDark = isDark
+        )
+    }
+
     if (dominantColor == null || dominantColor == Color.Unspecified) {
         return AuralisDynamicPalette(isDark = isDark)
     }
@@ -59,37 +115,37 @@ fun generateDynamicPalette(dominantColor: Color?, isDark: Boolean = true): Aural
     val hue = hsv[0]
     val sat = hsv[1]
 
-    // If dominant color is grayscale / monochrome (sat < 0.08f), render sleek slate/charcoal palette
+    // If dominant color is grayscale / monochrome (sat < 0.08f), render sleek neutral palette
     if (sat < 0.08f) {
-        val slatePrimary = Color(0xFF2E323A)
-        val slateSecondary = Color(0xFF1F2228)
-        val slateTertiary = Color(0xFF14161B)
+        val silverPrimary = Color(0xFFE0E0E0)
+        val midGraySecondary = Color(0xFF9E9E9E)
+        val darkGrayTertiary = Color(0xFF616161)
         return AuralisDynamicPalette(
-            tintA = slatePrimary,
-            tintB = slateSecondary,
-            tintC = slateTertiary,
-            surfaceTint = Color(0xFF101216),
-            accentGlow = slatePrimary.copy(alpha = 0.4f),
+            tintA = silverPrimary,
+            tintB = midGraySecondary,
+            tintC = darkGrayTertiary,
+            surfaceTint = if (isDark) Color(0xFF141414) else Color(0xFFF0F0F0),
+            accentGlow = silverPrimary.copy(alpha = if (isDark) 0.35f else 0.20f),
             isDark = isDark
         )
     }
 
-    val boostedSat = sat.coerceIn(0.45f, 0.95f)
+    val naturalSat = sat.coerceIn(0.12f, 0.80f)
     val value = if (isDark) hsv[2].coerceIn(0.6f, 0.95f) else hsv[2].coerceIn(0.4f, 0.8f)
 
-    // Primary Tint (Hue shifted slightly + boosted saturation)
-    val tintAColor = Color.hsv(hue, boostedSat, value)
+    // Primary Tint (Hue shifted slightly + authentic saturation)
+    val tintAColor = Color.hsv(hue, naturalSat, value)
 
     // Secondary Tint (Analogous color + 35 degrees shift)
     val secondaryHue = (hue + 35f) % 360f
-    val tintBColor = Color.hsv(secondaryHue, (boostedSat * 0.85f).coerceAtLeast(0.4f), value)
+    val tintBColor = Color.hsv(secondaryHue, (naturalSat * 0.85f).coerceAtLeast(0.10f), value)
 
     // Tertiary Tint (Complementary-adjacent + 140 degrees shift)
     val tertiaryHue = (hue + 140f) % 360f
-    val tintCColor = Color.hsv(tertiaryHue, (boostedSat * 0.75f).coerceAtLeast(0.35f), value)
+    val tintCColor = Color.hsv(tertiaryHue, (naturalSat * 0.75f).coerceAtLeast(0.08f), value)
 
     // Subtle dark surface tint
-    val surfaceTint = Color.hsv(hue, 0.22f, 0.12f)
+    val surfaceTint = if (isDark) Color.hsv(hue, 0.08f, 0.11f) else Color.hsv(hue, 0.04f, 0.94f)
 
     return AuralisDynamicPalette(
         tintA = tintAColor,
@@ -452,6 +508,211 @@ val LocalAppearanceSettings = staticCompositionLocalOf {
     com.auralis.music.domain.model.AppearanceSettings()
 }
 
+fun isLightColor(color: Color): Boolean {
+    val r = color.red
+    val g = color.green
+    val b = color.blue
+    val luminance = 0.2126f * r + 0.7152f * g + 0.0722f * b
+    return luminance > 0.5f
+}
+
+fun ColorScheme.pureBlack(apply: Boolean): ColorScheme =
+    if (apply) copy(
+        surface = Color.Black,
+        background = Color.Black
+    ) else this
+
+private fun paletteStyleFor(seedColor: Color): PaletteStyle {
+    val chroma = seedColor.toHct().chroma
+    return when {
+        chroma < 4.0 -> PaletteStyle.Monochrome
+        chroma < 12.0 -> PaletteStyle.Neutral
+        else -> PaletteStyle.TonalSpot
+    }
+}
+
+/**
+ * Synthesizes a balanced, authentic Material 3 ColorScheme from an extracted artwork seed color.
+ * Matches ViVi Music and standard Material 3 architecture:
+ * - Uses MaterialKolor's dynamicColorScheme with HCT tonal palette generation.
+ * - Primary accent carries the genuine artwork hue and chroma (Tone 80 in dark mode).
+ * - Secondary accent is softly muted (chroma / 3, capped at 16) for non-intrusive UI roles.
+ * - Tertiary accent provides harmonic balance without overpowering the UI.
+ * - Neutral foundation: background and surface are strictly constrained to Chroma <= 6 (near-neutral dark slate/charcoal #121214),
+ *   preventing the entire UI from becoming saturated or flooded by bright artwork.
+ * - Pure AMOLED black support when AMOLED mode is active.
+ */
+fun dynamicColorSchemeFromSeed(
+    seedColor: Color,
+    isDark: Boolean = true,
+    isAmoled: Boolean = false,
+    appTheme: String = "Dark Mode",
+    secondaryColor: Color? = null,
+    tertiaryColor: Color? = null,
+    isMonochrome: Boolean = false
+): ColorScheme {
+    val effectiveSeed = if (seedColor == Color.Unspecified || seedColor == Color.Transparent) {
+        if (isDark) Color(0xFF808080) else Color(0xFF404040)
+    } else {
+        seedColor
+    }
+    val style = if (isMonochrome || effectiveSeed.toHct().chroma < 4.0) PaletteStyle.Monochrome else paletteStyleFor(effectiveSeed)
+    val scheme = dynamicColorScheme(
+        seedColor = effectiveSeed,
+        isDark = isDark,
+        isAmoled = isAmoled && isDark,
+        style = style
+    )
+    if (!isDark) {
+        return scheme
+    }
+
+    return when {
+        isAmoled -> scheme.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceVariant = Color(0xFF121214),
+            outline = Color(0xFF2C2C32),
+            outlineVariant = Color(0xFF202026),
+            onBackground = Color(0xFFF3F4F6),
+            onSurface = Color(0xFFF3F4F6),
+            onSurfaceVariant = Color(0xFF9CA3AF)
+        )
+        appTheme == "Midnight Velvet Dark" -> scheme.copy(
+            background = Color(0xFF0A0A0C),
+            surface = Color(0xFF121215),
+            surfaceVariant = Color(0xFF1A1A1E),
+            outline = Color(0xFF303038),
+            outlineVariant = Color(0xFF222228),
+            onBackground = Color(0xFFF3F4F6),
+            onSurface = Color(0xFFF3F4F6),
+            onSurfaceVariant = Color(0xFF9CA3AF)
+        )
+        else -> scheme
+    }
+}
+
+/**
+ * Fast color linear interpolation helper for full Material 3 ColorScheme.
+ */
+fun lerpColorScheme(start: ColorScheme, stop: ColorScheme, fraction: Float): ColorScheme {
+    if (fraction <= 0f) return start
+    if (fraction >= 1f) return stop
+    return ColorScheme(
+        primary = lerp(start.primary, stop.primary, fraction),
+        onPrimary = lerp(start.onPrimary, stop.onPrimary, fraction),
+        primaryContainer = lerp(start.primaryContainer, stop.primaryContainer, fraction),
+        onPrimaryContainer = lerp(start.onPrimaryContainer, stop.onPrimaryContainer, fraction),
+        inversePrimary = lerp(start.inversePrimary, stop.inversePrimary, fraction),
+
+        secondary = lerp(start.secondary, stop.secondary, fraction),
+        onSecondary = lerp(start.onSecondary, stop.onSecondary, fraction),
+        secondaryContainer = lerp(start.secondaryContainer, stop.secondaryContainer, fraction),
+        onSecondaryContainer = lerp(start.onSecondaryContainer, stop.onSecondaryContainer, fraction),
+
+        tertiary = lerp(start.tertiary, stop.tertiary, fraction),
+        onTertiary = lerp(start.onTertiary, stop.onTertiary, fraction),
+        tertiaryContainer = lerp(start.tertiaryContainer, stop.tertiaryContainer, fraction),
+        onTertiaryContainer = lerp(start.onTertiaryContainer, stop.onTertiaryContainer, fraction),
+
+        background = lerp(start.background, stop.background, fraction),
+        onBackground = lerp(start.onBackground, stop.onBackground, fraction),
+        surface = lerp(start.surface, stop.surface, fraction),
+        onSurface = lerp(start.onSurface, stop.onSurface, fraction),
+        surfaceVariant = lerp(start.surfaceVariant, stop.surfaceVariant, fraction),
+        onSurfaceVariant = lerp(start.onSurfaceVariant, stop.onSurfaceVariant, fraction),
+        surfaceTint = lerp(start.surfaceTint, stop.surfaceTint, fraction),
+        inverseSurface = lerp(start.inverseSurface, stop.inverseSurface, fraction),
+        inverseOnSurface = lerp(start.inverseOnSurface, stop.inverseOnSurface, fraction),
+
+        error = stop.error,
+        onError = stop.onError,
+        errorContainer = stop.errorContainer,
+        onErrorContainer = stop.onErrorContainer,
+
+        outline = lerp(start.outline, stop.outline, fraction),
+        outlineVariant = lerp(start.outlineVariant, stop.outlineVariant, fraction),
+        scrim = stop.scrim,
+
+        surfaceBright = lerp(start.surfaceBright, stop.surfaceBright, fraction),
+        surfaceDim = lerp(start.surfaceDim, stop.surfaceDim, fraction),
+        surfaceContainer = lerp(start.surfaceContainer, stop.surfaceContainer, fraction),
+        surfaceContainerLow = lerp(start.surfaceContainerLow, stop.surfaceContainerLow, fraction),
+        surfaceContainerLowest = lerp(start.surfaceContainerLowest, stop.surfaceContainerLowest, fraction),
+        surfaceContainerHigh = lerp(start.surfaceContainerHigh, stop.surfaceContainerHigh, fraction),
+        surfaceContainerHighest = lerp(start.surfaceContainerHighest, stop.surfaceContainerHighest, fraction),
+    )
+}
+
+/**
+ * Fast color linear interpolation helper for AuralisDynamicPalette.
+ */
+fun lerpDynamicPalette(start: AuralisDynamicPalette, stop: AuralisDynamicPalette, fraction: Float): AuralisDynamicPalette {
+    if (fraction <= 0f) return start
+    if (fraction >= 1f) return stop
+    return AuralisDynamicPalette(
+        tintA = lerp(start.tintA, stop.tintA, fraction),
+        tintB = lerp(start.tintB, stop.tintB, fraction),
+        tintC = lerp(start.tintC, stop.tintC, fraction),
+        surfaceTint = lerp(start.surfaceTint, stop.surfaceTint, fraction),
+        accentGlow = lerp(start.accentGlow, stop.accentGlow, fraction),
+        isDark = stop.isDark
+    )
+}
+
+/**
+ * Smoothly interpolates an entire Material 3 ColorScheme during dynamic track changes using
+ * a unified 650ms FastOutSlowIn transition that matches the main player's artwork transition.
+ * Interpolates directly from the exact CURRENTLY VISIBLE color state to the new target,
+ * guaranteeing seamless continuity without jump or restart during rapid A -> B -> C track changes.
+ */
+@Composable
+fun animateColorScheme(targetColorScheme: ColorScheme): ColorScheme {
+    var currentVisibleScheme by remember { mutableStateOf(targetColorScheme) }
+    var previousTargetScheme by remember { mutableStateOf(targetColorScheme) }
+    val animProgress = remember { Animatable(1f) }
+
+    LaunchedEffect(targetColorScheme) {
+        if (targetColorScheme != previousTargetScheme) {
+            // Snapshot whatever colors are CURRENTLY VISIBLE on screen at interruption moment
+            currentVisibleScheme = lerpColorScheme(currentVisibleScheme, previousTargetScheme, animProgress.value)
+            previousTargetScheme = targetColorScheme
+            animProgress.snapTo(0f)
+            animProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    return lerpColorScheme(currentVisibleScheme, previousTargetScheme, animProgress.value)
+}
+
+/**
+ * Smoothly interpolates AuralisDynamicPalette during dynamic track changes synchronously
+ * with animateColorScheme over the identical 280ms FastOutSlowIn curve.
+ */
+@Composable
+fun animateDynamicPalette(targetPalette: AuralisDynamicPalette): AuralisDynamicPalette {
+    var currentVisiblePalette by remember { mutableStateOf(targetPalette) }
+    var previousTargetPalette by remember { mutableStateOf(targetPalette) }
+    val animProgress = remember { Animatable(1f) }
+
+    LaunchedEffect(targetPalette) {
+        if (targetPalette != previousTargetPalette) {
+            currentVisiblePalette = lerpDynamicPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+            previousTargetPalette = targetPalette
+            animProgress.snapTo(0f)
+            animProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    return lerpDynamicPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+}
+
 // ============================================================================
 // 🚀 AURALIS THEME PROVIDER
 // ============================================================================
@@ -461,112 +722,187 @@ fun AuralisTheme(
     appearanceSettings: com.auralis.music.domain.model.AppearanceSettings = com.auralis.music.domain.model.AppearanceSettings(),
     darkTheme: Boolean = true,
     dynamicColor: Boolean = false,
+    artworkPalette: ArtworkPalette? = null,
     artworkDominantColor: Color? = null,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val systemInDark = isSystemInDarkTheme()
 
+    // 1. Resolve Light / Dark mode
     val isDark = when (appearanceSettings.appTheme) {
-        "Light Mode" -> false
-        "Pure AMOLED Black", "Midnight Velvet Dark", "Dark Mode" -> true
-        "Dynamic Material You", "Follow system" -> systemInDark
+        "Light Mode", "Light" -> false
+        "Pure AMOLED Black", "AMOLED", "Midnight Velvet Dark", "Dark Mode", "Dark" -> true
+        "Dynamic Material You", "Follow system", "System" -> systemInDark
         else -> systemInDark
     }
 
-    val isDynamicMonet = appearanceSettings.colorPalette == "Dynamic (Material You)"
+    val isAmoled = appearanceSettings.appTheme == "Pure AMOLED Black" || appearanceSettings.appTheme == "AMOLED"
+
+    // 2. Resolve Dynamic vs Static palette selection
+    val isCuratedPalette = remember(appearanceSettings.colorPalette) {
+        CuratedPalettes.any { it.id == appearanceSettings.colorPalette }
+    }
+    val isDynamic = !isCuratedPalette && (
+            appearanceSettings.colorPalette == "Dynamic" ||
+            appearanceSettings.colorPalette == "Dynamic (Material You)" ||
+            appearanceSettings.dynamicTheme
+    )
 
     // Base scheme strictly according to light / dark state
-    val baseScheme = if (isDark) {
-        when (appearanceSettings.appTheme) {
-            "Pure AMOLED Black" -> AmoledDarkColorScheme
-            "Midnight Velvet Dark" -> MidnightDarkColorScheme
-            else -> DarkColorScheme
-        }
-    } else {
-        LightColorScheme
-    }
-
-    val colorScheme: ColorScheme = if (isDynamicMonet && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val dynamicSys = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    val baseScheme = remember(isDark, isAmoled, appearanceSettings.appTheme) {
         if (isDark) {
-            when (appearanceSettings.appTheme) {
-                "Pure AMOLED Black" -> dynamicSys.copy(
-                    background = Color.Black,
-                    surface = Color.Black,
-                    surfaceVariant = Color(0xFF121214),
-                    outline = Color(0xFF2C2C32),
-                    outlineVariant = Color(0xFF202026),
-                    onBackground = Color(0xFFF3F4F6),
-                    onSurface = Color(0xFFF3F4F6),
-                    onSurfaceVariant = Color(0xFF9CA3AF)
-                )
-                "Midnight Velvet Dark" -> dynamicSys.copy(
-                    background = Color(0xFF0A0A0C),
-                    surface = Color(0xFF121215),
-                    surfaceVariant = Color(0xFF1A1A1E),
-                    outline = Color(0xFF303038),
-                    outlineVariant = Color(0xFF222228),
-                    onBackground = Color(0xFFF3F4F6),
-                    onSurface = Color(0xFFF3F4F6),
-                    onSurfaceVariant = Color(0xFF9CA3AF)
-                )
-                else -> dynamicSys.copy(
-                    background = Color(0xFF0E0E10),
-                    surface = Color(0xFF161619),
-                    surfaceVariant = Color(0xFF202024),
-                    outline = Color(0xFF383840),
-                    outlineVariant = Color(0xFF28282E),
-                    onBackground = Color(0xFFF3F4F6),
-                    onSurface = Color(0xFFF3F4F6),
-                    onSurfaceVariant = Color(0xFF9CA3AF)
-                )
+            when {
+                isAmoled -> AmoledDarkColorScheme
+                appearanceSettings.appTheme == "Midnight Velvet Dark" -> MidnightDarkColorScheme
+                else -> DarkColorScheme
             }
         } else {
-            dynamicSys.copy(
-                background = Color(0xFFF9FAFB),
-                surface = Color(0xFFFFFFFF),
-                surfaceVariant = Color(0xFFF3F4F6),
-                outlineVariant = Color(0xFFE5E7EB),
-                onBackground = Color(0xFF111827),
-                onSurface = Color(0xFF111827),
-                onSurfaceVariant = Color(0xFF4B5563)
-            )
-        }
-    } else {
-        val palette = getPaletteById(appearanceSettings.colorPalette)
-        if (isDark) {
-            baseScheme.copy(
-                primary = palette.primaryDark,
-                onPrimary = Color(0xFF1C2000),
-                secondary = palette.secondaryDark,
-                onSecondary = Color(0xFF2E331B),
-                tertiary = palette.tertiaryDark,
-                primaryContainer = palette.primaryDark.copy(alpha = 0.28f),
-                onPrimaryContainer = palette.primaryDark,
-                secondaryContainer = palette.secondaryDark.copy(alpha = 0.24f),
-                onSecondaryContainer = palette.secondaryDark
-            )
-        } else {
-            baseScheme.copy(
-                primary = palette.primaryLight,
-                onPrimary = Color.White,
-                secondary = palette.secondaryLight,
-                onSecondary = Color.White,
-                tertiary = palette.tertiaryLight,
-                primaryContainer = palette.primaryLight.copy(alpha = 0.16f),
-                onPrimaryContainer = palette.primaryLight,
-                secondaryContainer = palette.secondaryLight.copy(alpha = 0.14f),
-                onSecondaryContainer = palette.secondaryLight
-            )
+            LightColorScheme
         }
     }
 
-    // Compute dynamic artwork ambient tints
-    val dynamicPalette = generateDynamicPalette(artworkDominantColor, isDark = isDark)
+    // Active artwork palette: preference to explicit parameter, otherwise observe shared cache flow
+    val activeArtworkPalette = artworkPalette ?: ArtworkPaletteCache.currentPalette.collectAsState().value
+    val hasSongArtwork = activeArtworkPalette != ArtworkPaletteCache.defaultPalette &&
+            activeArtworkPalette.seedColor != Color.Unspecified
+
+    // 3. Resolve target color scheme
+    val rawTargetScheme: ColorScheme = remember(
+        isDynamic, hasSongArtwork, activeArtworkPalette, isDark, isAmoled, baseScheme, appearanceSettings.colorPalette, appearanceSettings.appTheme, context
+    ) {
+        if (isDynamic) {
+            if (hasSongArtwork) {
+                // Song artwork-driven dynamic palette
+                dynamicColorSchemeFromSeed(
+                    seedColor = activeArtworkPalette.seedColor,
+                    isDark = isDark,
+                    isAmoled = isAmoled,
+                    appTheme = appearanceSettings.appTheme,
+                    secondaryColor = activeArtworkPalette.secondary,
+                    tertiaryColor = activeArtworkPalette.tertiary,
+                    isMonochrome = activeArtworkPalette.isMonochrome
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Fall back to phone/system dynamic Monet palette
+                val dynamicSys = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                if (isDark) {
+                    if (isAmoled) {
+                        dynamicSys.copy(
+                            background = Color.Black,
+                            surface = Color.Black,
+                            surfaceVariant = Color(0xFF121214),
+                            outline = Color(0xFF2C2C32),
+                            outlineVariant = Color(0xFF202026),
+                            onBackground = Color(0xFFF3F4F6),
+                            onSurface = Color(0xFFF3F4F6),
+                            onSurfaceVariant = Color(0xFF9CA3AF)
+                        )
+                    } else if (appearanceSettings.appTheme == "Midnight Velvet Dark") {
+                        dynamicSys.copy(
+                            background = Color(0xFF0A0A0C),
+                            surface = Color(0xFF121215),
+                            surfaceVariant = Color(0xFF1A1A1E),
+                            outline = Color(0xFF303038),
+                            outlineVariant = Color(0xFF222228),
+                            onBackground = Color(0xFFF3F4F6),
+                            onSurface = Color(0xFFF3F4F6),
+                            onSurfaceVariant = Color(0xFF9CA3AF)
+                        )
+                    } else {
+                        dynamicSys
+                    }
+                } else {
+                    dynamicSys
+                }
+            } else {
+                // Default dynamic fallback when below Android 12 and no song
+                baseScheme
+            }
+        } else {
+            // User manually selected a static Curated Palette (Auralis Lime, Crimson Amber, Rose Gold, etc.)
+            // Overrides album-art dynamic coloring while still providing harmoniously tinted surfaces.
+            val palette = getPaletteById(appearanceSettings.colorPalette)
+            val seed = if (isDark) palette.primaryDark else palette.primaryLight
+            val curatedDynamic = dynamicColorSchemeFromSeed(
+                seedColor = seed,
+                isDark = isDark,
+                isAmoled = isAmoled,
+                appTheme = appearanceSettings.appTheme
+            )
+            if (isDark) {
+                val onPri = if (isLightColor(palette.primaryDark)) Color(0xFF1C2000) else Color.White
+                val onSec = if (isLightColor(palette.secondaryDark)) Color(0xFF1C2000) else Color.White
+                curatedDynamic.copy(
+                    primary = palette.primaryDark,
+                    onPrimary = onPri,
+                    secondary = palette.secondaryDark,
+                    onSecondary = onSec,
+                    tertiary = palette.tertiaryDark,
+                    primaryContainer = palette.primaryDark.copy(alpha = 0.28f),
+                    onPrimaryContainer = palette.primaryDark,
+                    secondaryContainer = palette.secondaryDark.copy(alpha = 0.24f),
+                    onSecondaryContainer = palette.secondaryDark
+                )
+            } else {
+                curatedDynamic.copy(
+                    primary = palette.primaryLight,
+                    onPrimary = Color.White,
+                    secondary = palette.secondaryLight,
+                    onSecondary = Color.White,
+                    tertiary = palette.tertiaryLight,
+                    primaryContainer = palette.primaryLight.copy(alpha = 0.16f),
+                    onPrimaryContainer = palette.primaryLight,
+                    secondaryContainer = palette.secondaryLight.copy(alpha = 0.14f),
+                    onSecondaryContainer = palette.secondaryLight
+                )
+            }
+        }
+    }
 
     // Honour the system "remove animations" accessibility preference app-wide
     val reducedMotion = rememberReducedMotion()
+
+    // 4. Smooth theme transition: animate color changes across song transitions
+    val colorScheme = if (reducedMotion) {
+        rawTargetScheme
+    } else {
+        animateColorScheme(rawTargetScheme)
+    }
+
+    // Dynamic artwork ambient tints for LocalAuralisDynamicPalette
+    val rawDynamicPalette = remember(activeArtworkPalette, isDark, artworkDominantColor, hasSongArtwork, rawTargetScheme) {
+        if (!hasSongArtwork) {
+            // When no active song artwork, ambient tints cleanly match the phone's system/target color scheme!
+            val pri = rawTargetScheme.primary
+            val sec = rawTargetScheme.secondary
+            val tert = rawTargetScheme.tertiary
+            val hsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(pri.toArgb(), hsv)
+            val surfaceTint = if (isDark) Color.hsv(hsv[0], 0.08f, 0.11f) else Color.hsv(hsv[0], 0.04f, 0.94f)
+            AuralisDynamicPalette(
+                tintA = pri,
+                tintB = sec,
+                tintC = tert,
+                surfaceTint = surfaceTint,
+                accentGlow = pri.copy(alpha = if (isDark) 0.5f else 0.35f),
+                isDark = isDark
+            )
+        } else {
+            generateDynamicPalette(
+                dominantColor = artworkDominantColor ?: activeArtworkPalette.seedColor,
+                isDark = isDark,
+                artworkPalette = activeArtworkPalette
+            )
+        }
+    }
+
+    val dynamicPalette = if (reducedMotion) {
+        rawDynamicPalette
+    } else {
+        animateDynamicPalette(rawDynamicPalette)
+    }
+
 
     // Calculate display density scaling (including responsive landscape scaling)
     val currentDensity = androidx.compose.ui.platform.LocalDensity.current
@@ -594,6 +930,12 @@ fun AuralisTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
             WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
+            }
             val windowInsetsController = WindowCompat.getInsetsController(window, view)
             windowInsetsController.isAppearanceLightStatusBars = !isDark
             windowInsetsController.isAppearanceLightNavigationBars = !isDark
@@ -603,6 +945,9 @@ fun AuralisTheme(
     CompositionLocalProvider(
         LocalAppearanceSettings provides appearanceSettings,
         LocalAuralisDynamicPalette provides dynamicPalette,
+        LocalDynamicThemePrimary provides colorScheme.primary,
+        LocalDynamicThemeSecondary provides colorScheme.secondary,
+        LocalDynamicThemeTertiary provides colorScheme.tertiary,
         LocalReducedMotion provides reducedMotion,
         LocalContentColor provides colorScheme.onBackground,
         androidx.compose.ui.platform.LocalDensity provides customDensity
@@ -622,6 +967,30 @@ val MaterialTheme.dynamicPalette: AuralisDynamicPalette
     @Composable
     @ReadOnlyComposable
     get() = LocalAuralisDynamicPalette.current
+
+val MaterialTheme.dynamicPrimary: Color
+    @Composable
+    @ReadOnlyComposable
+    get() {
+        val dyn = LocalDynamicThemePrimary.current
+        return if (dyn != Color.Unspecified) dyn else colorScheme.primary
+    }
+
+val MaterialTheme.dynamicSecondary: Color
+    @Composable
+    @ReadOnlyComposable
+    get() {
+        val dyn = LocalDynamicThemeSecondary.current
+        return if (dyn != Color.Unspecified) dyn else colorScheme.secondary
+    }
+
+val MaterialTheme.dynamicTertiary: Color
+    @Composable
+    @ReadOnlyComposable
+    get() {
+        val dyn = LocalDynamicThemeTertiary.current
+        return if (dyn != Color.Unspecified) dyn else colorScheme.tertiary
+    }
 
 val MaterialTheme.appearanceSettings: com.auralis.music.domain.model.AppearanceSettings
     @Composable

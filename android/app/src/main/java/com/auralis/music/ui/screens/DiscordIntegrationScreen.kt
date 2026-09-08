@@ -44,7 +44,7 @@ private val THEME_BG: Color
     @Composable get() = MaterialTheme.colorScheme.background
 
 private val CARD_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+    @Composable get() = MaterialTheme.colorScheme.surface
 
 private val PILL_BG: Color
     @Composable get() = MaterialTheme.colorScheme.surfaceContainerHighest

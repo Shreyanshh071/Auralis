@@ -3,6 +3,8 @@ package com.auralis.music.domain.model
 enum class LyricsProvider {
     AMLL,
     BETTER_LYRICS,
+    UNISON,
+    PAXSENIX,
     LRCLIB,
     KUGOU,
     JIOSAAVN,
@@ -55,7 +57,17 @@ data class LyricLine(
      * line rather than folded into the lead vocal so neither text nor timing is
      * corrupted. The renderer may de-emphasise it; the timing is genuine.
      */
-    val isBackground: Boolean = false
+    val isBackground: Boolean = false,
+    /**
+     * Stated end time of this lyric line in milliseconds (from provider metadata such as TTML <p end>).
+     * Null when the provider supplied no explicit line end.
+     */
+    val endTime: Long? = null,
+    /**
+     * Vocal agent/singer identifier (e.g. "v1", "v2", "v1000") from provider metadata (such as TTML ttm:agent).
+     * Null when no vocal agent information is supplied.
+     */
+    val agent: String? = null
 ) {
     /** True when the provider gave real per-word timing for this line. */
     val hasWordTiming: Boolean
@@ -64,6 +76,13 @@ data class LyricLine(
     /** Last genuine word end in this line, or `null` when unknown. */
     val wordTimingEndMs: Long?
         get() = words?.lastOrNull { it.duration != null }?.endTime
+
+    /**
+     * The effective end time of this lyric line in milliseconds.
+     * Prefers explicit provider [endTime], otherwise falls back to last word's end timestamp.
+     */
+    val effectiveEndTime: Long?
+        get() = endTime ?: wordTimingEndMs
 }
 
 data class LyricsData(
@@ -76,7 +95,9 @@ data class LyricsData(
     val trackName: String? = null,
     val artistName: String? = null,
     val durationMs: Long? = null,
-    val leadingSilenceMs: Long? = null
+    val leadingSilenceMs: Long? = null,
+    val isExactVideoMatch: Boolean = false,
+    val matchedVideoId: String? = null
 ) {
     /**
      * Stated or inferred duration of the lyrics track in milliseconds.

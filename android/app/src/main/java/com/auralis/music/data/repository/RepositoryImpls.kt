@@ -161,7 +161,8 @@ class LibraryRepositoryImpl(
 class HistoryRepositoryImpl(
     private val trackDao: TrackDao,
     private val historyDao: HistoryDao,
-    private val playCountDao: PlayCountDao
+    private val playCountDao: PlayCountDao,
+    private val playbackEventDao: com.auralis.music.data.local.dao.PlaybackEventDao? = null
 ) : HistoryRepository {
 
     override fun getHistory(): Flow<List<HistoryEntry>> {
@@ -200,6 +201,16 @@ class HistoryRepositoryImpl(
                 lastPlayed = System.currentTimeMillis()
             )
         )
+        playbackEventDao?.let { dao ->
+            val durMs = (track.duration.takeIf { it > 0 } ?: 198L) * 1000L
+            dao.insertEvent(
+                com.auralis.music.data.local.entity.PlaybackEventEntity(
+                    trackId = track.id,
+                    timestamp = System.currentTimeMillis(),
+                    playTimeMs = durMs
+                )
+            )
+        }
     }
 
     override suspend fun getPlayCounts(): List<PlayCountEntry> {

@@ -130,7 +130,8 @@ object MusixmatchRichsyncParser {
                         LyricLine(
                             time = lineStartMs,
                             text = resolvedText,
-                            words = if (words.isNotEmpty()) words else null
+                            words = if (words.isNotEmpty()) words else null,
+                            endTime = lineEndMs
                         )
                     )
                 }

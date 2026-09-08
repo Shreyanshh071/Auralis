@@ -160,6 +160,9 @@ interface LibraryDao {
     @Query("SELECT EXISTS(SELECT 1 FROM saved_artists WHERE id = :id)")
     fun isArtistSavedFlow(id: String): Flow<Boolean>
 
+    @Query("SELECT thumbnail FROM saved_artists WHERE LOWER(name) = LOWER(:name) AND thumbnail IS NOT NULL LIMIT 1")
+    suspend fun getSavedArtistThumbnail(name: String): String?
+
     // Albums
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAlbum(album: SavedAlbumEntity)

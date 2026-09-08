@@ -3,6 +3,7 @@ package com.auralis.music.ui.explore
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.auralisDetailBackwardEnter
 import com.auralis.music.ui.theme.auralisDetailBackwardExit
 import com.auralis.music.ui.theme.auralisDetailForwardEnter
@@ -149,6 +150,8 @@ fun ExploreScreen(
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val dynamicPalette = com.auralis.music.ui.theme.LocalAuralisDynamicPalette.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }

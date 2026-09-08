@@ -10,7 +10,8 @@ interface LyricsRepository {
         videoId: String? = null,
         album: String? = null,
         channelTitle: String? = null,
-        durationMs: Long? = null
+        durationMs: Long? = null,
+        audioLeadingSilenceMs: Long? = null
     ): LyricsData? = null
 
     suspend fun getLyrics(
@@ -21,7 +22,8 @@ interface LyricsRepository {
         forceRefresh: Boolean = false,
         album: String? = null,
         channelTitle: String? = null,
-        durationMs: Long? = null
+        durationMs: Long? = null,
+        audioLeadingSilenceMs: Long? = null
     ): LyricsData? = null
 
     suspend fun getCachedLyrics(

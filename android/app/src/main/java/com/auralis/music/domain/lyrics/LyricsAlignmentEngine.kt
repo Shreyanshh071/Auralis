@@ -72,35 +72,85 @@ object LyricsAlignmentEngine {
     /**
      * Evaluates whether the candidate lyrics match the duration of the playback audio stream.
      *
-     * If [playbackDurationMs] <= 0 or lyrics duration cannot be determined,
-     * returns [MasterMatchStatus.EXACT_MATCH] as a safe default.
+     * Invariants:
+     * - [MasterMatchStatus.EXACT_MATCH]: Stated candidate duration is within 1.5s (1500ms) of playback audio.
+     * - [MasterMatchStatus.COMPATIBLE_OFFSET]: Stated candidate duration is within 3.5s (3500ms) of playback audio,
+     *   OR candidate duration is unknown and vocals do not overrun playback audio length.
+     * - [MasterMatchStatus.MASTER_MISMATCH]: Duration delta > 3.5s, or vocals overrun playback duration by > 3.5s.
+     *
+     * UNKNOWN CANDIDATE DURATION != EXACT MASTER MATCH.
+     * A candidate with unknown duration cannot be verified as an exact master match.
      */
     fun evaluateMasterMatch(
         lyrics: LyricsData,
         playbackDurationMs: Long
     ): MasterMatchStatus {
         if (playbackDurationMs <= 0L) return MasterMatchStatus.EXACT_MATCH
-        val lyricsDurationMs = lyrics.effectiveDurationMs
-        if (lyricsDurationMs <= 0L) return MasterMatchStatus.EXACT_MATCH
-
-        val deltaMs = abs(playbackDurationMs - lyricsDurationMs)
-        return when {
-            deltaMs <= EXACT_MATCH_MAX_DELTA_MS -> MasterMatchStatus.EXACT_MATCH
-            deltaMs <= COMPATIBLE_OFFSET_MAX_DELTA_MS -> MasterMatchStatus.COMPATIBLE_OFFSET
-            else -> MasterMatchStatus.MASTER_MISMATCH
+        val statedDurationMs = lyrics.durationMs
+        if (statedDurationMs != null && statedDurationMs > 0L) {
+            val deltaMs = abs(playbackDurationMs - statedDurationMs)
+            return when {
+                deltaMs <= EXACT_MATCH_MAX_DELTA_MS -> MasterMatchStatus.EXACT_MATCH
+                deltaMs <= COMPATIBLE_OFFSET_MAX_DELTA_MS -> MasterMatchStatus.COMPATIBLE_OFFSET
+                else -> MasterMatchStatus.MASTER_MISMATCH
+            }
         }
+
+        // Stated duration is missing (durationMs == null or <= 0):
+        // Check safety signal: if the vocals extend PAST the audio playback duration (+ tolerance),
+        // it is a genuine master mismatch.
+        val lastVocalEndMs = lyrics.lines.lastOrNull { !it.isInstrumental }?.let { it.wordTimingEndMs ?: it.time }
+            ?: lyrics.lines.lastOrNull()?.time
+            ?: 0L
+        if (lastVocalEndMs > playbackDurationMs + COMPATIBLE_OFFSET_MAX_DELTA_MS) {
+            return MasterMatchStatus.MASTER_MISMATCH
+        }
+
+        // UNKNOWN CANDIDATE DURATION != EXACT MASTER MATCH
+        // A candidate with unknown duration cannot be verified as an exact master match.
+        // It must NEVER be classified as EXACT_MATCH based on last vocal timestamp.
+        return MasterMatchStatus.COMPATIBLE_OFFSET
     }
 
     /**
-     * Enhanced master evaluation considering version compatibility, video cut status, and audio duration.
+     * Enhanced master evaluation considering version compatibility, video cut status, audio duration,
+     * and exact YouTube video ID identity.
      */
     fun evaluateMasterMatch(
         lyrics: LyricsData,
         playbackDurationMs: Long,
         playbackTitle: String? = null,
         candidateTitle: String? = null,
-        playbackChannelTitle: String? = null
+        playbackChannelTitle: String? = null,
+        playbackVideoId: String? = null
     ): MasterMatchStatus {
+        // 0. Exact YouTube Video ID match:
+        // When candidate lyrics were fetched via exact YouTube video ID lookup matching the currently playing
+        // video (Unison GET /lyrics?v=<videoId>), the candidate is explicitly tied to that exact audio master.
+        // In this case, do NOT compare against potentially stale/mismatched external Spotify metadata duration.
+        // Studio metadata providers (BETTER_LYRICS, PAXSENIX, NETEASE, MUSIXMATCH) CANNOT bypass duration checks.
+        val isGenuineExactVideoMatch = lyrics.isExactVideoMatch &&
+            lyrics.provider == com.auralis.music.domain.model.LyricsProvider.UNISON &&
+            !playbackVideoId.isNullOrBlank() &&
+            !playbackVideoId.startsWith("sp_") &&
+            !playbackVideoId.contains("::") &&
+            playbackVideoId.equals(lyrics.matchedVideoId, ignoreCase = true)
+
+        if (isGenuineExactVideoMatch) {
+            if (!playbackTitle.isNullOrBlank()) {
+                val qVersion = com.auralis.music.data.network.TitleCleaner.extractVersion(playbackTitle)
+                val cTitle = candidateTitle?.takeIf { it.isNotBlank() } ?: lyrics.trackName ?: ""
+                val cVersion = if (cTitle.isNotBlank()) com.auralis.music.data.network.TitleCleaner.extractVersion(cTitle) else null
+
+                if (isTimingAlteringVersion(qVersion) || isTimingAlteringVersion(cVersion)) {
+                    if (qVersion == null && cVersion != null) return MasterMatchStatus.MASTER_MISMATCH
+                    if (qVersion != null && cVersion == null) return MasterMatchStatus.MASTER_MISMATCH
+                    if (qVersion != null && cVersion != null && !qVersion.equals(cVersion, ignoreCase = true)) return MasterMatchStatus.MASTER_MISMATCH
+                }
+            }
+            return MasterMatchStatus.EXACT_MATCH
+        }
+
         // 1. Version incompatibility check
         if (!playbackTitle.isNullOrBlank()) {
             val qVersion = com.auralis.music.data.network.TitleCleaner.extractVersion(playbackTitle)
@@ -122,9 +172,9 @@ object LyricsAlignmentEngine {
             // Music video check: if playback is a music video and duration delta exceeds EXACT_MATCH threshold (1.5s),
             // it's a video-edit cut mismatch rather than studio master
             if (isMusicVideoOrVisualizer(playbackTitle, playbackChannelTitle)) {
-                val lyricsDurationMs = lyrics.effectiveDurationMs
-                if (playbackDurationMs > 0L && lyricsDurationMs > 0L) {
-                    val deltaMs = abs(playbackDurationMs - lyricsDurationMs)
+                val statedDur = lyrics.durationMs
+                if (playbackDurationMs > 0L && statedDur != null && statedDur > 0L) {
+                    val deltaMs = abs(playbackDurationMs - statedDur)
                     if (deltaMs > EXACT_MATCH_MAX_DELTA_MS) {
                         return MasterMatchStatus.MASTER_MISMATCH
                     }
@@ -155,12 +205,85 @@ object LyricsAlignmentEngine {
         playbackDurationSec: Long?,
         playbackTitle: String? = null,
         candidateTitle: String? = null,
-        playbackChannelTitle: String? = null
+        playbackChannelTitle: String? = null,
+        playbackVideoId: String? = null
     ): MasterMatchStatus {
         if (playbackDurationSec == null || playbackDurationSec <= 0L) {
-            return evaluateMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle)
+            return evaluateMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId)
         }
-        return evaluateMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle)
+        return evaluateMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId)
+    }
+
+    /**
+     * Determines whether candidate lyrics are acceptable for playback against an audio master.
+     *
+     * Invariants:
+     * - [MasterMatchStatus.EXACT_MATCH]: Always acceptable (|delta| <= 1.5s or genuine exact video ID match).
+     * - [MasterMatchStatus.MASTER_MISMATCH]: Definite mismatch (|delta| > 3.5s or version clash); always rejected.
+     * - [MasterMatchStatus.COMPATIBLE_OFFSET]: 1.5s < |delta| <= 3.5s.
+     *   Acceptable ONLY when:
+     *   1. Verified with measured [audioLeadingSilenceMs] != null, OR
+     *   2. Candidate is a genuine exact YouTube video ID match.
+     *   If unverified, candidate is rejected to prevent applying unaligned lyrics (guessing offsetMs = 0).
+     */
+    fun isAcceptableMasterMatch(
+        lyrics: LyricsData,
+        playbackDurationMs: Long,
+        playbackTitle: String? = null,
+        candidateTitle: String? = null,
+        playbackChannelTitle: String? = null,
+        playbackVideoId: String? = null,
+        audioLeadingSilenceMs: Long? = null
+    ): Boolean {
+        if (playbackDurationMs <= 0L) return true
+        val isGenuineExactVideo = lyrics.isExactVideoMatch &&
+            lyrics.provider == com.auralis.music.domain.model.LyricsProvider.UNISON &&
+            !playbackVideoId.isNullOrBlank() &&
+            !playbackVideoId.startsWith("sp_") &&
+            !playbackVideoId.contains("::") &&
+            playbackVideoId.equals(lyrics.matchedVideoId, ignoreCase = true)
+
+        if (isGenuineExactVideo) return true
+
+        val candDuration = lyrics.durationMs
+        if (candDuration == null || candDuration <= 0L) {
+            // UNKNOWN CANDIDATE DURATION != EXACT MASTER MATCH
+            // Unknown candidate duration cannot be accepted without genuine exact video verification.
+            return false
+        }
+
+        val masterMatch = evaluateMasterMatch(
+            lyrics = lyrics,
+            playbackDurationMs = playbackDurationMs,
+            playbackTitle = playbackTitle,
+            candidateTitle = candidateTitle,
+            playbackChannelTitle = playbackChannelTitle,
+            playbackVideoId = playbackVideoId
+        )
+
+        if (masterMatch == MasterMatchStatus.MASTER_MISMATCH) return false
+        if (masterMatch == MasterMatchStatus.COMPATIBLE_OFFSET && audioLeadingSilenceMs == null) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Overload taking duration in seconds with title & channel context.
+     */
+    fun isAcceptableMasterMatch(
+        lyrics: LyricsData,
+        playbackDurationSec: Long?,
+        playbackTitle: String? = null,
+        candidateTitle: String? = null,
+        playbackChannelTitle: String? = null,
+        playbackVideoId: String? = null,
+        audioLeadingSilenceMs: Long? = null
+    ): Boolean {
+        if (playbackDurationSec == null || playbackDurationSec <= 0L) {
+            return isAcceptableMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, audioLeadingSilenceMs)
+        }
+        return isAcceptableMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, audioLeadingSilenceMs)
     }
 
     /**
@@ -174,6 +297,8 @@ object LyricsAlignmentEngine {
      * - Bounded strictly to [-2000ms, 2000ms] to prevent runaway shifts.
      * - If delta == 0, returns [lyrics] untouched.
      * - If [MasterMatchStatus.MASTER_MISMATCH] is detected, skips shift to prevent compounding error.
+     * - If [MasterMatchStatus.COMPATIBLE_OFFSET] without measured [audioLeadingSilenceMs] and not exact video,
+     *   skips shift to prevent guessing.
      */
     fun alignToPlayback(
         lyrics: LyricsData,
@@ -183,6 +308,11 @@ object LyricsAlignmentEngine {
         if (lyrics.lines.isEmpty()) return lyrics
         val masterMatch = evaluateMasterMatch(lyrics, playbackDurationMs)
         if (masterMatch == MasterMatchStatus.MASTER_MISMATCH) {
+            return lyrics
+        }
+        val isGenuineExactVideo = lyrics.isExactVideoMatch &&
+            lyrics.provider == com.auralis.music.domain.model.LyricsProvider.UNISON
+        if (masterMatch == MasterMatchStatus.COMPATIBLE_OFFSET && audioLeadingSilenceMs == null && !isGenuineExactVideo) {
             return lyrics
         }
 

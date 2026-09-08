@@ -18,7 +18,9 @@ data class LyricsCandidate(
     val lyricsData: LyricsData,
     val confidence: Int,
     val syncType: SyncType,
-    val provider: LyricsProvider
+    val provider: LyricsProvider,
+    val isExactVideoMatch: Boolean = false,
+    val matchedVideoId: String? = null
 )
 
 interface LyricsSource {

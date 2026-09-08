@@ -15,14 +15,100 @@ import com.auralis.music.domain.model.LyricWord
 object LyricsEngine {
 
     /**
-     * Binary searches for the active lyric line index for [currentTimeMs] with the
-     * user's manual [offsetMs] applied, in O(log N).
+     * Returns all lyric line indices that are actively singing at [currentTimeMs]
+     * with the user's manual [offsetMs] applied.
+     *
+     * Supports multiple independently timed lines being active simultaneously
+     * (e.g. duet lines, lead vocal + background vocal, overlapping vocal agents).
+     *
+     * Strict timing contract:
+     * - A line is active if and only if [adjustedTime] falls within its genuine
+     *   interval: `adjustedTime in line.time..lineEndMs`.
+     * - [lineEndMs] prefers the provider's genuine [LyricLine.effectiveEndTime]
+     *   (from explicit line end or last word end).
+     * - For line-synced lyrics with no end timestamps, the line lasts until the
+     *   next subsequent line start.
+     */
+    fun findActiveLyricIndices(
+        lines: List<LyricLine>,
+        currentTimeMs: Long,
+        offsetMs: Long = 0
+    ): Set<Int> {
+        if (lines.isEmpty()) return emptySet()
+        val adjustedTime = currentTimeMs + offsetMs
+        if (adjustedTime < lines[0].time) return emptySet()
+
+        val active = mutableSetOf<Int>()
+        val hasWordTimings = lines.any { it.hasWordTiming }
+
+        for (index in lines.indices) {
+            val line = lines[index]
+            if (line.time > adjustedTime) {
+                // Lines are ordered chronologically by start time.
+                // Any line starting after adjustedTime cannot be active yet.
+                break
+            }
+
+            val lineEndMs: Long = line.effectiveEndTime
+                ?: if (!line.words.isNullOrEmpty()) {
+                    line.words.last().endTime ?: line.words.last().time
+                } else {
+                    // Fallback for line-synced lyrics with no explicit end time:
+                    // transition when the next non-simultaneous line begins
+                    var nextStart = Long.MAX_VALUE
+                    for (j in index + 1 until lines.size) {
+                        if (lines[j].time > line.time) {
+                            nextStart = lines[j].time
+                            break
+                        }
+                    }
+                    nextStart
+                }
+
+            if (adjustedTime >= line.time && adjustedTime <= lineEndMs) {
+                active.add(index)
+            }
+        }
+
+        // For standard line-synced lyrics with NO word timing and NO explicit end times,
+        // prevent runaway overlap of sequential lines (while preserving simultaneous lines
+        // that share timestamps or distinct agents/background).
+        if (!hasWordTimings && lines.all { it.effectiveEndTime == null } && active.size > 1) {
+            val mainActive = active.filter { !lines[it].isBackground }
+            if (mainActive.size > 1) {
+                val agents = mainActive.mapNotNull { lines[it].agent }.toSet()
+                if (agents.size <= 1) {
+                    val maxTime = mainActive.maxOf { lines[it].time }
+                    active.removeAll { it in mainActive && lines[it].time < maxTime }
+                }
+            }
+        }
+
+        return active
+    }
+
+    /**
+     * Finds the primary active lyric line index for [currentTimeMs] with the
+     * user's manual [offsetMs] applied.
+     *
+     * When multiple lines are simultaneously active (e.g. duet or lead + background),
+     * this returns the primary lead vocal line to act as a stable scroll anchor
+     * without causing list jumping.
+     *
+     * When in a vocal rest between lines, returns the last completed line index
+     * (or -1 if before the first line).
      */
     fun findActiveLyricIndex(lines: List<LyricLine>, currentTimeMs: Long, offsetMs: Long = 0): Int {
         if (lines.isEmpty()) return -1
-        val adjustedTime = currentTimeMs + offsetMs
+        val activeSet = findActiveLyricIndices(lines, currentTimeMs, offsetMs)
+        if (activeSet.isNotEmpty()) {
+            // Anchor scroll on lead vocal / primary line (v1 or non-background)
+            return activeSet.firstOrNull { !lines[it].isBackground && lines[it].agent != "v2" }
+                ?: activeSet.firstOrNull { !lines[it].isBackground }
+                ?: activeSet.first()
+        }
 
-        // If before first line
+        val adjustedTime = currentTimeMs + offsetMs
         if (adjustedTime < lines[0].time) return -1
 
         var low = 0

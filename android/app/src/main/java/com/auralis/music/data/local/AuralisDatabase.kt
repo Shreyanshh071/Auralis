@@ -22,9 +22,10 @@ import com.auralis.music.data.local.entity.*
         PlayCountEntity::class,
         SearchHistoryEntity::class,
         LyricsEntity::class,
-        NegativeLyricsEntity::class
+        NegativeLyricsEntity::class,
+        PlaybackEventEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)
@@ -37,6 +38,7 @@ abstract class AuralisDatabase : RoomDatabase() {
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun lyricsDao(): LyricsDao
     abstract fun negativeLyricsDao(): NegativeLyricsDao
+    abstract fun playbackEventDao(): PlaybackEventDao
 
     companion object {
         private const val DATABASE_NAME = "auralis_music.db"
@@ -45,6 +47,22 @@ abstract class AuralisDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE lyrics_cache ADD COLUMN durationMs INTEGER DEFAULT NULL")
                 db.execSQL("ALTER TABLE lyrics_cache ADD COLUMN leadingSilenceMs INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `playback_events` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `trackId` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `playTimeMs` INTEGER NOT NULL,
+                        FOREIGN KEY(`trackId`) REFERENCES `tracks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_events_trackId` ON `playback_events` (`trackId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_events_timestamp` ON `playback_events` (`timestamp`)")
             }
         }
 
@@ -58,7 +76,7 @@ abstract class AuralisDatabase : RoomDatabase() {
                     AuralisDatabase::class.java,
                     DATABASE_NAME
                 )
-                .addMigrations(MIGRATION_7_8)
+                .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

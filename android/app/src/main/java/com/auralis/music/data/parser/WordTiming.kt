@@ -183,11 +183,16 @@ object WordTiming {
      */
     fun shouldMergeSyllables(firstWord: String, secondWord: String): Boolean {
         val f = firstWord.trim()
-        val s = secondWord.trim().trimEnd(',', '.', '!', '?', ';', ':', '"', '\'')
+        val s = secondWord.trim()
+            .trimEnd(',', '.', '!', '?', ';', ':', '"', '\'', ')', ']', '}')
+            .trimStart('(', '[', '{', '"', '\'')
         if (f.isEmpty() || s.isEmpty()) return false
 
         // Hyphenated compounds/syllables always merge (e.g. "well-", "re-")
         if (f.endsWith("-")) return true
+
+        // Trailing punctuation on first word marks a clause or word boundary — never merge
+        if (f.last() in ",.!?;:\"'") return false
 
         val fLower = f.lowercase().trimEnd('-', '\'', '’')
         val sLower = s.lowercase().trimStart('-', '\'', '’')
@@ -196,13 +201,18 @@ object WordTiming {
         if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
         if (fLower in COMMON_PREFIXES_STEMS || sLower in COMMON_SUFFIXES) return true
 
+        // Standalone single-letter words ("a", "i") in English do not merge with adjacent words unless hyphenated
+        if (fLower == "a" || fLower == "i" || sLower == "a" || sLower == "i") return false
+
         // Complete independent multi-syllable words (e.g. "plastic" [7], "watering" [8], "chinese" [7], "rubber" [6], "plant" [5])
-        // should never be merged together.
-        if (fLower.length >= 4 && sLower.length >= 4) {
+        // should never be merged together unless in KNOWN_COMPOUND_WORDS.
+        if (fLower.length >= 5 && sLower.length >= 5) {
             return false
         }
 
-        return false
+        // Unspaced adjacent spans where at least one token is a syllable fragment (< 5 characters)
+        // are syllables of the same visual word (e.g. "ea" + "sy", "vi" + "sage", "de" + "ceive", "re" + "lease", "beauti" + "ful").
+        return true
     }
 
     /**

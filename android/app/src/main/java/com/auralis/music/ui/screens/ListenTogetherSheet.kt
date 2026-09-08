@@ -119,8 +119,10 @@ fun ListenTogetherSheet(
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val onBackground = MaterialTheme.colorScheme.onBackground
+    val surfaceColor = MaterialTheme.colorScheme.surface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
     Box(
         modifier = modifier
@@ -193,8 +195,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(surfaceVariant)
-                        .border(1.dp, primaryColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                        .background(surfaceColor)
+                        .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
                         .padding(20.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -311,8 +313,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(surfaceVariant)
-                        .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .background(surfaceColor)
+                        .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
                         .padding(18.dp)
                 ) {
                     Column {
@@ -405,8 +407,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(surfaceVariant)
-                        .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .background(surfaceColor)
+                        .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
                         .padding(18.dp)
                 ) {
                     Column {
@@ -443,8 +445,8 @@ fun ListenTogetherSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(CircleShape)
-                        .background(surfaceVariant)
-                        .border(1.dp, onBackground.copy(alpha = 0.08f), CircleShape)
+                        .background(surfaceColor)
+                        .border(1.dp, cardBorder, CircleShape)
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -491,8 +493,8 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(20.dp))
-                            .background(surfaceVariant)
-                            .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                            .background(surfaceColor)
+                            .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
                             .padding(18.dp)
                     ) {
                         Column {
@@ -551,8 +553,8 @@ fun ListenTogetherSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(20.dp))
-                            .background(surfaceVariant)
-                            .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                            .background(surfaceColor)
+                            .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
                             .padding(18.dp)
                     ) {
                         Column {

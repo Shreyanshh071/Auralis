@@ -156,7 +156,7 @@ import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.SmartCollectionType
 
 val CREAM_ICON_COLOR: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
-val CARD_DARK_BG: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+val CARD_DARK_BG: Color @Composable get() = MaterialTheme.colorScheme.surface
 val LIME_TEXT: Color @Composable get() = MaterialTheme.colorScheme.primary
 
 enum class PlaylistSortOption(val label: String) {
@@ -212,6 +212,8 @@ fun LibraryScreen(
     onCloseExternalCreateDialog: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val themePrimary = MaterialTheme.colorScheme.primary
+    val dynamicPalette = com.auralis.music.ui.theme.LocalAuralisDynamicPalette.current
     var isGridView by remember { mutableStateOf(uiState.isGridView) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }

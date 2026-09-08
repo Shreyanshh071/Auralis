@@ -1,11 +1,18 @@
 package com.auralis.music.ui.screens
 
 import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -33,7 +40,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -49,20 +59,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.theme.ArtworkPaletteCache
 import com.auralis.music.ui.theme.CuratedPalette
 import com.auralis.music.ui.theme.CuratedPalettes
+import com.auralis.music.ui.theme.dynamicColorSchemeFromSeed
 import com.auralis.music.ui.theme.getPaletteById
+import com.auralis.music.ui.theme.isLightColor
 
 /**
- * Metrolist-Grade Theme & Colors Customization Screen.
- * Displays interactive live phone UI mockup synchronized with selected Theme Mode & Color Palette.
+ * Polished Theme & Colors Customization Screen.
+ *
+ * Features:
+ * 1. Live Responsive Preview Card:
+ *    A large, rounded app mockup displaying real-time responsive color previews
+ *    (Header, Hero now-playing block, split content cards, docked mini-player bar).
+ *    Reflects the currently playing song's dynamic artwork palette when Dynamic is selected.
+ * 2. Visual Theme Mode Selector:
+ *    Distinct visual cards for System, Light, Dark, and AMOLED with clear labels
+ *    and animated checkmark selection indicators.
+ * 3. Horizontally Scrollable Color Palette Selector:
+ *    Visual multi-tone swatches for Dynamic (artwork-derived) and Curated Palettes with container
+ *    highlights, animated checkmarks, and palette names.
  */
 @Composable
 fun ThemeAndColorsScreen(
@@ -75,7 +102,7 @@ fun ThemeAndColorsScreen(
     val systemInDark = isSystemInDarkTheme()
     val scrollState = rememberScrollState()
 
-    androidx.activity.compose.BackHandler(enabled = true) {
+    BackHandler(enabled = true) {
         onBack()
     }
 
@@ -84,12 +111,19 @@ fun ThemeAndColorsScreen(
     }
 
     val isDark = when (settings.appTheme) {
-        "Light Mode" -> false
-        "Pure AMOLED Black", "Midnight Velvet Dark", "Dark Mode" -> true
+        "Light Mode", "Light" -> false
+        "Pure AMOLED Black", "AMOLED", "Midnight Velvet Dark", "Dark Mode", "Dark" -> true
         else -> systemInDark
     }
+    val isAmoled = settings.appTheme == "Pure AMOLED Black" || settings.appTheme == "AMOLED"
 
-    val isDynamicMonet = settings.colorPalette == "Dynamic (Material You)"
+    val isDynamic = settings.colorPalette == "Dynamic" ||
+            settings.colorPalette == "Dynamic (Material You)" ||
+            (settings.dynamicTheme && CuratedPalettes.none { it.id == settings.colorPalette })
+
+    // Observe shared extracted artwork palette
+    val sharedArtworkPalette by ArtworkPaletteCache.currentPalette.collectAsState()
+    val hasSongArtwork = sharedArtworkPalette != ArtworkPaletteCache.defaultPalette
 
     val dynamicSysScheme = remember(context, isDark) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -97,40 +131,112 @@ fun ThemeAndColorsScreen(
         } else null
     }
 
-    val previewPrimary = if (isDynamicMonet && dynamicSysScheme != null) {
-        dynamicSysScheme.primary
+    // 1. Determine active seed color from the selected palette or dynamic source
+    // The top color of the swatch circle is the primary seed color that dictates the background & UI scheme!
+    val activeSeedColor = if (isDynamic) {
+        if (hasSongArtwork) {
+            sharedArtworkPalette.seedColor.takeIf { it != Color.Unspecified } ?: sharedArtworkPalette.primary
+        } else {
+            dynamicSysScheme?.primary ?: Color(0xFF6750A4)
+        }
     } else {
-        currentPalette.previewPrimary
+        if (isDark) currentPalette.primaryDark else currentPalette.primaryLight
     }
 
-    val previewSecondary = if (isDynamicMonet && dynamicSysScheme != null) {
-        dynamicSysScheme.secondary
+    val activeSecondaryColor = if (isDynamic) {
+        if (hasSongArtwork) sharedArtworkPalette.secondary else dynamicSysScheme?.secondary
     } else {
-        currentPalette.previewSecondary
+        if (isDark) currentPalette.secondaryDark else currentPalette.secondaryLight
     }
 
-    val previewTertiary = if (isDynamicMonet && dynamicSysScheme != null) {
-        dynamicSysScheme.tertiary
+    val activeTertiaryColor = if (isDynamic) {
+        if (hasSongArtwork) sharedArtworkPalette.tertiary else dynamicSysScheme?.tertiary
     } else {
-        currentPalette.previewTertiary
+        if (isDark) currentPalette.tertiaryDark else currentPalette.tertiaryLight
     }
 
-    val primaryColor = previewPrimary
+    // Coherent Material 3 scheme dynamically generated from the active palette's top color
+    val activePreviewScheme = remember(
+        activeSeedColor, activeSecondaryColor, activeTertiaryColor,
+        isDark, isAmoled, settings.appTheme, isDynamic, hasSongArtwork, sharedArtworkPalette, currentPalette
+    ) {
+        if (isDynamic && !hasSongArtwork && dynamicSysScheme != null) {
+            if (isAmoled) {
+                dynamicSysScheme.copy(
+                    background = Color.Black,
+                    surface = Color.Black,
+                    surfaceVariant = Color(0xFF121214)
+                )
+            } else if (settings.appTheme == "Midnight Velvet Dark") {
+                dynamicSysScheme.copy(
+                    background = Color(0xFF0A0A0C),
+                    surface = Color(0xFF121215)
+                )
+            } else {
+                dynamicSysScheme
+            }
+        } else {
+            val scheme = dynamicColorSchemeFromSeed(
+                seedColor = activeSeedColor,
+                isDark = isDark,
+                isAmoled = isAmoled,
+                appTheme = settings.appTheme,
+                secondaryColor = activeSecondaryColor,
+                tertiaryColor = activeTertiaryColor,
+                isMonochrome = if (isDynamic && hasSongArtwork) sharedArtworkPalette.isMonochrome else false
+            )
+
+            if (!isDynamic) {
+                if (isDark) {
+                    val onPri = if (isLightColor(currentPalette.primaryDark)) Color(0xFF1C2000) else Color.White
+                    val onSec = if (isLightColor(currentPalette.secondaryDark)) Color(0xFF1C2000) else Color.White
+                    scheme.copy(
+                        primary = currentPalette.primaryDark,
+                        onPrimary = onPri,
+                        secondary = currentPalette.secondaryDark,
+                        onSecondary = onSec,
+                        tertiary = currentPalette.tertiaryDark,
+                        primaryContainer = currentPalette.primaryDark.copy(alpha = 0.28f),
+                        onPrimaryContainer = currentPalette.primaryDark,
+                        secondaryContainer = currentPalette.secondaryDark.copy(alpha = 0.24f),
+                        onSecondaryContainer = currentPalette.secondaryDark
+                    )
+                } else {
+                    scheme.copy(
+                        primary = currentPalette.primaryLight,
+                        onPrimary = Color.White,
+                        secondary = currentPalette.secondaryLight,
+                        onSecondary = Color.White,
+                        tertiary = currentPalette.tertiaryLight,
+                        primaryContainer = currentPalette.primaryLight.copy(alpha = 0.16f),
+                        onPrimaryContainer = currentPalette.primaryLight,
+                        secondaryContainer = currentPalette.secondaryLight.copy(alpha = 0.14f),
+                        onSecondaryContainer = currentPalette.secondaryLight
+                    )
+                }
+            } else {
+                scheme
+            }
+        }
+    }
+
+    val targetPreviewPrimary = activePreviewScheme.primary
+    val targetPreviewSecondary = activePreviewScheme.secondary
+    val targetPreviewTertiary = activePreviewScheme.tertiary
+    val targetPreviewBg = activePreviewScheme.background
+    val targetPreviewSurfaceContainer = activePreviewScheme.surfaceContainer
+
+    // Smooth color transitions in the live preview card when the user switches themes or palettes
+    val colorTween = remember { tween<Color>(durationMillis = 350, easing = FastOutSlowInEasing) }
+    val animPreviewBg by animateColorAsState(targetPreviewBg, colorTween, label = "animPreviewBg")
+    val animPreviewPrimary by animateColorAsState(targetPreviewPrimary, colorTween, label = "animPreviewPrimary")
+    val animPreviewSecondary by animateColorAsState(targetPreviewSecondary, colorTween, label = "animPreviewSecondary")
+    val animPreviewTertiary by animateColorAsState(targetPreviewTertiary, colorTween, label = "animPreviewTertiary")
+    val animPreviewSurfaceContainer by animateColorAsState(targetPreviewSurfaceContainer, colorTween, label = "animPreviewSurfaceContainer")
+
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor = MaterialTheme.colorScheme.surface
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val onBackground = MaterialTheme.colorScheme.onBackground
-
-    // Preview phone background color dynamically derived from theme mode & dynamic scheme
-    val previewBg = if (isDynamicMonet && dynamicSysScheme != null) {
-        dynamicSysScheme.background
-    } else when (settings.appTheme) {
-        "Pure AMOLED Black" -> Color.Black
-        "Midnight Velvet Dark" -> Color(0xFF100E0C)
-        "Light Mode" -> Color(0xFFF9FAFB)
-        "Dark Mode" -> Color(0xFF0F1210)
-        else -> if (systemInDark) Color(0xFF0F1210) else Color(0xFFF9FAFB)
-    }
 
     Box(
         modifier = modifier
@@ -146,19 +252,20 @@ fun ThemeAndColorsScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── TOP BAR ──
+            // ── TOP APP BAR ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 20.dp),
+                    .padding(bottom = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
                         .background(surfaceColor)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), CircleShape)
+                        .tactileBounce()
                         .clickable { onBack() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -166,39 +273,59 @@ fun ThemeAndColorsScreen(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                         tint = onBackground,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                Text(
-                    text = "Theme & Colors",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 22.sp
-                )
+                Column {
+                    Text(
+                        text = "Theme & Colors",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = onBackground,
+                        fontSize = 22.sp
+                    )
+                    Text(
+                        text = "Customize player & interface palette",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = onBackground.copy(alpha = 0.60f)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // ── INTERACTIVE PHONE MOCKUP PREVIEW ──
+            // ── 1. LARGE LIVE PREVIEW CARD (VIVI-INSPIRED APP MOCKUP) ──
+            val isPreviewDark = isDark
             Box(
                 modifier = Modifier
-                    .width(150.dp)
-                    .height(210.dp)
-                    .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(previewBg)
-                    .border(1.5.dp, onBackground.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                    .padding(10.dp)
+                    .width(220.dp)
+                    .height(290.dp)
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.40f),
+                        spotColor = animPreviewPrimary.copy(alpha = 0.30f)
+                    )
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(animPreviewBg)
+                    .border(
+                        BorderStroke(
+                            1.5.dp,
+                            if (isPreviewDark) Color.White.copy(alpha = 0.12f)
+                            else Color.Black.copy(alpha = 0.10f)
+                        ),
+                        RoundedCornerShape(26.dp)
+                    )
+                    .padding(14.dp)
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Top header row: Left dot + Right dot
+                    // Mockup Header: Pill Search Bar + Action Dot
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -206,77 +333,222 @@ fun ThemeAndColorsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(9.dp)
-                                .clip(CircleShape)
-                                .background(previewPrimary)
+                                .width(80.dp)
+                                .height(12.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(animPreviewSecondary.copy(alpha = 0.35f))
                         )
                         Box(
                             modifier = Modifier
-                                .size(9.dp)
+                                .size(12.dp)
                                 .clip(CircleShape)
-                                .background(previewSecondary)
+                                .background(animPreviewPrimary)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Hero big card
+                    // Mockup Hero Now Playing Block
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(58.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(previewPrimary)
-                    )
+                            .height(82.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        animPreviewPrimary,
+                                        animPreviewPrimary.copy(alpha = 0.85f)
+                                    )
+                                )
+                            )
+                            .padding(10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(55.dp)
+                                        .height(8.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.White.copy(alpha = 0.50f))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.25f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(90.dp)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(Color.White.copy(alpha = 0.35f))
+                            )
+                        }
+                    }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Two split lower cards
+                    // Mockup Middle Split Cards (Secondary & Tertiary)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Left Card (Secondary)
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(68.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(previewSecondary)
-                        )
+                                .height(64.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(animPreviewSecondary.copy(alpha = 0.85f))
+                                .padding(8.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(36.dp)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.White.copy(alpha = 0.45f))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(22.dp)
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.White.copy(alpha = 0.30f))
+                                )
+                            }
+                        }
+
+                        // Right Card (Tertiary)
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(68.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(previewTertiary)
-                        )
+                                .height(64.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(animPreviewTertiary.copy(alpha = 0.85f))
+                                .padding(8.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(36.dp)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.White.copy(alpha = 0.45f))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(22.dp)
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.White.copy(alpha = 0.30f))
+                                )
+                            }
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Bottom bar with floating accent button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Mockup Docked Mini-Player Bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(
+                                if (isPreviewDark) animPreviewSurfaceContainer
+                                else Color.White
+                            )
+                            .border(
+                                1.dp,
+                                if (isPreviewDark) Color.White.copy(alpha = 0.08f)
+                                else Color.Black.copy(alpha = 0.08f),
+                                RoundedCornerShape(17.dp)
+                            )
+                            .padding(horizontal = 7.dp),
+                        contentAlignment = Alignment.CenterStart
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(15.dp)
-                                .clip(CircleShape)
-                                .background(previewPrimary)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(animPreviewPrimary)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(42.dp)
+                                            .height(5.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(
+                                                if (isPreviewDark) Color.White.copy(alpha = 0.70f)
+                                                else Color.Black.copy(alpha = 0.70f)
+                                            )
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .width(26.dp)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(animPreviewSecondary.copy(alpha = 0.60f))
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(animPreviewPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = if (isLightColor(animPreviewPrimary)) Color(0xFF1C1B1F) else Color.White,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // ── BOTTOM CONFIGURATION CARD (THEME MODE + COLOR PALETTE) ──
+            // ── 2. THEME MODE SELECTOR ──
             Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = surfaceColor,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -284,13 +556,17 @@ fun ThemeAndColorsScreen(
                         .fillMaxWidth()
                         .padding(18.dp)
                 ) {
-                    // SECTION 1: THEME MODE
                     Text(
                         text = "Theme Mode",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
                         fontSize = 17.sp
+                    )
+                    Text(
+                        text = "Appearance and lightness",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = onBackground.copy(alpha = 0.60f)
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -300,135 +576,157 @@ fun ThemeAndColorsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Follow System / Auto
-                        ThemeModeSelector(
-                            selected = settings.appTheme == "Follow system",
-                            onClick = { onUpdateSettings(settings.copy(appTheme = "Follow system")) },
-                            activeColor = primaryColor
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = "Follow system",
-                                tint = onBackground,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        // 2. Light Mode
-                        ThemeModeSelector(
-                            selected = settings.appTheme == "Light Mode",
-                            onClick = { onUpdateSettings(settings.copy(appTheme = "Light Mode")) },
-                            activeColor = primaryColor
+                        // 1. System
+                        val isSystemSelected = settings.appTheme == "Follow system"
+                        ThemeModeCard(
+                            title = "System",
+                            selected = isSystemSelected,
+                            activeColor = animPreviewPrimary,
+                            onClick = { onUpdateSettings(settings.copy(appTheme = "Follow system")) }
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = "System Theme",
+                                    tint = onBackground,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        // 2. Light
+                        val isLightSelected = settings.appTheme == "Light Mode"
+                        ThemeModeCard(
+                            title = "Light",
+                            selected = isLightSelected,
+                            activeColor = animPreviewPrimary,
+                            onClick = { onUpdateSettings(settings.copy(appTheme = "Light Mode")) }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(Color.White)
                                     .border(1.dp, Color(0x33000000), CircleShape)
                             )
                         }
 
-                        // 3. Dark Mode / Midnight
-                        ThemeModeSelector(
-                            selected = settings.appTheme == "Dark Mode" || settings.appTheme == "Midnight Velvet Dark",
-                            onClick = { onUpdateSettings(settings.copy(appTheme = "Dark Mode")) },
-                            activeColor = primaryColor
+                        // 3. Dark
+                        val isDarkSelected = settings.appTheme == "Dark Mode" || settings.appTheme == "Midnight Velvet Dark"
+                        ThemeModeCard(
+                            title = "Dark",
+                            selected = isDarkSelected,
+                            activeColor = animPreviewPrimary,
+                            onClick = { onUpdateSettings(settings.copy(appTheme = "Dark Mode")) }
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF221F1C))
+                                    .background(Color(0xFF22242B))
+                                    .border(1.dp, Color(0x22FFFFFF), CircleShape)
                             )
                         }
 
-                        // 4. Pure AMOLED Black
-                        ThemeModeSelector(
-                            selected = settings.appTheme == "Pure AMOLED Black",
-                            onClick = { onUpdateSettings(settings.copy(appTheme = "Pure AMOLED Black")) },
-                            activeColor = primaryColor
+                        // 4. AMOLED
+                        val isAmoledSelected = settings.appTheme == "Pure AMOLED Black"
+                        ThemeModeCard(
+                            title = "AMOLED",
+                            selected = isAmoledSelected,
+                            activeColor = animPreviewPrimary,
+                            onClick = { onUpdateSettings(settings.copy(appTheme = "Pure AMOLED Black")) }
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(Color.Black)
                                     .border(1.dp, Color(0x33FFFFFF), CircleShape)
                             )
                         }
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-                    // SECTION 2: COLOR PALETTE
-                    Text(
-                        text = "Color Palette",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = onBackground,
-                        fontSize = 17.sp
-                    )
+            // ── 3. HORIZONTALLY SCROLLABLE COLOR PALETTE SELECTOR ──
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 18.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 18.dp)) {
+                        Text(
+                            text = "Color Palette",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = onBackground,
+                            fontSize = 17.sp
+                        )
+                        Text(
+                            text = "Accent harmony and button styling",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = onBackground.copy(alpha = 0.60f)
+                        )
+                    }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     val paletteScrollState = rememberScrollState()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(paletteScrollState),
+                            .horizontalScroll(paletteScrollState)
+                            .padding(horizontal = 18.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Dynamic Wallpaper (Monet / Phone System Theme - 3 Tones)
-                        val dynamicTop = dynamicSysScheme?.primary ?: Color(0xFF6750A4)
-                        val dynamicBottomLeft = dynamicSysScheme?.secondary ?: Color(0xFFD0BCFF)
-                        val dynamicBottomRight = dynamicSysScheme?.tertiary ?: Color(0xFFCCC2DC)
+                        // 1. Dynamic Wallpaper / Playing Song Artwork Swatch
+                        val dynamicTop = if (hasSongArtwork) sharedArtworkPalette.primary else (dynamicSysScheme?.primary ?: Color(0xFF6750A4))
+                        val dynamicBottomLeft = if (hasSongArtwork) sharedArtworkPalette.secondary else (dynamicSysScheme?.secondary ?: Color(0xFFD0BCFF))
+                        val dynamicBottomRight = if (hasSongArtwork) sharedArtworkPalette.tertiary else (dynamicSysScheme?.tertiary ?: Color(0xFFCCC2DC))
 
-                        PaletteSelectorItem(
-                            selected = isDynamicMonet,
+                        PaletteOptionItem(
+                            title = "Dynamic",
+                            selected = isDynamic,
+                            activeColor = animPreviewPrimary,
                             onClick = {
                                 onUpdateSettings(
                                     settings.copy(
-                                        colorPalette = "Dynamic (Material You)",
+                                        colorPalette = "Dynamic",
                                         dynamicTheme = true
                                     )
                                 )
-                            },
-                            activeColor = primaryColor
-                        ) {
-                            Box(
-                                modifier = Modifier.size(46.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                TripleTonePaletteCircle(
-                                    topColor = dynamicTop,
-                                    bottomLeftColor = dynamicBottomLeft,
-                                    bottomRightColor = dynamicBottomRight,
-                                    modifier = Modifier.size(46.dp)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.45f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Palette,
-                                        contentDescription = "Dynamic Palette",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
                             }
+                        ) {
+                            TripleTonePaletteCircle(
+                                topColor = dynamicTop,
+                                bottomLeftColor = dynamicBottomLeft,
+                                bottomRightColor = dynamicBottomRight,
+                                modifier = Modifier.size(52.dp)
+                            )
                         }
 
-                        // Curated Palettes (Triple-Tone Split Circles: Top, Bottom-Left, Bottom-Right)
+                        // Curated Palettes (Triple-Tone Split Circles)
                         CuratedPalettes.forEach { palette ->
-                            val isSelected = !isDynamicMonet && settings.colorPalette == palette.id
-                            PaletteSelectorItem(
+                            val isSelected = !isDynamic && settings.colorPalette == palette.id
+                            PaletteOptionItem(
+                                title = palette.name,
                                 selected = isSelected,
+                                activeColor = if (isDark) palette.primaryDark else palette.primaryLight,
                                 onClick = {
                                     onUpdateSettings(
                                         settings.copy(
@@ -436,14 +734,13 @@ fun ThemeAndColorsScreen(
                                             dynamicTheme = false
                                         )
                                     )
-                                },
-                                activeColor = primaryColor
+                                }
                             ) {
                                 TripleTonePaletteCircle(
-                                    topColor = palette.previewPrimary,
-                                    bottomLeftColor = palette.previewSecondary,
-                                    bottomRightColor = palette.previewTertiary,
-                                    modifier = Modifier.size(46.dp)
+                                    topColor = if (isDark) palette.primaryDark else palette.primaryLight,
+                                    bottomLeftColor = if (isDark) palette.secondaryDark else palette.secondaryLight,
+                                    bottomRightColor = if (isDark) palette.tertiaryDark else palette.tertiaryLight,
+                                    modifier = Modifier.size(52.dp)
                                 )
                             }
                         }
@@ -456,8 +753,81 @@ fun ThemeAndColorsScreen(
     }
 }
 
+/**
+ * Visual Theme Mode Card Item with distinct container highlight,
+ * checkmark indicator, and clear typography.
+ */
 @Composable
-private fun ThemeModeSelector(
+private fun ThemeModeCard(
+    title: String,
+    selected: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.05f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "modeScale"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(62.dp)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(
+                if (selected) activeColor.copy(alpha = 0.12f)
+                else Color.Transparent
+            )
+            .border(
+                BorderStroke(
+                    width = if (selected) 2.5.dp else 1.dp,
+                    color = if (selected) activeColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                ),
+                shape = CircleShape
+            )
+            .tactileBounce()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+
+        // Animated Selection Checkmark Overlay
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selected,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(activeColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "$title Selected",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Visual Palette Option Item with triple-tone preview,
+ * active ring highlight, and animated center checkmark.
+ */
+@Composable
+private fun PaletteOptionItem(
+    title: String,
     selected: Boolean,
     activeColor: Color,
     onClick: () -> Unit,
@@ -466,51 +836,22 @@ private fun ThemeModeSelector(
     val scale by animateFloatAsState(
         targetValue = if (selected) 1.06f else 1.0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "modeScale"
-    )
-
-    Box(
-        modifier = Modifier
-            .size(54.dp)
-            .scale(scale)
-            .clip(CircleShape)
-            .then(
-                if (selected) Modifier.border(2.5.dp, activeColor, CircleShape)
-                else Modifier.border(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f), CircleShape)
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        content()
-    }
-}
-
-@Composable
-private fun PaletteSelectorItem(
-    selected: Boolean,
-    activeColor: Color,
-    onClick: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.08f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "paletteScale"
     )
 
     Box(
         modifier = Modifier
-            .size(54.dp)
+            .size(62.dp)
             .scale(scale)
             .clip(CircleShape)
-            .then(
-                if (selected) Modifier.border(2.5.dp, activeColor, CircleShape)
-                else Modifier.border(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f), CircleShape)
+            .border(
+                BorderStroke(
+                    width = if (selected) 2.5.dp else 1.dp,
+                    color = if (selected) activeColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                ),
+                shape = CircleShape
             )
+            .tactileBounce()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -519,6 +860,20 @@ private fun PaletteSelectorItem(
         contentAlignment = Alignment.Center
     ) {
         content()
+
+        // Animated Selection Checkmark Overlay
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selected,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut()
+        ) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "$title Selected",
+                tint = if (isLightColor(activeColor)) Color(0xFF1B1D22) else Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 

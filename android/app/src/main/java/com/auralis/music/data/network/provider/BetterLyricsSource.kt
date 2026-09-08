@@ -125,10 +125,12 @@ class BetterLyricsSource(
                 .header("Accept", "application/json")
                 .build()
 
-            val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) {
+            val (isSuccess, code, body) = client.newCall(req).execute().use { resp ->
+                Triple(resp.isSuccessful, resp.code, if (resp.isSuccessful) resp.body?.string() else null)
+            }
+            if (!isSuccess) {
                 // If query with duration fails with 401 or 404, retry immediately without duration
-                if (useDuration && (resp.code == 401 || resp.code == 404)) {
+                if (useDuration && (code == 401 || code == 404)) {
                     return fetchFromBetterLyrics(
                         cleanTitle = cleanTitle,
                         artistToUse = artistToUse,
@@ -140,8 +142,8 @@ class BetterLyricsSource(
                 return null
             }
 
-            val body = resp.body?.string() ?: return null
-            val json = JSONObject(body)
+            val bodyStr = body ?: return null
+            val json = JSONObject(bodyStr)
 
             val ttml = json.optString("ttml")
             val qrc = json.optString("qrc")
@@ -208,9 +210,9 @@ class BetterLyricsSource(
             // 1. Direct metadata query
             var url = "$BINIMUM_URL/?track=$encSong&artist=$encArtist$durationParam$albumParam"
             var req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-            var resp = client.newCall(req).execute()
-
-            var body = if (resp.isSuccessful) resp.body?.string() else null
+            var body = client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
             var json = if (body != null) JSONObject(body) else null
             var results = json?.optJSONArray("results")
 
@@ -219,8 +221,9 @@ class BetterLyricsSource(
                 val encQuery = URLEncoder.encode("$cleanTitle $artistToUse", "UTF-8")
                 url = "$BINIMUM_URL/search?q=$encQuery"
                 req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-                resp = client.newCall(req).execute()
-                body = if (resp.isSuccessful) resp.body?.string() else null
+                body = client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
                 json = if (body != null) JSONObject(body) else null
                 results = json?.optJSONArray("results")
             }
@@ -268,9 +271,9 @@ class BetterLyricsSource(
             val lyricsUrl = bestUrl ?: return null
 
             val ttmlReq = Request.Builder().url(lyricsUrl).header("User-Agent", USER_AGENT).build()
-            val ttmlResp = client.newCall(ttmlReq).execute()
-            if (!ttmlResp.isSuccessful) return null
-            val ttmlContent = ttmlResp.body?.string() ?: return null
+            val ttmlContent = client.newCall(ttmlReq).execute().use { ttmlResp ->
+                if (ttmlResp.isSuccessful) ttmlResp.body?.string() else null
+            } ?: return null
             if (ttmlContent.isBlank()) return null
 
             val rawParsed = BetterLyricsParser.parse(

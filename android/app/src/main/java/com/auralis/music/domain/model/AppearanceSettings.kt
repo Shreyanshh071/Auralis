@@ -4,10 +4,10 @@ data class AppearanceSettings(
     // ── Theme ──
     val highRefreshRate: Boolean = true,
     val landscapeScaling: Boolean = false,
-    val dynamicTheme: Boolean = false,
+    val dynamicTheme: Boolean = true,
     val dynamicIconColors: Boolean = true,
     val appTheme: String = "Follow system",
-    val colorPalette: String = "Auralis Lime",
+    val colorPalette: String = "Dynamic",
 
     // ── Mini-player ──
     val newMiniPlayerDesign: Boolean = true,

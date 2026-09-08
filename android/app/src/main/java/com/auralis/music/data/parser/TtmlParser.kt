@@ -157,7 +157,10 @@ object TtmlParser {
         val currentBgSyllables = mutableListOf<Syllable>()
         val currentTranslation = StringBuilder()
         val currentPlainText = StringBuilder()
+        val isParagraphBg = role(p) == ROLE_BACKGROUND
         val pBegin = attr(p, "begin").takeIf { it.isNotBlank() }?.let { parseTimestamp(it) }
+        val pEnd = attr(p, "end").takeIf { it.isNotBlank() }?.let { parseTimestamp(it) }
+        val pAgent = attr(p, "agent").takeIf { it.isNotBlank() }
 
         fun flushLine() {
             val hasLead = currentSyllables.isNotEmpty() || currentPlainText.isNotBlank()
@@ -169,13 +172,17 @@ object TtmlParser {
                 val lineTime = currentSyllables.minOfOrNull { it.start }
                     ?: (if (resultLines.isEmpty()) pBegin else null)
                     ?: 0L
+                val lineEnd = currentSyllables.mapNotNull { it.end }.maxOrNull() ?: pEnd
 
                 resultLines.add(
                     LyricLine(
                         time = lineTime,
                         text = lineText,
                         translatedText = currentTranslation.toString().trim().ifBlank { null },
-                        words = normalizedWords
+                        words = if (isParagraphBg) normalizedWords?.map { it.copy(isBackground = true) } else normalizedWords,
+                        isBackground = isParagraphBg,
+                        endTime = lineEnd,
+                        agent = pAgent
                     )
                 )
             }
@@ -185,12 +192,16 @@ object TtmlParser {
             if (hasBackground) {
                 val (bgText, bgWords) = buildLineTextAndWords(currentBgSyllables, "")
                 if (bgText.isNotBlank()) {
+                    val bgStart = currentBgSyllables.minOfOrNull { it.start } ?: 0L
+                    val bgEnd = currentBgSyllables.mapNotNull { it.end }.maxOrNull() ?: pEnd
                     resultLines.add(
                         LyricLine(
-                            time = currentBgSyllables.minOfOrNull { it.start } ?: 0L,
+                            time = bgStart,
                             text = bgText,
                             words = bgWords?.map { it.copy(isBackground = true) },
-                            isBackground = true
+                            isBackground = true,
+                            endTime = bgEnd,
+                            agent = pAgent
                         )
                     )
                 }

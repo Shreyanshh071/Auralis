@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -336,22 +337,24 @@ private fun StorageActionCard(
     subtitle: String?,
     onClick: () -> Unit
 ) {
-    val cardShape = RoundedCornerShape(16.dp)
-    val cardBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-    val iconBg = MaterialTheme.colorScheme.surfaceVariant
+    val cardShape = RoundedCornerShape(18.dp)
+    val cardBg = MaterialTheme.colorScheme.surface
+    val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
             .background(cardBg)
+            .border(1.dp, cardBorder, cardShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(iconBg),
             contentAlignment = Alignment.Center
@@ -359,7 +362,7 @@ private fun StorageActionCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -395,22 +398,24 @@ private fun StorageToggleCard(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    val cardShape = RoundedCornerShape(16.dp)
-    val cardBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-    val iconBg = MaterialTheme.colorScheme.surfaceVariant
+    val cardShape = RoundedCornerShape(18.dp)
+    val cardBg = MaterialTheme.colorScheme.surface
+    val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
             .background(cardBg)
+            .border(1.dp, cardBorder, cardShape)
             .clickable { onCheckedChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(iconBg),
             contentAlignment = Alignment.Center
@@ -418,7 +423,7 @@ private fun StorageToggleCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -480,9 +485,10 @@ private fun StorageStepSliderCard(
 ) {
     val density = LocalDensity.current
     val view = LocalView.current
-    val cardShape = RoundedCornerShape(16.dp)
-    val cardBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-    val iconBg = MaterialTheme.colorScheme.surfaceVariant
+    val cardShape = RoundedCornerShape(18.dp)
+    val cardBg = MaterialTheme.colorScheme.surface
+    val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val primaryColor = MaterialTheme.colorScheme.primary
     val trackBgColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
 
@@ -502,6 +508,7 @@ private fun StorageStepSliderCard(
             .fillMaxWidth()
             .clip(cardShape)
             .background(cardBg)
+            .border(1.dp, cardBorder, cardShape)
             .padding(16.dp)
     ) {
         // Header Row: Icon + Title + Value Label
@@ -511,7 +518,7 @@ private fun StorageStepSliderCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(iconBg),
                 contentAlignment = Alignment.Center
@@ -519,7 +526,7 @@ private fun StorageStepSliderCard(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
+                    tint = primaryColor,
                     modifier = Modifier.size(22.dp)
                 )
             }
