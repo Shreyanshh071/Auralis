@@ -968,8 +968,9 @@ fun AuralisApp(
                 if (dur > 0L) (cur.toFloat() / dur).coerceIn(0f, 1f) else 0f
             }
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen
+            val isClassicMini = appearanceSettings.miniPlayerDesign == "Classic mini player"
             val miniPlayerBottomPadding = if (isSubScreenOpen) {
-                10.dp
+                if (isClassicMini) 0.dp else 10.dp
             } else {
                 if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp
             }

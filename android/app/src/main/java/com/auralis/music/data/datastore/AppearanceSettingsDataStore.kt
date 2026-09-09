@@ -6,10 +6,12 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.AppearanceSettings
+import com.auralis.music.domain.model.LyricsAnimationMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -52,6 +54,8 @@ class AppearanceSettingsDataStore(
         val COLOR_PALETTE = stringPreferencesKey("color_palette")
 
         // Mini-player
+        val MINI_PLAYER_DESIGN = stringPreferencesKey("mini_player_design")
+        val PURE_BLACK_MINI_PLAYER = booleanPreferencesKey("pure_black_mini_player")
         val NEW_MINI_PLAYER_DESIGN = booleanPreferencesKey("new_mini_player_design")
         val MINI_PLAYER_BG_STYLE = stringPreferencesKey("mini_player_bg_style")
 
@@ -73,6 +77,11 @@ class AppearanceSettingsDataStore(
         val CHANGE_LYRICS_ON_TAP = booleanPreferencesKey("change_lyrics_on_tap")
         val AUTO_SCROLL_LYRICS = booleanPreferencesKey("auto_scroll_lyrics")
         val HIDE_STATUS_BAR_ON_FULLSCREEN = booleanPreferencesKey("hide_status_bar_on_fullscreen")
+        val LYRICS_ANIMATION = stringPreferencesKey("lyrics_animation")
+        val ENABLE_GLOWING_LYRICS = booleanPreferencesKey("enable_glowing_lyrics")
+        val STANDARD_LYRICS_BLUR = booleanPreferencesKey("standard_lyrics_blur")
+        val LYRICS_TEXT_SIZE = floatPreferencesKey("lyrics_text_size")
+        val LYRICS_LINE_SPACING = floatPreferencesKey("lyrics_line_spacing")
 
         // Misc
         val DEFAULT_OPEN_TAB = stringPreferencesKey("default_open_tab")
@@ -109,6 +118,10 @@ class AppearanceSettingsDataStore(
                 appTheme = preferences[APP_THEME] ?: "Follow system",
                 colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic",
 
+                miniPlayerDesign = preferences[MINI_PLAYER_DESIGN] ?: run {
+                    if (preferences[NEW_MINI_PLAYER_DESIGN] == false) "Classic mini player" else "New mini player"
+                },
+                pureBlackMiniPlayer = preferences[PURE_BLACK_MINI_PLAYER] ?: false,
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
                 miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
@@ -136,6 +149,11 @@ class AppearanceSettingsDataStore(
                 changeLyricsOnTap = preferences[CHANGE_LYRICS_ON_TAP] ?: true,
                 autoScrollLyrics = preferences[AUTO_SCROLL_LYRICS] ?: true,
                 hideStatusBarOnFullscreen = preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] ?: false,
+                lyricsAnimation = preferences[LYRICS_ANIMATION] ?: LyricsAnimationMode.AURALIS.displayName,
+                enableGlowingLyricsEffect = preferences[ENABLE_GLOWING_LYRICS] ?: false,
+                standardLyricsBlur = preferences[STANDARD_LYRICS_BLUR] ?: false,
+                lyricsTextSize = preferences[LYRICS_TEXT_SIZE] ?: 22f,
+                lyricsLineSpacing = preferences[LYRICS_LINE_SPACING] ?: 1.3f,
 
                 defaultOpenTab = preferences[DEFAULT_OPEN_TAB] ?: "Home",
                 defaultLibraryChip = preferences[DEFAULT_LIBRARY_CHIP] ?: "Library",
@@ -163,7 +181,9 @@ class AppearanceSettingsDataStore(
             preferences[APP_THEME] = settings.appTheme
             preferences[COLOR_PALETTE] = settings.colorPalette
 
-            preferences[NEW_MINI_PLAYER_DESIGN] = settings.newMiniPlayerDesign
+            preferences[MINI_PLAYER_DESIGN] = settings.miniPlayerDesign
+            preferences[PURE_BLACK_MINI_PLAYER] = settings.pureBlackMiniPlayer
+            preferences[NEW_MINI_PLAYER_DESIGN] = (settings.miniPlayerDesign != "Classic mini player")
             preferences[MINI_PLAYER_BG_STYLE] = settings.miniPlayerBackgroundStyle
 
             preferences[NEW_PLAYER_DESIGN] = settings.newPlayerDesign
@@ -182,6 +202,11 @@ class AppearanceSettingsDataStore(
             preferences[CHANGE_LYRICS_ON_TAP] = settings.changeLyricsOnTap
             preferences[AUTO_SCROLL_LYRICS] = settings.autoScrollLyrics
             preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] = settings.hideStatusBarOnFullscreen
+            preferences[LYRICS_ANIMATION] = settings.lyricsAnimation
+            preferences[ENABLE_GLOWING_LYRICS] = settings.enableGlowingLyricsEffect
+            preferences[STANDARD_LYRICS_BLUR] = settings.standardLyricsBlur
+            preferences[LYRICS_TEXT_SIZE] = settings.lyricsTextSize
+            preferences[LYRICS_LINE_SPACING] = settings.lyricsLineSpacing
 
             preferences[DEFAULT_OPEN_TAB] = settings.defaultOpenTab
             preferences[DEFAULT_LIBRARY_CHIP] = settings.defaultLibraryChip

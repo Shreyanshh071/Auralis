@@ -409,5 +409,40 @@ class SyllableMergeUnitTest {
         assertEquals("sans ", line2.words!![2].word)
         assertEquals("visage)", line2.words!![3].word)
     }
+
+    @Test
+    fun testSayYourPrayersDoesNotSplit() {
+        val ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml">
+            <body>
+            <div>
+            <p begin="3:09.186" end="3:11.599" itunes:key="L35" ttm:agent="v1"><span begin="3:09.186" end="3:09.752">Say</span> <span begin="3:09.752" end="3:10.251">your</span> <span begin="3:10.251" end="3:10.659">pray</span><span begin="3:10.659" end="3:11.599">ers</span></p>
+            <p begin="3:40.696" end="3:43.157" itunes:key="L40" ttm:agent="v1"><span begin="3:40.696" end="3:41.097">I</span> <span begin="3:41.097" end="3:41.428">don't</span> <span begin="3:41.428" end="3:41.854">des</span><span begin="3:41.854" end="3:43.157">pise</span></p>
+            </div>
+            </body>
+            </tt>
+        """.trimIndent()
+
+        val parsed = TtmlParser.parse(ttml, LyricsProvider.BETTER_LYRICS)
+        assertEquals(2, parsed.lines.size)
+        println("TEST_LINE_1 text='${parsed.lines[0].text}', words=${parsed.lines[0].words?.map { "'${it.word}'" }}")
+        println("TEST_LINE_2 text='${parsed.lines[1].text}', words=${parsed.lines[1].words?.map { "'${it.word}'" }}")
+        assertEquals("Say your prayers", parsed.lines[0].text)
+        assertEquals("I don't despise", parsed.lines[1].text)
+    }
+
+    @Test
+    fun testParseFullEyesWithoutAFace() {
+        val file = File("C:/Users/shrey/.gemini/antigravity/brain/9e06d924-0b06-4034-a543-97a167a1b5f7/scratch/eyes_ttml.xml")
+        if (!file.exists()) return
+        val ttml = file.readText()
+        val parsed = TtmlParser.parse(ttml, LyricsProvider.BETTER_LYRICS)
+        for ((idx, line) in parsed.lines.withIndex()) {
+            println("EYES_LINE [$idx]: '${line.text}'")
+            line.words?.let { words ->
+                println("   WORDS: ${words.map { "'${it.word}'" }}")
+            }
+        }
+    }
 }
 

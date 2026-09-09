@@ -418,7 +418,7 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.BLUR -> {
-                // Base gradient/dark surface so pill/player never flashes transparent during artwork changes
+                // Base surface so player never flashes transparent during artwork changes
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -428,7 +428,7 @@ fun PlayerBackground(
                         )
                 )
 
-                // Blurred Downsampled Artwork with Crossfade
+                // Blurred Artwork with Crossfade
                 Crossfade(
                     targetState = artworkUrl,
                     animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
@@ -438,9 +438,7 @@ fun PlayerBackground(
                     if (!thumbUrl.isNullOrBlank()) {
                         val blurReq = remember(thumbUrl) {
                             ImageRequest.Builder(context)
-                                .data(getHighResArtworkUrl(thumbUrl) ?: thumbUrl)
-                                .size(128, 128)
-                                .allowHardware(false)
+                                .data(thumbUrl)
                                 .crossfade(250)
                                 .build()
                         }
@@ -451,11 +449,11 @@ fun PlayerBackground(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    scaleX = if (isMiniPlayer) 1.25f else 1.20f
-                                    scaleY = if (isMiniPlayer) 1.25f else 1.20f
+                                    scaleX = if (isMiniPlayer) 1.25f else 1.15f
+                                    scaleY = if (isMiniPlayer) 1.25f else 1.15f
                                     alpha = if (isMiniPlayer) 0.95f else 0.88f
                                 }
-                                .blur(radius = if (isMiniPlayer) 20.dp else 26.dp)
+                                .blur(radius = if (isMiniPlayer) 20.dp else 24.dp)
                         )
                     }
                 }
@@ -674,7 +672,7 @@ fun PlayerBackground(
                     if (!thumbUrl.isNullOrBlank()) {
                         val blurReq = remember(thumbUrl) {
                             ImageRequest.Builder(context)
-                                .data(getHighResArtworkUrl(thumbUrl) ?: thumbUrl)
+                                .data(thumbUrl)
                                 .size(128, 128)
                                 .allowHardware(false)
                                 .crossfade(250)
@@ -789,7 +787,7 @@ fun PlayerBackground(
                                 }
                                 val meshReq = remember(thumbUrl) {
                                     ImageRequest.Builder(context)
-                                        .data(getHighResArtworkUrl(thumbUrl) ?: thumbUrl)
+                                        .data(thumbUrl)
                                         .size(128, 128)
                                         .allowHardware(false)
                                         .crossfade(250)
@@ -875,7 +873,7 @@ fun PlayerBackground(
 
                                 val meshReq = remember(thumbUrl) {
                                     ImageRequest.Builder(context)
-                                        .data(getHighResArtworkUrl(thumbUrl) ?: thumbUrl)
+                                        .data(thumbUrl)
                                         .size(128, 128)
                                         .allowHardware(false)
                                         .crossfade(250)

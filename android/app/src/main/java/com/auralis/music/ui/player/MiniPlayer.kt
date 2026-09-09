@@ -40,7 +40,12 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import com.auralis.music.domain.model.MiniPlayerDesign
+import com.auralis.music.ui.theme.ArtworkPalette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -376,34 +381,139 @@ fun MiniPlayer(
     val favoriteEnter = auralisIconSwapEnter()
     val favoriteExit = auralisIconSwapExit()
 
-    // ════════════════════════════════════════════════════════════════════════
-    // FLOATING MINI-PLAYER PILL (SURROUNDING AREA REMAINS 100% TRANSPARENT)
-    // ════════════════════════════════════════════════════════════════════════
+    val miniPlayerModifier = modifier
+        .offset { IntOffset(0, dismissOffsetY.value.roundToInt()) }
+        .graphicsLayer {
+            val progressFrac = (dismissOffsetY.value / (dismissThresholdPx * 2.2f)).coerceIn(0f, 1f)
+            alpha = 1f - progressFrac
+            scaleX = 1f - (progressFrac * 0.12f)
+            scaleY = 1f - (progressFrac * 0.12f)
+        }
+        .then(dragModifier)
+
+    when (appearance.miniPlayerDesign) {
+        MiniPlayerDesign.EXPANDED.displayName -> {
+            val currentTrack = activeTrack ?: track ?: queueTracks.firstOrNull()
+            if (currentTrack != null) {
+                ExpandedMiniPlayerView(
+                    track = currentTrack,
+                    isPlaying = isPlaying,
+                    progressProvider = effectiveProgressProvider,
+                    isFavorite = isFavorite,
+                    dominantColor = animGradMid,
+                    hazeState = hazeState,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onPreviousClick = onPreviousClick,
+                    onNextClick = onNextClick,
+                    onFavoriteToggle = onFavoriteToggle,
+                    onArtistClick = onArtistClick,
+                    onClick = onClick,
+                    modifier = miniPlayerModifier
+                )
+            }
+        }
+        MiniPlayerDesign.CLASSIC.displayName -> {
+            val currentTrack = activeTrack ?: track ?: queueTracks.firstOrNull()
+            if (currentTrack != null) {
+                ClassicMiniPlayerView(
+                    track = currentTrack,
+                    isPlaying = isPlaying,
+                    progressProvider = effectiveProgressProvider,
+                    dominantColor = animGradMid,
+                    isPureBlack = appearance.pureBlackMiniPlayer,
+                    activeStyle = activeStyle,
+                    extractedColors = extractedColors,
+                    hazeState = hazeState,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onClick = onClick,
+                    modifier = miniPlayerModifier
+                )
+            }
+        }
+        else -> {
+            NewMiniPlayerPillView(
+                track = track,
+                activeTrack = activeTrack,
+                queueTracks = queueTracks,
+                safeCurrentIndex = safeCurrentIndex,
+                pagerState = pagerState,
+                isPlaying = isPlaying,
+                isFavorite = isFavorite,
+                userScrollEnabled = userScrollEnabled,
+                effectiveProgressProvider = effectiveProgressProvider,
+                appearance = appearance,
+                activeStyle = activeStyle,
+                extractedColors = extractedColors,
+                isPureBlack = appearance.pureBlackMiniPlayer,
+                elevation = elevation,
+                pillShape = pillShape,
+                ambientShadowColor = ambientShadowColor,
+                spotShadowColor = spotShadowColor,
+                animGradLeft = animGradLeft,
+                animGradMid = animGradMid,
+                animGradRight = animGradRight,
+                hazeState = hazeState,
+                sensitivityRatio = sensitivityRatio,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                onPlayPauseClick = onPlayPauseClick,
+                onFavoriteToggle = onFavoriteToggle,
+                onAddToPlaylist = onAddToPlaylist,
+                onArtistClick = onArtistClick,
+                onClick = onClick,
+                modifier = miniPlayerModifier
+            )
+        }
+    }
+}
+
+/**
+ * Expanded Mini Player (Photo 4):
+ * - Floating glassmorphic card with blurry transparent cover-synced background.
+ * - Ignores pure black setting to maintain its vibrant translucent aesthetic.
+ * - Top row: 10.dp rounded square artwork, bold title, artist with SpeakerBoxIcon, chevron down expand button.
+ * - Bottom row: Artist navigation button (left), Playback Controls capsule [Prev | Play/Pause | Next] (center), Like button (right).
+ * - Bottom edge: subtle cover-tinted progress line.
+ */
+@Composable
+private fun ExpandedMiniPlayerView(
+    track: Track,
+    isPlaying: Boolean,
+    progressProvider: () -> Float,
+    isFavorite: Boolean,
+    dominantColor: Color,
+    hazeState: HazeState?,
+    onPlayPauseClick: () -> Unit,
+    onPreviousClick: (() -> Unit)?,
+    onNextClick: (() -> Unit)?,
+    onFavoriteToggle: (() -> Unit)?,
+    onArtistClick: (() -> Unit)?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cardShape = RoundedCornerShape(22.dp)
+    val favoriteEnter = auralisIconSwapEnter()
+    val favoriteExit = auralisIconSwapExit()
+
     Box(
         modifier = modifier
-            .offset { IntOffset(0, dismissOffsetY.value.roundToInt()) }
-            .graphicsLayer {
-                val progressFrac = (dismissOffsetY.value / (dismissThresholdPx * 2.2f)).coerceIn(0f, 1f)
-                alpha = 1f - progressFrac
-                scaleX = 1f - (progressFrac * 0.12f)
-                scaleY = 1f - (progressFrac * 0.12f)
-            }
-            .then(dragModifier)
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 5.dp)
             .shadow(
-                elevation = elevation,
-                shape = pillShape,
-                ambientColor = ambientShadowColor,
-                spotColor = spotShadowColor
+                elevation = 16.dp,
+                shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.40f),
+                spotColor = dominantColor.copy(alpha = 0.50f)
             )
-            .clip(pillShape)
+            .clip(cardShape)
             .then(
-                if (hazeState != null && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC || activeStyle == PlayerBackgroundStyle.BLUR)) {
+                if (hazeState != null) {
                     Modifier.hazeEffect(
                         state = hazeState,
                         style = HazeStyle(
-                            tint = HazeTint(Color(0xFF10121A).copy(alpha = 0.40f)),
+                            backgroundColor = dominantColor.copy(alpha = 0.20f),
+                            tint = HazeTint(dominantColor.copy(alpha = 0.25f)),
                             blurRadius = 30.dp,
                             noiseFactor = 0.02f
                         )
@@ -411,71 +521,544 @@ fun MiniPlayer(
                 } else Modifier
             )
             .background(
-                if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
-                    Color(0xFF10121A).copy(alpha = 0.55f)
-                } else if (activeStyle == PlayerBackgroundStyle.GLOW_MOTION || activeStyle == PlayerBackgroundStyle.LIVE_MESH) {
-                    Color(0xFF050505)
-                } else if (activeStyle == PlayerBackgroundStyle.GRADIENT) {
-                    Color(0xFF08080A)
-                } else {
-                    Color(0xFF141512)
-                }
+                Brush.verticalGradient(
+                    colors = listOf(
+                        dominantColor.copy(alpha = 0.42f),
+                        Color(0xFF0C0D14).copy(alpha = 0.78f)
+                    )
+                )
             )
-            .then(
-                when (activeStyle) {
-                    PlayerBackgroundStyle.GRADIENT -> Modifier.border(
-                        width = 1.2.dp,
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                animGradLeft.copy(alpha = 0.60f),
-                                animGradMid.copy(alpha = 0.70f),
-                                animGradRight.copy(alpha = 0.85f),
-                                Color.White.copy(alpha = 0.30f)
-                            )
-                        ),
-                        shape = pillShape
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.30f),
+                        dominantColor.copy(alpha = 0.22f),
+                        Color.White.copy(alpha = 0.08f)
                     )
-                    PlayerBackgroundStyle.APPLE_MUSIC -> Modifier.border(
-                        width = 1.dp,
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.45f), // crisp specular light reflection on top glass rim
-                                Color.White.copy(alpha = 0.16f), // subtle translucent side edges
-                                Color.White.copy(alpha = 0.06f)  // fading bottom rim
-                            )
-                        ),
-                        shape = pillShape
-                    )
-                    PlayerBackgroundStyle.BLUR -> Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), pillShape)
-                    PlayerBackgroundStyle.LIVE_MESH -> Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
-                    PlayerBackgroundStyle.GLOW_MOTION -> Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), pillShape)
-                    PlayerBackgroundStyle.FOLLOW_THEME -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
-                }
+                ),
+                shape = cardShape
             )
     ) {
-        // ────────────────────────────────────────────────────────────────────
-        // 1. SELECTABLE THEME BACKGROUND SURFACE INSIDE THE FLOATING PILL
-        // ────────────────────────────────────────────────────────────────────
-        PlayerBackground(
-            style = activeStyle,
-            artworkUrl = activeTrack?.thumbnail,
-            extractedColors = extractedColors,
-            modifier = Modifier.matchParentSize(),
-            isMiniPlayer = true
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 11.dp, start = 12.dp, end = 12.dp, bottom = 9.dp)
+        ) {
+            // Top row: Artwork + Title/Artist info + Expand Chevron
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Album artwork (rounded square 10.dp)
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(getHighResArtworkUrl(track.thumbnail))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = track.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
-        if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
+                // Title + Artist with speaker icon
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 12.dp)
+                ) {
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        ),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SpeakerBoxIcon(
+                            tint = dominantColor.copy(alpha = 0.95f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = track.artist,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.75f)
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Expand Chevron down button
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .tactileBounce(scaleDown = 0.88f, onClick = onClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = "Expand Player",
+                        tint = Color.White.copy(alpha = 0.90f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Bottom row: Artist Button | Playback Controls Capsule | Like Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left: Artist Button
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .tactileBounce(scaleDown = 0.88f, onClick = { onArtistClick?.invoke() }),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Person,
+                        contentDescription = "Artist: ${track.artist}",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Center: Playback Controls Capsule (Previous | Play/Pause | Next)
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color.White.copy(alpha = 0.14f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Previous
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .tactileBounce(scaleDown = 0.85f, onClick = { onPreviousClick?.invoke() }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Previous Track",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Play / Pause (solid white circular button with black icon)
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .tactileBounce(scaleDown = 0.88f, onClick = onPlayPauseClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    // Next
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .tactileBounce(scaleDown = 0.85f, onClick = { onNextClick?.invoke() }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next Track",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // Right: Like Button
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .tactileBounce(scaleDown = 0.88f, onClick = { onFavoriteToggle?.invoke() }),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = isFavorite,
+                        transitionSpec = { favoriteEnter togetherWith favoriteExit },
+                        label = "expandedFavorite"
+                    ) { fav ->
+                        Icon(
+                            imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (fav) "Favorited" else "Favorite",
+                            tint = if (fav) Color(0xFFFF4081) else Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Bottom Progress Indicator Line
+            val currentProgress = progressProvider()
             Box(
                 modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.0f to Color.White.copy(alpha = 0.14f),
-                            0.18f to Color.White.copy(alpha = 0.02f),
-                            0.45f to Color.Transparent
+                    .fillMaxWidth()
+                    .height(2.5.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(currentProgress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(dominantColor.copy(alpha = 0.95f))
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Classic Mini Player (Photo 1):
+ * - Flat docked bar with square 8.dp artwork, track info, Play/Pause and Next buttons.
+ * - Bottom tan accent progress line.
+ * - Supports Pure Black toggle: when enabled, turns solid AMOLED black.
+ */
+@Composable
+private fun ClassicMiniPlayerView(
+    track: Track,
+    isPlaying: Boolean,
+    progressProvider: () -> Float,
+    dominantColor: Color,
+    isPureBlack: Boolean,
+    activeStyle: PlayerBackgroundStyle,
+    extractedColors: ArtworkPalette,
+    hazeState: HazeState?,
+    onPlayPauseClick: () -> Unit,
+    onNextClick: (() -> Unit)?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val bgColor = if (isPureBlack) Color.Black else Color(0xFF161616)
+    val borderColor = if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .shadow(elevation = 10.dp, shape = shape)
+            .clip(shape)
+            .then(
+                if (!isPureBlack && hazeState != null && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC || activeStyle == PlayerBackgroundStyle.BLUR)) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeStyle(
+                            backgroundColor = Color(0xFF10121A),
+                            tint = HazeTint(Color(0xFF10121A).copy(alpha = 0.45f)),
+                            blurRadius = 30.dp,
+                            noiseFactor = 0.02f
                         )
                     )
+                } else Modifier
             )
+            .background(bgColor)
+            .border(1.dp, borderColor, shape)
+    ) {
+        if (!isPureBlack && activeStyle != PlayerBackgroundStyle.FOLLOW_THEME) {
+            PlayerBackground(
+                style = activeStyle,
+                artworkUrl = track.thumbnail,
+                extractedColors = extractedColors,
+                modifier = Modifier.matchParentSize(),
+                isMiniPlayer = true
+            )
+        }
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick
+                    )
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Square Artwork (8.dp radius) matching Photo 1
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(getHighResArtworkUrl(track.thumbnail))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = track.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Title + Artist
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 12.dp)
+                ) {
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        ),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.70f)
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Play/Pause Button
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .tactileBounce(scaleDown = 0.88f, onClick = onPlayPauseClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+
+                // Next Track Button
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .tactileBounce(scaleDown = 0.88f, onClick = { onNextClick?.invoke() }),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = "Next Track",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // Bottom tan accent progress line matching Photo 1
+            val currentProgress = progressProvider()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.5.dp)
+                    .background(Color.White.copy(alpha = 0.12f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(currentProgress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(Color(0xFFEBA671))
+                )
+            }
+        }
+    }
+}
+
+/**
+ * New Mini Player Pill View (Photo 2):
+ * - Floating pill shape with circular artwork disc + center play/pause, swipable track info, and 3 action buttons.
+ * - Supports Pure Black toggle: when enabled, turns solid AMOLED black with clean borders.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun NewMiniPlayerPillView(
+    track: Track?,
+    activeTrack: Track?,
+    queueTracks: List<Track>,
+    safeCurrentIndex: Int,
+    pagerState: androidx.compose.foundation.pager.PagerState,
+    isPlaying: Boolean,
+    isFavorite: Boolean,
+    userScrollEnabled: Boolean,
+    effectiveProgressProvider: () -> Float,
+    appearance: com.auralis.music.domain.model.AppearanceSettings,
+    activeStyle: PlayerBackgroundStyle,
+    extractedColors: ArtworkPalette,
+    isPureBlack: Boolean,
+    elevation: Dp,
+    pillShape: RoundedCornerShape,
+    ambientShadowColor: Color,
+    spotShadowColor: Color,
+    animGradLeft: Color,
+    animGradMid: Color,
+    animGradRight: Color,
+    hazeState: HazeState?,
+    sensitivityRatio: Float,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    onPlayPauseClick: () -> Unit,
+    onFavoriteToggle: (() -> Unit)?,
+    onAddToPlaylist: (() -> Unit)?,
+    onArtistClick: (() -> Unit)?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val favoriteEnter = auralisIconSwapEnter()
+    val favoriteExit = auralisIconSwapExit()
+
+    val actualBgColor = if (isPureBlack) {
+        Color.Black
+    } else when (activeStyle) {
+        PlayerBackgroundStyle.APPLE_MUSIC -> Color(0xFF10121A).copy(alpha = 0.55f)
+        PlayerBackgroundStyle.GLOW_MOTION, PlayerBackgroundStyle.LIVE_MESH -> Color(0xFF050505)
+        PlayerBackgroundStyle.GRADIENT -> Color(0xFF08080A)
+        else -> Color(0xFF141512)
+    }
+
+    val actualBorderModifier = if (isPureBlack) {
+        Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), pillShape)
+    } else {
+        when (activeStyle) {
+            PlayerBackgroundStyle.GRADIENT -> Modifier.border(
+                width = 1.2.dp,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        animGradLeft.copy(alpha = 0.60f),
+                        animGradMid.copy(alpha = 0.70f),
+                        animGradRight.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.30f)
+                    )
+                ),
+                shape = pillShape
+            )
+            PlayerBackgroundStyle.APPLE_MUSIC -> Modifier.border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.45f),
+                        Color.White.copy(alpha = 0.16f),
+                        Color.White.copy(alpha = 0.06f)
+                    )
+                ),
+                shape = pillShape
+            )
+            PlayerBackgroundStyle.BLUR -> Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), pillShape)
+            PlayerBackgroundStyle.LIVE_MESH -> Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
+            PlayerBackgroundStyle.GLOW_MOTION -> Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), pillShape)
+            PlayerBackgroundStyle.FOLLOW_THEME -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .shadow(
+                elevation = elevation,
+                shape = pillShape,
+                ambientColor = if (isPureBlack) Color.Black else ambientShadowColor,
+                spotColor = if (isPureBlack) Color.Black else spotShadowColor
+            )
+            .clip(pillShape)
+            .then(
+                if (!isPureBlack && hazeState != null && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC || activeStyle == PlayerBackgroundStyle.BLUR)) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeStyle(
+                            backgroundColor = Color(0xFF10121A),
+                            tint = HazeTint(Color(0xFF10121A).copy(alpha = 0.40f)),
+                            blurRadius = 30.dp,
+                            noiseFactor = 0.02f
+                        )
+                    )
+                } else Modifier
+            )
+            .background(actualBgColor)
+            .then(actualBorderModifier)
+    ) {
+        if (!isPureBlack) {
+            PlayerBackground(
+                style = activeStyle,
+                artworkUrl = activeTrack?.thumbnail,
+                extractedColors = extractedColors,
+                modifier = Modifier.matchParentSize(),
+                isMiniPlayer = true
+            )
+
+            if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to Color.White.copy(alpha = 0.14f),
+                                0.18f to Color.White.copy(alpha = 0.02f),
+                                0.45f to Color.Transparent
+                            )
+                        )
+                )
+            }
         }
 
         Row(
@@ -484,9 +1067,6 @@ fun MiniPlayer(
                 .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ================================================================
-            // SWIPEABLE TRACK CONTENT CAROUSEL (ARTWORK + TITLE + ARTIST)
-            // ================================================================
             val isHorizontalSwipeEnabled = userScrollEnabled && appearance.enableSwipeToChangeSong
             val snapPositionalThreshold = (0.85f - (sensitivityRatio * 0.45f)).coerceIn(0.38f, 0.75f)
             val pagerFlingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
@@ -523,14 +1103,13 @@ fun MiniPlayer(
                         ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Circular Artwork Disc with Inset Progress Ring (if current) + Center Play/Pause
                     MiniPlayerArtworkDisc(
                         track = pageTrack,
                         isCurrent = isCurrent,
                         isPlaying = isPlaying,
                         progressProvider = effectiveProgressProvider,
-                        progressColor = if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White else Color.White.copy(alpha = 0.92f),
-                        isLiquidGlass = (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
+                        progressColor = if (isPureBlack) Color.White.copy(alpha = 0.90f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White else Color.White.copy(alpha = 0.92f),
+                        isLiquidGlass = !isPureBlack && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
                         onPlayPauseClick = onPlayPauseClick
@@ -538,7 +1117,6 @@ fun MiniPlayer(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // Track Title & Subtitle Artist
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.Center
@@ -557,7 +1135,7 @@ fun MiniPlayer(
                             Text(
                                 text = pageTrack.artist,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
+                                color = if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -569,11 +1147,8 @@ fun MiniPlayer(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // ================================================================
-            // RIGHT 3 ACTION BUTTONS: LISTEN TOGETHER, ADD (+), FAVORITE HEART
-            // ================================================================
-            val actionButtonBg = if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
-            val actionButtonBorder = if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
+            val actionButtonBg = if (isPureBlack) Color(0xFF181818) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
+            val actionButtonBorder = if (!isPureBlack && activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
                 Modifier.border(0.8.dp, Color.White.copy(alpha = 0.18f), CircleShape)
             } else Modifier
 
@@ -581,7 +1156,6 @@ fun MiniPlayer(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Button 1: Listen Together / Social / Artist
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -593,13 +1167,12 @@ fun MiniPlayer(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Person,
-                        contentDescription = "Listen Together",
+                        contentDescription = "Artist: ${activeTrack?.artist ?: ""}",
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(18.dp)
                     )
                 }
 
-                // Button 2: Add to Playlist (+)
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -617,7 +1190,6 @@ fun MiniPlayer(
                     )
                 }
 
-                // Button 3: Favorite Heart
                 Box(
                     modifier = Modifier
                         .size(36.dp)

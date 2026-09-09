@@ -3,6 +3,9 @@ package com.auralis.music.ui.player
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.widget.Toast
@@ -284,6 +287,7 @@ fun NowPlayingModal(
     var currentTab by remember { mutableStateOf(NowPlayingTab.PLAYER) }
     var showSleepDialog by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
+    var showTrackOptions by remember { mutableStateOf(false) }
     var showOffsetControls by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(true) }
     var showManualLyricsSearch by remember { mutableStateOf(false) }
@@ -445,16 +449,17 @@ fun NowPlayingModal(
         )
 
         // ====================================================================
-        // 2. FOREGROUND CONTENT WITH SEGMENTED SWITCHER (PHOTO 2 DESIGN)
+        // 2. FOREGROUND CONTENT (MODERN VS CLASSIC DESIGN)
         // ====================================================================
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        if (appearance.newPlayerDesign) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             // ── TOP BAR: DOWN CHEVRON + NOW PLAYING ARTIST + PULL-DOWN DRAG GESTURE ──
             Row(
                 modifier = Modifier
@@ -674,7 +679,8 @@ fun NowPlayingModal(
                             onOffsetChange = onLyricsOffsetChange,
                             onSearchManually = { showManualLyricsSearch = true },
                             track = uiState.currentTrack,
-                            lyricsClockSource = lyricsClockSource
+                            lyricsClockSource = lyricsClockSource,
+                            isPlaying = uiState.isPlaying
                         )
                     }
                 }
@@ -1222,7 +1228,67 @@ fun NowPlayingModal(
             }
         }
     }
-}
+} else {
+            ClassicPlayerContainer(
+                track = track,
+                uiState = uiState,
+                currentTab = currentTab,
+                onTabChange = { currentTab = it },
+                pagerState = pagerState,
+                queue = queue,
+                currentTrackIndex = currentTrackIndex,
+                seekBarPositionState = seekBarPositionState,
+                totalDurationMs = totalDurationMs,
+                isScrubbing = isScrubbing,
+                onScrubbing = { scrubbing, posMs ->
+                    isScrubbing = scrubbing
+                    if (scrubbing) scrubPositionMs = posMs.toFloat()
+                },
+                onSeekTo = { posMs ->
+                    isScrubbing = false
+                    onSeekTo(posMs)
+                },
+                onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
+                onPreviousClick = onPreviousClick,
+                onToggleFavorite = onToggleFavorite,
+                onDismiss = onDismiss,
+                onSelectQueueTrack = onSelectQueueTrack,
+                onShowTrackOptions = { showTrackOptions = true },
+                onShowSleepDialog = { showSleepDialog = true },
+                lyricsPositionState = lyricsPositionState,
+                lyricsClockSource = lyricsClockSource,
+                onLyricsOffsetChange = onLyricsOffsetChange,
+                onSearchLyricsManually = { showManualLyricsSearch = true },
+                controlsAlpha = controlsAlpha,
+                enableSwipeToChangeSong = appearance.enableSwipeToChangeSong,
+                hidePlayerThumbnail = appearance.hidePlayerThumbnail,
+                cropAlbumArt = appearance.cropAlbumArt,
+                onArtistClick = onArtistClick
+            )
+        }
+    }
+
+    // Direct Track Options Bottom Sheet
+    if (showTrackOptions) {
+        TrackOptionsMenu(
+            track = track,
+            isFavorite = uiState.isFavorite,
+            userPlaylists = userPlaylists,
+            onToggleFavorite = onToggleFavorite,
+            onPlayNext = onPlayNext,
+            onAddToQueue = onAddToQueue,
+            onAddToPlaylist = { playlist ->
+                onAddToPlaylist(playlist.id, track)
+                Toast.makeText(context, "Added to ${playlist.title}", Toast.LENGTH_SHORT).show()
+            },
+            onCreatePlaylistAndAdd = { title ->
+                onCreatePlaylistAndAdd(title, track)
+                Toast.makeText(context, "Created and added to $title", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showTrackOptions = false }
+        )
+    }
 
     // Direct Add to Playlist Bottom Sheet (Shows all user playlists + Create new)
     if (showPlaylistPicker) {
@@ -1756,3 +1822,6 @@ private fun formatTime(millis: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%d:%02d", minutes, seconds)
 }
+
+
+
