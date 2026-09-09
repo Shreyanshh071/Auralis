@@ -36,6 +36,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -64,9 +65,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
+import com.auralis.music.domain.model.LyricsAnimationMode
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsMode
 import com.auralis.music.domain.model.SyncType
+import com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine
+import com.auralis.music.ui.lyrics.renderers.BasicWordLyricsLine
+import com.auralis.music.ui.lyrics.renderers.LyricsV2FluidLine
+import com.auralis.music.ui.lyrics.renderers.MetroLyricsLine
+import com.auralis.music.ui.lyrics.renderers.ViviMusicLyricsLine
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
@@ -109,7 +116,8 @@ fun SyncedLyricsView(
     onOffsetChange: ((Long) -> Unit)? = null,
     onSearchManually: (() -> Unit)? = null,
     track: com.auralis.music.domain.model.Track? = null,
-    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null
+    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
+    isPlaying: Boolean = true
 ) {
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {
@@ -165,12 +173,17 @@ fun SyncedLyricsView(
 
     val effectiveLines = remember(lyrics) {
         if (lyrics == null) emptyList()
-        else if (lyrics.lines.isNotEmpty()) lyrics.lines
+        else if (lyrics.lines.isNotEmpty()) {
+            lyrics.lines.map { line ->
+                val healed = com.auralis.music.data.parser.WordTiming.healSplitWordsInText(line.text)
+                if (healed != line.text) line.copy(text = healed) else line
+            }
+        }
         else if (!lyrics.plainLyrics.isNullOrBlank()) {
             lyrics.plainLyrics.lines()
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
-                .map { LyricLine(time = 0L, text = it) }
+                .map { LyricLine(time = 0L, text = com.auralis.music.data.parser.WordTiming.healSplitWordsInText(it)) }
         } else emptyList()
     }
 
@@ -498,7 +511,7 @@ fun SyncedLyricsView(
                 end = 16.dp
             ),
             horizontalAlignment = horizontalAlignment,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             itemsIndexed(
                 items = effectiveLines,
@@ -517,6 +530,12 @@ fun SyncedLyricsView(
                     val ref = minActive ?: (primaryIndex + 1)
                     (ref - index).coerceAtLeast(1)
                 } else 0
+                val distanceFromCurrent = when {
+                    isCurrent -> 0
+                    isPast -> pastDistance
+                    primaryIndex >= 0 -> kotlin.math.abs(index - primaryIndex)
+                    else -> 1
+                }
 
                 // Vocal agent & background vocal positioning
                 val lineAlignment = when {
@@ -534,11 +553,23 @@ fun SyncedLyricsView(
                     else -> textAlign
                 }
 
+                val nextLine = effectiveLines.getOrNull(index + 1)
+                val isNextBg = nextLine?.isBackground == true
+                val isPairedWithNext = nextLine != null && (isNextBg || (nextLine.time == line.time && isSynced))
+
+                val itemBottomSpacing = when {
+                    index == effectiveLines.lastIndex -> 0.dp
+                    isPairedWithNext -> 2.dp
+                    else -> (14 * appearance.lyricsLineSpacing).dp
+                }
+
                 val isSelected = selectedIndices.contains(index)
                 val isSelectionMode = selectedIndices.isNotEmpty()
 
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = itemBottomSpacing),
                     horizontalAlignment = lineAlignment
                 ) {
                     if (index == 0 && isIntroActiveState.value) {
@@ -559,9 +590,12 @@ fun SyncedLyricsView(
                                         .clip(RoundedCornerShape(18.dp))
                                         .background(Color.White.copy(alpha = 0.18f))
                                         .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                        .padding(horizontal = 14.dp, vertical = 8.dp)
                                 } else {
-                                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    Modifier.padding(
+                                        horizontal = 4.dp,
+                                        vertical = if (line.isBackground || isPairedWithNext) 1.dp else 2.dp
+                                    )
                                 }
                             )
                             .combinedClickable(
@@ -605,14 +639,24 @@ fun SyncedLyricsView(
                             isCurrent = isCurrent,
                             isPast = isPast,
                             pastDistance = pastDistance,
+                            distanceFromCurrent = distanceFromCurrent,
                             isSelected = isSelected,
                             lyricsMode = lyricsMode,
                             syncType = lyrics.syncType,
+                            isSynced = isSynced,
                             textAlign = lineTextAlign,
                             horizontalAlignment = lineAlignment,
                             positionState = positionState,
                             offsetMs = offsetMs,
-                            rowMaxWidthPx = rowMaxWidthPx
+                            animationMode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation),
+                            enableGlowEffect = appearance.enableGlowingLyricsEffect,
+                            standardBlur = appearance.standardLyricsBlur,
+                            fontSizeSp = appearance.lyricsTextSize,
+                            lineSpacingMultiplier = appearance.lyricsLineSpacing,
+                            isAutoScrollActive = appearance.autoScrollLyrics,
+                            isUserInteracting = isUserInteracting,
+                            rowMaxWidthPx = rowMaxWidthPx,
+                            isPlaying = isPlaying
                         )
                     }
                 }
@@ -695,13 +739,23 @@ fun SyncedLyricsView(
 }
 
 /**
- * Clean, high-contrast Line-Synced row with smooth alpha animations, bold active state,
- * and AI translated text support.
+ * Resolves the effective words for lyric line rendering.
+ *
+ * Phase 4B-B Contract:
+ * - When [syncType] is [SyncType.RICHSYNC] and [line.words] is non-empty, returns [line.words] verbatim
+ *   (preserving genuine provider timestamps without modification).
+ * - For line-synced lyrics ([SyncType.LINE_SYNC]), static lyrics ([SyncType.PLAIN]), or lines with no
+ *   genuine word timing, returns `null`. Under NO circumstances are word timestamps fabricated or durations
+ *   subdivided across words.
  */
-/**
- * Precomputed geometry for a single word within a laid-out lyric line.
- * Created once when layout changes to guarantee zero allocations per frame during playback.
- */
+internal fun resolveEffectiveWords(line: LyricLine, syncType: SyncType): List<LyricWord>? {
+    return if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
+        line.words
+    } else {
+        null
+    }
+}
+
 private data class WordLayoutData(
     val range: LyricsEngine.WordRange,
     val wordPath: androidx.compose.ui.graphics.Path,
@@ -769,7 +823,7 @@ private fun updateWordHighlightState(
             // two consecutive words can be simultaneously active. Promote the earlier word
             // to finishedPath so it is never dropped from rendering (fixes blink/flicker).
             if (activeSweep != null) {
-                val prevItem = activeSweep!!.activeItem
+                val prevItem = activeSweep.activeItem
                 val prevBounds = prevItem.bounds
                 if (!prevBounds.isEmpty && prevItem.isSingleLine) {
                     finishedPath.addRect(
@@ -847,30 +901,13 @@ private fun buildWordLayouts(
 }
 
 /**
- * Resolves the effective words for lyric line rendering.
+ * Universal lyric line row supporting Auralis native canvas sweep + 10 VIVI animation styles.
  *
- * Phase 4B-B Contract:
- * - When [syncType] is [SyncType.RICHSYNC] and [line.words] is non-empty, returns [line.words] verbatim
- *   (preserving genuine provider timestamps without modification).
- * - For line-synced lyrics ([SyncType.LINE_SYNC]), static lyrics ([SyncType.PLAIN]), or lines with no
- *   genuine word timing, returns `null`. Under NO circumstances are word timestamps fabricated or durations
- *   subdivided across words.
- */
-internal fun resolveEffectiveWords(line: LyricLine, syncType: SyncType): List<LyricWord>? {
-    return if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
-        line.words
-    } else {
-        null
-    }
-}
-
-/**
- * Clean, high-performance word-by-word karaoke lyric line row:
- * - When [line.hasWordTiming] && [isCurrent]: paints active word sweep in Draw phase with zero recompositions.
- * - When [line.hasWordTiming] is false: falls back gracefully to line-synced highlighting.
- * - Preserves vocal rests without bleeding highlight across silence.
- * - Styles background vocals distinctly (85% scale + italic).
- * - Preserves natural character boundaries and complex Unicode scripts (Indic matras, Arabic shaping).
+ * Preserves pre-VIVI Auralis typography hierarchy:
+ * - Active: 22sp ExtraBold, alpha 1.0f (or 28sp in Cinema mode).
+ * - Inactive: 20sp SemiBold, alpha 0.38f upcoming, 0.58f past (or 22sp in Cinema mode).
+ * - Scale falloff: 0.98f, 0.96f, 0.94f for past lines.
+ * - Draw-phase word sweep with soft glow shadow on completed syllables.
  */
 @Composable
 private fun LyricLineRow(
@@ -879,20 +916,47 @@ private fun LyricLineRow(
     isCurrent: Boolean,
     isPast: Boolean,
     pastDistance: Int = 0,
+    distanceFromCurrent: Int = 0,
     isSelected: Boolean = false,
     lyricsMode: LyricsMode,
     syncType: SyncType,
+    isSynced: Boolean = true,
     textAlign: TextAlign,
     horizontalAlignment: Alignment.Horizontal,
     positionState: State<Long>,
     offsetMs: Long,
-    rowMaxWidthPx: Int
+    animationMode: LyricsAnimationMode,
+    enableGlowEffect: Boolean,
+    standardBlur: Boolean,
+    fontSizeSp: Float,
+    lineSpacingMultiplier: Float,
+    isAutoScrollActive: Boolean,
+    isUserInteracting: Boolean = false,
+    rowMaxWidthPx: Int,
+    isPlaying: Boolean = true
 ) {
     val isPlain = syncType == SyncType.PLAIN
 
-    // Depth-of-field is conveyed via alpha + subtle scale only (zero GPU blur cost).
-    // Modifier.blur() was removed because it forced an offscreen render pass per item
-    // (~20 simultaneous GPU texture allocations during scroll, destroying frame budgets).
+    // Progressive blur logic for inactive lyrics (matching ViVi Music depth-of-field design).
+    // Drops blur to 0f when standard blur is off, auto-scroll is disabled, user is dragging,
+    // in Plain lyrics mode, on selected lines, or on the active line.
+    val targetBlur = if (!standardBlur || !isAutoScrollActive || isUserInteracting || !isSynced || isPlain || isSelected || isCurrent) {
+        0f
+    } else {
+        when (distanceFromCurrent) {
+            0, 1 -> 0f
+            2 -> 2f
+            3 -> 4f
+            else -> 6f
+        }
+    }
+
+    val animatedBlur by animateFloatAsState(
+        targetValue = targetBlur,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "LyricStandardBlur"
+    )
+
     val targetScale = when {
         isPlain || isCurrent || isSelected -> 1.0f
         isPast -> when (pastDistance) {
@@ -908,10 +972,6 @@ private fun LyricLineRow(
         label = "LyricScale"
     )
 
-    // Phase 4B-B: Word-level karaoke sweep/progression runs ONLY when genuine word timing
-    // (RICHSYNC) is supplied by the provider. For line-synced lyrics with no genuine word timing,
-    // do NOT fabricate word timestamps or subdivide durations. The entire active line is
-    // presented as active for the line's genuine interval.
     val effectiveWords = remember(line.words, syncType) {
         resolveEffectiveWords(line, syncType)
     }
@@ -930,25 +990,27 @@ private fun LyricLineRow(
         label = "LyricAlpha"
     )
 
-    // FIX 1: Word-synced active lines must NOT be visually suppressed by the 300ms alpha fade-in.
-    // Active word-synced lyrics snap to 1.0f immediately at the provider timestamp.
-    // Ordinary line-synced lyrics and past transitions retain smooth alpha motion.
+    // Active word-synced lyrics snap to 1.0f immediately at the provider timestamp
     val effectiveAlpha = if (hasWordTiming && isCurrent) 1.0f else animAlpha
 
+    val scaleRatio = (fontSizeSp / 22f).coerceIn(0.7f, 1.6f)
     val baseFontSize = when {
-        isPlain -> 20.sp
-        isCurrent -> if (lyricsMode == LyricsMode.CINEMA) 28.sp else 22.sp
-        else -> if (lyricsMode == LyricsMode.CINEMA) 22.sp else 20.sp
+        isPlain -> (20f * scaleRatio).sp
+        isCurrent -> if (lyricsMode == LyricsMode.CINEMA) (28f * scaleRatio).sp else (21f * scaleRatio).sp
+        else -> if (lyricsMode == LyricsMode.CINEMA) (22f * scaleRatio).sp else (20f * scaleRatio).sp
     }
-    // Background vocals (ad-libs, harmonies) styled distinctly
-    val fontSize = if (line.isBackground) (baseFontSize.value * 0.85f).sp else baseFontSize
+    val fontSize = if (line.isBackground) (baseFontSize.value * 0.70f).sp else baseFontSize
     val fontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal
-    val fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold
+    val fontWeight = when {
+        line.isBackground -> if (isCurrent) FontWeight.Bold else FontWeight.SemiBold
+        isCurrent -> FontWeight.ExtraBold
+        else -> FontWeight.SemiBold
+    }
 
     val textColor = when {
-        isCurrent -> Color.White
-        isPast -> Color.White.copy(alpha = 0.65f)
-        else -> Color.White.copy(alpha = 0.38f)
+        isCurrent -> if (line.isBackground) Color.White.copy(alpha = 0.85f) else Color.White
+        isPast -> if (line.isBackground) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.60f)
+        else -> if (line.isBackground) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.38f)
     }
 
     // Precompute character mapping for words when line changes
@@ -957,20 +1019,20 @@ private fun LyricLineRow(
         else emptyList()
     }
 
-    // Precompute active text layout and word layout data using TextMeasurer.
-    // This ensures textLayoutResult and wordLayouts are ALREADY populated and ready
-    // on the exact frame isCurrent flips to true, eliminating the 1-2 frame layout dead zone.
-    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val activeTextStyle = remember(lyricsMode, line.isBackground, textAlign) {
-        val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) 28.sp else 22.sp
-        val activeSize = if (line.isBackground) (activeBaseSize.value * 0.85f).sp else activeBaseSize
+    // Precompute active text layout and word layout data using TextMeasurer for frame 0 readiness
+    val textMeasurer = rememberTextMeasurer()
+    val activeTextStyle = remember(lyricsMode, line.isBackground, textAlign, fontSize) {
+        val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) (28f * scaleRatio).sp else (21f * scaleRatio).sp
+        val activeSize = if (line.isBackground) (activeBaseSize.value * 0.70f).sp else activeBaseSize
         val activeFontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal
+        val activeWeight = if (line.isBackground) FontWeight.Bold else FontWeight.ExtraBold
         TextStyle(
             fontSize = activeSize,
-            fontWeight = FontWeight.ExtraBold,
+            fontWeight = activeWeight,
             fontStyle = activeFontStyle,
             textAlign = textAlign,
-            lineHeight = (activeSize.value * 1.34f).sp
+            letterSpacing = (-0.4).sp,
+            lineHeight = (activeSize.value * 1.30f * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)).sp
         )
     }
 
@@ -1006,6 +1068,23 @@ private fun LyricLineRow(
         }
     }
 
+    val effectivePlaybackPosition = if (isCurrent) {
+        positionState.value + offsetMs
+    } else if (isPast) {
+        line.effectiveEndTime ?: (line.time + 10_000L)
+    } else {
+        0L
+    }
+
+    val effectiveLineColor = when {
+        isPlain -> Color.White.copy(alpha = 0.95f)
+        isPast -> Color.White.copy(alpha = 0.60f)
+        else -> Color.White.copy(alpha = if (lyricsMode == LyricsMode.CINEMA) 0.30f else 0.35f)
+    }
+    val effectiveAccentColor = Color.White
+
+    val blurModifier = if (animatedBlur > 0.05f) Modifier.blur(animatedBlur.dp) else Modifier
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1014,137 +1093,257 @@ private fun LyricLineRow(
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .padding(vertical = if (line.isBackground) 2.dp else 4.dp, horizontal = 4.dp),
+            .then(blurModifier)
+            .padding(
+                vertical = if (line.isBackground) 1.dp
+                           else (3.dp * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)),
+                horizontal = 4.dp
+            ),
         horizontalAlignment = horizontalAlignment
     ) {
-        val textStyle = androidx.compose.ui.text.TextStyle(
+        val textStyle = TextStyle(
             fontSize = fontSize,
             fontWeight = fontWeight,
             fontStyle = fontStyle,
             textAlign = textAlign,
-            lineHeight = (fontSize.value * 1.34f).sp
+            letterSpacing = (-0.4).sp,
+            lineHeight = (fontSize.value * 1.30f * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)).sp
         )
 
-        if (isCurrent && hasWordTiming) {
-            // High-performance draw-phase word-by-word karaoke highlight
-            Text(
-                text = line.text,
-                style = textStyle,
-                color = Color.White.copy(alpha = 0.35f),
-                textAlign = textAlign,
-                lineHeight = (fontSize.value * 1.34f).sp,
-                overflow = TextOverflow.Visible,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .drawWithContent {
-                        // 1. Draw inactive unhighlighted base text
-                        drawContent()
-
-                        val layout = textLayoutResult ?: precomputedLayout ?: return@drawWithContent
-                        val activeWordLayouts = if (wordLayouts.isNotEmpty()) wordLayouts else precomputedWordLayouts
-                        if (activeWordLayouts.isEmpty()) return@drawWithContent
-
-                        // Sample clock position inside DrawScope: does NOT cause recomposition/re-layout
-                        val currentMs = positionState.value
-                        val adjustedMs = currentMs + offsetMs
-
-                        // 2. Separate finished words from currently active sweeping word
-                        val activeSweep = updateWordHighlightState(
-                            finishedPath = finishedHighlightPath,
-                            wordLayouts = activeWordLayouts,
-                            adjustedMs = adjustedMs
-                        )
-
-                        // 3. Draw fully sung words with glow shadow (batched into one draw call)
-                        if (!finishedHighlightPath.isEmpty) {
-                            clipPath(finishedHighlightPath) {
-                                drawText(
-                                    textLayoutResult = layout,
-                                    color = Color.White,
-                                    shadow = Shadow(
-                                        color = Color.White.copy(alpha = 0.60f),
-                                        blurRadius = 8f,
-                                        offset = Offset.Zero
-                                    )
-                                )
-                            }
-                        }
-
-                        // 4. Draw currently active sweeping word with a clean clipRect sweep
-                        // (Replaces the previous saveLayer + DstIn approach which allocated
-                        //  an offscreen bitmap every single frame — one of the most expensive
-                        //  Canvas operations on Android.)
-                        if (activeSweep != null && activeSweep.progress > 0f) {
-                            val activeItem = activeSweep.activeItem
-                            val progress = activeSweep.progress
-                            val bounds = activeItem.bounds
-
-                            if (!bounds.isEmpty) {
-                                if (activeItem.isSingleLine) {
-                                    val wordLineTop = activeItem.lineTop
-                                    val wordLineBottom = activeItem.lineBottom
-                                    val sweepTop = wordLineTop
-                                    val sweepBottom = wordLineBottom
-
-                                    // Sweep edge: progress maps linearly across the word bounds
-                                    val sweepEdge = if (activeItem.isRtl) {
-                                        bounds.right - bounds.width * progress
-                                    } else {
-                                        bounds.left + bounds.width * progress
-                                    }
-
-                                    val clipLeft = if (activeItem.isRtl) sweepEdge else bounds.left - 6f
-                                    val clipRight = if (activeItem.isRtl) bounds.right + 6f else sweepEdge
-
-                                    clipRect(
-                                        left = clipLeft,
-                                        top = sweepTop,
-                                        right = clipRight,
-                                        bottom = sweepBottom
-                                    ) {
-                                        drawText(
-                                            textLayoutResult = layout,
-                                            color = Color.White,
-                                            shadow = Shadow(
-                                                color = Color.White.copy(alpha = 0.60f),
-                                                blurRadius = 8f,
-                                                offset = Offset.Zero
-                                            )
-                                        )
-                                    }
-                                } else {
-                                    // Multi-line wrapped span fallback: clip to the actual word path
-                                    clipPath(activeItem.wordPath) {
-                                        drawText(
-                                            textLayoutResult = layout,
-                                            color = Color.White,
-                                            shadow = Shadow(
-                                                color = Color.White.copy(alpha = 0.60f),
-                                                blurRadius = 8f,
-                                                offset = Offset.Zero
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    },
-                onTextLayout = { result ->
-                    textLayoutResult = result
-                    wordLayouts = buildWordLayouts(result, wordRanges)
-                }
-            )
-        } else {
-            // Line-sync fallback or inactive/past line
+        if (!isCurrent) {
+            // Clean un-highlighted presentation with SemiBold weight & native depth-of-field alpha
             Text(
                 text = line.text,
                 style = textStyle,
                 color = textColor,
                 textAlign = textAlign,
                 modifier = Modifier.fillMaxWidth(),
-                lineHeight = (fontSize.value * 1.34f).sp,
+                lineHeight = (fontSize.value * 1.30f * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)).sp,
+                letterSpacing = (-0.4).sp,
                 overflow = TextOverflow.Visible
             )
+        } else {
+            // Active line: choose animation mode
+            when (animationMode) {
+                LyricsAnimationMode.AURALIS,
+                LyricsAnimationMode.KARAOKE -> {
+                    if (hasWordTiming) {
+                        // High-performance draw-phase word-by-word karaoke highlight
+                        Text(
+                            text = line.text,
+                            style = textStyle,
+                            color = if (line.isBackground) Color.White.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.35f),
+                            textAlign = textAlign,
+                            lineHeight = (fontSize.value * 1.30f * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)).sp,
+                            letterSpacing = (-0.4).sp,
+                            overflow = TextOverflow.Visible,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .drawWithContent {
+                                    // 1. Draw inactive unhighlighted base text
+                                    drawContent()
+
+                                    val layout = textLayoutResult ?: precomputedLayout ?: return@drawWithContent
+                                    val activeWordLayouts = if (wordLayouts.isNotEmpty()) wordLayouts else precomputedWordLayouts
+                                    if (activeWordLayouts.isEmpty()) return@drawWithContent
+
+                                    // Sample clock position inside DrawScope: does NOT cause recomposition/re-layout
+                                    val currentMs = positionState.value
+                                    val adjustedMs = currentMs + offsetMs
+
+                                    // 2. Separate finished words from currently active sweeping word
+                                    val activeSweep = updateWordHighlightState(
+                                        finishedPath = finishedHighlightPath,
+                                        wordLayouts = activeWordLayouts,
+                                        adjustedMs = adjustedMs
+                                    )
+
+                                    // 3. Draw fully sung words with glow shadow (batched into one draw call)
+                                    if (!finishedHighlightPath.isEmpty) {
+                                        clipPath(finishedHighlightPath) {
+                                            drawText(
+                                                textLayoutResult = layout,
+                                                color = Color.White,
+                                                shadow = Shadow(
+                                                    color = Color.White.copy(alpha = 0.60f),
+                                                    blurRadius = 8f,
+                                                    offset = Offset.Zero
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    // 4. Draw currently active sweeping word with a clean clipRect sweep
+                                    if (activeSweep != null && activeSweep.progress > 0f) {
+                                        val activeItem = activeSweep.activeItem
+                                        val progress = activeSweep.progress
+                                        val bounds = activeItem.bounds
+
+                                        if (!bounds.isEmpty) {
+                                            if (activeItem.isSingleLine) {
+                                                val wordLineTop = activeItem.lineTop
+                                                val wordLineBottom = activeItem.lineBottom
+                                                val sweepTop = wordLineTop
+                                                val sweepBottom = wordLineBottom
+
+                                                // Sweep edge: progress maps linearly across the word bounds
+                                                val sweepEdge = if (activeItem.isRtl) {
+                                                    bounds.right - bounds.width * progress
+                                                } else {
+                                                    bounds.left + bounds.width * progress
+                                                }
+
+                                                val clipLeft = if (activeItem.isRtl) sweepEdge else bounds.left - 6f
+                                                val clipRight = if (activeItem.isRtl) bounds.right + 6f else sweepEdge
+
+                                                clipRect(
+                                                    left = clipLeft,
+                                                    top = sweepTop,
+                                                    right = clipRight,
+                                                    bottom = sweepBottom
+                                                ) {
+                                                    drawText(
+                                                        textLayoutResult = layout,
+                                                        color = Color.White,
+                                                        shadow = Shadow(
+                                                            color = Color.White.copy(alpha = 0.60f),
+                                                            blurRadius = 8f,
+                                                            offset = Offset.Zero
+                                                        )
+                                                    )
+                                                }
+                                            } else {
+                                                // Multi-line wrapped span fallback: clip to the actual word path
+                                                clipPath(activeItem.wordPath) {
+                                                    drawText(
+                                                        textLayoutResult = layout,
+                                                        color = Color.White,
+                                                        shadow = Shadow(
+                                                            color = Color.White.copy(alpha = 0.60f),
+                                                            blurRadius = 8f,
+                                                            offset = Offset.Zero
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            onTextLayout = { result ->
+                                textLayoutResult = result
+                                wordLayouts = buildWordLayouts(result, wordRanges)
+                            }
+                        )
+                    } else {
+                        // Line-sync fallback or inactive/past line
+                        Text(
+                            text = line.text,
+                            style = textStyle,
+                            color = textColor,
+                            textAlign = textAlign,
+                            modifier = Modifier.fillMaxWidth(),
+                            lineHeight = (fontSize.value * 1.30f * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)).sp,
+                            letterSpacing = (-0.4).sp,
+                            overflow = TextOverflow.Visible
+                        )
+                    }
+                }
+                LyricsAnimationMode.FADE -> {
+                    BasicWordLyricsLine(
+                        mode = LyricsAnimationMode.FADE,
+                        line = line,
+                        words = effectiveWords,
+                        isActive = isCurrent,
+                        effectivePlaybackPosition = effectivePlaybackPosition,
+                        lineColor = effectiveLineColor,
+                        accentColor = effectiveAccentColor,
+                        textAlign = textAlign,
+                        alignment = horizontalAlignment,
+                        fontSizeSp = fontSize.value,
+                        lineSpacingMultiplier = lineSpacingMultiplier,
+                        enableGlowEffect = enableGlowEffect
+                    )
+                }
+                LyricsAnimationMode.GLOW -> {
+                    AppleMusicLyricsLine(
+                        isV2 = false,
+                        line = line,
+                        nextLineTime = nextLineTime,
+                        words = effectiveWords,
+                        isActive = isCurrent,
+                        effectivePlaybackPosition = effectivePlaybackPosition,
+                        lineColor = effectiveLineColor,
+                        accentColor = effectiveAccentColor,
+                        textAlign = textAlign,
+                        alignment = horizontalAlignment,
+                        fontSizeSp = fontSize.value,
+                        lineSpacingMultiplier = lineSpacingMultiplier
+                    )
+                }
+                LyricsAnimationMode.SLIDE -> {
+                    BasicWordLyricsLine(
+                        mode = LyricsAnimationMode.SLIDE,
+                        line = line,
+                        words = effectiveWords,
+                        isActive = isCurrent,
+                        effectivePlaybackPosition = effectivePlaybackPosition,
+                        lineColor = effectiveLineColor,
+                        accentColor = effectiveAccentColor,
+                        textAlign = textAlign,
+                        alignment = horizontalAlignment,
+                        fontSizeSp = fontSize.value,
+                        lineSpacingMultiplier = lineSpacingMultiplier,
+                        enableGlowEffect = enableGlowEffect
+                    )
+                }
+                LyricsAnimationMode.APPLE_MUSIC_V2 -> {
+                    AppleMusicLyricsLine(
+                        isV2 = true,
+                        line = line,
+                        nextLineTime = nextLineTime,
+                        words = effectiveWords,
+                        isActive = isCurrent,
+                        effectivePlaybackPosition = effectivePlaybackPosition,
+                        lineColor = effectiveLineColor,
+                        accentColor = effectiveAccentColor,
+                        textAlign = textAlign,
+                        alignment = horizontalAlignment,
+                        fontSizeSp = fontSize.value,
+                        lineSpacingMultiplier = lineSpacingMultiplier
+                    )
+                }
+                LyricsAnimationMode.LYRICS_V2_FLUID -> {
+                    LyricsV2FluidLine(
+                        line = line,
+                        words = effectiveWords,
+                        isActive = isCurrent,
+                        isPast = isPast,
+                        effectivePlaybackPosition = effectivePlaybackPosition,
+                        accentColor = effectiveAccentColor,
+                        inactiveAlpha = if (lyricsMode == LyricsMode.CINEMA) 0.35f else 0.40f,
+                        fontSizeSp = fontSize.value,
+                        lineSpacingMultiplier = lineSpacingMultiplier,
+                        textAlign = textAlign,
+                        alignment = horizontalAlignment
+                    )
+                }
+                LyricsAnimationMode.METRO_LYRICS -> {
+                    MetroLyricsLine(
+                        line = line,
+                        words = effectiveWords,
+                        isActive = isCurrent,
+                        distanceFromCurrent = distanceFromCurrent,
+                        effectivePlaybackPosition = effectivePlaybackPosition,
+                        lineColor = effectiveLineColor,
+                        accentColor = effectiveAccentColor,
+                        textAlign = textAlign,
+                        alignment = horizontalAlignment,
+                        fontSizeSp = fontSize.value,
+                        lineSpacingMultiplier = lineSpacingMultiplier,
+                        isPlaying = isPlaying
+                    )
+                }
+            }
         }
 
         if (!line.translatedText.isNullOrBlank()) {
@@ -1165,6 +1364,7 @@ private fun LyricLineRow(
         }
     }
 }
+
 
 /**
  * Animated organic wavy circular countdown & rhythm orbs during song instrumental intros (BetterLyrics / Apple Music design).

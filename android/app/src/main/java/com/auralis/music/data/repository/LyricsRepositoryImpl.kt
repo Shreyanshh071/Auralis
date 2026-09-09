@@ -28,7 +28,7 @@ class LyricsRepositoryImpl(
         if (lyricsDao != null) {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    lyricsDao.purgeStaleLineSync(LYRICS_PIPELINE_VERSION)
+                    lyricsDao.purgeStalePipeline(LYRICS_PIPELINE_VERSION)
                     negativeLyricsDao?.cleanExpired(System.currentTimeMillis() + 86400000L)
                 } catch (_: Exception) {}
             }
@@ -49,8 +49,9 @@ class LyricsRepositoryImpl(
          * 5 = Phase 4D: recovered Binimum Apple Music word-sync, subtitle matching, space preservation, and intro alignment.
          * 6 = Phase 5: Paxsenix Apple Music syllable-synced lyrics provider integration.
          * 7 = Phase 5.1: strict cache revalidation, downgrade protection, and duration alignment fix.
+         * 8 = Phase 5.2: comprehensive syllable-merging engine and split-word healing.
          */
-        const val LYRICS_PIPELINE_VERSION = 7
+        const val LYRICS_PIPELINE_VERSION = 8
 
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
@@ -114,7 +115,7 @@ class LyricsRepositoryImpl(
                     val agent = if (lineObj.has("agent")) lineObj.getString("agent") else null
 
                     val wordsArray = lineObj.optJSONArray("words")
-                    val words = if (wordsArray != null && wordsArray.length() > 0) {
+                    val rawWords = if (wordsArray != null && wordsArray.length() > 0) {
                         val wList = mutableListOf<LyricWord>()
                         for (j in 0 until wordsArray.length()) {
                             val wObj = wordsArray.getJSONObject(j)
@@ -130,11 +131,21 @@ class LyricsRepositoryImpl(
                         wList
                     } else null
 
+                    val mergedWords = if (!rawWords.isNullOrEmpty()) {
+                        com.auralis.music.data.parser.WordTiming.mergeContiguousSyllables(rawWords) ?: rawWords
+                    } else null
+
+                    val resolvedText = if (!mergedWords.isNullOrEmpty() && rawWords != null && mergedWords.size < rawWords.size) {
+                        mergedWords.joinToString("") { it.word }.trim()
+                    } else {
+                        com.auralis.music.data.parser.WordTiming.healSplitWordsInText(text)
+                    }
+
                     lines.add(
                         LyricLine(
                             time = time,
-                            text = text,
-                            words = words,
+                            text = resolvedText,
+                            words = mergedWords,
                             isInstrumental = isInst,
                             isBackground = lineObj.optBoolean("isBackground", false),
                             endTime = endTime,
@@ -234,8 +245,8 @@ class LyricsRepositoryImpl(
             try {
                 val entity = lyricsDao.getLyrics(trackKey)
                 if (entity != null) {
-                    if (!entity.hasWordTiming && entity.pipelineVersion < LYRICS_PIPELINE_VERSION) {
-                        android.util.Log.d("AuralisLyrics", "[getCachedLyrics] Purging stale line-sync cache entry for '$trackKey' (pipelineVersion=${entity.pipelineVersion} < $LYRICS_PIPELINE_VERSION)")
+                    if (entity.pipelineVersion < LYRICS_PIPELINE_VERSION) {
+                        android.util.Log.d("AuralisLyrics", "[getCachedLyrics] Purging stale cache entry for '$trackKey' (pipelineVersion=${entity.pipelineVersion} < $LYRICS_PIPELINE_VERSION)")
                         lyricsDao.deleteLyrics(trackKey)
                         memoryCache.remove(trackKey)
                     } else {

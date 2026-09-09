@@ -160,12 +160,28 @@ object WordTiming {
     private val COMMON_PREFIXES_STEMS = setOf(
         "un", "dis", "mis", "pre", "re", "sub", "super", "inter", "trans",
         "in", "im", "non", "con", "nec", "beauti", "delic", "fantas", "won",
-        "to", "ye", "mor", "al", "ex", "com", "de", "pro"
+        "to", "ye", "mor", "al", "ex", "com", "de", "pro", "be", "en", "em",
+        "for", "fore", "per", "psy", "psyche", "real", "rea", "des", "vis", "vi",
+        "unbreak", "toge", "beau"
     )
 
     private val COMMON_SUFFIXES = setOf(
         "ful", "able", "ible", "tion", "sion", "ment", "ness", "less", "ly",
-        "er", "est", "ing", "ed", "al", "ic", "ity", "ous", "ious", "ize", "ise", "bar"
+        "er", "est", "ing", "ed", "al", "ic", "ity", "ous", "ious", "ize", "ise", "bar",
+        "ers", "ings", "ions", "ments", "ties", "ies", "es", "ther", "vor", "pise",
+        "lize", "sage", "delic", "tastic", "fully", "lessly"
+    )
+
+    private val NON_STANDALONE_SUFFIXES = setOf(
+        "ers", "est", "tion", "tions", "sion", "sions", "ment", "ments", "ness",
+        "less", "ful", "able", "ible", "ity", "ities", "ous", "ious", "ize", "ise",
+        "ized", "ised", "izing", "ising", "ings", "pise", "lize", "ther", "vor",
+        "sage", "delic", "tastic", "fully", "lessly"
+    )
+
+    private val NON_STANDALONE_PREFIXES = setOf(
+        "des", "toge", "beauti", "delic", "fantas", "unbreak", "rea", "vi", "psyche",
+        "mor", "al", "nec", "won"
     )
 
     private val KNOWN_COMPOUND_WORDS = setOf(
@@ -173,8 +189,52 @@ object WordTiming {
         "something", "somewhere", "everyday", "rainbow", "butterfly", "moonlight",
         "sunlight", "heartbeat", "everywhere", "anywhere", "myself", "yourself",
         "himself", "herself", "itself", "themselves", "tonight", "today", "tomorrow",
-        "wunderbar"
+        "wunderbar", "together", "trevor", "heather", "better", "weather", "feather",
+        "leather", "whatever", "whenever", "wherever", "whoever", "however", "another", "never",
+        "prayers", "despise", "realize", "visage", "beautiful", "deceive", "release", "psychedelic"
     )
+
+    /**
+     * Determines whether two words that had whitespace between them in provider markup
+     * or legacy cache are actually an unintended split of a single word.
+     */
+    fun isUnintendedSpaceSplit(prevWord: String, currWord: String): Boolean {
+        val f = prevWord.trim().trimEnd('-', '\'', '’').lowercase()
+        val s = currWord.trim()
+            .trimEnd(',', '.', '!', '?', ';', ':', '"', '\'', ')', ']', '}')
+            .trimStart('(', '[', '{', '"', '\'')
+            .trimEnd('-', '\'', '’')
+            .lowercase()
+        if (f.isEmpty() || s.isEmpty()) return false
+        if (prevWord.trim().endsWith("-")) return true
+        if (prevWord.trim().last() in ",.!?;:\"'") return false
+        val combined = f + s
+        if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
+        if (s in NON_STANDALONE_SUFFIXES) return true
+        if (f in NON_STANDALONE_PREFIXES) return true
+        return false
+    }
+
+    /**
+     * Heals any split words inside a plaintext lyric line (e.g. "Say your pray ers" -> "Say your prayers").
+     */
+    fun healSplitWordsInText(text: String): String {
+        if (text.isBlank() || !text.contains(' ')) return text
+        val tokens = text.split(" ")
+        if (tokens.size < 2) return text
+        val out = ArrayList<String>(tokens.size)
+        out.add(tokens[0])
+        for (i in 1 until tokens.size) {
+            val curr = tokens[i]
+            val prev = out[out.lastIndex]
+            if (isUnintendedSpaceSplit(prev, curr)) {
+                out[out.lastIndex] = prev + curr
+            } else {
+                out.add(curr)
+            }
+        }
+        return out.joinToString(" ")
+    }
 
     /**
      * Determines whether two adjacent unspaced spans are genuine syllables belonging to
@@ -223,7 +283,7 @@ object WordTiming {
      * emitted as separate spans without whitespace between them.
      *
      * Contiguous spans are merged when:
-     * 1. The previous span does not end with whitespace and meets [shouldMergeSyllables].
+     * 1. Spans are unspaced syllables, OR unintended space splits of the same word.
      * 2. Neither span contains CJK characters.
      * 3. Both spans share the same background-vocal status.
      *
@@ -240,14 +300,15 @@ object WordTiming {
             val curr = words[i]
             val prevWord = acc.word
             val hasTrailingSpace = prevWord.isNotEmpty() && prevWord.last().isWhitespace()
-            val canMerge = !hasTrailingSpace &&
-                !isCjk(prevWord) &&
+            val canMerge = !isCjk(prevWord) &&
                 !isCjk(curr.word) &&
                 acc.isBackground == curr.isBackground &&
-                shouldMergeSyllables(prevWord, curr.word)
+                ((!hasTrailingSpace && shouldMergeSyllables(prevWord, curr.word)) ||
+                 (hasTrailingSpace && isUnintendedSpaceSplit(prevWord, curr.word)))
 
             if (canMerge) {
-                val combinedText = prevWord + curr.word
+                val cleanPrev = if (hasTrailingSpace) prevWord.trimEnd() else prevWord
+                val combinedText = cleanPrev + curr.word
                 val startTime = acc.time
                 val currEnd = curr.duration?.let { curr.time + it }
                 val accEnd = acc.duration?.let { acc.time + it }
