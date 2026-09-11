@@ -26,6 +26,7 @@ import coil.compose.AsyncImagePainter
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.auralis.music.domain.model.Track
+import kotlinx.coroutines.launch
 
 private val GOOGLE_W_REGEX = Regex("""=w\d+-h\d+.*""")
 private val GOOGLE_S_REGEX = Regex("""=s\d+.*""")
@@ -159,13 +160,26 @@ fun ArtworkCard(
         }
     }
 
-    val onStateCallback = remember(resolvedUrl, fallbackUrl) {
+    val coroutineScope = rememberCoroutineScope()
+    val onStateCallback = remember(resolvedUrl, fallbackUrl, activeUrl) {
         { state: AsyncImagePainter.State ->
             if (state is AsyncImagePainter.State.Error) {
                 if (!isPrimaryError && !resolvedUrl.isNullOrBlank() && !fallbackUrl.isNullOrBlank() && resolvedUrl != fallbackUrl) {
                     isPrimaryError = true
                 } else {
                     isError = true
+                }
+            } else if (state is AsyncImagePainter.State.Success) {
+                val urlToCache = activeUrl
+                if (!urlToCache.isNullOrBlank() && com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(urlToCache) == null) {
+                    val drawable = state.result.drawable
+                    if (drawable is android.graphics.drawable.BitmapDrawable && drawable.bitmap != null && !drawable.bitmap.isRecycled) {
+                        val bmp = drawable.bitmap
+                        coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                            val pal = com.auralis.music.ui.theme.ArtworkPaletteCache.extractFromBitmap(bmp)
+                            com.auralis.music.ui.theme.ArtworkPaletteCache.put(urlToCache, pal)
+                        }
+                    }
                 }
             }
         }

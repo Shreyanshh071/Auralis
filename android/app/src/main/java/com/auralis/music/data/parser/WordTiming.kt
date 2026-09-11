@@ -157,31 +157,101 @@ object WordTiming {
         return if (out.isEmpty()) listOf(text) else out
     }
 
-    private val COMMON_PREFIXES_STEMS = setOf(
-        "un", "dis", "mis", "pre", "re", "sub", "super", "inter", "trans",
-        "in", "im", "non", "con", "nec", "beauti", "delic", "fantas", "won",
-        "to", "ye", "mor", "al", "ex", "com", "de", "pro", "be", "en", "em",
-        "for", "fore", "per", "psy", "psyche", "real", "rea", "des", "vis", "vi",
-        "unbreak", "toge", "beau"
-    )
-
-    private val COMMON_SUFFIXES = setOf(
-        "ful", "able", "ible", "tion", "sion", "ment", "ness", "less", "ly",
-        "er", "est", "ing", "ed", "al", "ic", "ity", "ous", "ious", "ize", "ise", "bar",
-        "ers", "ings", "ions", "ments", "ties", "ies", "es", "ther", "vor", "pise",
-        "lize", "sage", "delic", "tastic", "fully", "lessly"
+    private val STANDALONE_WORDS = setOf(
+        // Pronouns, determiners, articles
+        "a", "an", "the", "i", "me", "my", "mine", "myself",
+        "you", "your", "yours", "yourself", "yourselves",
+        "he", "him", "his", "himself",
+        "she", "her", "hers", "herself",
+        "it", "its", "itself",
+        "we", "us", "our", "ours", "ourselves",
+        "they", "them", "their", "theirs", "themselves",
+        "this", "that", "these", "those",
+        "all", "any", "some", "no", "every", "each", "both", "few", "more", "most", "other", "such",
+        // Prepositions & Conjunctions
+        "in", "on", "at", "to", "for", "with", "by", "from", "of", "as", "about", "after",
+        "along", "around", "before", "behind", "below", "beneath", "beside", "between", "beyond",
+        "down", "during", "except", "inside", "into", "like", "near", "off", "onto", "out",
+        "over", "past", "since", "through", "till", "toward", "under", "until", "up", "upon",
+        "within", "without", "and", "but", "or", "nor", "yet", "so", "than", "though", "unless",
+        "while", "because", "if",
+        // Verbs & Auxiliaries
+        "is", "am", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "having",
+        "do", "does", "did", "done", "doing",
+        "can", "could", "will", "would", "shall", "should", "may", "might", "must",
+        "go", "goes", "went", "gone", "going",
+        "come", "comes", "came", "coming",
+        "see", "sees", "saw", "seen", "seeing",
+        "know", "knows", "knew", "known", "knowing",
+        "say", "says", "said", "saying",
+        "tell", "tells", "told", "telling",
+        "make", "makes", "made", "making",
+        "take", "takes", "took", "taken", "taking",
+        "get", "gets", "got", "getting",
+        "give", "gives", "gave", "given", "giving",
+        "find", "finds", "found", "finding",
+        "think", "thinks", "thought", "thinking",
+        "look", "looks", "looked", "looking",
+        "want", "wants", "wanted", "wanting",
+        "feel", "feels", "felt", "feeling",
+        "put", "puts", "putting",
+        "let", "lets", "letting",
+        "run", "runs", "ran", "running",
+        "hear", "hears", "heard", "hearing",
+        "call", "calls", "called", "calling",
+        "keep", "keeps", "kept", "keeping",
+        "need", "needs", "needed", "needing",
+        "leave", "leaves", "left", "leaving",
+        "help", "play", "talk", "turn", "start", "show", "move", "live", "hold",
+        "bring", "write", "read", "stand", "lose", "lost", "pay", "meet", "met",
+        "set", "learn", "stop", "walk", "grow", "wait", "send", "stay", "fall",
+        "cut", "reach", "kill", "raise", "pass", "sell", "sold", "hope", "break",
+        "hit", "eat", "catch", "draw", "choose", "fight", "throw", "die", "care",
+        "love", "hate", "wish", "fear", "trust", "tease", "touch", "sing", "cry", "dance", "pray",
+        // Adjectives, Adverbs, Numbers
+        "not", "yes", "now", "then", "here", "there", "when", "where", "why", "how",
+        "what", "who", "whom", "which", "whose",
+        "very", "too", "much", "less", "better", "best", "worse", "worst",
+        "good", "bad", "well", "new", "old", "big", "small", "high", "low",
+        "great", "little", "own", "right", "left", "long", "short", "real",
+        "true", "false", "easy", "hard", "fast", "slow", "clear", "cold", "hot", "warm",
+        "dark", "light", "soft", "loud", "late", "early", "far", "close", "free",
+        "full", "pure", "fine", "sure", "sweet", "dead", "alive", "alone", "ready",
+        "sad", "sick", "deep", "rich", "poor", "fair", "pale", "wild", "calm",
+        "glad", "cool", "dry", "wet", "clean", "dirty", "strong", "weak", "safe",
+        "just", "only", "also", "even", "back", "still", "already", "always", "never",
+        "ever", "often", "again", "away", "together", "enough", "almost", "quite", "soon", "maybe",
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        // Contractions (without apostrophe or with)
+        "dont", "im", "ive", "ill", "id", "youre", "youve", "youll", "youd",
+        "hes", "hed", "hell", "shes", "shed", "shell", "its", "were", "weve",
+        "well", "wed", "theyre", "theyve", "theyll", "theyd", "thats", "whats",
+        "whos", "theres", "heres", "wheres", "cant", "wont", "aint", "didnt",
+        "doesnt", "isnt", "arent", "wasnt", "werent", "havent", "hasnt", "hadnt",
+        "wouldnt", "couldnt", "shouldnt",
+        // Common Nouns
+        "man", "men", "woman", "women", "boy", "girl", "child", "baby", "people",
+        "friend", "world", "life", "time", "year", "day", "night", "way", "thing",
+        "eye", "hand", "head", "heart", "body", "soul", "mind", "face", "door",
+        "house", "home", "room", "road", "street", "car", "city", "town", "water",
+        "sky", "sun", "moon", "star", "fire", "earth", "air", "tree", "plant",
+        "sound", "word", "song", "music", "voice", "name", "place", "part", "side",
+        "end", "line", "shadow", "dream", "truth", "lie", "peace", "war", "pain",
+        "tear", "smile", "kiss", "bed", "blood", "bone", "breath", "rain", "wind",
+        "sea", "ocean", "river", "hill", "rock", "stone", "gold", "glass", "can",
+        "bar", "sage", "bird", "dog", "cat", "fish", "hello"
     )
 
     private val NON_STANDALONE_SUFFIXES = setOf(
         "ers", "est", "tion", "tions", "sion", "sions", "ment", "ments", "ness",
-        "less", "ful", "able", "ible", "ity", "ities", "ous", "ious", "ize", "ise",
+        "ible", "ity", "ities", "ous", "ious", "ize", "ise",
         "ized", "ised", "izing", "ising", "ings", "pise", "lize", "ther", "vor",
-        "sage", "delic", "tastic", "fully", "lessly"
+        "delic", "tastic", "lessly"
     )
 
     private val NON_STANDALONE_PREFIXES = setOf(
-        "des", "toge", "beauti", "delic", "fantas", "unbreak", "rea", "vi", "psyche",
-        "mor", "al", "nec", "won"
+        "des", "toge", "beauti", "delic", "fantas", "unbreak", "rea", "vi", "psyche"
     )
 
     private val KNOWN_COMPOUND_WORDS = setOf(
@@ -191,8 +261,19 @@ object WordTiming {
         "himself", "herself", "itself", "themselves", "tonight", "today", "tomorrow",
         "wunderbar", "together", "trevor", "heather", "better", "weather", "feather",
         "leather", "whatever", "whenever", "wherever", "whoever", "however", "another", "never",
-        "prayers", "despise", "realize", "visage", "beautiful", "deceive", "release", "psychedelic"
+        "prayers", "despise", "realize", "visage", "beautiful", "deceive", "release", "psychedelic",
+        "unbreakable", "connection", "easy", "weirdo", "running", "happy", "blinded", "withdrawals", "overdrive"
     )
+
+    fun isStandalone(token: String): Boolean {
+        val c = token.trim()
+            .trimEnd(',', '.', '!', '?', ';', ':', '"', '\'', ')', ']', '}')
+            .trimStart('(', '[', '{', '"', '\'')
+            .replace("'", "")
+            .replace("’", "")
+            .lowercase()
+        return c.isNotEmpty() && STANDALONE_WORDS.contains(c)
+    }
 
     /**
      * Determines whether two words that had whitespace between them in provider markup
@@ -210,6 +291,8 @@ object WordTiming {
         if (prevWord.trim().last() in ",.!?;:\"'") return false
         val combined = f + s
         if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
+        // If both tokens are standalone English words, whitespace between them is deliberate and must never be stripped
+        if (isStandalone(f) && isStandalone(s)) return false
         if (s in NON_STANDALONE_SUFFIXES) return true
         if (f in NON_STANDALONE_PREFIXES) return true
         return false
@@ -259,20 +342,19 @@ object WordTiming {
         val combined = fLower + sLower
 
         if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
-        if (fLower in COMMON_PREFIXES_STEMS || sLower in COMMON_SUFFIXES) return true
 
-        // Standalone single-letter words ("a", "i") in English do not merge with adjacent words unless hyphenated
-        if (fLower == "a" || fLower == "i" || sLower == "a" || sLower == "i") return false
+        // Two valid standalone English words NEVER merge unless they form a known compound word
+        if (isStandalone(fLower) && isStandalone(sLower)) return false
 
-        // Complete independent multi-syllable words (e.g. "plastic" [7], "watering" [8], "chinese" [7], "rubber" [6], "plant" [5])
-        // should never be merged together unless in KNOWN_COMPOUND_WORDS.
-        if (fLower.length >= 5 && sLower.length >= 5) {
-            return false
-        }
+        // Recognized sub-word prefixes or suffixes that cannot stand alone
+        if (fLower in NON_STANDALONE_PREFIXES || sLower in NON_STANDALONE_SUFFIXES) return true
 
-        // Unspaced adjacent spans where at least one token is a syllable fragment (< 5 characters)
-        // are syllables of the same visual word (e.g. "ea" + "sy", "vi" + "sage", "de" + "ceive", "re" + "lease", "beauti" + "ful").
-        return true
+        // Unspaced adjacent spans where at least one token is a non-standalone syllable fragment (<= 4 characters)
+        // are syllables of the same visual word (e.g. "ea" + "sy", "vi" + "sage", "de" + "ceive", "beauti" + "ful").
+        if (!isStandalone(fLower) && fLower.length <= 4) return true
+        if (!isStandalone(sLower) && sLower.length <= 4) return true
+
+        return false
     }
 
     /**

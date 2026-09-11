@@ -27,7 +27,7 @@ data class AppearanceSettings(
     val miniPlayerSwipeSensitivity: Int = 73,
 
     // ── Lyrics ──
-    val experimentalLyrics: Boolean = true,
+    val experimentalLyrics: Boolean = false,
     val lyricsTextPosition: String = "Centre",
     val respectAgentPositioning: Boolean = true,
     val changeLyricsOnTap: Boolean = true,

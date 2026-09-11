@@ -31,8 +31,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
@@ -50,7 +52,11 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -300,11 +306,12 @@ fun SyncedLyricsView(
             else {
                 val targetTime = positionState.value + offsetMs
                 val active = LyricsEngine.findActiveLyricIndices(effectiveLines, positionState.value, offsetMs)
+                val primary = LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value, offsetMs)
                 buildSet {
                     for (i in effectiveLines.indices) {
-                        if (!active.contains(i)) {
+                        if (!active.contains(i) && (active.isNotEmpty() || primary != i)) {
                             val line = effectiveLines[i]
-                            val lineEnd = line.effectiveEndTime ?: effectiveLines.getOrNull(i + 1)?.time ?: (line.time + 10_000L)
+                            val lineEnd = effectiveLines.getOrNull(i + 1)?.time ?: line.effectiveEndTime ?: (line.time + 10_000L)
                             if (targetTime >= lineEnd) {
                                 add(i)
                             }
@@ -318,33 +325,77 @@ fun SyncedLyricsView(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    if (appearance.experimentalLyrics) {
+        ExperimentalLyricsView(
+            lyrics = lyrics,
+            positionState = positionState,
+            onSeekTo = onSeekTo,
+            modifier = modifier,
+            isPlaying = isPlaying,
+            lyricsClockSource = lyricsClockSource,
+            offsetMs = offsetMs,
+            onOffsetChange = onOffsetChange,
+            onSearchManually = onSearchManually,
+            headerContent = null,
+            footerContent = null,
+            track = track
+        )
+        return
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Human drag detection: pause auto-scrolling during touch gestures, resume after 3.5s
+    // Auto-scrolling state & user drag detection
+    var isAutoScrollEnabled by rememberSaveable { mutableStateOf(appearance.autoScrollLyrics) }
     var isUserInteracting by remember { mutableStateOf(false) }
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
 
     // Lyric Selection & Sharing State (Capped strictly at max 5 lines)
     var selectedIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var showShareSheet by remember { mutableStateOf(false) }
     var shareLyricsText by remember { mutableStateOf("") }
 
-    var dragResetJob by remember { mutableStateOf<Job?>(null) }
-
-    LaunchedEffect(listState.interactionSource) {
-        listState.interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is DragInteraction.Start -> {
-                    dragResetJob?.cancel()
-                    isUserInteracting = true
-                }
-                is DragInteraction.Stop, is DragInteraction.Cancel -> {
-                    dragResetJob?.cancel()
-                    dragResetJob = launch {
-                        delay(3500)
-                        isUserInteracting = false
+    // NestedScrollConnection detects manual user scrolling across all lyrics modes,
+    // even when child row clicks consume pointer events.
+    val lyricsNestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 0.5f) {
+                    if (selectedIndices.isEmpty()) {
+                        isAutoScrollEnabled = false
+                        isUserInteracting = true
                     }
                 }
+                return Offset.Zero
             }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    if (selectedIndices.isEmpty()) {
+                        isAutoScrollEnabled = false
+                    }
+                }
+                return super.onPostScroll(consumed, available, source)
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (selectedIndices.isEmpty()) {
+                    isAutoScrollEnabled = false
+                }
+                isUserInteracting = false
+                return super.onPostFling(consumed, available)
+            }
+        }
+    }
+
+    // Direct scroll-state observer: ensures any non-programmatic scroll immediately disengages auto-scroll
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            if (!isProgrammaticScroll && selectedIndices.isEmpty()) {
+                isAutoScrollEnabled = false
+                isUserInteracting = true
+            }
+        } else {
+            isUserInteracting = false
         }
     }
 
@@ -384,58 +435,80 @@ fun SyncedLyricsView(
         LaunchedEffect(lyrics) {
             hasInitialCentered = false
             lastCenteredIndex = -1
+            isAutoScrollEnabled = appearance.autoScrollLyrics
         }
 
         // Suspend function to accurately and smoothly center any lyric line in the viewport
         val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
             if (targetIndex in effectiveLines.indices) {
-                var layoutInfo = listState.layoutInfo
-                var viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-                if (viewportHeight <= 0) {
-                    try {
-                        withFrameMillis { }
-                    } catch (_: Exception) {
-                        delay(16L)
-                    }
-                    layoutInfo = listState.layoutInfo
-                    viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-                }
-
-                if (viewportHeight > 0) {
-                    val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * targetCenterFraction)
-                    var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-                    if (itemInfo == null) {
-                        listState.scrollToItem(targetIndex)
+                isProgrammaticScroll = true
+                try {
+                    var layoutInfo = listState.layoutInfo
+                    var viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+                    if (viewportHeight <= 0) {
                         try {
                             withFrameMillis { }
                         } catch (_: Exception) {
                             delay(16L)
                         }
                         layoutInfo = listState.layoutInfo
-                        itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
                     }
 
-                    if (itemInfo != null) {
-                        val itemCenterY = itemInfo.offset + (itemInfo.size / 2f)
-                        val scrollDelta = itemCenterY - targetCenterY
-                        if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                    if (viewportHeight > 0) {
+                        val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * targetCenterFraction)
+                        var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        if (itemInfo == null) {
+                            listState.scrollToItem(targetIndex)
                             try {
-                                if (animate) {
-                                    listState.animateScrollBy(
-                                        value = scrollDelta,
-                                        animationSpec = tween(
-                                            durationMillis = 260,
-                                            easing = FastOutSlowInEasing
+                                withFrameMillis { }
+                            } catch (_: Exception) {
+                                delay(16L)
+                            }
+                            layoutInfo = listState.layoutInfo
+                            itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        }
+
+                        if (itemInfo != null) {
+                            val itemCenterY = itemInfo.offset + (itemInfo.size / 2f)
+                            val scrollDelta = itemCenterY - targetCenterY
+                            if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                                try {
+                                    if (animate) {
+                                        listState.animateScrollBy(
+                                            value = scrollDelta,
+                                            animationSpec = tween(
+                                                durationMillis = 260,
+                                                easing = FastOutSlowInEasing
+                                            )
                                         )
-                                    )
-                                } else {
-                                    listState.scrollBy(scrollDelta)
+                                    } else {
+                                        listState.scrollBy(scrollDelta)
+                                    }
+                                } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
                                 }
-                            } catch (e: Exception) {
-                                if (e is kotlinx.coroutines.CancellationException) throw e
                             }
                         }
                     }
+                } finally {
+                    isProgrammaticScroll = false
+                }
+            }
+        }
+
+        val resyncLyrics: () -> Unit = {
+            isAutoScrollEnabled = true
+            val activeIndex = primaryActiveIndexState.value
+            if (activeIndex >= 0 && activeIndex < effectiveLines.size) {
+                coroutineScope.launch {
+                    centerActiveLine(activeIndex, true)
+                    lastCenteredIndex = activeIndex
+                }
+            } else if (effectiveLines.isNotEmpty()) {
+                coroutineScope.launch {
+                    centerActiveLine(0, true)
+                    lastCenteredIndex = 0
                 }
             }
         }
@@ -445,8 +518,8 @@ fun SyncedLyricsView(
         // composable — the effect wakes only when the primary active index or the user's
         // touch state actually changes. Anchoring to primaryActiveIndex prevents scrolling
         // jitter when simultaneous secondary/background lines overlap.
-        LaunchedEffect(primaryActiveIndexState, isSynced, appearance.autoScrollLyrics, effectiveLines) {
-            if (!isSynced || !appearance.autoScrollLyrics) return@LaunchedEffect
+        LaunchedEffect(primaryActiveIndexState, isSynced, isAutoScrollEnabled, effectiveLines) {
+            if (!isSynced || !isAutoScrollEnabled) return@LaunchedEffect
             snapshotFlow {
                 Triple(primaryActiveIndexState.value, isUserInteracting, selectedIndices.isNotEmpty())
             }
@@ -490,6 +563,7 @@ fun SyncedLyricsView(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .nestedScroll(lyricsNestedScrollConnection)
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
@@ -523,8 +597,8 @@ fun SyncedLyricsView(
                 val activeIndices = activeIndicesState.value
                 val pastIndices = pastIndicesState.value
                 val primaryIndex = primaryActiveIndexState.value
-                val isCurrent = isSynced && activeIndices.contains(index)
-                val isPast = isSynced && pastIndices.contains(index)
+                val isCurrent = isSynced && (activeIndices.contains(index) || (activeIndices.isEmpty() && primaryIndex == index))
+                val isPast = isSynced && pastIndices.contains(index) && !isCurrent
                 val pastDistance = if (isPast) {
                     val minActive = activeIndices.minOrNull()
                     val ref = minActive ?: (primaryIndex + 1)
@@ -615,6 +689,7 @@ fun SyncedLyricsView(
                                         }
                                     } else if (isSynced && appearance.changeLyricsOnTap) {
                                         isUserInteracting = false
+                                        isAutoScrollEnabled = true
                                         onSeekTo(line.time)
                                     }
                                 },
@@ -653,13 +728,47 @@ fun SyncedLyricsView(
                             standardBlur = appearance.standardLyricsBlur,
                             fontSizeSp = appearance.lyricsTextSize,
                             lineSpacingMultiplier = appearance.lyricsLineSpacing,
-                            isAutoScrollActive = appearance.autoScrollLyrics,
-                            isUserInteracting = isUserInteracting,
+                            isAutoScrollActive = isAutoScrollEnabled,
+                            isUserInteracting = isUserInteracting || !isAutoScrollEnabled,
                             rowMaxWidthPx = rowMaxWidthPx,
                             isPlaying = isPlaying
                         )
                     }
                 }
+            }
+        }
+
+        // Floating Re-sync button when auto-scroll is disabled by manual scrolling
+        AnimatedVisibility(
+            visible = !isAutoScrollEnabled && isSynced && selectedIndices.isEmpty(),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(Color(0xFF1E1B18).copy(alpha = 0.92f))
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(32.dp))
+                    .clickable(onClick = resyncLyrics)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sync,
+                    contentDescription = "Re-sync",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Re-sync",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
 
@@ -1370,7 +1479,7 @@ private fun LyricLineRow(
  * Animated organic wavy circular countdown & rhythm orbs during song instrumental intros (BetterLyrics / Apple Music design).
  */
 @Composable
-private fun InstrumentalIntroIndicator(
+internal fun InstrumentalIntroIndicator(
     currentTimeMsState: State<Long>,
     introDurationMs: Long,
     modifier: Modifier = Modifier,

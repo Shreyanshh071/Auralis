@@ -286,7 +286,7 @@ fun StatsScreen(
             }
 
             // Main Stats Content
-            val bottomPadding = if (hasActiveMiniPlayer) 170.dp else 100.dp
+            val bottomPadding = if (hasActiveMiniPlayer) 120.dp else 40.dp
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomPadding),

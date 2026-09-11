@@ -143,7 +143,7 @@ class AppearanceSettingsDataStore(
                 enableSwipeToChangeSong = preferences[ENABLE_SWIPE_TO_CHANGE_SONG] ?: true,
                 miniPlayerSwipeSensitivity = preferences[MINI_PLAYER_SWIPE_SENSITIVITY] ?: 73,
 
-                experimentalLyrics = preferences[EXPERIMENTAL_LYRICS] ?: true,
+                experimentalLyrics = preferences[EXPERIMENTAL_LYRICS] ?: false,
                 lyricsTextPosition = preferences[LYRICS_TEXT_POSITION] ?: "Centre",
                 respectAgentPositioning = preferences[RESPECT_AGENT_POSITIONING] ?: true,
                 changeLyricsOnTap = preferences[CHANGE_LYRICS_ON_TAP] ?: true,

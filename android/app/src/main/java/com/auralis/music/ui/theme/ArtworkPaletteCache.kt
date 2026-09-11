@@ -33,7 +33,10 @@ data class ArtworkPalette(
     val seedColor: Color = primary,
     val isMonochrome: Boolean = false,
     val glowColors: List<Color> = emptyList()
-)
+) {
+    val isDefault: Boolean
+        get() = this == ArtworkPaletteCache.defaultPalette
+}
 
 /**
  * High-performance thread-safe LRU Cache, Reactive StateFlow & Async Extractor for album artwork palettes.
@@ -94,6 +97,11 @@ object ArtworkPaletteCache {
     private var extractionJob: Job? = null
     private val cacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    fun isCurrentTrack(trackId: String?): Boolean {
+        if (trackId.isNullOrBlank() || currentTrackId.isNullOrBlank()) return false
+        return currentTrackId == trackId
+    }
+
     fun getCached(key: String): ArtworkPalette? {
         if (key.isBlank()) return null
         return synchronized(memoryCache) { memoryCache[key] }
@@ -118,6 +126,122 @@ object ArtworkPaletteCache {
     }
 
     /**
+     * Extracts dynamic colors from a Bitmap directly and synchronously.
+     * Handles hardware bitmaps safely and performs ultra-fast 64x64 palette quantization (<2ms).
+     */
+    fun extractFromBitmap(bitmap: Bitmap): ArtworkPalette {
+        if (bitmap.isRecycled) return defaultPalette
+
+        val softwareBitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+            bitmap.config == Bitmap.Config.HARDWARE) {
+            try {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
+            } catch (_: Exception) {
+                bitmap
+            }
+        } else {
+            bitmap
+        }
+
+        val palette = try {
+            Palette.from(softwareBitmap)
+                .maximumColorCount(8)
+                .resizeBitmapArea(64 * 64)
+                .generate()
+        } catch (_: Exception) {
+            return defaultPalette
+        }
+
+        val colorsToPopulation = palette.swatches.associate { it.rgb to it.population }
+        val scoredColors = Score.score(colorsToPopulation)
+
+        val seedRgb = scoredColors.firstOrNull()
+            ?: palette.vibrantSwatch?.rgb
+            ?: palette.dominantSwatch?.rgb
+            ?: palette.mutedSwatch?.rgb
+            ?: palette.lightVibrantSwatch?.rgb
+            ?: palette.darkVibrantSwatch?.rgb
+            ?: palette.swatches.maxByOrNull { it.population }?.rgb
+
+        if (seedRgb == null) {
+            return defaultPalette
+        }
+
+        val rawSeedColor = Color(seedRgb)
+        val hct = rawSeedColor.toHct()
+        val chroma = hct.chroma
+        val tone = hct.tone
+        val isMonochrome = chroma < 7.0 || (chroma < 12.0 && (tone > 80.0 || tone < 18.0))
+
+        val extracted = if (isMonochrome) {
+            val r = (seedRgb shr 16) and 0xFF
+            val g = (seedRgb shr 8) and 0xFF
+            val b = seedRgb and 0xFF
+            val grayVal = ((r * 299 + g * 587 + b * 114) / 1000).coerceIn(0, 255)
+            val neutralSeed = Color(grayVal, grayVal, grayVal)
+
+            ArtworkPalette(
+                primary = Color(0xFFE0E0E0),
+                secondary = Color(0xFF9E9E9E),
+                tertiary = Color(0xFF616161),
+                seedColor = neutralSeed,
+                isMonochrome = true,
+                glowColors = listOf(
+                    Color(0xFFE2E2E2),
+                    Color(0xFFB8B8B8),
+                    Color(0xFF8E8E8E),
+                    Color(0xFF686868),
+                    Color(0xFF484848),
+                    Color(0xFFA2A2A2)
+                )
+            )
+        } else {
+            val secRgb = scoredColors.getOrNull(1)
+                ?: palette.mutedSwatch?.rgb
+                ?: palette.darkVibrantSwatch?.rgb
+                ?: seedRgb
+
+            val tertRgb = scoredColors.getOrNull(2)
+                ?: palette.lightVibrantSwatch?.rgb
+                ?: palette.darkMutedSwatch?.rgb
+                ?: secRgb
+
+            val secondaryColor = Color(secRgb)
+            val tertiaryColor = Color(tertRgb)
+
+            val rawGlowList = listOfNotNull(
+                palette.vibrantSwatch?.rgb?.let { Color(it) },
+                palette.lightVibrantSwatch?.rgb?.let { Color(it) },
+                palette.darkVibrantSwatch?.rgb?.let { Color(it) },
+                palette.mutedSwatch?.rgb?.let { Color(it) },
+                palette.lightMutedSwatch?.rgb?.let { Color(it) },
+                palette.darkMutedSwatch?.rgb?.let { Color(it) }
+            ).distinct()
+
+            val actualGlowColors = if (rawGlowList.isNotEmpty()) {
+                rawGlowList
+            } else {
+                listOf(rawSeedColor, secondaryColor, tertiaryColor).distinct()
+            }
+
+            ArtworkPalette(
+                primary = rawSeedColor,
+                secondary = secondaryColor,
+                tertiary = tertiaryColor,
+                seedColor = rawSeedColor,
+                isMonochrome = false,
+                glowColors = actualGlowColors
+            )
+        }
+
+        if (softwareBitmap != bitmap && !softwareBitmap.isRecycled) {
+            try { softwareBitmap.recycle() } catch (_: Exception) {}
+        }
+
+        return extracted
+    }
+
+    /**
      * Updates the shared active artwork palette for the currently playing track.
      * Checks memory cache first for 0ms response time, or initiates async extraction off the main thread.
      */
@@ -133,7 +257,7 @@ object ArtworkPaletteCache {
         if (trackId == currentTrackId && _currentPalette.value != defaultPalette) return
         currentTrackId = trackId
 
-        // 1. Instant hit from memory cache
+        // 1. Instant hit from internal LRU memory cache
         val cached = getCached(trackId) ?: getCached(track.thumbnail)
         if (cached != null) {
             extractionJob?.cancel()
@@ -141,7 +265,33 @@ object ArtworkPaletteCache {
             return
         }
 
-        // 2. Off-main-thread extraction
+        // 2. Synchronous check: inspect Coil's in-memory cache for preloaded bitmap
+        try {
+            val memCache = context.imageLoader.memoryCache
+            if (memCache != null) {
+                val candidateKeys = listOfNotNull(
+                    coil.memory.MemoryCache.Key(track.thumbnail),
+                    getHighResArtworkUrl(track.thumbnail)?.let { coil.memory.MemoryCache.Key(it) }
+                )
+                for (cacheKey in candidateKeys) {
+                    val value = memCache[cacheKey]
+                    val bmp = value?.bitmap
+                    if (bmp != null && !bmp.isRecycled) {
+                        val palette = extractFromBitmap(bmp)
+                        put(trackId, palette)
+                        put(track.thumbnail, palette)
+                        extractionJob?.cancel()
+                        _currentPalette.value = palette
+                        return
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Reset to default neutral palette so previous song's color does NOT linger
+        _currentPalette.value = defaultPalette
+
+        // 3. Off-main-thread extraction
         extractionJob?.cancel()
         extractionJob = cacheScope.launch {
             val palette = extractPalette(context, trackId, track.thumbnail)
@@ -163,8 +313,6 @@ object ArtworkPaletteCache {
 
         val targetUrl = getHighResArtworkUrl(artworkUrl)
         val urlCandidates = mutableListOf<String>()
-        // Prioritize artworkUrl first: it is already in Coil's in-memory cache from the UI,
-        // giving instant 0ms extraction without triggering network fetches.
         urlCandidates.add(artworkUrl)
         if (targetUrl != null && targetUrl != artworkUrl) {
             urlCandidates.add(targetUrl)
@@ -199,103 +347,7 @@ object ArtworkPaletteCache {
                 }
 
                 if (bitmap != null && !bitmap.isRecycled) {
-                    // ViVi & NomaTune extraction pipeline:
-                    // 1. maximumColorCount(8): quantizes into 8 dominant color fields,
-                    // absorbing text/logos/minor artifacts so true artwork color dominates.
-                    val palette = withContext(Dispatchers.Default) {
-                        Palette.from(bitmap)
-                            .maximumColorCount(8)
-                            .resizeBitmapArea(128 * 128)
-                            .generate()
-                    }
-
-                    val colorsToPopulation = palette.swatches.associate { it.rgb to it.population }
-                    val scoredColors = Score.score(colorsToPopulation)
-
-                    val seedRgb = scoredColors.firstOrNull()
-                        ?: palette.vibrantSwatch?.rgb
-                        ?: palette.dominantSwatch?.rgb
-                        ?: palette.mutedSwatch?.rgb
-                        ?: palette.lightVibrantSwatch?.rgb
-                        ?: palette.darkVibrantSwatch?.rgb
-                        ?: palette.swatches.maxByOrNull { it.population }?.rgb
-
-                    if (seedRgb == null) {
-                        return@withContext defaultPalette
-                    }
-
-                    val rawSeedColor = Color(seedRgb)
-                    val hct = rawSeedColor.toHct()
-                    val chroma = hct.chroma
-                    val tone = hct.tone
-                    // Off-white / light-gray artwork has high tone (>80) and low chroma (<12),
-                    // and dark/monochrome artwork has low tone (<18) and low chroma (<12).
-                    val isMonochrome = chroma < 7.0 || (chroma < 12.0 && (tone > 80.0 || tone < 18.0))
-
-                    val extracted = if (isMonochrome) {
-                        // Genuine monochrome/grayscale artwork (e.g. Break The Night With Colour):
-                        // Preserve the actual artwork's dominant grayscale luminance without injecting blue.
-                        val r = (seedRgb shr 16) and 0xFF
-                        val g = (seedRgb shr 8) and 0xFF
-                        val b = seedRgb and 0xFF
-                        val grayVal = ((r * 299 + g * 587 + b * 114) / 1000).coerceIn(0, 255)
-                        val neutralSeed = Color(grayVal, grayVal, grayVal)
-
-                        ArtworkPalette(
-                            primary = Color(0xFFE0E0E0),
-                            secondary = Color(0xFF9E9E9E),
-                            tertiary = Color(0xFF616161),
-                            seedColor = neutralSeed,
-                            isMonochrome = true,
-                            glowColors = listOf(
-                                Color(0xFFE2E2E2),
-                                Color(0xFFB8B8B8),
-                                Color(0xFF8E8E8E),
-                                Color(0xFF686868),
-                                Color(0xFF484848),
-                                Color(0xFFA2A2A2)
-                            )
-                        )
-                    } else {
-                        val secRgb = scoredColors.getOrNull(1)
-                            ?: palette.mutedSwatch?.rgb
-                            ?: palette.darkVibrantSwatch?.rgb
-                            ?: seedRgb
-
-                        val tertRgb = scoredColors.getOrNull(2)
-                            ?: palette.lightVibrantSwatch?.rgb
-                            ?: palette.darkMutedSwatch?.rgb
-                            ?: secRgb
-
-                        val secondaryColor = Color(secRgb)
-                        val tertiaryColor = Color(tertRgb)
-
-                        // ViVi extraction of swatches for Glow Motion - strictly authentic artwork colors
-                        val rawGlowList = listOfNotNull(
-                            palette.vibrantSwatch?.rgb?.let { Color(it) },
-                            palette.lightVibrantSwatch?.rgb?.let { Color(it) },
-                            palette.darkVibrantSwatch?.rgb?.let { Color(it) },
-                            palette.mutedSwatch?.rgb?.let { Color(it) },
-                            palette.lightMutedSwatch?.rgb?.let { Color(it) },
-                            palette.darkMutedSwatch?.rgb?.let { Color(it) }
-                        ).distinct()
-
-                        val actualGlowColors = if (rawGlowList.isNotEmpty()) {
-                            rawGlowList
-                        } else {
-                            listOf(rawSeedColor, secondaryColor, tertiaryColor).distinct()
-                        }
-
-                        ArtworkPalette(
-                            primary = rawSeedColor,
-                            secondary = secondaryColor,
-                            tertiary = tertiaryColor,
-                            seedColor = rawSeedColor,
-                            isMonochrome = false,
-                            glowColors = actualGlowColors
-                        )
-                    }
-
+                    val extracted = extractFromBitmap(bitmap)
                     put(key, extracted)
                     if (targetUrl != null) put(targetUrl, extracted)
                     put(artworkUrl, extracted)

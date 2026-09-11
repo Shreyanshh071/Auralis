@@ -94,6 +94,7 @@ import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.LyricsMode
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.AuralisPlayerSlider
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.lyrics.SyncedLyricsView
@@ -138,6 +139,7 @@ fun ClassicPlayerView(
     enableSwipeToChangeSong: Boolean,
     hidePlayerThumbnail: Boolean,
     cropAlbumArt: Boolean,
+    sliderStyle: String = com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerSliderStyle,
     modifier: Modifier = Modifier,
     onArtistClick: ((Artist) -> Unit)? = null
 ) {
@@ -346,12 +348,14 @@ fun ClassicPlayerView(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // ── 4. TIMELINE SCRUBBER & TIMESTAMPS ──
         ClassicTimelineSlider(
             positionState = seekBarPositionState,
             totalDurationMs = totalDurationMs,
+            isPlaying = uiState.isPlaying,
+            sliderStyle = sliderStyle,
             isScrubbing = isScrubbing,
             onScrubbing = onScrubbing,
             onSeekTo = onSeekTo,
@@ -361,7 +365,7 @@ fun ClassicPlayerView(
                 .padding(horizontal = 26.dp)
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // ── 5. MAIN PLAYBACK CONTROLS (FAST REWIND, BIG PLAY/PAUSE, FAST FORWARD) ──
         Row(
@@ -489,13 +493,14 @@ fun ClassicTopBar(
 }
 
 /**
- * Clean linear slider matching Image 2 with circular thumb and timestamps directly below.
+ * Clean interactive slider dynamically adapting to the user's seekbar settings (Default, Wavy, Slim, Squiggly).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClassicTimelineSlider(
     positionState: State<Long>,
     totalDurationMs: Long,
+    isPlaying: Boolean,
+    sliderStyle: String,
     isScrubbing: Boolean,
     onScrubbing: (Boolean, Long) -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -505,93 +510,40 @@ fun ClassicTimelineSlider(
     val currentPosMs = positionState.value
     var localDragFraction by remember { mutableFloatStateOf(0f) }
 
-    val sliderFraction = remember(currentPosMs, totalDurationMs, isScrubbing, localDragFraction) {
-        if (isScrubbing) {
-            localDragFraction
-        } else if (totalDurationMs > 0) {
-            (currentPosMs.toFloat() / totalDurationMs).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+    val displayPosMs = if (isScrubbing) {
+        (localDragFraction * totalDurationMs).toLong()
+    } else {
+        currentPosMs
     }
 
-    Column(
+    val sliderFraction = if (totalDurationMs > 0) {
+        (displayPosMs.toFloat() / totalDurationMs).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    AuralisPlayerSlider(
+        value = sliderFraction,
+        onValueChange = { frac ->
+            localDragFraction = frac
+            val targetMs = (frac * totalDurationMs).toLong()
+            onScrubbing(true, targetMs)
+        },
+        onValueChangeFinished = {
+            val targetMs = (localDragFraction * totalDurationMs).toLong()
+            onScrubbing(false, targetMs)
+            onSeekTo(targetMs)
+        },
+        isPlaying = isPlaying,
+        currentPosMs = displayPosMs,
+        totalDurationMs = totalDurationMs,
+        sliderStyle = sliderStyle,
+        activeTrackColor = Color.White,
+        inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+        thumbColor = Color.White,
+        textColor = Color.White.copy(alpha = 0.70f),
         modifier = modifier.graphicsLayer { alpha = controlsAlpha }
-    ) {
-        Slider(
-            value = sliderFraction,
-            onValueChange = { frac ->
-                localDragFraction = frac
-                val targetMs = (frac * totalDurationMs).toLong()
-                onScrubbing(true, targetMs)
-            },
-            onValueChangeFinished = {
-                val targetMs = (localDragFraction * totalDurationMs).toLong()
-                onScrubbing(false, targetMs)
-                onSeekTo(targetMs)
-            },
-            thumb = {
-                Box(
-                    modifier = Modifier
-                        .size(13.dp)
-                        .shadow(4.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.40f))
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            },
-            track = { sliderState ->
-                val fraction = sliderState.value
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.5.dp)
-                ) {
-                    val h = size.height
-                    val w = size.width
-                    val activeW = w * fraction
-                    // Inactive track
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.25f),
-                        size = Size(w, h),
-                        cornerRadius = CornerRadius(h / 2, h / 2)
-                    )
-                    // Active track
-                    if (activeW > 0f) {
-                        drawRoundRect(
-                            color = Color.White,
-                            size = Size(activeW, h),
-                            cornerRadius = CornerRadius(h / 2, h / 2)
-                        )
-                    }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(30.dp)
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = formatClassicTime(if (isScrubbing) (localDragFraction * totalDurationMs).toLong() else currentPosMs),
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.70f)
-            )
-            Text(
-                text = formatClassicTime(totalDurationMs),
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.70f)
-            )
-        }
-    }
+    )
 }
 
 /**
@@ -766,7 +718,7 @@ fun ClassicBottomBar(
                 .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Speaker / Device Output button
+            // Speaker / Device Output button (AirPlay)
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
@@ -774,7 +726,7 @@ fun ClassicBottomBar(
                     .padding(horizontal = 14.dp, vertical = 7.dp),
                 contentAlignment = Alignment.Center
             ) {
-                SpeakerBoxIcon(
+                AirPlayAudioIcon(
                     tint = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.size(20.dp)
                 )
@@ -821,45 +773,70 @@ fun ClassicBottomBar(
 }
 
 /**
- * Loudspeaker cabinet icon matching the center capsule in Image 2.
+ * AirPlay audio output icon matching Apple Music's device picker symbol
+ * (upward triangle with concentric radiating sound waves).
  */
 @Composable
-fun SpeakerBoxIcon(
+fun AirPlayAudioIcon(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeW = 1.8.dp.toPx()
-        val corner = 3.dp.toPx()
+        val strokeW = (w * 0.09f).coerceAtLeast(1.5f)
 
-        // Outer speaker enclosure
-        drawRoundRect(
-            color = tint,
-            size = Size(w, h),
-            cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = strokeW)
+        // 1. Upward-pointing triangle at bottom center
+        val trianglePath = Path().apply {
+            moveTo(w * 0.50f, h * 0.58f) // apex
+            lineTo(w * 0.72f, h * 0.88f) // bottom-right
+            lineTo(w * 0.28f, h * 0.88f) // bottom-left
+            close()
+        }
+        drawPath(
+            path = trianglePath,
+            color = tint
         )
-        // Tweeter (top circle)
-        drawCircle(
+
+        // 2. Concentric audio wave arcs
+        val arcCenterY = h * 0.75f
+        val arcCenterX = w * 0.50f
+
+        // Inner wave
+        val r1 = w * 0.29f
+        drawArc(
             color = tint,
-            radius = w * 0.14f,
-            center = Offset(w * 0.5f, h * 0.33f)
+            startAngle = 222f,
+            sweepAngle = 96f,
+            useCenter = false,
+            topLeft = Offset(arcCenterX - r1, arcCenterY - r1),
+            size = Size(r1 * 2f, r1 * 2f),
+            style = Stroke(width = strokeW, cap = StrokeCap.Round)
         )
-        // Woofer (bottom concentric circle)
-        drawCircle(
+
+        // Outer wave
+        val r2 = w * 0.47f
+        drawArc(
             color = tint,
-            radius = w * 0.26f,
-            center = Offset(w * 0.5f, h * 0.70f),
-            style = Stroke(width = strokeW)
-        )
-        drawCircle(
-            color = tint,
-            radius = w * 0.11f,
-            center = Offset(w * 0.5f, h * 0.70f)
+            startAngle = 226f,
+            sweepAngle = 88f,
+            useCenter = false,
+            topLeft = Offset(arcCenterX - r2, arcCenterY - r2),
+            size = Size(r2 * 2f, r2 * 2f),
+            style = Stroke(width = strokeW, cap = StrokeCap.Round)
         )
     }
+}
+
+/**
+ * Backward compatibility alias for AirPlayAudioIcon.
+ */
+@Composable
+fun SpeakerBoxIcon(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    AirPlayAudioIcon(tint = tint, modifier = modifier)
 }
 
 /**
@@ -976,6 +953,7 @@ fun ClassicPlayerContainer(
     enableSwipeToChangeSong: Boolean,
     hidePlayerThumbnail: Boolean,
     cropAlbumArt: Boolean,
+    sliderStyle: String = com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerSliderStyle,
     modifier: Modifier = Modifier,
     onArtistClick: ((Artist) -> Unit)? = null
 ) {
@@ -1014,6 +992,7 @@ fun ClassicPlayerContainer(
                     enableSwipeToChangeSong = enableSwipeToChangeSong,
                     hidePlayerThumbnail = hidePlayerThumbnail,
                     cropAlbumArt = cropAlbumArt,
+                    sliderStyle = sliderStyle,
                     onArtistClick = onArtistClick
                 )
             }

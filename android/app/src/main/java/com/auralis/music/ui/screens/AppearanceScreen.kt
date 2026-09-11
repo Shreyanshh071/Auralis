@@ -137,12 +137,6 @@ fun AppearanceScreen(
         }
     }
 
-    LaunchedEffect(settings.playerBackgroundStyle) {
-        if (PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle) == PlayerBackgroundStyle.APPLE_MUSIC) {
-            update { copy(playerBackgroundStyle = PlayerBackgroundStyle.BLUR.displayName) }
-        }
-    }
-
     var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<AppearanceDialogType?>(null) }
     var showThemeAndColors by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
@@ -293,9 +287,7 @@ fun AppearanceScreen(
                     )
                 }
                 item {
-                    val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
-                        if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.BLUR else it
-                    }
+                    val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle)
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = "Player background style",
@@ -325,6 +317,15 @@ fun AppearanceScreen(
 
                 // ════ 4. LYRICS ════
                 item { AppearanceSectionHeader(title = "Lyrics") }
+                item {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.Tune,
+                        title = "Experimental Lyrics",
+                        subtitle = "Use the experimental multi-line lyrics layout",
+                        isChecked = settings.experimentalLyrics,
+                        onCheckedChange = { update { copy(experimentalLyrics = it) } }
+                    )
+                }
                 item {
                     AppearanceClickableItem(
                         icon = Icons.Default.FormatAlignCenter,
@@ -489,12 +490,8 @@ fun AppearanceScreen(
             )
         }
         AppearanceDialogType.PLAYER_BG -> {
-            val bgOptions = PlayerBackgroundStyle.entries
-                .filter { it != PlayerBackgroundStyle.APPLE_MUSIC }
-                .map { it.displayName }
-            val currentStyle = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
-                if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.BLUR else it
-            }
+            val bgOptions = PlayerBackgroundStyle.entries.map { it.displayName }
+            val currentStyle = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle)
             AppearanceOptionsDialog(
                 title = "Player background style",
                 options = bgOptions,

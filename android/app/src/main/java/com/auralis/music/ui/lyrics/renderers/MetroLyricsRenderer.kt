@@ -108,13 +108,27 @@ fun MetroLyricsLine(
     fontSizeSp: Float,
     lineSpacingMultiplier: Float,
     isPlaying: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    nextLineTime: Long? = null
 ) {
     val mainText = if (line.isBackground) line.text.removePrefix("(").removeSuffix(")") else line.text
     val focusedAlpha = if (line.isBackground) 0.5f else 0.35f
 
+    // Calculate line-level active/highlight state using genuine line active interval and next-line boundary:
+    // - line not started (effectivePlaybackPosition < line.time) -> inactive/gray
+    // - line currently playing -> highlighted
+    // - words have finished but next line has not started -> STILL highlighted
+    // - next line starts -> previous line becomes inactive, next line becomes highlighted
+    val nextBoundary = nextLineTime ?: line.endTime ?: (line.effectiveEndTime ?: (line.time + 10_000L))
+    val isInActiveInterval = if (nextBoundary > line.time) {
+        effectivePlaybackPosition in line.time until nextBoundary
+    } else {
+        effectivePlaybackPosition >= line.time && effectivePlaybackPosition <= nextBoundary
+    }
+    val isLineActive = isActive || isInActiveInterval
+
     val targetAlpha = when {
-        line.isBackground || isActive -> 1f
+        line.isBackground || isLineActive -> 1f
         distanceFromCurrent == 1 -> 0.45f
         distanceFromCurrent == 2 -> 0.25f
         else -> 0.15f
@@ -128,7 +142,7 @@ fun MetroLyricsLine(
 
     val lyricStyle = TextStyle(
         fontSize = if (line.isBackground) (fontSizeSp * 0.75f).sp else fontSizeSp.sp,
-        fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+        fontWeight = if (isLineActive) FontWeight.ExtraBold else FontWeight.SemiBold,
         fontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal,
         lineHeight = (fontSizeSp * lineSpacingMultiplier.coerceAtMost(1.3f)).sp,
         letterSpacing = (-0.5).sp,
@@ -161,15 +175,15 @@ fun MetroLyricsLine(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = alignment
     ) {
-        if (effectiveWords.isNotEmpty() && (isActive || distanceFromCurrent <= 2) && mainText.isNotEmpty()) {
+        if (effectiveWords.isNotEmpty() && (isLineActive || distanceFromCurrent <= 2) && mainText.isNotEmpty()) {
             MetroWordLevelCanvas(
                 lineStartTime = line.time,
                 mainText = mainText,
                 words = effectiveWords,
-                isActiveLine = isActive,
+                isActiveLine = isLineActive,
                 effectivePlaybackPosition = effectivePlaybackPosition,
                 lyricStyle = lyricStyle,
-                lineColor = if (isActive && !line.isBackground) accentColor else accentColor.copy(alpha = animatedAlpha),
+                lineColor = if (isLineActive && !line.isBackground) accentColor else accentColor.copy(alpha = animatedAlpha),
                 accentColor = accentColor,
                 isBackground = line.isBackground,
                 focusedAlpha = focusedAlpha,
@@ -179,7 +193,7 @@ fun MetroLyricsLine(
         } else {
             Text(
                 text = mainText,
-                style = lyricStyle.copy(color = if (isActive && !line.isBackground) accentColor else accentColor.copy(alpha = animatedAlpha)),
+                style = lyricStyle.copy(color = if (isLineActive && !line.isBackground) accentColor else accentColor.copy(alpha = animatedAlpha)),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -314,6 +328,7 @@ private fun MetroWordLevelCanvas(
                 drawText(layoutResult, color = lineColor)
             } else {
                 val (wordIdxMap, charInWordMap, wordLenMap) = charToWordData
+                val areAllWordsSung = words.isNotEmpty() && words.all { smoothPosition > (it.endTime * 1000).toLong() }
                 val wordFactors = words.map { word ->
                     val wStartMs = (word.startTime * 1000).toLong()
                     val wEndMs = (word.endTime * 1000).toLong()
@@ -410,8 +425,9 @@ private fun MetroWordLevelCanvas(
                             }
                         }
 
-                        val baseAlpha = if (isWordSung || charLp > 0.99f) 1f else (focusedAlpha + (1f - focusedAlpha) * sungFactor)
-                        drawText(letterLayouts[i], color = accentColor.copy(alpha = if (wordIdx == -1) focusedAlpha else baseAlpha))
+                        val baseAlpha = if (isWordSung || areAllWordsSung || charLp > 0.99f) 1f else (focusedAlpha + (1f - focusedAlpha) * sungFactor)
+                        val charAlpha = if (wordIdx == -1) (if (areAllWordsSung) 1f else focusedAlpha) else baseAlpha
+                        drawText(letterLayouts[i], color = accentColor.copy(alpha = charAlpha))
 
                         if (!isWordSung && charLp > 0f && charLp < 1f) {
                             val fXL = charBounds.width * charLp

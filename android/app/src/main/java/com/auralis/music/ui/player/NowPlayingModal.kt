@@ -31,6 +31,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -238,6 +240,9 @@ fun NowPlayingModal(
     val coroutineScope = rememberCoroutineScope()
     val queue = uiState.queue
     val currentTrackIndex = remember(uiState.currentIndex, queue, track.id) {
+        if (uiState.currentIndex in queue.indices && queue[uiState.currentIndex].id == track.id) {
+            return@remember uiState.currentIndex
+        }
         val found = queue.indexOfFirst { it.id == track.id }
         if (found >= 0) return@remember found
         if (uiState.currentIndex in queue.indices) uiState.currentIndex else 0
@@ -247,21 +252,40 @@ fun NowPlayingModal(
         initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
-    var isProgrammaticScroll by remember { mutableStateOf(false) }
-    var lastDispatchedIndex by remember { mutableIntStateOf(currentTrackIndex) }
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    var userSwiped by remember { mutableStateOf(false) }
 
-    // 1. Programmatically animate pager when the active track changes externally
-    LaunchedEffect(currentTrackIndex) {
-        lastDispatchedIndex = currentTrackIndex
-        if (!pagerState.isScrollInProgress && currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
+    LaunchedEffect(pagerState.interactionSource) {
+        pagerState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                userSwiped = true
+            }
+        }
+    }
+    LaunchedEffect(isDragged) {
+        if (isDragged) {
+            userSwiped = true
+        }
+    }
+
+    val isUserSwiping = isDragged || userSwiped
+    val activeTrack = remember(pagerState.currentPage, queue, track, isUserSwiping) {
+        if (isUserSwiping && queue.isNotEmpty() && pagerState.currentPage in queue.indices) {
+            queue[pagerState.currentPage]
+        } else {
+            track
+        }
+    }
+
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
+
+    // 1. Programmatically sync pager when the active track changes externally
+    LaunchedEffect(currentTrackIndex, track.id) {
+        userSwiped = false
+        if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
             isProgrammaticScroll = true
             try {
-                val diff = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
-                if (diff == 1) {
-                    pagerState.animateScrollToPage(currentTrackIndex)
-                } else {
-                    pagerState.scrollToPage(currentTrackIndex)
-                }
+                pagerState.scrollToPage(currentTrackIndex)
             } finally {
                 isProgrammaticScroll = false
             }
@@ -269,16 +293,23 @@ fun NowPlayingModal(
     }
 
     // 2. Reliably trigger track change when user physically swipes the carousel to a new page
-    LaunchedEffect(pagerState, queue) {
-        snapshotFlow { pagerState.settledPage }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
-            .collect { settledPage ->
-                if (!isProgrammaticScroll && settledPage != currentTrackIndex && settledPage != lastDispatchedIndex && queue.isNotEmpty()) {
-                    if (settledPage in queue.indices) {
-                        lastDispatchedIndex = settledPage
-                        val targetTrack = queue[settledPage]
-                        com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
-                        onSelectQueueTrack(settledPage)
+            .collect { (isScrolling, settledPage) ->
+                if (isScrolling && !isProgrammaticScroll) {
+                    userSwiped = true
+                }
+                if (!isScrolling) {
+                    if (userSwiped && !isProgrammaticScroll) {
+                        userSwiped = false
+                        if (queue.isNotEmpty() && settledPage in queue.indices && settledPage != currentTrackIndex) {
+                            val targetTrack = queue[settledPage]
+                            com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
+                            onSelectQueueTrack(settledPage)
+                        }
+                    } else {
+                        userSwiped = false
                     }
                 }
             }
@@ -325,20 +356,35 @@ fun NowPlayingModal(
     }
     val totalDurationMs = if (uiState.durationMs > 0) uiState.durationMs else (track.duration * 1000L)
 
-    // Shared Dynamic Artwork Palette via ArtworkPaletteCache
+    // Shared Dynamic Artwork Palette via ArtworkPaletteCache derived from active carousel track
     val sharedPalette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
-    val extractedColors = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.id)
-        ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(track.thumbnail)
-        ?: sharedPalette
+    val extractedColors = remember(activeTrack, sharedPalette) {
+        val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(activeTrack.id)
+            ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(activeTrack.thumbnail)
+        if (cached != null) {
+            cached
+        } else if (sharedPalette != com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette &&
+            com.auralis.music.ui.theme.ArtworkPaletteCache.isCurrentTrack(activeTrack.id)
+        ) {
+            sharedPalette
+        } else {
+            com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette
+        }
+    }
 
     // Proactively pre-extract artwork palettes for neighboring tracks in the queue
-    // so tapping Next or Previous immediately hits memory cache with zero delay or color interruption.
-    LaunchedEffect(currentTrackIndex, queue) {
+    // so swiping immediately hits memory cache with zero delay or color interruption.
+    LaunchedEffect(pagerState.currentPage, queue) {
         if (queue.isNotEmpty()) {
-            val nextTrack = queue.getOrNull(currentTrackIndex + 1)
-            val prevTrack = queue.getOrNull(currentTrackIndex - 1)
+            val cur = pagerState.currentPage
+            val neighbors = listOfNotNull(
+                queue.getOrNull(cur - 1),
+                queue.getOrNull(cur + 1),
+                queue.getOrNull(cur + 2),
+                queue.getOrNull(cur - 2)
+            )
             withContext(Dispatchers.IO) {
-                listOfNotNull(nextTrack, prevTrack).forEach { neighborTrack ->
+                neighbors.forEach { neighborTrack ->
                     if (com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(neighborTrack.id) == null) {
                         com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
                             context = context,
@@ -384,8 +430,7 @@ fun NowPlayingModal(
 
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val playerBgStyle = remember(appearance.playerBackgroundStyle) {
-        val resolved = PlayerBackgroundStyle.fromKey(appearance.playerBackgroundStyle)
-        if (resolved == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.BLUR else resolved
+        PlayerBackgroundStyle.fromKey(appearance.playerBackgroundStyle)
     }
 
     // Vibrant gradient palette derived from artwork colors
@@ -442,7 +487,7 @@ fun NowPlayingModal(
         // ====================================================================
         PlayerBackground(
             style = playerBgStyle,
-            artworkUrl = track.thumbnail,
+            artworkUrl = activeTrack.thumbnail,
             extractedColors = extractedColors,
             modifier = Modifier.fillMaxSize(),
             isMiniPlayer = false
@@ -526,7 +571,7 @@ fun NowPlayingModal(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = track.title,
+                        text = activeTrack.title,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -825,11 +870,16 @@ fun NowPlayingModal(
                                     )
                                     .clip(RoundedCornerShape(28.dp))
                             ) { page ->
-                                val pageTrack = if (queue.isNotEmpty() && page in queue.indices) queue[page] else track
+                                val isScrolling = isDragged || pagerState.isScrollInProgress
+                                val isCurrentPage = if (isScrolling) page == currentTrackIndex else page == pagerState.currentPage
+                                val pageTrack = if (isCurrentPage && !isScrolling) {
+                                    track
+                                } else {
+                                    if (queue.isNotEmpty() && page in queue.indices) queue[page] else track
+                                }
                                 // Only the playing page claims the shared key — the pager
                                 // keeps neighbours composed off-screen and two live layouts
                                 // holding one key at once is undefined.
-                                val isCurrentPage = page == currentTrackIndex
                                 if (appearance.hidePlayerThumbnail) {
                                     Box(
                                         modifier = Modifier
@@ -883,7 +933,7 @@ fun NowPlayingModal(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 androidx.compose.animation.AnimatedContent(
-                                    targetState = track,
+                                    targetState = activeTrack,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .then(
@@ -1230,7 +1280,7 @@ fun NowPlayingModal(
     }
 } else {
             ClassicPlayerContainer(
-                track = track,
+                track = activeTrack,
                 uiState = uiState,
                 currentTab = currentTab,
                 onTabChange = { currentTab = it },
@@ -1264,6 +1314,7 @@ fun NowPlayingModal(
                 enableSwipeToChangeSong = appearance.enableSwipeToChangeSong,
                 hidePlayerThumbnail = appearance.hidePlayerThumbnail,
                 cropAlbumArt = appearance.cropAlbumArt,
+                sliderStyle = appearance.playerSliderStyle,
                 onArtistClick = onArtistClick
             )
         }
