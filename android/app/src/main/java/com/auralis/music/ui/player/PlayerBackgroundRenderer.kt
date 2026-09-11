@@ -6,6 +6,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -16,8 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -33,8 +37,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.theme.ArtworkPalette
@@ -123,6 +129,18 @@ object PlayerGradientPalette {
         isMonochrome: Boolean = false
     ): GradientStops {
         if (isMonochrome) {
+            val isDefaultAmbient = (primary == Color(0xFF161619)) || (primary == Color.Unspecified)
+            if (isDefaultAmbient) {
+                return GradientStops(
+                    topVibrant = Color(0xFF18181C),
+                    midHarmonic = Color(0xFF121215),
+                    bottomObsidian = Color(0xFF08080A),
+                    miniLeft = Color(0xFF121215),
+                    miniCenter = Color(0xFF151518),
+                    miniRight = Color(0xFF19191D),
+                    glowAccent = Color(0xFF222228)
+                )
+            }
             return GradientStops(
                 topVibrant = Color(0xFF555964),
                 midHarmonic = Color(0xFF2E3139),
@@ -418,45 +436,36 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.BLUR -> {
-                // Base surface so player never flashes transparent during artwork changes
+                // Base surface: dynamic vibrant gradient stops ensuring the player NEVER flashes black during changes
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            if (isMiniPlayer) MaterialTheme.colorScheme.surfaceVariant
-                            else gradStops.bottomObsidian
+                            if (isMiniPlayer) {
+                                Brush.horizontalGradient(
+                                    0.0f to gradStops.miniLeft,
+                                    0.5f to gradStops.miniCenter,
+                                    1.0f to gradStops.miniRight
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    0.0f to gradStops.topVibrant,
+                                    0.48f to gradStops.midHarmonic,
+                                    1.0f to gradStops.bottomObsidian
+                                )
+                            }
                         )
                 )
 
-                // Blurred Artwork with Crossfade
-                Crossfade(
-                    targetState = artworkUrl,
-                    animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                    label = "blurArtworkCrossfade",
+                // Seamless Dual-Layer Blurred Artwork (zero black frames while image decodes)
+                SeamlessArtworkBlurLayer(
+                    artworkUrl = artworkUrl,
+                    isMiniPlayer = isMiniPlayer,
+                    blurRadius = if (isMiniPlayer) 20.dp else 24.dp,
+                    scale = if (isMiniPlayer) 1.25f else 1.15f,
+                    targetAlpha = if (isMiniPlayer) 0.95f else 0.88f,
                     modifier = Modifier.fillMaxSize()
-                ) { thumbUrl ->
-                    if (!thumbUrl.isNullOrBlank()) {
-                        val blurReq = remember(thumbUrl) {
-                            ImageRequest.Builder(context)
-                                .data(thumbUrl)
-                                .crossfade(250)
-                                .build()
-                        }
-                        AsyncImage(
-                            model = blurReq,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    scaleX = if (isMiniPlayer) 1.25f else 1.15f
-                                    scaleY = if (isMiniPlayer) 1.25f else 1.15f
-                                    alpha = if (isMiniPlayer) 0.95f else 0.88f
-                                }
-                                .blur(radius = if (isMiniPlayer) 20.dp else 24.dp)
-                        )
-                    }
-                }
+                )
 
                 // Legibility Scrim
                 if (isMiniPlayer) {
@@ -656,44 +665,35 @@ fun PlayerBackground(
 
             PlayerBackgroundStyle.APPLE_MUSIC -> {
                 // Apple Music-inspired blurred backdrop with authentic frosted liquid glass refraction
-                val baseDark = if (isMiniPlayer) Color(0xFF10121A).copy(alpha = 0.35f) else gradStops.bottomObsidian
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(baseDark)
+                        .background(
+                            if (isMiniPlayer) {
+                                Brush.horizontalGradient(
+                                    0.0f to gradStops.miniLeft,
+                                    0.5f to gradStops.miniCenter,
+                                    1.0f to gradStops.miniRight
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    0.0f to gradStops.topVibrant,
+                                    0.48f to gradStops.midHarmonic,
+                                    1.0f to gradStops.bottomObsidian
+                                )
+                            }
+                        )
                 )
 
-                Crossfade(
-                    targetState = artworkUrl,
-                    animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                    label = "appleMusicCrossfade",
+                // Seamless Dual-Layer Apple Music Blurred Artwork (zero black frames while image decodes)
+                SeamlessArtworkBlurLayer(
+                    artworkUrl = artworkUrl,
+                    isMiniPlayer = isMiniPlayer,
+                    blurRadius = if (isMiniPlayer) 28.dp else 42.dp,
+                    scale = if (isMiniPlayer) 1.38f else 1.35f,
+                    targetAlpha = if (isMiniPlayer) 0.82f else 0.80f,
                     modifier = Modifier.fillMaxSize()
-                ) { thumbUrl ->
-                    if (!thumbUrl.isNullOrBlank()) {
-                        val blurReq = remember(thumbUrl) {
-                            ImageRequest.Builder(context)
-                                .data(thumbUrl)
-                                .size(128, 128)
-                                .allowHardware(false)
-                                .crossfade(250)
-                                .build()
-                        }
-                        AsyncImage(
-                            model = blurReq,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            colorFilter = null,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    scaleX = if (isMiniPlayer) 1.38f else 1.35f
-                                    scaleY = if (isMiniPlayer) 1.38f else 1.35f
-                                    alpha = if (isMiniPlayer) 0.82f else 0.80f
-                                }
-                                .blur(radius = if (isMiniPlayer) 28.dp else 42.dp)
-                        )
-                    }
-                }
+                )
 
                 if (isMiniPlayer) {
                     // Apple Music frosted liquid glass specular sheen overlay
@@ -745,208 +745,389 @@ fun PlayerBackground(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black)
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to gradStops.topVibrant.copy(alpha = 0.45f),
+                                0.5f to gradStops.midHarmonic.copy(alpha = 0.25f),
+                                1.0f to Color(0xFF050505)
+                            )
+                        )
                 )
 
-                if (isMiniPlayer) {
-                    // ViVi's EXACT Mini-Player Live Mesh (vivi_MiniPlayer.kt lines 1131-1168)
-                    val infiniteTransition = rememberInfiniteTransition(label = "liveMeshMini")
-                    val rotation by infiniteTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 60000, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart
-                        ),
-                        label = "miniMeshRotation"
-                    )
-
-                    Crossfade(
-                        targetState = artworkUrl,
-                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                        label = "liveMeshMiniArtworkCrossfade",
-                        modifier = Modifier.fillMaxSize()
-                    ) { thumbUrl ->
-                        if (!thumbUrl.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        scaleX = 1.5f
-                                        scaleY = 1.5f
-                                    }
-                            ) {
-                                val matrix = remember(extractedColors.isMonochrome) {
-                                    ColorMatrix().apply {
-                                        if (extractedColors.isMonochrome) {
-                                            setToSaturation(0.0f)
-                                        } else {
-                                            setToSaturation(1.6f)
-                                        }
-                                    }
-                                }
-                                val meshReq = remember(thumbUrl) {
-                                    ImageRequest.Builder(context)
-                                        .data(thumbUrl)
-                                        .size(128, 128)
-                                        .allowHardware(false)
-                                        .crossfade(250)
-                                        .build()
-                                }
-                                AsyncImage(
-                                    model = meshReq,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    colorFilter = ColorFilter.colorMatrix(matrix),
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .blur(40.dp)
-                                        .graphicsLayer { rotationZ = rotation }
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.3f))
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // ViVi's EXACT Full-Player Live Mesh (vivi_Player.kt lines 1164-1296)
-                    val infiniteTransition = rememberInfiniteTransition(label = "liveMeshRotation")
-
-                    val anchorRotation by infiniteTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = -360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 80000, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart
-                        ),
-                        label = "anchorRotation"
-                    )
-
-                    val fastRotation by infiniteTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 40000, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart
-                        ),
-                        label = "fastRotation"
-                    )
-
-                    val slowRotation by infiniteTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 60000, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart
-                        ),
-                        label = "slowRotation"
-                    )
-
-                    Crossfade(
-                        targetState = artworkUrl,
-                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                        label = "liveMeshArtworkCrossfade",
-                        modifier = Modifier.fillMaxSize()
-                    ) { thumbUrl ->
-                        if (!thumbUrl.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        scaleX = 1.7f
-                                        scaleY = 1.7f
-                                    }
-                            ) {
-                                val matrix = remember(extractedColors.isMonochrome) {
-                                    ColorMatrix().apply {
-                                        if (extractedColors.isMonochrome) {
-                                            setToSaturation(0.0f)
-                                        } else {
-                                            setToSaturation(1.8f)
-                                        }
-                                    }
-                                }
-                                val colorFilter = remember(matrix) { ColorFilter.colorMatrix(matrix) }
-
-                                val meshReq = remember(thumbUrl) {
-                                    ImageRequest.Builder(context)
-                                        .data(thumbUrl)
-                                        .size(128, 128)
-                                        .allowHardware(false)
-                                        .crossfade(250)
-                                        .build()
-                                }
-
-                                // Layer 1: The Anchor (Full Image, Counter-Clockwise)
-                                AsyncImage(
-                                    model = meshReq,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    colorFilter = colorFilter,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .blur(100.dp)
-                                        .graphicsLayer { rotationZ = anchorRotation }
-                                )
-
-                                // Layer 2: Fast Rotating Crop (Top-Left)
-                                AsyncImage(
-                                    model = meshReq,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    colorFilter = colorFilter,
-                                    alignment = Alignment.TopStart,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .blur(120.dp)
-                                        .graphicsLayer {
-                                            rotationZ = fastRotation
-                                            alpha = 0.6f
-                                        }
-                                )
-
-                                // Layer 3: Slow Rotating Crop (Bottom-Right)
-                                AsyncImage(
-                                    model = meshReq,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    colorFilter = colorFilter,
-                                    alignment = Alignment.BottomEnd,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .blur(120.dp)
-                                        .graphicsLayer {
-                                            rotationZ = slowRotation
-                                            alpha = 0.5f
-                                        }
-                                )
-
-                                // Global dark tint + vertical gradient depth exactly matching ViVi
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.2f))
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                listOf(
-                                                    Color.Transparent,
-                                                    Color.Black.copy(alpha = 0.25f)
-                                                )
-                                            )
-                                        )
-                                )
-                            }
-                        }
-                    }
-                }
+                LiveMeshArtworkLayer(
+                    artworkUrl = artworkUrl,
+                    isMiniPlayer = isMiniPlayer,
+                    isMonochrome = extractedColors.isMonochrome,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
+        }
+    }
+}
+
+/**
+ * Seamless dual-layer blurred artwork renderer.
+ * Keeps the previously rendered artwork fully visible while the incoming artwork
+ * is decoded by Coil in the background. Once the new bitmap is decoded and emitted,
+ * it smoothly fades in over the old artwork over 500ms, completely eliminating
+ * any black/empty frames during song transitions.
+ */
+@Composable
+private fun SeamlessArtworkBlurLayer(
+    artworkUrl: String?,
+    isMiniPlayer: Boolean,
+    blurRadius: Dp,
+    scale: Float,
+    targetAlpha: Float,
+    modifier: Modifier = Modifier,
+    colorMatrix: ColorMatrix? = null,
+    rotationZ: Float = 0f
+) {
+    val context = LocalContext.current
+    val isInitiallyCached = remember(artworkUrl) {
+        if (artworkUrl.isNullOrBlank()) false else {
+            try {
+                val memCache = context.imageLoader.memoryCache
+                val key = coil.memory.MemoryCache.Key(artworkUrl)
+                memCache?.get(key) != null
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+    var currentUrl by remember { mutableStateOf<String?>(artworkUrl) }
+    var previousUrl by remember { mutableStateOf<String?>(null) }
+    var isCurrentLoaded by remember(artworkUrl) { mutableStateOf(isInitiallyCached) }
+
+    LaunchedEffect(artworkUrl) {
+        if (artworkUrl != currentUrl) {
+            if (!isMiniPlayer && isCurrentLoaded && currentUrl != null) {
+                previousUrl = currentUrl
+            } else {
+                previousUrl = null
+            }
+            currentUrl = artworkUrl
+            isCurrentLoaded = isInitiallyCached
+        }
+    }
+
+    val incomingAlpha by animateFloatAsState(
+        targetValue = if (isCurrentLoaded) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isMiniPlayer) 180 else 400,
+            easing = FastOutSlowInEasing
+        ),
+        finishedListener = { alpha ->
+            if (alpha >= 0.99f) {
+                previousUrl = null
+            }
+        },
+        label = "seamlessBlurFade"
+    )
+
+    val colorFilter = remember(colorMatrix) {
+        colorMatrix?.let { ColorFilter.colorMatrix(it) }
+    }
+
+    Box(modifier = modifier.clipToBounds()) {
+        // Base Layer: previously loaded artwork remains visible until incoming layer finishes fading in
+        val prev = previousUrl
+        if (!prev.isNullOrBlank() && incomingAlpha < 1f) {
+            val prevReq = remember(prev) {
+                ImageRequest.Builder(context)
+                    .data(prev)
+                    .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = prevReq,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = colorFilter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = targetAlpha
+                        if (rotationZ != 0f) this.rotationZ = rotationZ
+                    }
+                    .blur(radius = blurRadius)
+            )
+        }
+
+        // Incoming Layer: fades in on top once successfully loaded
+        val curr = currentUrl
+        if (!curr.isNullOrBlank()) {
+            val currentReq = remember(curr) {
+                ImageRequest.Builder(context)
+                    .data(curr)
+                    .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = currentReq,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = colorFilter,
+                onSuccess = { isCurrentLoaded = true },
+                onError = { isCurrentLoaded = false },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = targetAlpha * incomingAlpha
+                        if (rotationZ != 0f) this.rotationZ = rotationZ
+                    }
+                    .blur(radius = blurRadius)
+            )
+        }
+    }
+}
+
+/**
+ * Dual-layer Live Mesh renderer that continuously rotates mesh layers while cross-fading
+ * artwork between track changes without showing black backgrounds.
+ */
+@Composable
+private fun LiveMeshArtworkLayer(
+    artworkUrl: String?,
+    isMiniPlayer: Boolean,
+    isMonochrome: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var currentUrl by remember { mutableStateOf<String?>(artworkUrl) }
+    var previousUrl by remember { mutableStateOf<String?>(null) }
+    var isCurrentLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(artworkUrl) {
+        if (artworkUrl != currentUrl) {
+            if (isCurrentLoaded && currentUrl != null) {
+                previousUrl = currentUrl
+            }
+            currentUrl = artworkUrl
+            isCurrentLoaded = false
+        }
+    }
+
+    val incomingAlpha by animateFloatAsState(
+        targetValue = if (isCurrentLoaded) 1f else 0f,
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        finishedListener = { alpha ->
+            if (alpha >= 0.99f) {
+                previousUrl = null
+            }
+        },
+        label = "liveMeshFade"
+    )
+
+    val matrix = remember(isMonochrome) {
+        ColorMatrix().apply {
+            if (isMonochrome) {
+                setToSaturation(0.0f)
+            } else {
+                setToSaturation(if (isMiniPlayer) 1.6f else 1.8f)
+            }
+        }
+    }
+    val colorFilter = remember(matrix) { ColorFilter.colorMatrix(matrix) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "liveMeshRotation")
+    val miniRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 60000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "miniMeshRotation"
+    )
+    val anchorRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 80000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "anchorRotation"
+    )
+    val fastRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 40000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "fastRotation"
+    )
+    val slowRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 60000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "slowRotation"
+    )
+
+    Box(modifier = modifier) {
+        val prev = previousUrl
+        if (!prev.isNullOrBlank() && incomingAlpha < 1f) {
+            LiveMeshArtworkContent(
+                url = prev,
+                isMiniPlayer = isMiniPlayer,
+                colorFilter = colorFilter,
+                miniRotation = miniRotation,
+                anchorRotation = anchorRotation,
+                fastRotation = fastRotation,
+                slowRotation = slowRotation,
+                alpha = 1f - incomingAlpha,
+                onLoaded = null
+            )
+        }
+
+        val curr = currentUrl
+        if (!curr.isNullOrBlank()) {
+            LiveMeshArtworkContent(
+                url = curr,
+                isMiniPlayer = isMiniPlayer,
+                colorFilter = colorFilter,
+                miniRotation = miniRotation,
+                anchorRotation = anchorRotation,
+                fastRotation = fastRotation,
+                slowRotation = slowRotation,
+                alpha = incomingAlpha,
+                onLoaded = { isCurrentLoaded = true }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LiveMeshArtworkContent(
+    url: String,
+    isMiniPlayer: Boolean,
+    colorFilter: ColorFilter,
+    miniRotation: Float,
+    anchorRotation: Float,
+    fastRotation: Float,
+    slowRotation: Float,
+    alpha: Float,
+    onLoaded: (() -> Unit)?
+) {
+    val context = LocalContext.current
+    val meshReq = remember(url) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(128, 128)
+            .allowHardware(false)
+            .crossfade(false)
+            .build()
+    }
+
+    if (isMiniPlayer) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = 1.5f
+                    scaleY = 1.5f
+                    this.alpha = alpha
+                }
+        ) {
+            AsyncImage(
+                model = meshReq,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = colorFilter,
+                onSuccess = { onLoaded?.invoke() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(40.dp)
+                    .graphicsLayer { rotationZ = miniRotation }
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.3f))
+            )
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = 1.7f
+                    scaleY = 1.7f
+                    this.alpha = alpha
+                }
+        ) {
+            // Layer 1: The Anchor (Full Image, Counter-Clockwise)
+            AsyncImage(
+                model = meshReq,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = colorFilter,
+                onSuccess = { onLoaded?.invoke() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(100.dp)
+                    .graphicsLayer { rotationZ = anchorRotation }
+            )
+
+            // Layer 2: Fast Rotating Crop (Top-Left)
+            AsyncImage(
+                model = meshReq,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = colorFilter,
+                alignment = Alignment.TopStart,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(120.dp)
+                    .graphicsLayer {
+                        rotationZ = fastRotation
+                        this.alpha = 0.6f
+                    }
+            )
+
+            // Layer 3: Slow Rotating Crop (Bottom-Right)
+            AsyncImage(
+                model = meshReq,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = colorFilter,
+                alignment = Alignment.BottomEnd,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(120.dp)
+                    .graphicsLayer {
+                        rotationZ = slowRotation
+                        this.alpha = 0.5f
+                    }
+            )
+
+            // Global dark tint + vertical gradient depth matching ViVi
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.2f))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.25f)
+                            )
+                        )
+                    )
+            )
         }
     }
 }

@@ -189,6 +189,7 @@ fun AuralisApp(
         isHistoryOpen = false
         isProfileOpen = false
         isListenTogetherOpen = false
+        isStatsOpen = false
         searchViewModel.closeRecognitionModal()
     }
 
@@ -381,7 +382,7 @@ fun AuralisApp(
             contentColor = MaterialTheme.colorScheme.onBackground,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen
+                val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
                 if (!isSubScreenOpen) {
                     // Floating Bottom Navigation Dock
                     Box(
@@ -584,9 +585,13 @@ fun AuralisApp(
                                                 onQueryChange = { searchViewModel.onQueryChange(it) },
                                                 onSearch = { searchViewModel.performSearch(it) },
                                                 onClearSearch = { searchViewModel.clearSearch() },
-                                                onTrackClick = { track, _ ->
+                                                onTrackClick = { track, list ->
                                                     if (isGuestInRoom) notifyGuestControlBlocked()
-                                                    else playerViewModel.playTrack(track, listOf(track), 0)
+                                                    else playerViewModel.playTrack(
+                                                        track = track,
+                                                        newQueue = if (list.isNotEmpty()) list else listOf(track),
+                                                        startIndex = if (list.isNotEmpty()) list.indexOfFirst { it.id == track.id }.coerceAtLeast(0) else 0
+                                                    )
                                                 },
                                                 onFavoriteToggle = { track -> playerViewModel.toggleFavorite(track) },
                                                 onAddToPlaylist = { plId, track -> libraryViewModel.addTrackToPlaylist(plId, track) },
@@ -959,21 +964,34 @@ fun AuralisApp(
 
         // Truly Floating Mini Player shown EVERYWHERE across all screens (Home, Explore, Library, Profile, Settings, Appearance, History, Listen Together)
         if (playerUiState.currentTrack != null) {
-            val miniPositionState = playerViewModel.playbackPositionMs.collectAsState()
+            val miniPositionState: State<Long> = playerViewModel.playbackPositionMs.collectAsState()
             val currentTrack = playerUiState.currentTrack
-            val miniProgressProvider: () -> Float = {
-                val cur = miniPositionState.value
-                val dur = playerUiState.durationMs.takeIf { it > 0L }
-                    ?: ((currentTrack?.duration ?: 0L) * 1000L)
-                if (dur > 0L) (cur.toFloat() / dur).coerceIn(0f, 1f) else 0f
+            val miniDurationState: State<Long> = remember(playerUiState.durationMs, currentTrack?.duration) {
+                derivedStateOf {
+                    val d = playerUiState.durationMs
+                    if (d > 0L) d else ((currentTrack?.duration ?: 0L) * 1000L)
+                }
             }
-            val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen
+            val miniProgressState = remember(miniPositionState, miniDurationState) {
+                com.auralis.music.ui.player.ProgressState(
+                    positionState = miniPositionState,
+                    durationState = miniDurationState
+                )
+            }
+            val miniProgressProvider: () -> Float = { miniProgressState.progress }
+            val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
             val isClassicMini = appearanceSettings.miniPlayerDesign == "Classic mini player"
-            val miniPlayerBottomPadding = if (isSubScreenOpen) {
+            val targetBottomPadding = if (isSubScreenOpen) {
                 if (isClassicMini) 0.dp else 10.dp
             } else {
                 if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp
             }
+            val reducedMotion = LocalReducedMotion.current
+            val miniPlayerBottomPadding by animateDpAsState(
+                targetValue = targetBottomPadding,
+                animationSpec = if (reducedMotion) snap() else tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                label = "miniPlayerBottomPadding"
+            )
 
             Box(
                 modifier = Modifier
@@ -990,6 +1008,7 @@ fun AuralisApp(
                     MiniPlayer(
                         track = playerUiState.currentTrack!!,
                         isPlaying = playerUiState.isPlaying,
+                        progressState = miniProgressState,
                         progressProvider = miniProgressProvider,
                         queue = playerUiState.queue,
                         currentIndex = playerUiState.currentIndex,

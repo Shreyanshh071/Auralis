@@ -42,5 +42,6 @@ scratch/
 *.db
 *.sqlite
 scratch_yt_res.json
+*.pb
 
 

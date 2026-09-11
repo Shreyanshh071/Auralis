@@ -408,20 +408,6 @@ class PlayerViewModel(
             targetQueue.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: startIndex.coerceIn(0, (targetQueue.size - 1).coerceAtLeast(0))
         }
 
-        _uiState.update {
-            it.copy(
-                currentTrack = track,
-                queue = targetQueue,
-                currentIndex = targetIndex,
-                isPlaying = true,
-                lyrics = null,
-                isLoadingLyrics = true,
-                playbackPositionMs = initialPositionMs,
-                durationMs = track.duration * 1000L,
-                errorMessage = null
-            )
-        }
-
         context?.let { ctx ->
             com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, track)
             // Pre-extract palette for neighboring tracks
@@ -436,6 +422,20 @@ class PlayerViewModel(
                     }
                 }
             }
+        }
+
+        _uiState.update {
+            it.copy(
+                currentTrack = track,
+                queue = targetQueue,
+                currentIndex = targetIndex,
+                isPlaying = true,
+                lyrics = null,
+                isLoadingLyrics = true,
+                playbackPositionMs = initialPositionMs,
+                durationMs = track.duration * 1000L,
+                errorMessage = null
+            )
         }
 
         if (audioPlayer != null) {

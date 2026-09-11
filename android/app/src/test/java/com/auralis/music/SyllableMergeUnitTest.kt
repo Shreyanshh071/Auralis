@@ -444,5 +444,89 @@ class SyllableMergeUnitTest {
             }
         }
     }
+
+    @Test
+    fun testTheLessIKnowTheBetterDoesNotMergeTheAndLess() {
+        val healed = WordTiming.healSplitWordsInText("The less I know the better")
+        assertEquals("The less I know the better", healed)
+
+        val input = listOf(
+            LyricWord(word = "The ", time = 1000L, duration = 300L),
+            LyricWord(word = "less ", time = 1300L, duration = 500L),
+            LyricWord(word = "I ", time = 1800L, duration = 200L),
+            LyricWord(word = "know ", time = 2000L, duration = 400L),
+            LyricWord(word = "the ", time = 2400L, duration = 200L),
+            LyricWord(word = "better", time = 2600L, duration = 600L)
+        )
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(6, merged!!.size)
+        assertEquals("The ", merged[0].word)
+        assertEquals("less ", merged[1].word)
+    }
+
+    @Test
+    fun testTheLessIKnowTheBetterUnspacedTokensPreserveWhitespace() {
+        val input = listOf(
+            LyricWord(word = "The", time = 1000L, duration = 300L),
+            LyricWord(word = "less", time = 1300L, duration = 500L),
+            LyricWord(word = "I", time = 1800L, duration = 200L),
+            LyricWord(word = "know", time = 2000L, duration = 400L),
+            LyricWord(word = "the", time = 2400L, duration = 200L),
+            LyricWord(word = "better", time = 2600L, duration = 600L)
+        )
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(6, merged!!.size)
+        assertEquals("The ", merged[0].word)
+        assertEquals("less ", merged[1].word)
+        assertEquals("I ", merged[2].word)
+        assertEquals("know ", merged[3].word)
+        assertEquals("the ", merged[4].word)
+        assertEquals("better", merged[5].word)
+    }
+
+    @Test
+    fun testHelloWorldNeverMerges() {
+        val input = listOf(
+            LyricWord(word = "hello", time = 1000L, duration = 300L),
+            LyricWord(word = "world", time = 1300L, duration = 500L)
+        )
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(2, merged!!.size)
+        assertEquals("hello ", merged[0].word)
+        assertEquals("world", merged[1].word)
+    }
+
+    @Test
+    fun testDontKnowWhyNeverMerges() {
+        val input = listOf(
+            LyricWord(word = "don't", time = 1000L, duration = 300L),
+            LyricWord(word = "know", time = 1300L, duration = 500L),
+            LyricWord(word = "why", time = 1800L, duration = 200L)
+        )
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(3, merged!!.size)
+        assertEquals("don't ", merged[0].word)
+        assertEquals("know ", merged[1].word)
+        assertEquals("why", merged[2].word)
+    }
+
+    @Test
+    fun testSayYourPrayersNeverMergesWords() {
+        val input = listOf(
+            LyricWord(word = "say", time = 1000L, duration = 300L),
+            LyricWord(word = "your", time = 1300L, duration = 500L),
+            LyricWord(word = "prayers", time = 1800L, duration = 200L)
+        )
+        val merged = WordTiming.mergeContiguousSyllables(input)
+        assertNotNull(merged)
+        assertEquals(3, merged!!.size)
+        assertEquals("say ", merged[0].word)
+        assertEquals("your ", merged[1].word)
+        assertEquals("prayers", merged[2].word)
+    }
 }
 

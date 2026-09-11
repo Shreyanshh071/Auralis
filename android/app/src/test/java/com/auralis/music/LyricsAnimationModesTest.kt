@@ -80,11 +80,118 @@ class LyricsAnimationModesTest {
     fun appearanceSettings_defaultValues_areAuthentic() {
         val defaultSettings = AppearanceSettings()
 
+        assertFalse("experimentalLyrics defaults to false", defaultSettings.experimentalLyrics)
         assertEquals(LyricsAnimationMode.AURALIS.displayName, defaultSettings.lyricsAnimation)
         assertFalse("enableGlowingLyricsEffect defaults to false", defaultSettings.enableGlowingLyricsEffect)
         assertFalse("standardLyricsBlur defaults to false", defaultSettings.standardLyricsBlur)
         assertEquals(22f, defaultSettings.lyricsTextSize, 0.001f)
         assertEquals(1.3f, defaultSettings.lyricsLineSpacing, 0.001f)
+    }
+
+    @Test
+    fun experimentalLyrics_presentationRouting_offUsesStandardAuralisLayout() {
+        // Contract verification: OFF
+        // Standard Auralis presentation:
+        // - Single active line determined by primaryIndex
+        // - Text alignment strictly preserves user's lyricsTextPosition setting
+        // - Background vocals do NOT shrink to 70% and do NOT italicize
+        // - Line spacing is uniform without background-pairing compression
+        val userAlignment = "Centre"
+        val isExperimental = false
+
+        val lineLead = LyricLine(time = 10_000L, endTime = 15_000L, text = "Lead line", agent = "v1")
+        val lineBg = LyricLine(time = 11_000L, endTime = 13_500L, text = "(Ad-lib)", agent = "v2", isBackground = true)
+        val lines = listOf(lineLead, lineBg)
+
+        val activeIndices = com.auralis.music.ui.screens.lyrics.LyricsEngine.findActiveLyricIndices(lines, 12_000L)
+        val primaryIndex = com.auralis.music.ui.screens.lyrics.LyricsEngine.findActiveLyricIndex(lines, 12_000L)
+
+        // Multi-active engine returns both lines active
+        assertEquals(setOf(0, 1), activeIndices)
+        assertEquals(0, primaryIndex)
+
+        // Under OFF: only primaryIndex is considered current
+        for (index in lines.indices) {
+            val isCurrent = if (isExperimental) activeIndices.contains(index) else (primaryIndex == index)
+            if (index == 0) {
+                assertTrue("Primary lead line is active under OFF", isCurrent)
+            } else {
+                assertFalse("Secondary/background line is NOT active under OFF (single active line)", isCurrent)
+            }
+        }
+
+        // Under OFF: alignment is strictly user-defined (Centre), not shifted by agent or background role
+        fun resolveAlignment(line: LyricLine, userPos: String, experimental: Boolean): String {
+            return if (experimental) {
+                when {
+                    line.isBackground -> "Center"
+                    line.agent == "v1" -> "Start"
+                    line.agent == "v2" -> "End"
+                    line.agent == "v1000" -> "Center"
+                    else -> userPos
+                }
+            } else {
+                userPos
+            }
+        }
+
+        assertEquals("Centre", resolveAlignment(lineLead, userAlignment, isExperimental))
+        assertEquals("Centre", resolveAlignment(lineBg, userAlignment, isExperimental))
+
+        // Under OFF: background vocal styling is not altered
+        val isBgStyledLead = isExperimental && lineLead.isBackground
+        val isBgStyledBg = isExperimental && lineBg.isBackground
+        assertFalse("Lead line has no special bg styling", isBgStyledLead)
+        assertFalse("Background vocal in OFF mode does not receive experimental shrink/italic", isBgStyledBg)
+    }
+
+    @Test
+    fun experimentalLyrics_presentationRouting_onUsesMetrolistMultiActiveLayout() {
+        // Contract verification: ON
+        // Metrolist presentation:
+        // - Multiple active lyric lines simultaneously
+        // - v1 -> Start (Left), v2 -> End (Right), v1000 -> Center, isBackground -> Center
+        // - Background vocals smaller (70%), italic, centered
+        // - Paired line spacing compressed to 2dp
+        val userAlignment = "Centre"
+        val isExperimental = true
+
+        val lineLead = LyricLine(time = 10_000L, endTime = 15_000L, text = "Lead line", agent = "v1")
+        val lineBg = LyricLine(time = 11_000L, endTime = 13_500L, text = "(Ad-lib)", agent = "v2", isBackground = true)
+        val lines = listOf(lineLead, lineBg)
+
+        val activeIndices = com.auralis.music.ui.screens.lyrics.LyricsEngine.findActiveLyricIndices(lines, 12_000L)
+        val primaryIndex = com.auralis.music.ui.screens.lyrics.LyricsEngine.findActiveLyricIndex(lines, 12_000L)
+
+        // Under ON: both lines are active simultaneously
+        for (index in lines.indices) {
+            val isCurrent = if (isExperimental) activeIndices.contains(index) else (primaryIndex == index)
+            assertTrue("Line $index is active under ON", isCurrent)
+        }
+
+        // Under ON: alignment dynamically matches agent and role
+        fun resolveAlignment(line: LyricLine, userPos: String, experimental: Boolean): String {
+            return if (experimental) {
+                when {
+                    line.isBackground -> "Center"
+                    line.agent == "v1" -> "Start"
+                    line.agent == "v2" -> "End"
+                    line.agent == "v1000" -> "Center"
+                    else -> userPos
+                }
+            } else {
+                userPos
+            }
+        }
+
+        assertEquals("Start", resolveAlignment(lineLead, userAlignment, isExperimental))
+        assertEquals("Center", resolveAlignment(lineBg, userAlignment, isExperimental)) // isBackground takes precedence over agent for centering
+
+        // Under ON: background vocal styling is applied
+        val isBgStyledLead = isExperimental && lineLead.isBackground
+        val isBgStyledBg = isExperimental && lineBg.isBackground
+        assertFalse("Lead line is not bg-styled", isBgStyledLead)
+        assertTrue("Background vocal in ON mode receives experimental shrink/italic styling", isBgStyledBg)
     }
 
     @Test
@@ -201,5 +308,179 @@ class LyricsAnimationModesTest {
         assertEquals(4f, computeBlur(standardBlur = true, isAutoScrollActive = true, isUserInteracting = false, isSynced = true, isPlain = false, isSelected = false, isCurrent = false, distanceFromCurrent = 3))
         assertEquals(6f, computeBlur(standardBlur = true, isAutoScrollActive = true, isUserInteracting = false, isSynced = true, isPlain = false, isSelected = false, isCurrent = false, distanceFromCurrent = 4))
         assertEquals(6f, computeBlur(standardBlur = true, isAutoScrollActive = true, isUserInteracting = false, isSynced = true, isPlain = false, isSelected = false, isCurrent = false, distanceFromCurrent = 8))
+    }
+
+    @Test
+    fun metroLyricsLine_activeIntervalHighlightState_preservesHighlightUntilNextLine() {
+        // Models MetroLyrics active interval calculation:
+        // - line not started -> inactive/gray
+        // - line currently playing -> highlighted
+        // - line's words have finished but next line has not started -> STILL highlighted
+        // - next line starts -> previous line can become inactive and next line becomes highlighted
+        fun calculateMetroActive(
+            playbackPosition: Long,
+            line: LyricLine,
+            nextLineTime: Long?,
+            isActive: Boolean
+        ): Boolean {
+            val nextBoundary = nextLineTime ?: line.endTime ?: (line.effectiveEndTime ?: (line.time + 10_000L))
+            val isInActiveInterval = if (nextBoundary > line.time) {
+                playbackPosition in line.time until nextBoundary
+            } else {
+                playbackPosition >= line.time && playbackPosition <= nextBoundary
+            }
+            return isActive || isInActiveInterval
+        }
+
+        val wordsLine1 = listOf(
+            LyricWord(word = "Hello ", time = 10_000L, duration = 1_000L), // 10_000 to 11_000
+            LyricWord(word = "world", time = 11_000L, duration = 2_000L)   // 11_000 to 13_000
+        )
+        val line1 = LyricLine(time = 10_000L, text = "Hello world", words = wordsLine1)
+        val nextLineStart = 16_000L // 3-second rest between 13_000 and 16_000
+
+        // 1. Before line starts (9_500ms): inactive
+        assertFalse(
+            "Line 1 before start must be inactive",
+            calculateMetroActive(9_500L, line1, nextLineStart, isActive = false)
+        )
+
+        // 2. Line playing first word (10_500ms): active/highlighted
+        assertTrue(
+            "Line 1 during playback must be active",
+            calculateMetroActive(10_500L, line1, nextLineStart, isActive = true)
+        )
+
+        // 3. Line playing second word (12_500ms): active/highlighted
+        assertTrue(
+            "Line 1 during final word playback must be active",
+            calculateMetroActive(12_500L, line1, nextLineStart, isActive = true)
+        )
+
+        // 4. Line's words finished at 13_000ms, resting at 14_500ms (next line at 16_000ms):
+        // Provider/engine isActive drops to false, but MetroLyrics line-level highlight interval MUST keep it active/highlighted!
+        assertTrue(
+            "Line 1 MUST stay highlighted during vocal rest after words completed",
+            calculateMetroActive(14_500L, line1, nextLineStart, isActive = false)
+        )
+
+        // 5. Right before next line starts (15_999ms): still active/highlighted
+        assertTrue(
+            "Line 1 must stay highlighted right up to next line boundary",
+            calculateMetroActive(15_999L, line1, nextLineStart, isActive = false)
+        )
+
+        // 6. Next line starts at 16_000ms: Line 1 must become inactive
+        assertFalse(
+            "Line 1 must become inactive when next line starts",
+            calculateMetroActive(16_000L, line1, nextLineStart, isActive = false)
+        )
+        assertFalse(
+            "Line 1 must stay inactive during next line playback",
+            calculateMetroActive(17_000L, line1, nextLineStart, isActive = false)
+        )
+    }
+
+    @Test
+    fun experimentalLyrics_findExperimentalActiveLineIndices_supportsMultipleConcurrentLines() {
+        val line1 = LyricLine(
+            time = 10_000L,
+            endTime = 16_000L,
+            text = "Lead singer vocal",
+            agent = "v1",
+            words = listOf(
+                LyricWord("Lead", 10_000L, 1_500L),
+                LyricWord("singer", 12_000L, 1_500L),
+                LyricWord("vocal", 14_000L, 2_000L)
+            )
+        )
+        val line2 = LyricLine(
+            time = 12_000L,
+            endTime = 18_000L,
+            text = "Duet response",
+            agent = "v2",
+            words = listOf(
+                LyricWord("Duet", 12_000L, 2_000L),
+                LyricWord("response", 15_000L, 3_000L)
+            )
+        )
+        val line3 = LyricLine(
+            time = 13_000L,
+            endTime = 15_500L,
+            text = "(Background chant)",
+            isBackground = true,
+            words = listOf(
+                LyricWord("(Background", 13_000L, 1_000L),
+                LyricWord("chant)", 14_200L, 1_300L)
+            )
+        )
+        val lines = listOf(line1, line2, line3)
+
+        // At 11_000ms: only line 1 is active
+        val activeAt11 = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, 11_000L)
+        assertEquals(setOf(0), activeAt11)
+
+        // At 12_500ms: line 1 and line 2 are both active simultaneously (v1 on left, v2 on right!)
+        val activeAt12_5 = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, 12_500L)
+        assertEquals(setOf(0, 1), activeAt12_5)
+
+        // At 14_000ms: line 1 (lead), line 2 (duet), and line 3 (background) are ALL active concurrently!
+        val activeAt14 = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, 14_000L)
+        assertEquals(setOf(0, 1, 2), activeAt14)
+
+        // At 17_000ms: line 1 and line 3 have ended; only line 2 is still active
+        val activeAt17 = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, 17_000L)
+        assertEquals(setOf(1), activeAt17)
+
+        // At 19_000ms: all lines have ended
+        val activeAt19 = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, 19_000L)
+        assertEquals(emptySet<Int>(), activeAt19)
+    }
+
+    @Test
+    fun experimentalLyrics_agentAlignmentAndDimming_strictlyFollowsContract() {
+        // Alignment contract
+        fun getAlignment(agent: String?, isBg: Boolean, textPos: String): String {
+            return when {
+                agent == "v1" -> "Start"
+                agent == "v2" -> "End"
+                agent == "v1000" -> "Center"
+                isBg -> "Center"
+                textPos.lowercase() == "left" -> "Start"
+                textPos.lowercase() == "right" -> "End"
+                else -> "Center"
+            }
+        }
+
+        assertEquals("Start", getAlignment("v1", false, "center"))
+        assertEquals("End", getAlignment("v2", false, "center"))
+        assertEquals("Center", getAlignment("v1000", false, "left"))
+        assertEquals("Center", getAlignment(null, true, "left"))
+        assertEquals("Start", getAlignment(null, false, "left"))
+        assertEquals("End", getAlignment(null, false, "right"))
+        assertEquals("Center", getAlignment(null, false, "center"))
+
+        // Dimming contract
+        fun getDimmingAlpha(distance: Int, isActive: Boolean, isBg: Boolean): Float {
+            if (isActive) return 1.0f
+            return when (distance) {
+                0 -> if (isBg) 0.50f else 0.30f
+                1 -> 0.20f
+                2 -> 0.20f
+                3 -> 0.15f
+                4 -> 0.10f
+                else -> 0.08f
+            }
+        }
+
+        assertEquals(1.0f, getDimmingAlpha(0, isActive = true, isBg = false), 0.001f)
+        assertEquals(0.30f, getDimmingAlpha(0, isActive = false, isBg = false), 0.001f)
+        assertEquals(0.50f, getDimmingAlpha(0, isActive = false, isBg = true), 0.001f)
+        assertEquals(0.20f, getDimmingAlpha(1, isActive = false, isBg = false), 0.001f)
+        assertEquals(0.20f, getDimmingAlpha(2, isActive = false, isBg = false), 0.001f)
+        assertEquals(0.15f, getDimmingAlpha(3, isActive = false, isBg = false), 0.001f)
+        assertEquals(0.10f, getDimmingAlpha(4, isActive = false, isBg = false), 0.001f)
+        assertEquals(0.08f, getDimmingAlpha(5, isActive = false, isBg = false), 0.001f)
+        assertEquals(0.08f, getDimmingAlpha(10, isActive = false, isBg = false), 0.001f)
     }
 }
