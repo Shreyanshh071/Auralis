@@ -240,7 +240,10 @@ object WordTiming {
         "end", "line", "shadow", "dream", "truth", "lie", "peace", "war", "pain",
         "tear", "smile", "kiss", "bed", "blood", "bone", "breath", "rain", "wind",
         "sea", "ocean", "river", "hill", "rock", "stone", "gold", "glass", "can",
-        "bar", "sage", "bird", "dog", "cat", "fish", "hello"
+        "bar", "sage", "bird", "dog", "cat", "fish", "hello",
+        "theme", "theory", "theatre", "theater", "thesis",
+        "forget", "forgot", "forgive", "forgave", "forgiven", "format", "fortune", "forest", "forward",
+        "cannot", "superman", "superstar", "weekend"
     )
 
     private val NON_STANDALONE_SUFFIXES = setOf(
@@ -262,7 +265,35 @@ object WordTiming {
         "wunderbar", "together", "trevor", "heather", "better", "weather", "feather",
         "leather", "whatever", "whenever", "wherever", "whoever", "however", "another", "never",
         "prayers", "despise", "realize", "visage", "beautiful", "deceive", "release", "psychedelic",
-        "unbreakable", "connection", "easy", "weirdo", "running", "happy", "blinded", "withdrawals", "overdrive"
+        "unbreakable", "connection", "easy", "weirdo", "running", "happy", "blinded", "withdrawals", "overdrive",
+        "nevertheless", "nonetheless", "cannot", "superman", "superstar", "weekend", "weekday",
+        "anyone", "anybody", "anything", "anyway", "anymore", "anyhow",
+        "somebody", "someday", "somehow", "sometime", "sometimes",
+        "everyone", "everybody", "everything",
+        "nobody", "noone", "nothing", "nowhere",
+        "outside", "outdoors", "outcome", "outlook", "outline", "outfit", "output", "outlet",
+        "within", "withhold", "withdraw", "withdrawal",
+        "instead", "insight", "intact", "income", "input",
+        "upon", "upset", "upward", "upstairs", "downstairs", "downtown", "uptown",
+        "underline", "understand", "understood", "undertake", "underground", "underwater",
+        "overcome", "overflow", "overlook", "overnight", "overtake",
+        "already", "almost", "always", "although", "altogether", "also",
+        "maybe", "meanwhile", "meantime", "ourselves", "yourselves",
+        "sunshine", "sunset", "sunrise", "daylight", "nightfall", "midnight",
+        "heartbreak", "heartbroken", "background", "foreground", "playground",
+        "theme", "theology",
+        "hopeless", "careless", "endless", "fearless", "heartless", "painless", "restless", "sleepless",
+        "flawless", "clueless", "helpless", "relentless", "reckless", "ruthless", "senseless", "shameless",
+        "useless", "worthless", "limitless", "breathless", "boundless", "speechless", "aimless", "effortless",
+        "timeless", "tireless", "wireless",
+        "brother", "mother", "father", "sister", "gather", "rather", "neither", "either", "whether",
+        "bother", "smother", "further", "furthermore", "petsmart", "youtube"
+    )
+
+    private val GLUED_PREFIX_WORDS = listOf(
+        "the", "and", "in", "to", "of", "on", "with", "for", "at", "by", "from",
+        "my", "your", "our", "all", "so", "no", "we", "you", "they", "he", "she",
+        "it", "i", "that", "what", "who", "when", "where", "why", "how", "oh"
     )
 
     fun isStandalone(token: String): Boolean {
@@ -273,6 +304,162 @@ object WordTiming {
             .replace("’", "")
             .lowercase()
         return c.isNotEmpty() && STANDALONE_WORDS.contains(c)
+    }
+
+    /**
+     * Splits accidental glued/merged words (e.g. "Theless" -> ["The ", "less"], "andthe" -> ["and ", "the"],
+     * "TheLess" -> ["The ", "Less"], "inmy" -> ["in ", "my"]) that commonly occur in lyrics metadata or
+     * provider markup without splitting legitimate English compound words ("together", "without", "forever", etc.).
+     */
+    fun splitAccidentalMergedWord(token: String): List<String> {
+        if (token.length < 4 || isCjk(token)) return listOf(token)
+
+        var lIdx = 0
+        while (lIdx < token.length && !token[lIdx].isLetterOrDigit()) {
+            lIdx++
+        }
+        var rIdx = token.length
+        while (rIdx > lIdx && !token[rIdx - 1].isLetterOrDigit()) {
+            rIdx--
+        }
+
+        val leading = token.substring(0, lIdx)
+        val core = token.substring(lIdx, rIdx)
+        val trailing = token.substring(rIdx)
+
+        if (core.length < 4) return listOf(token)
+
+        val coreLower = core.lowercase()
+
+        // 1. Never split known compounds or standalone dictionary words
+        if (KNOWN_COMPOUND_WORDS.contains(coreLower) || isStandalone(coreLower)) {
+            return listOf(token)
+        }
+
+        // 2. Check camelCase / PascalCase boundaries (e.g. "TheLess" -> "The", "Less")
+        val camelBoundary = Regex("([a-z0-9])([A-Z])")
+        if (camelBoundary.containsMatchIn(core)) {
+            val parts = core.split(Regex("(?<=[a-z0-9])(?=[A-Z])"))
+            if (parts.size >= 2 && parts.all { isStandalone(it) || KNOWN_COMPOUND_WORDS.contains(it.lowercase()) }) {
+                val res = mutableListOf<String>()
+                for (i in parts.indices) {
+                    val p = parts[i]
+                    if (i == 0) {
+                        res.add(leading + p + if (parts.size > 1 && !trailing.startsWith(" ")) " " else "")
+                    } else if (i == parts.lastIndex) {
+                        res.add(p + trailing)
+                    } else {
+                        res.add("$p ")
+                    }
+                }
+                return res
+            }
+        }
+
+        // 3. Check Glued Prefix Words (e.g. "Theless" -> "The ", "less")
+        for (pref in GLUED_PREFIX_WORDS) {
+            if (coreLower.startsWith(pref) && coreLower.length > pref.length) {
+                val rem = coreLower.substring(pref.length)
+                if (isStandalone(rem) || KNOWN_COMPOUND_WORDS.contains(rem)) {
+                    val part1Str = core.substring(0, pref.length)
+                    val part2Str = core.substring(pref.length)
+                    val res1 = leading + part1Str + " "
+                    val res2 = part2Str + trailing
+                    return listOf(res1, res2)
+                }
+            }
+        }
+
+        return listOf(token)
+    }
+
+    /**
+     * Splits any accidentally merged words within a plaintext string while maintaining
+     * natural spacing and punctuation.
+     */
+    fun splitMergedWordsInText(text: String): String {
+        if (text.isBlank()) return text
+        val rawTokens = text.split(" ")
+        val out = mutableListOf<String>()
+        for (rawToken in rawTokens) {
+            if (rawToken.isEmpty()) {
+                out.add("")
+                continue
+            }
+            val split = splitAccidentalMergedWord(rawToken)
+            if (split.size > 1) {
+                for (s in split) {
+                    val trimmed = s.trim()
+                    if (trimmed.isNotEmpty()) out.add(trimmed)
+                }
+            } else {
+                out.add(rawToken)
+            }
+        }
+        return out.joinToString(" ")
+    }
+
+    /**
+     * Splits a [LyricWord] that contains an accidental merge into multiple proportional [LyricWord]s.
+     * Divides word duration proportionally across the split parts to keep karaoke sweeping/highlighting natural.
+     */
+    fun splitMergedLyricWord(word: LyricWord): List<LyricWord> {
+        val parts = splitAccidentalMergedWord(word.word)
+        if (parts.size <= 1) return listOf(word)
+
+        val letterCounts = parts.map { part ->
+            part.count { it.isLetterOrDigit() }.coerceAtLeast(1)
+        }
+        val totalLetters = letterCounts.sum()
+        val totalDuration = word.duration
+
+        var currentStart = word.time
+        var durationRemaining = totalDuration
+        val result = mutableListOf<LyricWord>()
+
+        for (i in parts.indices) {
+            val partText = parts[i]
+            val count = letterCounts[i]
+            val partDuration = if (totalDuration != null) {
+                if (i == parts.lastIndex) {
+                    durationRemaining
+                } else {
+                    val dur = ((totalDuration * count.toLong()) / totalLetters.toLong()).coerceAtLeast(1L)
+                    durationRemaining = durationRemaining?.minus(dur)?.coerceAtLeast(1L)
+                    dur
+                }
+            } else null
+
+            result.add(
+                word.copy(
+                    word = partText,
+                    time = currentStart,
+                    duration = partDuration
+                )
+            )
+
+            if (partDuration != null) {
+                currentStart += partDuration
+            }
+        }
+        return result
+    }
+
+    /**
+     * Splits accidental merged words across both text and word-synced timestamps of a [LyricLine].
+     */
+    fun splitMergedWordsInLine(line: LyricLine): LyricLine {
+        val newWords = if (!line.words.isNullOrEmpty()) {
+            line.words.flatMap { splitMergedLyricWord(it) }
+        } else null
+
+        val newText = splitMergedWordsInText(line.text)
+
+        return if (newWords != line.words || newText != line.text) {
+            line.copy(text = newText, words = newWords)
+        } else {
+            line
+        }
     }
 
     /**
@@ -299,12 +486,14 @@ object WordTiming {
     }
 
     /**
-     * Heals any split words inside a plaintext lyric line (e.g. "Say your pray ers" -> "Say your prayers").
+     * Heals any split words inside a plaintext lyric line (e.g. "Say your pray ers" -> "Say your prayers"),
+     * and splits any accidentally merged words (e.g. "Oh, theless I know" -> "Oh, the less I know").
      */
     fun healSplitWordsInText(text: String): String {
-        if (text.isBlank() || !text.contains(' ')) return text
-        val tokens = text.split(" ")
-        if (tokens.size < 2) return text
+        val unglued = splitMergedWordsInText(text)
+        if (unglued.isBlank() || !unglued.contains(' ')) return unglued
+        val tokens = unglued.split(" ")
+        if (tokens.size < 2) return unglued
         val out = ArrayList<String>(tokens.size)
         out.add(tokens[0])
         for (i in 1 until tokens.size) {

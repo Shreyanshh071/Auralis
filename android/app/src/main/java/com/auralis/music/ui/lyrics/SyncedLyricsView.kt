@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.StrokeCap
 
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -181,8 +182,9 @@ fun SyncedLyricsView(
         if (lyrics == null) emptyList()
         else if (lyrics.lines.isNotEmpty()) {
             lyrics.lines.map { line ->
-                val healed = com.auralis.music.data.parser.WordTiming.healSplitWordsInText(line.text)
-                if (healed != line.text) line.copy(text = healed) else line
+                val unglued = com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(line)
+                val healed = com.auralis.music.data.parser.WordTiming.healSplitWordsInText(unglued.text)
+                if (healed != unglued.text) unglued.copy(text = healed) else unglued
             }
         }
         else if (!lyrics.plainLyrics.isNullOrBlank()) {
@@ -284,6 +286,21 @@ fun SyncedLyricsView(
 
     val isSynced = (lyrics.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
 
+    var scrollRequestId by remember { mutableLongStateOf(0L) }
+    var pendingSeekTarget by remember { mutableStateOf<SyncedPendingSeekTarget?>(null) }
+
+    LaunchedEffect(positionState.value) {
+        val pending = pendingSeekTarget
+        if (pending != null) {
+            val currentPos = positionState.value + offsetMs
+            val hasConverged = kotlin.math.abs(currentPos - pending.targetTimeMs) <= 350L
+            val isTimedOut = (System.currentTimeMillis() - pending.timestamp) > 650L
+            if (hasConverged || isTimedOut) {
+                pendingSeekTarget = null
+            }
+        }
+    }
+
     // Derived, not remembered against the position: composition re-runs when the
     // active *lines* change, not when the millisecond does.
     val activeIndicesState = remember(effectiveLines, isSynced, offsetMs, positionState) {
@@ -293,10 +310,31 @@ fun SyncedLyricsView(
         }
     }
 
-    val primaryActiveIndexState = remember(effectiveLines, isSynced, offsetMs, positionState) {
+    val visualActiveIndicesState = remember(effectiveLines, isSynced, offsetMs, positionState, pendingSeekTarget) {
+        derivedStateOf {
+            if (!isSynced) emptySet<Int>()
+            else {
+                val pending = pendingSeekTarget
+                if (pending != null) {
+                    setOf(pending.lineIndex)
+                } else {
+                    LyricsEngine.findVisualActiveLineIndices(effectiveLines, positionState.value, offsetMs)
+                }
+            }
+        }
+    }
+
+    val primaryActiveIndexState = remember(effectiveLines, isSynced, offsetMs, positionState, pendingSeekTarget) {
         derivedStateOf {
             if (!isSynced) -1
-            else LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value, offsetMs)
+            else {
+                val pending = pendingSeekTarget
+                if (pending != null) {
+                    pending.lineIndex
+                } else {
+                    LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value, offsetMs)
+                }
+            }
         }
     }
 
@@ -311,7 +349,7 @@ fun SyncedLyricsView(
                     for (i in effectiveLines.indices) {
                         if (!active.contains(i) && (active.isNotEmpty() || primary != i)) {
                             val line = effectiveLines[i]
-                            val lineEnd = effectiveLines.getOrNull(i + 1)?.time ?: line.effectiveEndTime ?: (line.time + 10_000L)
+                            val lineEnd = effectiveLines.getOrNull(i + 1)?.time ?: Long.MAX_VALUE
                             if (targetTime >= lineEnd) {
                                 add(i)
                             }
@@ -359,7 +397,7 @@ fun SyncedLyricsView(
     val lyricsNestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 0.5f) {
+                if (!isProgrammaticScroll && source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 0.5f) {
                     if (selectedIndices.isEmpty()) {
                         isAutoScrollEnabled = false
                         isUserInteracting = true
@@ -369,7 +407,9 @@ fun SyncedLyricsView(
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput) {
+                if (!isProgrammaticScroll && source == NestedScrollSource.UserInput &&
+                    (kotlin.math.abs(consumed.y) > 0.5f || kotlin.math.abs(available.y) > 0.5f)
+                ) {
                     if (selectedIndices.isEmpty()) {
                         isAutoScrollEnabled = false
                     }
@@ -378,9 +418,6 @@ fun SyncedLyricsView(
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (selectedIndices.isEmpty()) {
-                    isAutoScrollEnabled = false
-                }
                 isUserInteracting = false
                 return super.onPostFling(consumed, available)
             }
@@ -389,12 +426,7 @@ fun SyncedLyricsView(
 
     // Direct scroll-state observer: ensures any non-programmatic scroll immediately disengages auto-scroll
     LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            if (!isProgrammaticScroll && selectedIndices.isEmpty()) {
-                isAutoScrollEnabled = false
-                isUserInteracting = true
-            }
-        } else {
+        if (!listState.isScrollInProgress) {
             isUserInteracting = false
         }
     }
@@ -438,9 +470,61 @@ fun SyncedLyricsView(
             isAutoScrollEnabled = appearance.autoScrollLyrics
         }
 
-        // Suspend function to accurately and smoothly center any lyric line in the viewport
+        val mergedLyricsItems = remember(effectiveLines) {
+            val items = mutableListOf<SyncedLyricsItem>()
+            effectiveLines.forEachIndexed { index, line ->
+                items.add(SyncedLyricsItem.Line(index, line))
+                if (index < effectiveLines.size - 1) {
+                    val nextLine = effectiveLines[index + 1]
+                    val nextStart = nextLine.time
+                    val effEnd = line.effectiveEndTime
+                    val gapStart = when {
+                        effEnd != null -> effEnd
+                        line.text.isBlank() -> line.time
+                        else -> {
+                            val estimatedDuration = (line.text.length * 100L).coerceIn(2500L, 5000L)
+                            (line.time + estimatedDuration).coerceAtMost(nextStart - 2000L)
+                        }
+                    }
+                    if (nextStart - gapStart >= 3500L) {
+                        items.add(SyncedLyricsItem.Indicator(index, gapStart, nextStart))
+                    }
+                }
+            }
+            items
+        }
+
+        val activeMergedIndexState = remember(mergedLyricsItems, primaryActiveIndexState, positionState, offsetMs, pendingSeekTarget) {
+            derivedStateOf {
+                if (!isSynced) return@derivedStateOf -1
+                val pending = pendingSeekTarget
+                if (pending != null) {
+                    val found = mergedLyricsItems.indexOfFirst {
+                        it is SyncedLyricsItem.Line && it.originalIndex == pending.lineIndex
+                    }
+                    if (found >= 0) return@derivedStateOf found
+                }
+                val currentMs = positionState.value + offsetMs
+                val activeIndicatorIndex = mergedLyricsItems.indexOfFirst {
+                    it is SyncedLyricsItem.Indicator && currentMs in it.gapStartMs..it.gapEndMs
+                }
+                if (activeIndicatorIndex >= 0) {
+                    return@derivedStateOf activeIndicatorIndex
+                }
+                val primaryIdx = primaryActiveIndexState.value
+                if (primaryIdx >= 0) {
+                    val found = mergedLyricsItems.indexOfFirst {
+                        it is SyncedLyricsItem.Line && it.originalIndex == primaryIdx
+                    }
+                    if (found >= 0) return@derivedStateOf found
+                }
+                if (mergedLyricsItems.isNotEmpty()) 0 else -1
+            }
+        }
+
+        // Suspend function to accurately and smoothly center any lyric line or interval in the viewport
         val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
-            if (targetIndex in effectiveLines.indices) {
+            if (targetIndex in mergedLyricsItems.indices) {
                 isProgrammaticScroll = true
                 try {
                     var layoutInfo = listState.layoutInfo
@@ -459,7 +543,18 @@ fun SyncedLyricsView(
                         val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * targetCenterFraction)
                         var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
                         if (itemInfo == null) {
-                            listState.scrollToItem(targetIndex)
+                            val currentFirst = listState.firstVisibleItemIndex
+                            val distance = kotlin.math.abs(targetIndex - currentFirst)
+                            if (distance > 8) {
+                                val preIndex = if (targetIndex > currentFirst) {
+                                    (targetIndex - 2).coerceAtLeast(0)
+                                } else {
+                                    (targetIndex + 2).coerceAtMost(mergedLyricsItems.size - 1)
+                                }
+                                listState.scrollToItem(preIndex)
+                            } else {
+                                listState.scrollToItem(targetIndex)
+                            }
                             try {
                                 withFrameMillis { }
                             } catch (_: Exception) {
@@ -498,14 +593,18 @@ fun SyncedLyricsView(
         }
 
         val resyncLyrics: () -> Unit = {
-            isAutoScrollEnabled = true
-            val activeIndex = primaryActiveIndexState.value
-            if (activeIndex >= 0 && activeIndex < effectiveLines.size) {
+            if (appearance.autoScrollLyrics) {
+                isAutoScrollEnabled = true
+            }
+            isUserInteracting = false
+            pendingSeekTarget = null
+            val activeIndex = activeMergedIndexState.value
+            if (activeIndex in mergedLyricsItems.indices) {
                 coroutineScope.launch {
                     centerActiveLine(activeIndex, true)
                     lastCenteredIndex = activeIndex
                 }
-            } else if (effectiveLines.isNotEmpty()) {
+            } else if (mergedLyricsItems.isNotEmpty()) {
                 coroutineScope.launch {
                     centerActiveLine(0, true)
                     lastCenteredIndex = 0
@@ -513,31 +612,24 @@ fun SyncedLyricsView(
             }
         }
 
-        // Automatic, smooth centering of active lyric line.
-        // Driven by a snapshotFlow so the position clock never re-runs this
-        // composable — the effect wakes only when the primary active index or the user's
-        // touch state actually changes. Anchoring to primaryActiveIndex prevents scrolling
-        // jitter when simultaneous secondary/background lines overlap.
-        LaunchedEffect(primaryActiveIndexState, isSynced, isAutoScrollEnabled, effectiveLines) {
+        // Automatic, smooth centering of active lyric line or instrumental indicator.
+        LaunchedEffect(activeMergedIndexState, isSynced, isAutoScrollEnabled, mergedLyricsItems) {
             if (!isSynced || !isAutoScrollEnabled) return@LaunchedEffect
             snapshotFlow {
-                Triple(primaryActiveIndexState.value, isUserInteracting, selectedIndices.isNotEmpty())
+                Triple(activeMergedIndexState.value, isUserInteracting, selectedIndices.isNotEmpty())
             }
                 .distinctUntilChanged()
                 .collectLatest { (activeIndex, interacting, selecting) ->
                     if (interacting || selecting) return@collectLatest
                     if (activeIndex < 0) {
-                        if (effectiveLines.isNotEmpty()) {
+                        if (mergedLyricsItems.isNotEmpty()) {
                             centerActiveLine(0, hasInitialCentered)
                         }
                         return@collectLatest
                     }
-                    if (activeIndex >= effectiveLines.size) return@collectLatest
+                    if (activeIndex >= mergedLyricsItems.size) return@collectLatest
 
-                    // Snap (no animation) for large index jumps like tap-to-seek;
-                    // animate smoothly only for natural 1-2 line progressions.
-                    val indexDelta = if (lastCenteredIndex >= 0) kotlin.math.abs(activeIndex - lastCenteredIndex) else Int.MAX_VALUE
-                    val shouldAnimate = hasInitialCentered && indexDelta <= 2
+                    val shouldAnimate = hasInitialCentered
                     centerActiveLine(activeIndex, shouldAnimate)
                     lastCenteredIndex = activeIndex
                     hasInitialCentered = true
@@ -559,6 +651,9 @@ fun SyncedLyricsView(
             }
         }
 
+        val topFadePx = with(density) { 36.dp.toPx() }
+        val bottomFadePx = with(density) { 90.dp.toPx() }
+
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -567,16 +662,28 @@ fun SyncedLyricsView(
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0.0f to Color.Transparent,
-                            0.05f to Color.Black,
-                            0.78f to Color.Black,
-                            0.94f to Color.Transparent,
-                            1.0f to Color.Transparent
-                        ),
-                        blendMode = BlendMode.DstIn
-                    )
+                    if (topFadePx > 0f) {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                1f to Color.Black,
+                                startY = 0f,
+                                endY = topFadePx
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+                    if (bottomFadePx > 0f) {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to Color.Black,
+                                1f to Color.Transparent,
+                                startY = size.height - bottomFadePx,
+                                endY = size.height
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
                 },
             contentPadding = PaddingValues(
                 top = if (isSynced) topPaddingDp else 36.dp,
@@ -588,150 +695,178 @@ fun SyncedLyricsView(
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             itemsIndexed(
-                items = effectiveLines,
-                key = { index, line -> "${line.time}_$index" }
-            ) { index, line ->
-                // Reading the derived indices here — inside the item's own
-                // recomposition scope — keeps line-change invalidation local to
-                // the rows instead of the whole view.
-                val activeIndices = activeIndicesState.value
-                val pastIndices = pastIndicesState.value
-                val primaryIndex = primaryActiveIndexState.value
-                val isCurrent = isSynced && (activeIndices.contains(index) || (activeIndices.isEmpty() && primaryIndex == index))
-                val isPast = isSynced && pastIndices.contains(index) && !isCurrent
-                val pastDistance = if (isPast) {
-                    val minActive = activeIndices.minOrNull()
-                    val ref = minActive ?: (primaryIndex + 1)
-                    (ref - index).coerceAtLeast(1)
-                } else 0
-                val distanceFromCurrent = when {
-                    isCurrent -> 0
-                    isPast -> pastDistance
-                    primaryIndex >= 0 -> kotlin.math.abs(index - primaryIndex)
-                    else -> 1
-                }
-
-                // Vocal agent & background vocal positioning
-                val lineAlignment = when {
-                    line.isBackground -> Alignment.CenterHorizontally
-                    line.agent == "v1" -> Alignment.Start
-                    line.agent == "v2" -> Alignment.End
-                    line.agent == "v1000" -> Alignment.CenterHorizontally
-                    else -> horizontalAlignment
-                }
-                val lineTextAlign = when {
-                    line.isBackground -> TextAlign.Center
-                    line.agent == "v1" -> TextAlign.Start
-                    line.agent == "v2" -> TextAlign.End
-                    line.agent == "v1000" -> TextAlign.Center
-                    else -> textAlign
-                }
-
-                val nextLine = effectiveLines.getOrNull(index + 1)
-                val isNextBg = nextLine?.isBackground == true
-                val isPairedWithNext = nextLine != null && (isNextBg || (nextLine.time == line.time && isSynced))
-
-                val itemBottomSpacing = when {
-                    index == effectiveLines.lastIndex -> 0.dp
-                    isPairedWithNext -> 2.dp
-                    else -> (14 * appearance.lyricsLineSpacing).dp
-                }
-
-                val isSelected = selectedIndices.contains(index)
-                val isSelectionMode = selectedIndices.isNotEmpty()
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = itemBottomSpacing),
-                    horizontalAlignment = lineAlignment
-                ) {
-                    if (index == 0 && isIntroActiveState.value) {
-                        InstrumentalIntroIndicator(
-                            currentTimeMsState = introTimeState,
-                            introDurationMs = introDurationMs,
-                            onSkipIntro = { onSeekTo(introDurationMs) },
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
+                items = mergedLyricsItems,
+                key = { listIndex, item ->
+                    when (item) {
+                        is SyncedLyricsItem.Line -> "${item.line.time}_${item.originalIndex}"
+                        is SyncedLyricsItem.Indicator -> "indicator_${item.gapStartMs}_${item.gapEndMs}_$listIndex"
                     }
+                }
+            ) { listIndex, item ->
+                when (item) {
+                    is SyncedLyricsItem.Line -> {
+                        val index = item.originalIndex
+                        val line = item.line
+                        val activeIndices = activeIndicesState.value
+                        val visualActiveIndices = visualActiveIndicesState.value
+                        val pastIndices = pastIndicesState.value
+                        val primaryIndex = primaryActiveIndexState.value
+                        val isCurrent = isSynced && (visualActiveIndices.contains(index) || activeIndices.contains(index) || (activeIndices.isEmpty() && primaryIndex == index))
+                        val isPast = isSynced && !isCurrent && (index < primaryIndex || (primaryIndex == -1 && pastIndices.contains(index)))
+                        val pastDistance = if (isPast) {
+                            val minActive = (visualActiveIndices + activeIndices).minOrNull()
+                            val ref = minActive ?: (primaryIndex + 1)
+                            (ref - index).coerceAtLeast(1)
+                        } else 0
+                        val distanceFromCurrent = when {
+                            isCurrent -> 0
+                            isPast -> pastDistance
+                            primaryIndex >= 0 -> kotlin.math.abs(index - primaryIndex)
+                            else -> 1
+                        }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (isSelected) {
-                                    Modifier
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(Color.White.copy(alpha = 0.18f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                                } else {
-                                    Modifier.padding(
-                                        horizontal = 4.dp,
-                                        vertical = if (line.isBackground || isPairedWithNext) 1.dp else 2.dp
-                                    )
-                                }
-                            )
-                            .combinedClickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = {
-                                    if (isSelectionMode) {
-                                        selectedIndices = if (isSelected) {
-                                            selectedIndices - index
+                        // Vocal agent & background vocal positioning
+                        val lineAlignment = when {
+                            line.isBackground -> Alignment.CenterHorizontally
+                            line.agent == "v1" -> Alignment.Start
+                            line.agent == "v2" -> Alignment.End
+                            line.agent == "v1000" -> Alignment.CenterHorizontally
+                            else -> horizontalAlignment
+                        }
+                        val lineTextAlign = when {
+                            line.isBackground -> TextAlign.Center
+                            line.agent == "v1" -> TextAlign.Start
+                            line.agent == "v2" -> TextAlign.End
+                            line.agent == "v1000" -> TextAlign.Center
+                            else -> textAlign
+                        }
+
+                        val nextLine = effectiveLines.getOrNull(index + 1)
+                        val isNextBg = nextLine?.isBackground == true
+                        val isPairedWithNext = nextLine != null && (isNextBg || (nextLine.time == line.time && isSynced))
+
+                        val itemBottomSpacing = when {
+                            index == effectiveLines.lastIndex -> 0.dp
+                            isPairedWithNext -> 2.dp
+                            else -> (14 * appearance.lyricsLineSpacing).dp
+                        }
+
+                        val isSelected = selectedIndices.contains(index)
+                        val isSelectionMode = selectedIndices.isNotEmpty()
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = itemBottomSpacing),
+                            horizontalAlignment = lineAlignment
+                        ) {
+                            if (index == 0 && isIntroActiveState.value) {
+                                InstrumentalIntroIndicator(
+                                    currentTimeMsState = introTimeState,
+                                    introDurationMs = introDurationMs,
+                                    onSkipIntro = { onSeekTo(introDurationMs) }
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isSelected) {
+                                            Modifier
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .background(Color.White.copy(alpha = 0.18f))
+                                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                                                .padding(horizontal = 14.dp, vertical = 8.dp)
                                         } else {
-                                            if (selectedIndices.size < 5) {
-                                                selectedIndices + index
+                                            Modifier.padding(
+                                                horizontal = 4.dp,
+                                                vertical = if (line.isBackground || isPairedWithNext) 1.dp else 2.dp
+                                            )
+                                        }
+                                    )
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                selectedIndices = if (isSelected) {
+                                                    selectedIndices - index
+                                                } else {
+                                                    if (selectedIndices.size < 5) {
+                                                        selectedIndices + index
+                                                    } else {
+                                                        android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
+                                                        selectedIndices
+                                                    }
+                                                }
+                                            } else if (isSynced && appearance.changeLyricsOnTap) {
+                                                val reqId = ++scrollRequestId
+                                                pendingSeekTarget = SyncedPendingSeekTarget(
+                                                    lineIndex = index,
+                                                    targetTimeMs = line.time,
+                                                    requestId = reqId
+                                                )
+                                                if (appearance.autoScrollLyrics) {
+                                                    isAutoScrollEnabled = true
+                                                }
+                                                isUserInteracting = false
+                                                onSeekTo(line.time)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            isUserInteracting = true
+                                            selectedIndices = if (isSelected) {
+                                                selectedIndices - index
                                             } else {
-                                                android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
-                                                selectedIndices
+                                                if (selectedIndices.size < 5) {
+                                                    selectedIndices + index
+                                                } else {
+                                                    android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
+                                                    selectedIndices
+                                                }
                                             }
                                         }
-                                    } else if (isSynced && appearance.changeLyricsOnTap) {
-                                        isUserInteracting = false
-                                        isAutoScrollEnabled = true
-                                        onSeekTo(line.time)
-                                    }
-                                },
-                                onLongClick = {
-                                    isUserInteracting = true
-                                    selectedIndices = if (isSelected) {
-                                        selectedIndices - index
-                                    } else {
-                                        if (selectedIndices.size < 5) {
-                                            selectedIndices + index
-                                        } else {
-                                            android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
-                                            selectedIndices
-                                        }
-                                    }
-                                }
-                            )
-                    ) {
-                        LyricLineRow(
-                            line = line,
-                            nextLineTime = effectiveLines.getOrNull(index + 1)?.time,
-                            isCurrent = isCurrent,
-                            isPast = isPast,
-                            pastDistance = pastDistance,
-                            distanceFromCurrent = distanceFromCurrent,
-                            isSelected = isSelected,
-                            lyricsMode = lyricsMode,
-                            syncType = lyrics.syncType,
-                            isSynced = isSynced,
-                            textAlign = lineTextAlign,
-                            horizontalAlignment = lineAlignment,
-                            positionState = positionState,
-                            offsetMs = offsetMs,
-                            animationMode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation),
-                            enableGlowEffect = appearance.enableGlowingLyricsEffect,
-                            standardBlur = appearance.standardLyricsBlur,
-                            fontSizeSp = appearance.lyricsTextSize,
-                            lineSpacingMultiplier = appearance.lyricsLineSpacing,
-                            isAutoScrollActive = isAutoScrollEnabled,
-                            isUserInteracting = isUserInteracting || !isAutoScrollEnabled,
-                            rowMaxWidthPx = rowMaxWidthPx,
-                            isPlaying = isPlaying
+                                    )
+                            ) {
+                                LyricLineRow(
+                                    line = line,
+                                    nextLineTime = effectiveLines.getOrNull(index + 1)?.time,
+                                    isCurrent = isCurrent,
+                                    isPast = isPast,
+                                    pastDistance = pastDistance,
+                                    distanceFromCurrent = distanceFromCurrent,
+                                    isSelected = isSelected,
+                                    lyricsMode = lyricsMode,
+                                    syncType = lyrics.syncType,
+                                    isSynced = isSynced,
+                                    textAlign = lineTextAlign,
+                                    horizontalAlignment = lineAlignment,
+                                    positionState = positionState,
+                                    offsetMs = offsetMs,
+                                    animationMode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation),
+                                    enableGlowEffect = appearance.enableGlowingLyricsEffect,
+                                    standardBlur = appearance.standardLyricsBlur,
+                                    fontSizeSp = appearance.lyricsTextSize,
+                                    lineSpacingMultiplier = appearance.lyricsLineSpacing,
+                                    isAutoScrollActive = isAutoScrollEnabled,
+                                    isUserInteracting = isUserInteracting || !isAutoScrollEnabled,
+                                    rowMaxWidthPx = rowMaxWidthPx,
+                                    isPlaying = isPlaying
+                                )
+                            }
+                        }
+                    }
+                    is SyncedLyricsItem.Indicator -> {
+                        val currentPos = positionState.value + offsetMs
+                        val isIndicatorVisible = isSynced && currentPos in (item.gapStartMs - 300L)..item.gapEndMs
+                        LyricsIntervalIndicator(
+                            gapStartMs = item.gapStartMs,
+                            gapEndMs = item.gapEndMs,
+                            currentPositionMs = currentPos,
+                            visible = isIndicatorVisible,
+                            color = Color.White,
+                            onSkip = { onSeekTo(item.gapEndMs) }
                         )
                     }
                 }
@@ -846,6 +981,26 @@ fun SyncedLyricsView(
         )
     }
 }
+
+sealed class SyncedLyricsItem {
+    data class Line(
+        val originalIndex: Int,
+        val line: LyricLine
+    ) : SyncedLyricsItem()
+
+    data class Indicator(
+        val afterOriginalIndex: Int,
+        val gapStartMs: Long,
+        val gapEndMs: Long
+    ) : SyncedLyricsItem()
+}
+
+internal data class SyncedPendingSeekTarget(
+    val lineIndex: Int,
+    val targetTimeMs: Long,
+    val requestId: Long,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 /**
  * Resolves the effective words for lyric line rendering.
@@ -1046,10 +1201,8 @@ private fun LyricLineRow(
 ) {
     val isPlain = syncType == SyncType.PLAIN
 
-    // Progressive blur logic for inactive lyrics (matching ViVi Music depth-of-field design).
-    // Drops blur to 0f when standard blur is off, auto-scroll is disabled, user is dragging,
-    // in Plain lyrics mode, on selected lines, or on the active line.
-    val targetBlur = if (!standardBlur || !isAutoScrollActive || isUserInteracting || !isSynced || isPlain || isSelected || isCurrent) {
+    val isScrollingNow = isUserInteracting || !isAutoScrollActive
+    val targetBlur = if (!standardBlur || isScrollingNow || !isSynced || isPlain || isSelected || isCurrent) {
         0f
     } else {
         when (distanceFromCurrent) {
@@ -1062,7 +1215,7 @@ private fun LyricLineRow(
 
     val animatedBlur by animateFloatAsState(
         targetValue = targetBlur,
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        animationSpec = if (isScrollingNow) androidx.compose.animation.core.snap() else tween(durationMillis = 600, easing = FastOutSlowInEasing),
         label = "LyricStandardBlur"
     )
 
@@ -1122,13 +1275,13 @@ private fun LyricLineRow(
         else -> if (line.isBackground) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.38f)
     }
 
-    // Precompute character mapping for words when line changes
-    val wordRanges = remember(line, effectiveWords) {
-        if (hasWordTiming) LyricsEngine.mapWordsToLineSpans(line.text, effectiveWords)
+    // Precompute character mapping for words only when line is active
+    val wordRanges = remember(line, effectiveWords, isCurrent) {
+        if (isCurrent && hasWordTiming) LyricsEngine.mapWordsToLineSpans(line.text, effectiveWords)
         else emptyList()
     }
 
-    // Precompute active text layout and word layout data using TextMeasurer for frame 0 readiness
+    // Precompute active text layout and word layout data using TextMeasurer for frame 0 readiness (only for active line)
     val textMeasurer = rememberTextMeasurer()
     val activeTextStyle = remember(lyricsMode, line.isBackground, textAlign, fontSize) {
         val activeBaseSize = if (lyricsMode == LyricsMode.CINEMA) (28f * scaleRatio).sp else (21f * scaleRatio).sp
@@ -1145,8 +1298,8 @@ private fun LyricLineRow(
         )
     }
 
-    val precomputedLayout = remember(line, activeTextStyle, rowMaxWidthPx) {
-        if (hasWordTiming && rowMaxWidthPx > 0) {
+    val precomputedLayout = remember(line, activeTextStyle, rowMaxWidthPx, isCurrent) {
+        if (isCurrent && hasWordTiming && rowMaxWidthPx > 0) {
             try {
                 textMeasurer.measure(
                     text = AnnotatedString(line.text),
@@ -1159,7 +1312,8 @@ private fun LyricLineRow(
         } else null
     }
 
-    val precomputedWordLayouts = remember(precomputedLayout, wordRanges) {
+    val precomputedWordLayouts = remember(precomputedLayout, wordRanges, isCurrent) {
+        if (!isCurrent) return@remember emptyList<WordLayoutData>()
         val layout = precomputedLayout ?: return@remember emptyList<WordLayoutData>()
         buildWordLayouts(layout, wordRanges)
     }
@@ -1177,7 +1331,7 @@ private fun LyricLineRow(
         }
     }
 
-    val effectivePlaybackPosition = if (isCurrent) {
+    val effectivePlaybackPosition = if (isCurrent && animationMode != LyricsAnimationMode.AURALIS && animationMode != LyricsAnimationMode.KARAOKE) {
         positionState.value + offsetMs
     } else if (isPast) {
         line.effectiveEndTime ?: (line.time + 10_000L)
@@ -1192,7 +1346,7 @@ private fun LyricLineRow(
     }
     val effectiveAccentColor = Color.White
 
-    val blurModifier = if (animatedBlur > 0.05f) Modifier.blur(animatedBlur.dp) else Modifier
+    val blurModifier = if (standardBlur && !isScrollingNow && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier
 
     Column(
         modifier = Modifier
@@ -1439,6 +1593,7 @@ private fun LyricLineRow(
                 LyricsAnimationMode.METRO_LYRICS -> {
                     MetroLyricsLine(
                         line = line,
+                        nextLineTime = nextLineTime,
                         words = effectiveWords,
                         isActive = isCurrent,
                         distanceFromCurrent = distanceFromCurrent,
@@ -1476,7 +1631,7 @@ private fun LyricLineRow(
 
 
 /**
- * Animated organic wavy circular countdown & rhythm orbs during song instrumental intros (BetterLyrics / Apple Music design).
+ * Modern circular progress countdown during song instrumental intros (ViVi Music / MetroList design).
  */
 @Composable
 internal fun InstrumentalIntroIndicator(
@@ -1487,29 +1642,22 @@ internal fun InstrumentalIntroIndicator(
 ) {
     val currentTimeMs = currentTimeMsState.value
     val progress = (currentTimeMs.toFloat() / introDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
-    val remainingSec = ((introDurationMs - currentTimeMs).coerceAtLeast(0L) / 1000L) + 1
-
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.LinearEasing),
+        label = "introProgress"
     )
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 20.dp),
+            .padding(top = 12.dp, bottom = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(72.dp)
+                .size(44.dp)
                 .then(
                     if (onSkipIntro != null) {
                         Modifier
@@ -1518,72 +1666,16 @@ internal fun InstrumentalIntroIndicator(
                     } else Modifier
                 )
         ) {
-            // Squirly Organic Wavy Countdown Ring
-            com.auralis.music.ui.components.SquirlyProgressRing(
-                progress = progress,
-                strokeWidth = 4.dp,
-                trackColor = Color.White.copy(alpha = 0.18f),
-                progressColor = Color.White.copy(alpha = 0.96f),
-                waveCount = 6,
-                waveAmplitudeRatio = 0.12f,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Pulsing Music Note Icon
-            Text(
-                text = "♪",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                style = androidx.compose.ui.text.TextStyle(
-                    shadow = Shadow(
-                        color = Color.White.copy(alpha = 0.85f),
-                        blurRadius = 16f,
-                        offset = Offset.Zero
-                    )
-                ),
-                modifier = Modifier.graphicsLayer {
-                    scaleX = pulseScale
-                    scaleY = pulseScale
-                }
+            WavyProgressIndicator(
+                progress = animatedProgress,
+                modifier = Modifier.size(34.dp),
+                color = Color.White.copy(alpha = 0.95f),
+                trackColor = Color.White.copy(alpha = 0.15f),
+                strokeWidth = 2.8.dp,
+                lobes = 8,
+                amplitudeRatio = 0.078f
             )
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 3 Animated Glowing Apple Music Rhythm Dots
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val dotCount = 3
-            val activeDotIdx = ((currentTimeMs / 380L) % dotCount).toInt()
-            repeat(dotCount) { i ->
-                val isDotActive = i == activeDotIdx
-                val dotAlpha = if (isDotActive) 0.95f else 0.30f
-                val dotScale = if (isDotActive) 1.25f else 1.0f
-
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .graphicsLayer {
-                            scaleX = dotScale
-                            scaleY = dotScale
-                        }
-                        .background(Color.White.copy(alpha = dotAlpha), CircleShape)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Intro (${remainingSec}s)",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White.copy(alpha = 0.60f),
-            modifier = if (onSkipIntro != null) Modifier.clickable(onClick = onSkipIntro) else Modifier
-        )
     }
 }
 

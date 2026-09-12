@@ -52,209 +52,236 @@ object NewUserSeedProvider {
     private val INITIAL_SEED_TRACKS: List<Track> = listOf(
         // Tame Impala
         Track(
-            id = "sBzrzS1Ag_g",
-            title = "The Less I Know the Better",
+            id = "PvM79DJ2PmM",
+            title = "The Less I Know The Better",
             artist = "Tame Impala",
-            duration = 216,
-            thumbnail = "https://i.ytimg.com/vi/sBzrzS1Ag_g/hqdefault.jpg"
+            album = "Currents",
+            duration = 217,
+            thumbnail = "https://i.ytimg.com/vi/PvM79DJ2PmM/hqdefault.jpg"
         ),
         Track(
-            id = "2g5xkLqIElU",
+            id = "rymYToIEL9o",
             title = "Borderline",
             artist = "Tame Impala",
-            duration = 237,
-            thumbnail = "https://i.ytimg.com/vi/2g5xkLqIElU/hqdefault.jpg"
+            album = "The Slow Rush",
+            duration = 238,
+            thumbnail = "https://i.ytimg.com/vi/rymYToIEL9o/hqdefault.jpg"
         ),
         Track(
-            id = "pFptt7Cargc",
+            id = "NMRhx71bGo4",
             title = "Let It Happen",
             artist = "Tame Impala",
-            duration = 467,
-            thumbnail = "https://i.ytimg.com/vi/pFptt7Cargc/hqdefault.jpg"
+            album = "Currents",
+            duration = 468,
+            thumbnail = "https://i.ytimg.com/vi/NMRhx71bGo4/hqdefault.jpg"
         ),
 
         // Kanye West
         Track(
-            id = "ila-hAUXR5U",
+            id = "cxKs2b5lRsA",
             title = "Flashing Lights",
             artist = "Kanye West",
-            duration = 237,
-            thumbnail = "https://i.ytimg.com/vi/ila-hAUXR5U/hqdefault.jpg"
+            album = "Graduation",
+            duration = 238,
+            thumbnail = "https://i.ytimg.com/vi/cxKs2b5lRsA/hqdefault.jpg"
         ),
         Track(
-            id = "Co0tTeuUVhU",
+            id = "s40BTpfAELs",
             title = "Heartless",
             artist = "Kanye West",
+            album = "808s & Heartbreak",
             duration = 211,
-            thumbnail = "https://i.ytimg.com/vi/Co0tTeuUVhU/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/s40BTpfAELs/hqdefault.jpg"
         ),
         Track(
-            id = "PsO6Zn4V07g",
+            id = "12hLNbXKCs4",
             title = "Stronger",
             artist = "Kanye West",
-            duration = 311,
-            thumbnail = "https://i.ytimg.com/vi/PsO6Zn4V07g/hqdefault.jpg"
+            album = "Graduation",
+            duration = 313,
+            thumbnail = "https://i.ytimg.com/vi/12hLNbXKCs4/hqdefault.jpg"
         ),
 
         // Karan Aujla
         Track(
-            id = "LK7-_dgAVQE",
+            id = "N6_EvGT0ZfM",
             title = "Tauba Tauba",
             artist = "Karan Aujla",
+            album = "Tauba Tauba",
             duration = 208,
-            thumbnail = "https://i.ytimg.com/vi/LK7-_dgAVQE/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/N6_EvGT0ZfM/hqdefault.jpg"
         ),
         Track(
-            id = "cWMxFX7QCbw",
+            id = "U4qD41gPQMU",
             title = "Softly",
             artist = "Karan Aujla",
-            duration = 155,
-            thumbnail = "https://i.ytimg.com/vi/cWMxFX7QCbw/hqdefault.jpg"
+            album = "Making Memories",
+            duration = 156,
+            thumbnail = "https://i.ytimg.com/vi/U4qD41gPQMU/hqdefault.jpg"
         ),
         Track(
-            id = "vX2cDW8up2g",
+            id = "0DS5jYQeiw0",
             title = "Winning Speech",
             artist = "Karan Aujla",
-            duration = 224,
-            thumbnail = "https://i.ytimg.com/vi/vX2cDW8up2g/hqdefault.jpg"
+            album = "Winning Speech",
+            duration = 228,
+            thumbnail = "https://i.ytimg.com/vi/0DS5jYQeiw0/hqdefault.jpg"
         ),
 
         // Radiohead
         Track(
-            id = "XFkzRNyygfk",
+            id = "9RfVp-GhKfs",
             title = "Creep",
             artist = "Radiohead",
-            duration = 238,
-            thumbnail = "https://i.ytimg.com/vi/XFkzRNyygfk/hqdefault.jpg"
+            album = "Pablo Honey",
+            duration = 239,
+            thumbnail = "https://i.ytimg.com/vi/9RfVp-GhKfs/hqdefault.jpg"
         ),
         Track(
-            id = "1uYWYWPc9HU",
+            id = "nbCOAPR33ME",
             title = "Karma Police",
             artist = "Radiohead",
-            duration = 264,
-            thumbnail = "https://i.ytimg.com/vi/1uYWYWPc9HU/hqdefault.jpg"
+            album = "OK Computer",
+            duration = 262,
+            thumbnail = "https://i.ytimg.com/vi/nbCOAPR33ME/hqdefault.jpg"
         ),
         Track(
-            id = "u5CVsCnxyXg",
+            id = "7374CZQoS2Y",
             title = "No Surprises",
             artist = "Radiohead",
-            duration = 228,
-            thumbnail = "https://i.ytimg.com/vi/u5CVsCnxyXg/hqdefault.jpg"
+            album = "OK Computer",
+            duration = 229,
+            thumbnail = "https://i.ytimg.com/vi/7374CZQoS2Y/hqdefault.jpg"
         ),
 
         // KR$NA
         Track(
-            id = "QjQ_rG_c43A",
+            id = "6Zv9mSiZGBU",
             title = "No Cap",
             artist = "KR\$NA",
-            duration = 212,
-            thumbnail = "https://i.ytimg.com/vi/QjQ_rG_c43A/hqdefault.jpg"
+            album = "No Cap",
+            duration = 206,
+            thumbnail = "https://i.ytimg.com/vi/6Zv9mSiZGBU/hqdefault.jpg"
         ),
         Track(
-            id = "yS3vYw4oXG8",
+            id = "brXz6f3EPFM",
             title = "Prarthana",
             artist = "KR\$NA",
-            duration = 210,
-            thumbnail = "https://i.ytimg.com/vi/yS3vYw4oXG8/hqdefault.jpg"
+            album = "FAR FROM OVER",
+            duration = 200,
+            thumbnail = "https://i.ytimg.com/vi/brXz6f3EPFM/hqdefault.jpg"
         ),
         Track(
-            id = "z6bEwQjU_Qc",
+            id = "mLaQwQHpP6A",
             title = "I Guess",
             artist = "KR\$NA",
-            duration = 185,
-            thumbnail = "https://i.ytimg.com/vi/z6bEwQjU_Qc/hqdefault.jpg"
+            album = "I Guess",
+            duration = 187,
+            thumbnail = "https://i.ytimg.com/vi/mLaQwQHpP6A/hqdefault.jpg"
         ),
 
         // Arijit Singh
         Track(
-            id = "BddP6PYo2gs",
+            id = "NJAv_7lHUIU",
             title = "Kesariya",
             artist = "Arijit Singh",
-            duration = 268,
-            thumbnail = "https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg"
+            album = "Brahmastra",
+            duration = 269,
+            thumbnail = "https://i.ytimg.com/vi/NJAv_7lHUIU/hqdefault.jpg"
         ),
         Track(
-            id = "IJq0yyWug1k",
+            id = "fsiPzT50ZiM",
             title = "Tum Hi Ho",
             artist = "Arijit Singh",
+            album = "Aashiqui 2",
             duration = 262,
-            thumbnail = "https://i.ytimg.com/vi/IJq0yyWug1k/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg"
         ),
         Track(
-            id = "ElZfdU54Cp8",
+            id = "YALvuUpY_b0",
             title = "Apna Bana Le",
             artist = "Arijit Singh",
-            duration = 261,
-            thumbnail = "https://i.ytimg.com/vi/ElZfdU54Cp8/hqdefault.jpg"
+            album = "Bhediya",
+            duration = 262,
+            thumbnail = "https://i.ytimg.com/vi/YALvuUpY_b0/hqdefault.jpg"
         ),
 
         // KK
         Track(
-            id = "5i_Wc3uE6G0",
+            id = "zv-tbc4F818",
             title = "Zara Sa",
             artist = "KK",
-            duration = 303,
-            thumbnail = "https://i.ytimg.com/vi/5i_Wc3uE6G0/hqdefault.jpg"
+            album = "Jannat",
+            duration = 304,
+            thumbnail = "https://i.ytimg.com/vi/zv-tbc4F818/hqdefault.jpg"
         ),
         Track(
-            id = "2wVf4nUu8s8",
+            id = "XPu9ZE4Onzc",
             title = "Kya Mujhe Pyar Hai",
             artist = "KK",
-            duration = 277,
-            thumbnail = "https://i.ytimg.com/vi/2wVf4nUu8s8/hqdefault.jpg"
+            album = "Woh Lamhe",
+            duration = 267,
+            thumbnail = "https://i.ytimg.com/vi/XPu9ZE4Onzc/hqdefault.jpg"
         ),
         Track(
-            id = "M4-Ecx6h0tU",
+            id = "12pMB_mCBOo",
             title = "Labon Ko",
             artist = "KK",
+            album = "Bhool Bhulaiyaa",
             duration = 342,
-            thumbnail = "https://i.ytimg.com/vi/M4-Ecx6h0tU/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/12pMB_mCBOo/hqdefault.jpg"
         ),
 
         // Shreya Ghoshal
         Track(
-            id = "z3UHfi9mpsg",
+            id = "1If9aw74Tj4",
             title = "Sunn Raha Hai",
             artist = "Shreya Ghoshal",
-            duration = 314,
-            thumbnail = "https://i.ytimg.com/vi/z3UHfi9mpsg/hqdefault.jpg"
+            album = "Aashiqui 2",
+            duration = 315,
+            thumbnail = "https://i.ytimg.com/vi/1If9aw74Tj4/hqdefault.jpg"
         ),
         Track(
-            id = "d8ITb6mZbi4",
+            id = "MEjnFgMh3qE",
             title = "Manwa Laage",
             artist = "Shreya Ghoshal",
-            duration = 271,
-            thumbnail = "https://i.ytimg.com/vi/d8ITb6mZbi4/hqdefault.jpg"
+            album = "Happy New Year",
+            duration = 273,
+            thumbnail = "https://i.ytimg.com/vi/MEjnFgMh3qE/hqdefault.jpg"
         ),
         Track(
-            id = "h6lHUn20J5g",
+            id = "eSu6HHRn1UE",
             title = "Deewani Mastani",
             artist = "Shreya Ghoshal",
+            album = "Bajirao Mastani",
             duration = 340,
-            thumbnail = "https://i.ytimg.com/vi/h6lHUn20J5g/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/eSu6HHRn1UE/hqdefault.jpg"
         ),
 
         // Atif Aslam
         Track(
-            id = "a18py61EcP4",
+            id = "qmBW9-fUvag",
             title = "Tajdar-e-Haram",
             artist = "Atif Aslam",
-            duration = 628,
-            thumbnail = "https://i.ytimg.com/vi/a18py61EcP4/hqdefault.jpg"
+            album = "Coke Studio Season 8",
+            duration = 617,
+            thumbnail = "https://i.ytimg.com/vi/qmBW9-fUvag/hqdefault.jpg"
         ),
         Track(
-            id = "vpO8sZdxOGI",
+            id = "3M3o3Ak1qBY",
             title = "Jeene Laga Hoon",
             artist = "Atif Aslam",
-            duration = 237,
-            thumbnail = "https://i.ytimg.com/vi/vpO8sZdxOGI/hqdefault.jpg"
+            album = "Ramaiya Vastavaiya",
+            duration = 236,
+            thumbnail = "https://i.ytimg.com/vi/3M3o3Ak1qBY/hqdefault.jpg"
         ),
         Track(
-            id = "BadBAMnPXSc",
+            id = "swcCuuQKGJ4",
             title = "Pehli Nazar Mein",
             artist = "Atif Aslam",
-            duration = 314,
-            thumbnail = "https://i.ytimg.com/vi/BadBAMnPXSc/hqdefault.jpg"
+            album = "Race",
+            duration = 313,
+            thumbnail = "https://i.ytimg.com/vi/swcCuuQKGJ4/hqdefault.jpg"
         )
     )
 

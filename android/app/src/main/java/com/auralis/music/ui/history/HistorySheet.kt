@@ -55,14 +55,17 @@ import com.auralis.music.domain.model.HistoryEntry
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.EqualizerBars
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 val HISTORY_LIME: Color
-    @Composable get() = MaterialTheme.colorScheme.primary
+    @Composable get() = MaterialTheme.dynamicPrimary
 val HISTORY_CARD_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+    @Composable get() = MaterialTheme.dynamicSurface
 
 /**
  * Fullscreen Listening History Sheet opened from the top header history button.
@@ -85,7 +88,7 @@ fun HistorySheet(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.dynamicBackground)
             .statusBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {

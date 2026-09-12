@@ -150,14 +150,16 @@ import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.AuralisPrimary
 import com.auralis.music.ui.theme.AuralisSurfaceElevated
-import com.auralis.music.ui.theme.GlassBorderHairline
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.LibraryFilter
 import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.SmartCollectionType
 
 val CREAM_ICON_COLOR: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
-val CARD_DARK_BG: Color @Composable get() = MaterialTheme.colorScheme.surface
-val LIME_TEXT: Color @Composable get() = MaterialTheme.colorScheme.primary
+val CARD_DARK_BG: Color @Composable get() = MaterialTheme.dynamicSurface
+val LIME_TEXT: Color @Composable get() = MaterialTheme.dynamicPrimary
 
 enum class PlaylistSortOption(val label: String) {
     CUSTOM("Custom order"),
@@ -213,7 +215,6 @@ fun LibraryScreen(
     modifier: Modifier = Modifier
 ) {
     val themePrimary = MaterialTheme.colorScheme.primary
-    val dynamicPalette = com.auralis.music.ui.theme.LocalAuralisDynamicPalette.current
     var isGridView by remember { mutableStateOf(uiState.isGridView) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -256,9 +257,11 @@ fun LibraryScreen(
         targetState = uiState.selectedPlaylist?.id,
         transitionSpec = {
             if (targetState != null && initialState == null) {
-                detailForwardEnter togetherWith detailForwardExit
+                fadeIn(animationSpec = tween(140, easing = LinearOutSlowInEasing)) togetherWith
+                        fadeOut(animationSpec = tween(100, easing = FastOutLinearInEasing))
             } else if (targetState == null && initialState != null) {
-                detailBackwardEnter togetherWith detailBackwardExit
+                fadeIn(animationSpec = tween(120, easing = LinearOutSlowInEasing)) togetherWith
+                        fadeOut(animationSpec = tween(100, easing = FastOutLinearInEasing))
             } else {
                 androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
             }
@@ -339,7 +342,7 @@ fun LibraryScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.dynamicBackground)
     ) {
         Column(
             modifier = Modifier
@@ -1231,12 +1234,7 @@ private fun PlaylistDetailView(
 
     val isCustomSort = sortOption == PlaylistSortOption.CUSTOM && searchQuery.isBlank() && !playlist.id.startsWith("smart_")
     val localItems = remember(playlist.id) {
-        validPlaylistTracks.mapIndexed { index, track ->
-            PlaylistTrackItem(
-                instanceId = "${track.id}_${index}_${java.util.UUID.randomUUID().toString().take(8)}",
-                track = track
-            )
-        }.toMutableStateList()
+        androidx.compose.runtime.mutableStateListOf<PlaylistTrackItem>()
     }
 
     var draggingInstanceId by remember { mutableStateOf<String?>(null) }
@@ -1244,8 +1242,7 @@ private fun PlaylistDetailView(
     var originalDragIndex by remember { mutableStateOf(-1) }
     var currentPointerY by remember { mutableStateOf(0f) }
     var grabOffsetY by remember { mutableStateOf(0f) }
-    var viewportTopY by remember { mutableStateOf(0f) }
-    var viewportBottomY by remember { mutableStateOf(0f) }
+    // playlistListState preserved for scroll position retention
     val playlistListState = androidx.compose.runtime.saveable.rememberSaveable(
         playlist.id,
         saver = androidx.compose.foundation.lazy.LazyListState.Saver
@@ -1254,14 +1251,15 @@ private fun PlaylistDetailView(
     }
 
     LaunchedEffect(validPlaylistTracks) {
-        if (!isDragging && draggingInstanceId == null) {
-            val currentTracks = localItems.map { it.track }
-            if (currentTracks != validPlaylistTracks) {
+        if (localItems.isNotEmpty() && !isDragging && draggingInstanceId == null) {
+            val tracksDiffer = localItems.size != validPlaylistTracks.size ||
+                    localItems.indices.any { localItems[it].track.id != validPlaylistTracks[it].id }
+            if (tracksDiffer) {
                 localItems.clear()
                 localItems.addAll(
                     validPlaylistTracks.mapIndexed { index, track ->
                         PlaylistTrackItem(
-                            instanceId = "${track.id}_${index}_${java.util.UUID.randomUUID().toString().take(8)}",
+                            instanceId = "${track.id}_$index",
                             track = track
                         )
                     }
@@ -1356,9 +1354,10 @@ private fun PlaylistDetailView(
         }
     }
 
-    val displayedItems: List<PlaylistTrackItem> = when {
-        isCustomSort -> localItems
-        else -> {
+    val displayedItems: List<PlaylistTrackItem> = remember(isCustomSort, localItems.size, sortOption, validPlaylistTracks, searchQuery) {
+        if (isCustomSort && localItems.isNotEmpty()) {
+            localItems
+        } else {
             val sortedTracks = when (sortOption) {
                 PlaylistSortOption.CUSTOM -> validPlaylistTracks
                 PlaylistSortOption.NEWEST -> validPlaylistTracks.reversed()
@@ -1375,21 +1374,26 @@ private fun PlaylistDetailView(
                 }
             }
             searchFiltered.mapIndexed { index, track ->
-                PlaylistTrackItem(instanceId = "${track.id}_${index}", track = track)
+                PlaylistTrackItem(instanceId = "${track.id}_$index", track = track)
             }
         }
     }
 
     val displayedTracks = remember(displayedItems) { displayedItems.map { it.track } }
+    val onPlayTrackWithList: (Track) -> Unit = remember(displayedTracks) {
+        { track -> onPlayTrack(track, displayedTracks) }
+    }
 
-    val totalSeconds = playlist.tracks.map { it.duration }.sum()
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    val durationFormatted = if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
+    val durationFormatted = remember(playlist.tracks) {
+        val totalSeconds = playlist.tracks.sumOf { it.duration }
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%d:%02d", minutes, seconds)
+        }
     }
 
     androidx.activity.compose.BackHandler(enabled = true) {
@@ -1412,7 +1416,7 @@ private fun PlaylistDetailView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.dynamicBackground)
     ) {
         // ================================================================
         // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
@@ -1524,15 +1528,21 @@ private fun PlaylistDetailView(
                 state = playlistListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .onGloballyPositioned { coords ->
-                        val pos = coords.positionInWindow()
-                        viewportTopY = pos.y
-                        viewportBottomY = pos.y + coords.size.height
-                    }
                     .pointerInput(isCustomSort) {
                         if (!isCustomSort) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = { startOffset ->
+                                if (localItems.isEmpty() || localItems.size != validPlaylistTracks.size) {
+                                    localItems.clear()
+                                    localItems.addAll(
+                                        validPlaylistTracks.mapIndexed { index, track ->
+                                            PlaylistTrackItem(
+                                                instanceId = "${track.id}_$index",
+                                                track = track
+                                            )
+                                        }
+                                    )
+                                }
                                 val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
                                 val hitItem = visibleSongItems.find { info ->
                                     startOffset.y.toInt() in info.offset..(info.offset + info.size)
@@ -1570,7 +1580,7 @@ private fun PlaylistDetailView(
                                 localItems.addAll(
                                     validPlaylistTracks.mapIndexed { index, track ->
                                         PlaylistTrackItem(
-                                            instanceId = "${track.id}_${index}_${java.util.UUID.randomUUID().toString().take(8)}",
+                                            instanceId = "${track.id}_$index",
                                             track = track
                                         )
                                     }
@@ -1939,116 +1949,24 @@ private fun PlaylistDetailView(
                     items = displayedItems,
                     key = { _, item -> item.instanceId },
                     contentType = { _, _ -> "song" }
-                ) { index, item ->
+                ) { _, item ->
                     val track = item.track
                     val isCurrent = track.id == currentTrackId
-                    val trackMin = track.duration / 60
-                    val trackSec = track.duration % 60
-                    val trackDurationStr = "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec"
                     val isItemBeingDragged = draggingInstanceId == item.instanceId
 
-                    com.auralis.music.ui.components.SwipeableTrackContainer(
-                        onPlayNext = { onPlayNextTrack?.invoke(track) },
-                        onAddToQueue = { onAddToQueueTrack?.invoke(track) },
-                        onRemoveFromPlaylist = { onRemoveTrack(track.id) },
-                        isPlaylistContext = true,
-                        modifier = Modifier
-                            .then(
-                                if (!isItemBeingDragged) {
-                                    Modifier.animateItemPlacement(
-                                        animationSpec = tween(
-                                            durationMillis = 100,
-                                            easing = LinearOutSlowInEasing
-                                        )
-                                    )
-                                } else Modifier
-                            )
-                            .padding(horizontal = 16.dp, vertical = 2.dp)
-                            .graphicsLayer {
-                                alpha = if (isItemBeingDragged) 0.2f else 1f
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    if (!isDragging) {
-                                        onPlayTrack(track, displayedTracks)
-                                    }
-                                }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ArtworkCard(
-                                url = track.thumbnail,
-                                modifier = Modifier.size(48.dp),
-                                cornerRadius = 8.dp,
-                                contentDescription = track.title,
-                                fallbackTrack = track
-                            )
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isCurrent) LIME_TEXT else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val subtitleText = if (track.duration > 0 && track.duration != 210L) {
-                                        "${track.artist} • $trackDurationStr"
-                                    } else {
-                                        track.artist
-                                    }
-                                    Text(
-                                        text = subtitleText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            if (isCurrent) {
-                                EqualizerBars(
-                                    isPlaying = isPlaying,
-                                    modifier = Modifier.size(18.dp),
-                                    color = LIME_TEXT
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-
-                            if (isCustomSort) {
-                                Box(
-                                    modifier = Modifier.size(36.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DragHandle,
-                                        contentDescription = "Drag to reorder song",
-                                        tint = if (isItemBeingDragged) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.45f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            IconButton(onClick = { onMenuClick(track) }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
+                    PlaylistTrackRow(
+                        track = track,
+                        isCurrent = isCurrent,
+                        isPlaying = isPlaying,
+                        isCustomSort = isCustomSort,
+                        isItemBeingDragged = isItemBeingDragged,
+                        isDragging = isDragging,
+                        onPlayTrack = onPlayTrackWithList,
+                        onMenuClick = onMenuClick,
+                        onPlayNext = onPlayNextTrack,
+                        onAddToQueue = onAddToQueueTrack,
+                        onRemoveFromPlaylist = onRemoveTrack
+                    )
                 }
             }
 
@@ -2674,6 +2592,138 @@ private fun PlaylistActionRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 🎵 PLAYLIST TRACK ROW (Isolated Composable with Skip-table for 120fps scroll)
+// ============================================================================
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    isCustomSort: Boolean,
+    isItemBeingDragged: Boolean,
+    isDragging: Boolean,
+    onPlayTrack: (Track) -> Unit,
+    onMenuClick: (Track) -> Unit,
+    onPlayNext: ((Track) -> Unit)?,
+    onAddToQueue: ((Track) -> Unit)?,
+    onRemoveFromPlaylist: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val trackMin = track.duration / 60
+    val trackSec = track.duration % 60
+    val trackDurationStr = remember(track.duration) { "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec" }
+    val subtitleText = remember(track.artist, track.duration) {
+        if (track.duration > 0 && track.duration != 210L) {
+            "${track.artist} • $trackDurationStr"
+        } else {
+            track.artist
+        }
+    }
+
+    com.auralis.music.ui.components.SwipeableTrackContainer(
+        onPlayNext = onPlayNext?.let { { it(track) } },
+        onAddToQueue = onAddToQueue?.let { { it(track) } },
+        onRemoveFromPlaylist = { onRemoveFromPlaylist(track.id) },
+        isPlaylistContext = true,
+        modifier = modifier
+            .then(
+                if (isDragging && !isItemBeingDragged) {
+                    Modifier.animateItemPlacement(
+                        animationSpec = tween(
+                            durationMillis = 100,
+                            easing = LinearOutSlowInEasing
+                        )
+                    )
+                } else Modifier
+            )
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .then(
+                if (isItemBeingDragged) {
+                    Modifier.graphicsLayer { alpha = 0.2f }
+                } else Modifier
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    if (!isDragging) {
+                        onPlayTrack(track)
+                    }
+                }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArtworkCard(
+                url = track.thumbnail,
+                modifier = Modifier.size(48.dp),
+                cornerRadius = 8.dp,
+                contentDescription = track.title,
+                fallbackTrack = track
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isCurrent) LIME_TEXT else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = subtitleText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            if (isCurrent) {
+                EqualizerBars(
+                    isPlaying = isPlaying,
+                    modifier = Modifier.size(18.dp),
+                    color = LIME_TEXT
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            if (isCustomSort) {
+                Box(
+                    modifier = Modifier.size(36.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder song",
+                        tint = if (isItemBeingDragged) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.45f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            IconButton(onClick = { onMenuClick(track) }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }

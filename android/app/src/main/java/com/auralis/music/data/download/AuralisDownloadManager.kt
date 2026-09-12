@@ -222,7 +222,8 @@ object AuralisDownloadManager {
                                 title = track.title,
                                 artist = track.artist,
                                 quality = AudioQuality.HIGH,
-                                context = ctx
+                                context = ctx,
+                                duration = track.duration
                             )
                         }
                     } catch (e: Exception) {
@@ -239,13 +240,15 @@ object AuralisDownloadManager {
                                 title = track.title,
                                 artist = track.artist,
                                 quality = AudioQuality.AUTO,
-                                context = ctx
+                                context = ctx,
+                                duration = track.duration
                             )
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Strategy C resolve notice: ${e.message}")
                     }
                 }
+
 
                 // Strategy D: Direct NewPipe Extractor for YouTube IDs
                 if (streamUrl.isNullOrBlank() && !track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) {
@@ -283,9 +286,11 @@ object AuralisDownloadManager {
                             title = track.title,
                             artist = track.artist,
                             quality = AudioQuality.AUTO,
-                            context = ctx
+                            context = ctx,
+                            duration = track.duration
                         )
                     }
+
                     if (!freshStream.isNullOrBlank()) {
                         downloadSuccess = downloadStreamBytes(freshStream, tempFile, track.id)
                     }

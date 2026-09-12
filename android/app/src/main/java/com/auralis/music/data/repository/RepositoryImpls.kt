@@ -13,6 +13,7 @@ import com.auralis.music.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -55,7 +56,7 @@ class LibraryRepositoryImpl(
                     isCustom = tuple.playlist.isCustom
                 )
             }
-        }
+        }.flowOn(kotlinx.coroutines.Dispatchers.Default)
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -75,7 +76,7 @@ class LibraryRepositoryImpl(
                     )
                 }
             }
-        }
+        }.flowOn(kotlinx.coroutines.Dispatchers.Default)
     }
 
     override suspend fun createPlaylist(title: String, description: String?, coverUrl: String?): Playlist {

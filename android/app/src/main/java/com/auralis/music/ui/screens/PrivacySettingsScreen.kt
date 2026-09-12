@@ -27,6 +27,12 @@ import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.launch
 
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
+
 @Composable
 fun PrivacySettingsScreen(
     onDismiss: () -> Unit,
@@ -41,15 +47,16 @@ fun PrivacySettingsScreen(
     var showClearHistoryConfirm by remember { mutableStateOf(false) }
     var showClearSearchConfirm by remember { mutableStateOf(false) }
 
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val onSurface = MaterialTheme.colorScheme.onSurface
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val surfaceColor = MaterialTheme.dynamicSurface
+    val onSurface = MaterialTheme.dynamicOnSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val onBackground = MaterialTheme.colorScheme.onBackground
+    val onBackground = MaterialTheme.dynamicOnBackground
+    val backgroundColor = MaterialTheme.dynamicBackground
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = backgroundColor
     ) {
         Column(
             modifier = Modifier
@@ -89,7 +96,7 @@ fun PrivacySettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // 1. LISTEN HISTORY
-                item {
+                item(key = "privacy_listen_history") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "Listen history",
@@ -113,7 +120,10 @@ fun PrivacySettingsScreen(
                                     checked = settings.pauseListenHistory,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setPauseListenHistory(isChecked) }
-                                    }
+                                    },
+                                    primaryColor = primaryColor,
+                                    onSurface = onSurface,
+                                    onSurfaceVariant = onSurfaceVariant
                                 )
 
                                 HorizontalDivider(
@@ -124,7 +134,9 @@ fun PrivacySettingsScreen(
                                 PrivacyActionRow(
                                     icon = Icons.Default.HistoryToggleOff,
                                     title = "Clear listen history",
-                                    onClick = { showClearHistoryConfirm = true }
+                                    onClick = { showClearHistoryConfirm = true },
+                                    primaryColor = primaryColor,
+                                    onSurface = onSurface
                                 )
                             }
                         }
@@ -132,7 +144,7 @@ fun PrivacySettingsScreen(
                 }
 
                 // 2. SEARCH HISTORY
-                item {
+                item(key = "privacy_search_history") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "Search history",
@@ -156,7 +168,10 @@ fun PrivacySettingsScreen(
                                     checked = settings.pauseSearchHistory,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setPauseSearchHistory(isChecked) }
-                                    }
+                                    },
+                                    primaryColor = primaryColor,
+                                    onSurface = onSurface,
+                                    onSurfaceVariant = onSurfaceVariant
                                 )
 
                                 HorizontalDivider(
@@ -167,7 +182,9 @@ fun PrivacySettingsScreen(
                                 PrivacyActionRow(
                                     icon = Icons.Default.ClearAll,
                                     title = "Clear search history",
-                                    onClick = { showClearSearchConfirm = true }
+                                    onClick = { showClearSearchConfirm = true },
+                                    primaryColor = primaryColor,
+                                    onSurface = onSurface
                                 )
                             }
                         }
@@ -175,7 +192,7 @@ fun PrivacySettingsScreen(
                 }
 
                 // 3. MISC
-                item {
+                item(key = "privacy_misc") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "Misc",
@@ -199,7 +216,10 @@ fun PrivacySettingsScreen(
                                 checked = settings.disableScreenshot,
                                 onCheckedChange = { isChecked ->
                                     scope.launch { dataStore.setDisableScreenshot(isChecked) }
-                                }
+                                },
+                                primaryColor = primaryColor,
+                                onSurface = onSurface,
+                                onSurfaceVariant = onSurfaceVariant
                             )
                         }
                     }
@@ -304,12 +324,11 @@ private fun PrivacySwitchRow(
     title: String,
     subtitle: String? = null,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    primaryColor: Color = MaterialTheme.dynamicPrimary,
+    onSurface: Color = MaterialTheme.dynamicOnSurface,
+    onSurfaceVariant: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -380,11 +399,10 @@ private fun PrivacySwitchRow(
 private fun PrivacyActionRow(
     icon: ImageVector,
     title: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    primaryColor: Color = MaterialTheme.dynamicPrimary,
+    onSurface: Color = MaterialTheme.dynamicOnSurface
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-
     Row(
         modifier = Modifier
             .fillMaxWidth()

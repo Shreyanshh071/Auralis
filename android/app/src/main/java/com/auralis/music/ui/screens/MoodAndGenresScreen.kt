@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -154,7 +156,7 @@ fun MoodAndGenresScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.dynamicBackground)
             .statusBarsPadding()
     ) {
         // ── TOP HEADER ──
@@ -162,7 +164,7 @@ fun MoodAndGenresScreen(
             text = "Mood & Genres",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = MaterialTheme.dynamicOnBackground,
             fontSize = 26.sp,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
         )

@@ -28,6 +28,12 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.R
 import com.auralis.music.ui.components.ArtworkCard
 
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
+
 private const val GITHUB_REPO_URL = "https://github.com/Shreyanshh071/Auralis"
 private const val AURALIS_WEBSITE_URL = "https://auralis-self-nu.vercel.app/"
 private const val DEVELOPER_GITHUB_URL = "https://github.com/Shreyanshh071"
@@ -45,10 +51,11 @@ fun AboutScreen(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val onBackground = MaterialTheme.colorScheme.onBackground
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onBackground = MaterialTheme.dynamicOnBackground
+    val surfaceColor = MaterialTheme.dynamicSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val primaryColor = MaterialTheme.colorScheme.primary
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val backgroundColor = MaterialTheme.dynamicBackground
 
     fun openUrl(url: String) {
         try {
@@ -84,11 +91,11 @@ fun AboutScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = backgroundColor
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = backgroundColor
     ) { paddingValues ->
         val bottomPad = if (hasActiveTrack) 130.dp else 24.dp
         LazyColumn(
@@ -101,7 +108,7 @@ fun AboutScreen(
             contentPadding = PaddingValues(top = 16.dp, bottom = bottomPad)
         ) {
             // ── 1. APP HERO HEADER ──
-            item {
+            item(key = "about_hero") {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
@@ -254,7 +261,7 @@ fun AboutScreen(
             }
 
             // ── 2. LEAD DEVELOPER SECTION ──
-            item {
+            item(key = "about_lead_developer") {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -364,7 +371,7 @@ fun AboutScreen(
             }
 
             // ── 3. CONTRIBUTORS SECTION ──
-            item {
+            item(key = "about_contributors") {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -471,7 +478,7 @@ private fun SocialIconButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+            tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f),
             modifier = Modifier.size(24.dp)
         )
     }
@@ -490,7 +497,7 @@ private fun SocialDrawableIconButton(
         Icon(
             painter = painterResource(id = drawableRes),
             contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+            tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f),
             modifier = Modifier.size(22.dp)
         )
     }
@@ -513,7 +520,7 @@ private fun CircularActionIconButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+                tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f),
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -537,7 +544,7 @@ private fun CircularActionDrawableButton(
             Icon(
                 painter = painterResource(id = drawableRes),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+                tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f),
                 modifier = Modifier.size(19.dp)
             )
         }

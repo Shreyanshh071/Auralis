@@ -297,8 +297,9 @@ class HomeViewModel(
                             try {
                                 val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
                                 if (!isCached) {
-                                    AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist)
+                                    AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist, duration = trk.duration)
                                 }
+
                             } catch (_: Exception) {}
                         }
                     }

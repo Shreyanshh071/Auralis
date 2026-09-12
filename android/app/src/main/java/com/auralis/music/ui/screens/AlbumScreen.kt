@@ -45,11 +45,13 @@ import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
 
 private val LIME_ACCENT: Color
-    @Composable get() = MaterialTheme.colorScheme.primary
+    @Composable get() = MaterialTheme.dynamicPrimary
 private val DARK_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.background
+    @Composable get() = MaterialTheme.dynamicBackground
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -167,7 +169,8 @@ fun AlbumScreen(
                             .size(220.dp)
                             .clip(RoundedCornerShape(20.dp)),
                         cornerRadius = 20.dp,
-                        contentDescription = album.title
+                        contentDescription = album.title,
+                        highRes = true
                     )
 
                     Spacer(modifier = Modifier.height(18.dp))

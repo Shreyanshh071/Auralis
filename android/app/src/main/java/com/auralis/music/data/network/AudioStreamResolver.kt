@@ -151,9 +151,39 @@ object AudioStreamResolver {
         }
     }
 
+    val KNOWN_STUDIO_REPLACEMENTS = mapOf(
+        "sBzrzS1Ag_g" to "PvM79DJ2PmM", // The Less I Know The Better (Official Video -> Studio Audio)
+        "2g5xkLqIElU" to "rymYToIEL9o", // Borderline (Official Video -> Studio Audio)
+        "pFptt7Cargc" to "NMRhx71bGo4", // Let It Happen (Official Video -> Studio Audio)
+        "ila-hAUXR5U" to "cxKs2b5lRsA", // Flashing Lights (Official Video -> Studio Audio)
+        "Co0tTeuUVhU" to "s40BTpfAELs", // Heartless (Official Video -> Studio Audio)
+        "PsO6Zn4V07g" to "12hLNbXKCs4", // Stronger (Official Video -> Studio Audio)
+        "LK7-_dgAVQE" to "N6_EvGT0ZfM", // Tauba Tauba (Official Video -> Studio Audio)
+        "cWMxFX7QCbw" to "U4qD41gPQMU", // Softly (Official Video -> Studio Audio)
+        "vX2cDW8up2g" to "0DS5jYQeiw0", // Winning Speech (Official Video -> Studio Audio)
+        "XFkzRNyygfk" to "9RfVp-GhKfs", // Creep (Official Video -> Studio Audio)
+        "1uYWYWPc9HU" to "nbCOAPR33ME", // Karma Police (Official Video -> Studio Audio)
+        "u5CVsCnxyXg" to "7374CZQoS2Y", // No Surprises (Official Video -> Studio Audio)
+        "QjQ_rG_c43A" to "6Zv9mSiZGBU", // No Cap (Official Video -> Studio Audio)
+        "yS3vYw4oXG8" to "brXz6f3EPFM", // Prarthana (Official Video -> Studio Audio)
+        "z6bEwQjU_Qc" to "mLaQwQHpP6A", // I Guess (Official Video -> Studio Audio)
+        "BddP6PYo2gs" to "NJAv_7lHUIU", // Kesariya (Official Video -> Studio Audio)
+        "IJq0yyWug1k" to "fsiPzT50ZiM", // Tum Hi Ho (Official Video -> Studio Audio)
+        "ElZfdU54Cp8" to "YALvuUpY_b0", // Apna Bana Le (Official Video -> Studio Audio)
+        "5i_Wc3uE6G0" to "zv-tbc4F818", // Zara Sa (Official Video -> Studio Audio)
+        "2wVf4nUu8s8" to "XPu9ZE4Onzc", // Kya Mujhe Pyar Hai (Official Video -> Studio Audio)
+        "M4-Ecx6h0tU" to "12pMB_mCBOo", // Labon Ko (Official Video -> Studio Audio)
+        "z3UHfi9mpsg" to "1If9aw74Tj4", // Sunn Raha Hai (Official Video -> Studio Audio)
+        "d8ITb6mZbi4" to "MEjnFgMh3qE", // Manwa Laage (Official Video -> Studio Audio)
+        "h6lHUn20J5g" to "eSu6HHRn1UE", // Deewani Mastani (Official Video -> Studio Audio)
+        "a18py61EcP4" to "qmBW9-fUvag", // Tajdar-e-Haram (Official Video -> Studio Audio)
+        "vpO8sZdxOGI" to "3M3o3Ak1qBY", // Jeene Laga Hoon (Official Video -> Studio Audio)
+        "BadBAMnPXSc" to "swcCuuQKGJ4"  // Pehli Nazar Mein (Official Video -> Studio Audio)
+    )
+
     private val matchedVideoIdCache = ConcurrentHashMap<String, String>()
 
-    fun getMatchedVideoId(id: String): String? = matchedVideoIdCache[id]
+    fun getMatchedVideoId(id: String): String? = matchedVideoIdCache[id] ?: KNOWN_STUDIO_REPLACEMENTS[id]
 
     @Volatile
     var isPlaybackResolving: Boolean = false
@@ -164,23 +194,30 @@ object AudioStreamResolver {
         title: String = "",
         artist: String = "",
         quality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO,
-        context: android.content.Context? = null
+        context: android.content.Context? = null,
+        duration: Long = 0L
     ): String? = withContext(Dispatchers.IO) {
+        val effectiveTargetId = KNOWN_STUDIO_REPLACEMENTS[videoId] ?: videoId
+        if (effectiveTargetId != videoId) {
+            diagLog("[Diag-Resolver] Redirecting bloated video ID $videoId -> authentic studio audio ID $effectiveTargetId for '$title'")
+            matchedVideoIdCache[videoId] = effectiveTargetId
+        }
         val t0Resolve = System.currentTimeMillis()
-        val cacheKey = "${videoId}_${quality.name}"
+        val cacheKey = "${effectiveTargetId}_${quality.name}"
 
         // 1. Memory Cache Check by exact video ID
-        val memCached = getCachedStream(cacheKey) ?: getCachedStream(videoId)
+        val memCached = getCachedStream(cacheKey) ?: getCachedStream(effectiveTargetId) ?: getCachedStream(videoId)
         if (!memCached.isNullOrBlank()) {
-            diagLog("[Diag-Resolver] Memory Cache HIT for $videoId ('$title') [$quality] - 0ms")
+            diagLog("[Diag-Resolver] Memory Cache HIT for $effectiveTargetId ('$title') [$quality] - 0ms")
             return@withContext memCached
         }
 
-        val mappedId = matchedVideoIdCache[videoId]
+        val mappedId = matchedVideoIdCache[effectiveTargetId] ?: matchedVideoIdCache[videoId]
         if (!mappedId.isNullOrBlank()) {
             val mappedCachedUrl = getCachedStream(mappedId)
             if (!mappedCachedUrl.isNullOrBlank()) {
-                diagLog("[Diag-Resolver] Memory Cache HIT via mapped ID $mappedId for $videoId ('$title') - 0ms")
+                diagLog("[Diag-Resolver] Memory Cache HIT via mapped ID $mappedId for $effectiveTargetId ('$title') - 0ms")
+                cacheStream(effectiveTargetId, mappedCachedUrl)
                 cacheStream(videoId, mappedCachedUrl)
                 return@withContext mappedCachedUrl
             }
@@ -188,9 +225,9 @@ object AudioStreamResolver {
 
         isPlaybackResolving = true
         try {
-            diagLog("[Diag-Resolver] Starting stream resolution for '$title' ($videoId)")
+            diagLog("[Diag-Resolver] Starting stream resolution for '$title' ($effectiveTargetId)")
 
-            val isSpotifyId = videoId.startsWith("sp_") || videoId.startsWith("spotify:")
+            val isSpotifyId = effectiveTargetId.startsWith("sp_") || effectiveTargetId.startsWith("spotify:")
 
             // 1. Tier 1: Native Stream Extractor for exact YouTube ID
             if (!isSpotifyId) {
@@ -198,7 +235,7 @@ object AudioStreamResolver {
                     val tNpStart = System.currentTimeMillis()
                     ensureNewPipeInitialized()
                     val nativeStream = withTimeoutOrNull(6000L) {
-                        val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                        val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$effectiveTargetId")
                         streamExtractor.fetchPage()
                         val audioStreams = streamExtractor.audioStreams ?: emptyList()
                         val selectedAudio = selectStreamForQuality(audioStreams, quality, context)
@@ -207,28 +244,29 @@ object AudioStreamResolver {
                     val npMs = System.currentTimeMillis() - tNpStart
                     if (!nativeStream.isNullOrBlank()) {
                         val totalMs = System.currentTimeMillis() - t0Resolve
-                        diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $videoId ('$title') in ${totalMs}ms [$quality, extraction took ${npMs}ms]")
+                        diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $effectiveTargetId ('$title') in ${totalMs}ms [$quality, extraction took ${npMs}ms]")
                         cacheStream(cacheKey, nativeStream)
+                        cacheStream(effectiveTargetId, nativeStream)
                         cacheStream(videoId, nativeStream)
                         return@withContext nativeStream
                     } else {
-                        diagLog("[Diag-Resolver] Native Extractor returned no stream for $videoId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback (NEVER substituting alternative video)")
+                        diagLog("[Diag-Resolver] Native Extractor returned no stream for $effectiveTargetId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback (NEVER substituting alternative video)")
                         return@withContext null
                     }
                 } catch (e: Exception) {
-                    diagLog("[Diag-Resolver] Native Extractor exception for $videoId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback (NEVER substituting alternative video)")
+                    diagLog("[Diag-Resolver] Native Extractor exception for $effectiveTargetId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback (NEVER substituting alternative video)")
                     return@withContext null
                 }
             } else {
-                diagLog("[Diag-Resolver] Spotify Track ID detected ($videoId) - resolving official YouTube release")
-                val tAltStart = System.currentTimeMillis()
-                val altStream = withTimeoutOrNull(4000L) {
-                    resolveNonRestrictedAlternative(title, artist, videoId, quality, context)
+                diagLog("[Diag-Resolver] Spotify Track ID detected ($effectiveTargetId) - resolving official YouTube release")
+                val altStream = withTimeoutOrNull(6500L) {
+                    resolveNonRestrictedAlternative(title, artist, effectiveTargetId, quality, context, duration)
                 }
                 if (!altStream.isNullOrBlank()) {
                     val totalMs = System.currentTimeMillis() - t0Resolve
-                    diagLog("[Diag-Resolver] WINNER: Alternative Track for Spotify $videoId ('$title') in ${totalMs}ms [$quality]")
+                    diagLog("[Diag-Resolver] WINNER: Alternative Track for Spotify $effectiveTargetId ('$title') in ${totalMs}ms [$quality]")
                     cacheStream(cacheKey, altStream)
+                    cacheStream(effectiveTargetId, altStream)
                     cacheStream(videoId, altStream)
                     return@withContext altStream
                 }
@@ -244,7 +282,8 @@ object AudioStreamResolver {
         artist: String,
         originalVideoId: String,
         quality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO,
-        context: android.content.Context? = null
+        context: android.content.Context? = null,
+        duration: Long = 0L
     ): String? {
         if (title.isBlank()) return null
         return try {
@@ -266,14 +305,15 @@ object AudioStreamResolver {
             val dummyTarget = com.auralis.music.domain.model.Track(
                 id = originalVideoId,
                 title = title,
-                artist = if (artist.equals("Spotify Artist", ignoreCase = true)) "" else artist
+                artist = if (artist.equals("Spotify Artist", ignoreCase = true)) "" else artist,
+                duration = duration
             )
 
             val scoredCandidates = allCandidates
                 .filter { it.id != originalVideoId }
                 .mapNotNull { cand ->
                     val score = com.auralis.music.domain.search.SearchQueryMatcher.scoreTrackCandidate(dummyTarget, cand)
-                    if (score >= 30.0) cand to score else null
+                    if (score >= 45.0) cand to score else null
                 }
                 .sortedByDescending { it.second }
                 .map { it.first }
@@ -286,7 +326,7 @@ object AudioStreamResolver {
             ensureNewPipeInitialized()
             for (candidate in scoredCandidates.take(2)) {
                 try {
-                    val streamUrl = withTimeoutOrNull(1000L) {
+                    val streamUrl = withTimeoutOrNull(4500L) {
                         val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")
                         streamExtractor.fetchPage()
                         val audioStreams = streamExtractor.audioStreams ?: emptyList()
@@ -313,6 +353,7 @@ object AudioStreamResolver {
             null
         }
     }
+
 
     /**
      * Selects optimal AudioStream according to the user's AudioQuality preference.

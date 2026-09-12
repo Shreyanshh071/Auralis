@@ -129,6 +129,78 @@ object LyricsEngine {
     }
 
     /**
+     * Identifies all lyric line indices that should be visually highlighted/active at [currentTimeMs]
+     * with the user's manual [offsetMs] applied.
+     *
+     * In contrast to [findActiveLyricIndices] (which strictly tracks who is singing for audio synchronization),
+     * visual highlighting ownership guarantees:
+     * - The current lyric line remains highlighted across vocal rests until the next lyric line starts.
+     * - Does NOT use a line's endTime as the condition to clear highlight before the next line starts.
+     * - All lines actively singing within their genuine singing interval (duets, overlapping vocals, background vocals)
+     *   are highlighted simultaneously.
+     * - If playback is before the first line, returns an empty set.
+     * - When all lines of the song have ended, returns an empty set (the UI maintains the last line).
+     */
+    fun findVisualActiveLineIndices(
+        lines: List<LyricLine>,
+        currentTimeMs: Long,
+        offsetMs: Long = 0
+    ): Set<Int> {
+        if (lines.isEmpty()) return emptySet()
+        val adjustedTime = currentTimeMs + offsetMs
+        if (adjustedTime < lines[0].time) return emptySet()
+
+        val active = mutableSetOf<Int>()
+
+        for (index in lines.indices) {
+            val line = lines[index]
+            if (line.time > adjustedTime) break
+
+            val effEnd = line.effectiveEndTime
+            val expEnd = line.endTime
+            val lastWordEnd = line.words?.lastOrNull()?.let { it.endTime ?: (it.time + (it.duration ?: 0L)) }
+            val singingEnd = effEnd ?: expEnd ?: lastWordEnd
+
+            val nextStart: Long? = if (line.isBackground) {
+                (index + 1 until lines.size).firstOrNull { lines[it].time > line.time }?.let { lines[it].time }
+            } else {
+                (index + 1 until lines.size).firstOrNull { lines[it].time > line.time && !lines[it].isBackground }?.let { lines[it].time }
+                    ?: (index + 1 until lines.size).firstOrNull { lines[it].time > line.time }?.let { lines[it].time }
+            }
+
+            val isLineActive = when {
+                // Line-synced lyric without explicit end time: active until next line starts
+                singingEnd == null -> {
+                    val end = nextStart ?: Long.MAX_VALUE
+                    adjustedTime >= line.time && adjustedTime < end
+                }
+                // Multi-singer / duet: singing interval extends past the next line's start
+                nextStart != null && singingEnd > nextStart -> {
+                    adjustedTime >= line.time && adjustedTime <= singingEnd
+                }
+                // Standard main lyric line: gap bridging keeps line highlighted across vocal rests until next line begins
+                nextStart != null && !line.isBackground -> {
+                    adjustedTime >= line.time && adjustedTime < nextStart
+                }
+                // Background vocal with next line ahead: active strictly while singing
+                nextStart != null && line.isBackground -> {
+                    adjustedTime >= line.time && adjustedTime <= singingEnd
+                }
+                // Final line of song: active through its singing end
+                else -> {
+                    adjustedTime >= line.time && adjustedTime <= singingEnd
+                }
+            }
+
+            if (isLineActive) {
+                active.add(index)
+            }
+        }
+
+        return active
+    }
+
+    /**
      * Fill progress [0.0f .. 1.0f] for a single word.
      *
      * A word only sweeps across a length the provider actually measured. When

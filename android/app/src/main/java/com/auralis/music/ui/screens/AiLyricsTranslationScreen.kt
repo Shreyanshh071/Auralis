@@ -29,6 +29,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.datastore.AiTranslationDataStore
 import com.auralis.music.domain.model.AiTranslationSettings
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
 
 private enum class AiTranslationDialog {
@@ -53,15 +58,16 @@ fun AiLyricsTranslationScreen(
 
     var activeDialog by remember { mutableStateOf<AiTranslationDialog?>(null) }
 
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val onSurface = MaterialTheme.colorScheme.onSurface
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val surfaceColor = MaterialTheme.dynamicSurface
+    val onSurface = MaterialTheme.dynamicOnSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val onBackground = MaterialTheme.colorScheme.onBackground
+    val onBackground = MaterialTheme.dynamicOnBackground
+    val backgroundColor = MaterialTheme.dynamicBackground
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = backgroundColor
     ) {
         Column(
             modifier = Modifier

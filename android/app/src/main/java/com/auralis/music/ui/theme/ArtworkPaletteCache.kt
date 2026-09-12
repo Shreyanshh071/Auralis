@@ -288,10 +288,9 @@ object ArtworkPaletteCache {
             }
         } catch (_: Exception) {}
 
-        // Reset to default neutral palette so previous song's color does NOT linger
-        _currentPalette.value = defaultPalette
-
         // 3. Off-main-thread extraction
+        // Keep the current palette active during async extraction so Compose animateColorAsState
+        // can smoothly morph colors from the previous song to the new song once ready.
         extractionJob?.cancel()
         extractionJob = cacheScope.launch {
             val palette = extractPalette(context, trackId, track.thumbnail)

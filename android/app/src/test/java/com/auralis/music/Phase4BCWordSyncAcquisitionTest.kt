@@ -5,6 +5,7 @@ import com.auralis.music.data.local.entity.LyricsEntity
 import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.data.network.provider.BetterLyricsSource
 import com.auralis.music.data.network.provider.LrcLibLyricsSource
+import com.auralis.music.data.network.provider.PaxsenixLyricsSource
 import com.auralis.music.data.network.provider.LyricsSearchQuery
 import com.auralis.music.data.parser.WordTiming
 import com.auralis.music.data.repository.LyricsRepositoryImpl
@@ -563,8 +564,21 @@ class Phase4BCWordSyncAcquisitionTest {
             }
             .build()
 
+        val emptyClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(404)
+                    .message("Not Found")
+                    .body("{}".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+
         val testLyricsClient = LyricsClient(
-            lrcLibSource = LrcLibLyricsSource(client = lrcLibClient)
+            lrcLibSource = LrcLibLyricsSource(client = lrcLibClient),
+            paxsenixSource = PaxsenixLyricsSource(client = emptyClient)
         )
 
         val repository = LyricsRepositoryImpl(

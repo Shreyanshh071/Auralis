@@ -382,18 +382,21 @@ class LibraryViewModel(
         selectPlaylistJob = viewModelScope.launch {
             libraryRepository.getPlaylist(playlistId)
                 .distinctUntilChanged { old, new ->
-                    old?.id == new?.id &&
-                    old?.tracks?.size == new?.tracks?.size &&
-                    old?.title == new?.title &&
-                    old?.coverUrl == new?.coverUrl &&
-                    old?.tracks?.map { it.id } == new?.tracks?.map { it.id }
+                    if (old === new) return@distinctUntilChanged true
+                    if (old == null || new == null) return@distinctUntilChanged false
+                    old.id == new.id &&
+                    old.tracks.size == new.tracks.size &&
+                    old.title == new.title &&
+                    old.coverUrl == new.coverUrl &&
+                    old.tracks.indices.all { old.tracks[it].id == new.tracks[it].id }
                 }
                 .collectLatest { pl ->
                     // Only update if the data actually differs from current state
                     val current = _uiState.value.selectedPlaylist
+                    val tracksEqual = current?.tracks?.size == pl?.tracks?.size &&
+                        (current?.tracks == null || pl?.tracks == null || current.tracks.indices.all { current.tracks[it].id == pl.tracks[it].id })
                     if (current?.id != pl?.id ||
-                        current?.tracks?.size != pl?.tracks?.size ||
-                        current?.tracks?.map { it.id } != pl?.tracks?.map { it.id } ||
+                        !tracksEqual ||
                         current?.title != pl?.title ||
                         current?.coverUrl != pl?.coverUrl
                     ) {

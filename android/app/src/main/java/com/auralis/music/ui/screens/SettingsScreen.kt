@@ -11,9 +11,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -60,23 +64,26 @@ fun SettingsScreen(
         }
     }
 
-    val currentThemeKey = "${MaterialTheme.colorScheme.background.toArgb()}_${MaterialTheme.colorScheme.surfaceVariant.toArgb()}_${MaterialTheme.colorScheme.surface.toArgb()}_${MaterialTheme.colorScheme.primary.toArgb()}"
-    val primaryColor = MaterialTheme.colorScheme.primary
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val themeBackground = MaterialTheme.dynamicBackground
+    val themeSurface = MaterialTheme.dynamicSurface
+    val currentThemeKey = "${themeBackground.toArgb()}_${MaterialTheme.colorScheme.surfaceVariant.toArgb()}_${themeSurface.toArgb()}_${themePrimary.toArgb()}"
+    val primaryColor = themePrimary
     val onBackground = MaterialTheme.colorScheme.onBackground
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val cardBackground = MaterialTheme.colorScheme.surface
+    val surfaceColor = themeSurface
+    val isDark = themeBackground.luminance() < 0.5f
+    val cardBackground = themeSurface
     val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.8f)
     val cardText = MaterialTheme.colorScheme.onSurface
-    val cardPrimary = MaterialTheme.colorScheme.primary
-    val cardIconBg = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.12f else 0.16f)
+    val cardPrimary = themePrimary
+    val cardIconBg = themePrimary.copy(alpha = if (isDark) 0.12f else 0.16f)
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(themeBackground)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -108,8 +115,10 @@ fun SettingsScreen(
 
                 // ── SETTINGS LIST ──
                 val listBottomPadding = if (hasActiveTrack) 130.dp else 16.dp
+                val listState = rememberLazyListState()
                 androidx.compose.runtime.key(currentThemeKey) {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),

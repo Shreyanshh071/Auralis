@@ -141,11 +141,6 @@ class YouTubeAudioEngine(private val context: Context) {
         }
     }
 
-    init {
-        mainHandler.post {
-            getOrCreateWebView(context)
-        }
-    }
 
     private fun acquireWakeLock(reason: String) {
         try {

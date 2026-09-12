@@ -19,6 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,7 +81,9 @@ fun StorageSettingsScreen(
     }
 
     val onBackground = MaterialTheme.colorScheme.onBackground
-    val primaryColor = MaterialTheme.colorScheme.primary
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val backgroundColor = MaterialTheme.dynamicBackground
+    val surfaceColor = MaterialTheme.dynamicSurface
 
     // Song cache steps matching Metrolist: 512 MB, 1.1 GB, 2.2 GB, 5.5 GB, 11 GB, Unlimited (22 GB)
     val songCacheOptions = remember {
@@ -115,7 +120,7 @@ fun StorageSettingsScreen(
 
     Surface(
         modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = backgroundColor
     ) {
         Column(
             modifier = Modifier

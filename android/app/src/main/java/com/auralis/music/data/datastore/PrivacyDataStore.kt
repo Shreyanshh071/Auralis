@@ -3,6 +3,7 @@ package com.auralis.music.data.datastore
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.PrivacySettings
 import kotlinx.coroutines.flow.Flow
@@ -10,7 +11,12 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
-val Context.privacyDataStore: DataStore<Preferences> by preferencesDataStore(name = "auralis_privacy")
+val Context.privacyDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "auralis_privacy",
+    corruptionHandler = ReplaceFileCorruptionHandler {
+        emptyPreferences()
+    }
+)
 
 class PrivacyDataStore(private val context: Context) {
     private val dataStore = context.privacyDataStore

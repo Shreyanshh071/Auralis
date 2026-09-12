@@ -45,11 +45,13 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
 
 private val LIME_ACCENT: Color
-    @Composable get() = MaterialTheme.colorScheme.primary
+    @Composable get() = MaterialTheme.dynamicPrimary
 private val DARK_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.background
+    @Composable get() = MaterialTheme.dynamicBackground
 private val PILL_BG: Color
     @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 

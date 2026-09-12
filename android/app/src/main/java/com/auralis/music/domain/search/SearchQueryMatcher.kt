@@ -448,8 +448,8 @@ object SearchQueryMatcher {
                         MatchTier.METADATA_PARTIAL -> 5
                     }
                 }
-                    .thenByDescending { parsePlayCount(it.track.views) }
                     .thenByDescending { it.score }
+                    .thenByDescending { parsePlayCount(it.track.views) }
                     .thenBy { it.originalIndex }
             )
             .map { it.track }
@@ -587,7 +587,8 @@ object SearchQueryMatcher {
                 }
                 titlePrimaryOverlap.size == primaryArtistTokens.size -> score += 25.0
                 else -> {
-                    score -= 50.0 // Heavy penalty when candidate artist does not match target artist
+                    // Fatal mismatch: candidate artist has zero relation to target artist (e.g. Mau P for Tame Impala)
+                    return -1.0
                 }
             }
         } else {
