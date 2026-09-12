@@ -56,6 +56,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -117,17 +121,18 @@ fun ListenTogetherSheet(
     var joinCodeInput by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Join, 1 = Host
 
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val onBackground = MaterialTheme.colorScheme.onBackground
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val onBackground = MaterialTheme.dynamicOnBackground
+    val surfaceColor = MaterialTheme.dynamicSurface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val backgroundColor = MaterialTheme.dynamicBackground
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(backgroundColor)
             .statusBarsPadding()
     ) {
         Column(

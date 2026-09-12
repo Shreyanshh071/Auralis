@@ -409,8 +409,12 @@ class PlayerViewModel(
         }
 
         context?.let { ctx ->
-            com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, track)
-            // Pre-extract palette for neighboring tracks
+            // Dispatch palette extraction off the main thread — toHct() + Coil mem-cache lookup
+            // must not block the UI thread during the song-skip tap.
+            viewModelScope.launch(Dispatchers.Default) {
+                com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, track)
+            }
+            // Pre-extract palette for neighboring tracks in background
             viewModelScope.launch(Dispatchers.IO) {
                 listOfNotNull(
                     targetQueue.getOrNull(targetIndex + 1),
@@ -579,8 +583,10 @@ class PlayerViewModel(
         Log.d("AuralisPlayback", "[PlayerViewModel] next() triggered")
         context?.let { ctx ->
             val nextIdx = _uiState.value.currentIndex + 1
-            _uiState.value.queue.getOrNull(nextIdx)?.let {
-                com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, it)
+            _uiState.value.queue.getOrNull(nextIdx)?.let { nextTrack ->
+                viewModelScope.launch(Dispatchers.Default) {
+                    com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, nextTrack)
+                }
             }
         }
         if (audioPlayer != null) {
@@ -701,8 +707,10 @@ class PlayerViewModel(
         if (_playbackPositionMs.value <= 3000) {
             context?.let { ctx ->
                 val prevIdx = _uiState.value.currentIndex - 1
-                _uiState.value.queue.getOrNull(prevIdx)?.let {
-                    com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, it)
+                _uiState.value.queue.getOrNull(prevIdx)?.let { prevTrack ->
+                    viewModelScope.launch(Dispatchers.Default) {
+                        com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, prevTrack)
+                    }
                 }
             }
         }

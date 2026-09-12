@@ -19,7 +19,10 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material3.*
 import androidx.compose.ui.graphics.luminance
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,14 +120,14 @@ fun AuralisFloatingDock(
     val buttonSize = if (isSlim) 46.dp else 56.dp
     val pillShape = RoundedCornerShape(30.dp)
 
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceColor = MaterialTheme.dynamicSurface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-    val backgroundColor = MaterialTheme.colorScheme.background
+    val backgroundColor = MaterialTheme.dynamicBackground
     val primaryColor = MaterialTheme.dynamicPrimary
     val isDark = surfaceColor.luminance() < 0.5f
 
-    val contentColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-    val secondaryContentColor = if (isDark) Color.White.copy(alpha = 0.65f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
+    val contentColor = if (isDark) Color.White else MaterialTheme.dynamicOnSurface
+    val secondaryContentColor = if (isDark) Color.White.copy(alpha = 0.65f) else MaterialTheme.dynamicOnSurface.copy(alpha = 0.60f)
 
     val dockBorderBrush = if (isDark) {
         Brush.verticalGradient(

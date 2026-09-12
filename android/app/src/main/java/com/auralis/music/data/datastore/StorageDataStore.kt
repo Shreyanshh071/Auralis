@@ -7,13 +7,19 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
-val Context.storageDataStore: DataStore<Preferences> by preferencesDataStore(name = "auralis_storage")
+val Context.storageDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "auralis_storage",
+    corruptionHandler = ReplaceFileCorruptionHandler {
+        emptyPreferences()
+    }
+)
 
 data class StorageSettings(
     val songCacheEnabled: Boolean = true,

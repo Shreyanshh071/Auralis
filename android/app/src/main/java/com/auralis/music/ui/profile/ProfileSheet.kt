@@ -8,6 +8,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -164,10 +166,13 @@ fun ProfileSheet(
         return
     }
 
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val themeBackground = MaterialTheme.dynamicBackground
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(themeBackground)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {

@@ -91,6 +91,7 @@ import kotlin.math.roundToInt
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.getHighResArtworkUrl
+import com.auralis.music.ui.components.getOptimizedThumbnailUrl
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
@@ -261,34 +262,45 @@ fun MiniPlayer(
         initialPage = safeCurrentIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
 
-    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
-    var userSwiped by remember { mutableStateOf(false) }
-
-    LaunchedEffect(pagerState.interactionSource) {
-        pagerState.interactionSource.interactions.collect { interaction ->
-            if (interaction is DragInteraction.Start) {
-                userSwiped = true
-            }
-        }
-    }
-    LaunchedEffect(isDragged) {
-        if (isDragged) {
-            userSwiped = true
-        }
-    }
-
+    var pendingTargetIndex by remember { mutableStateOf<Int?>(null) }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
 
     // External track index changes (e.g. background completion, notification, playlist tap, or full modal)
     LaunchedEffect(safeCurrentIndex, track?.id) {
-        userSwiped = false
+        if (pendingTargetIndex != null) {
+            if (safeCurrentIndex == pendingTargetIndex) {
+                pendingTargetIndex = null
+            } else {
+                // User explicitly swiped to pendingTargetIndex and playback is still catching up.
+                // DO NOT force-scroll backwards to safeCurrentIndex!
+                return@LaunchedEffect
+            }
+        }
         if (safeCurrentIndex in 0 until pageCount && pagerState.currentPage != safeCurrentIndex) {
             isProgrammaticScroll = true
             try {
-                pagerState.scrollToPage(safeCurrentIndex)
+                if (kotlin.math.abs(pagerState.currentPage - safeCurrentIndex) <= 1) {
+                    pagerState.animateScrollToPage(
+                        page = safeCurrentIndex,
+                        animationSpec = androidx.compose.animation.core.tween(
+                            durationMillis = 350,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                        )
+                    )
+                } else {
+                    pagerState.scrollToPage(safeCurrentIndex)
+                }
             } finally {
                 isProgrammaticScroll = false
             }
+        }
+    }
+
+    // Safety timeout: Ensure pendingTargetIndex is never locked indefinitely if track loading fails
+    LaunchedEffect(pendingTargetIndex) {
+        if (pendingTargetIndex != null) {
+            kotlinx.coroutines.delay(2500)
+            pendingTargetIndex = null
         }
     }
 
@@ -316,65 +328,62 @@ fun MiniPlayer(
     }
 
     // User swipe gestures settled on a different page -> switch track immediately & update theme
-    // ONLY executed when the user physically dragged/swiped the carousel
     LaunchedEffect(pagerState) {
         snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
             .collect { (isScrolling, newPage) ->
-                if (isScrolling && !isProgrammaticScroll) {
-                    userSwiped = true
-                }
-                if (!isScrolling) {
-                    if (userSwiped && !isProgrammaticScroll) {
-                        userSwiped = false
-                        if (queueTracks.isNotEmpty() && newPage in queueTracks.indices && newPage != safeCurrentIndex) {
-                            val targetTrack = queueTracks[newPage]
-                            // Immediately update dynamic theme palette for target track with zero delay
+                if (!isScrolling && !isProgrammaticScroll) {
+                    if (queueTracks.isNotEmpty() && newPage in queueTracks.indices && newPage != safeCurrentIndex) {
+                        pendingTargetIndex = newPage
+                        val targetTrack = queueTracks[newPage]
+                        // Immediately update dynamic theme palette for target track off main thread
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                             com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
-                            if (onSelectQueueTrack != null) {
-                                onSelectQueueTrack(newPage)
-                            } else if (newPage > safeCurrentIndex) {
-                                onNextClick?.invoke()
-                            } else if (newPage < safeCurrentIndex) {
-                                onPreviousClick?.invoke()
-                            }
                         }
-                    } else {
-                        userSwiped = false
+                        if (onSelectQueueTrack != null) {
+                            onSelectQueueTrack(newPage)
+                        } else if (newPage > safeCurrentIndex) {
+                            onNextClick?.invoke()
+                        } else if (newPage < safeCurrentIndex) {
+                            onPreviousClick?.invoke()
+                        }
+                    } else if (newPage == safeCurrentIndex) {
+                        pendingTargetIndex = null
                     }
                 }
             }
     }
 
-    // Active track: when user is physically dragging or carousel is scrolling from a user swipe,
-    // follow page. Otherwise, immediately and always reflect the current playing track!
-    val isUserSwiping = isDragged || userSwiped
-    val activeTrack = if (isUserSwiping && queueTracks.isNotEmpty() && pagerState.currentPage in queueTracks.indices) {
-        queueTracks[pagerState.currentPage]
+    // Active track directly follows the current visible carousel page
+    val activeTrack = if (queueTracks.isNotEmpty() && pagerState.currentPage in queueTracks.indices) {
+        val qTrack = queueTracks[pagerState.currentPage]
+        if (qTrack.id == track?.id) track else qTrack
     } else {
         track ?: queueTracks.getOrNull(safeCurrentIndex)
     }
 
     // Shared Dynamic Artwork Palette Extraction via ArtworkPaletteCache
     val sharedPalette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
-    val currentDisplayTrack = if (isUserSwiping && appearance.miniPlayerDesign == MiniPlayerDesign.NEW.displayName) {
-        activeTrack
-    } else {
-        track ?: queueTracks.getOrNull(safeCurrentIndex)
-    }
+    val currentDisplayTrack = activeTrack ?: track ?: queueTracks.getOrNull(safeCurrentIndex)
+    var lastValidPalette by remember { mutableStateOf(com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.value) }
     val extractedColors = if (currentDisplayTrack != null) {
         val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(currentDisplayTrack.id)
             ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(currentDisplayTrack.thumbnail)
-        if (cached != null) {
-            cached
-        } else if (sharedPalette != com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette &&
-            com.auralis.music.ui.theme.ArtworkPaletteCache.isCurrentTrack(currentDisplayTrack.id)
-        ) {
-            sharedPalette
-        } else {
-            // Track has changed and new palette is not ready yet:
-            // Use clean ambient defaultPalette so it NEVER flashes the previous track's bright colors!
-            com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette
+        when {
+            cached != null && !cached.isDefault -> {
+                lastValidPalette = cached
+                cached
+            }
+            !sharedPalette.isDefault && com.auralis.music.ui.theme.ArtworkPaletteCache.isCurrentTrack(currentDisplayTrack.id) -> {
+                lastValidPalette = sharedPalette
+                sharedPalette
+            }
+            !lastValidPalette.isDefault -> {
+                lastValidPalette
+            }
+            else -> {
+                com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette
+            }
         }
     } else {
         com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette
@@ -631,7 +640,9 @@ private fun ExpandedMiniPlayerView(
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(getHighResArtworkUrl(track.thumbnail))
+                            .data(getOptimizedThumbnailUrl(track.thumbnail) ?: track.thumbnail)
+                            .size(256, 256)
+                            .allowHardware(true)
                             .crossfade(true)
                             .build(),
                         contentDescription = track.title,
@@ -788,22 +799,23 @@ private fun ExpandedMiniPlayerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Bottom Progress Indicator Line
-            val currentProgress = progressProvider()
+            // Bottom Progress Indicator Line - draw-phase observation prevents recomposition & relayout
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.5.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.15f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(currentProgress.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .background(dominantColor.copy(alpha = 0.95f))
-                )
-            }
+                    .drawWithContent {
+                        drawRect(Color.White.copy(alpha = 0.15f))
+                        val progress = progressProvider().coerceIn(0f, 1f)
+                        if (progress > 0f) {
+                            drawRect(
+                                color = dominantColor.copy(alpha = 0.95f),
+                                size = Size(size.width * progress, size.height)
+                            )
+                        }
+                    }
+            )
         }
     }
 }
@@ -831,8 +843,20 @@ private fun ClassicMiniPlayerView(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(12.dp)
-    val bgColor = if (isPureBlack) Color.Black else Color(0xFF161616)
-    val borderColor = if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
+    val bgColor = if (isPureBlack) {
+        Color.Black
+    } else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
+        if (hazeState != null) Color.Transparent else Color(0xFF10121A).copy(alpha = 0.85f)
+    } else {
+        Color(0xFF161616)
+    }
+    val borderColor = if (isPureBlack) {
+        Color.White.copy(alpha = 0.12f)
+    } else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        Color.White.copy(alpha = 0.08f)
+    }
 
     Box(
         modifier = modifier
@@ -862,7 +886,8 @@ private fun ClassicMiniPlayerView(
                 artworkUrl = track.thumbnail,
                 extractedColors = extractedColors,
                 modifier = Modifier.matchParentSize(),
-                isMiniPlayer = true
+                isMiniPlayer = true,
+                isPlaying = isPlaying
             )
         }
 
@@ -887,7 +912,9 @@ private fun ClassicMiniPlayerView(
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(getHighResArtworkUrl(track.thumbnail))
+                            .data(getOptimizedThumbnailUrl(track.thumbnail) ?: track.thumbnail)
+                            .size(256, 256)
+                            .allowHardware(true)
                             .crossfade(true)
                             .build(),
                         contentDescription = track.title,
@@ -979,21 +1006,22 @@ private fun ClassicMiniPlayerView(
                 }
             }
 
-            // Bottom tan accent progress line matching Photo 1
-            val currentProgress = progressProvider()
+            // Bottom tan accent progress line matching Photo 1 - draw-phase observation
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.5.dp)
-                    .background(Color.White.copy(alpha = 0.12f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(currentProgress.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .background(Color(0xFFEBA671))
-                )
-            }
+                    .drawWithContent {
+                        drawRect(Color.White.copy(alpha = 0.12f))
+                        val progress = progressProvider().coerceIn(0f, 1f)
+                        if (progress > 0f) {
+                            drawRect(
+                                color = Color(0xFFEBA671),
+                                size = Size(size.width * progress, size.height)
+                            )
+                        }
+                    }
+            )
         }
     }
 }
@@ -1044,7 +1072,7 @@ private fun NewMiniPlayerPillView(
     val actualBgColor = if (isPureBlack) {
         Color.Black
     } else when (activeStyle) {
-        PlayerBackgroundStyle.APPLE_MUSIC -> Color(0xFF10121A).copy(alpha = 0.55f)
+        PlayerBackgroundStyle.APPLE_MUSIC -> if (hazeState != null) Color.Transparent else Color(0xFF10121A).copy(alpha = 0.85f)
         PlayerBackgroundStyle.GLOW_MOTION, PlayerBackgroundStyle.LIVE_MESH -> Color(0xFF050505)
         PlayerBackgroundStyle.GRADIENT -> Color(0xFF08080A)
         else -> Color(0xFF141512)
@@ -1117,22 +1145,9 @@ private fun NewMiniPlayerPillView(
                 artworkUrl = activeTrack?.thumbnail,
                 extractedColors = extractedColors,
                 modifier = Modifier.matchParentSize(),
-                isMiniPlayer = true
+                isMiniPlayer = true,
+                isPlaying = isPlaying
             )
-
-            if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.0f to Color.White.copy(alpha = 0.14f),
-                                0.18f to Color.White.copy(alpha = 0.02f),
-                                0.45f to Color.Transparent
-                            )
-                        )
-                )
-            }
         }
 
         Row(
@@ -1142,7 +1157,7 @@ private fun NewMiniPlayerPillView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val isHorizontalSwipeEnabled = userScrollEnabled && appearance.enableSwipeToChangeSong
-            val snapPositionalThreshold = (0.85f - (sensitivityRatio * 0.45f)).coerceIn(0.38f, 0.75f)
+            val snapPositionalThreshold = (0.45f - (sensitivityRatio * 0.20f)).coerceIn(0.25f, 0.45f)
             val pagerFlingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                 state = pagerState,
                 snapPositionalThreshold = snapPositionalThreshold
@@ -1153,6 +1168,7 @@ private fun NewMiniPlayerPillView(
 
             HorizontalPager(
                 state = pagerState,
+                key = { page -> queueTracks.getOrNull(page)?.id ?: page },
                 userScrollEnabled = isHorizontalSwipeEnabled,
                 flingBehavior = pagerFlingBehavior,
                 modifier = Modifier
@@ -1161,71 +1177,71 @@ private fun NewMiniPlayerPillView(
                 pageSpacing = 12.dp,
                 verticalAlignment = Alignment.CenterVertically
             ) { page ->
-                val isCurrent = if (isScrolling) {
-                    page == safeCurrentIndex
+                val qTrack = queueTracks.getOrNull(page)
+                val pageTrack = if (qTrack != null && qTrack.id == track?.id) {
+                    track
                 } else {
-                    page == pagerState.currentPage
+                    qTrack ?: track ?: return@HorizontalPager
                 }
-                val pageTrack = if (isCurrent && !isScrolling) {
-                    track ?: queueTracks.getOrNull(page) ?: return@HorizontalPager
-                } else {
-                    queueTracks.getOrNull(page) ?: track ?: return@HorizontalPager
-                }
+                val isCurrent = page == pagerState.currentPage
+                val isSharedActive = isCurrent && !pagerState.isScrollInProgress && (pageTrack.id == track?.id)
 
                 val trackInfoModifier = playerSharedTrackInfo(
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    enabled = isCurrent
+                    sharedTransitionScope = if (isSharedActive) sharedTransitionScope else null,
+                    animatedVisibilityScope = if (isSharedActive) animatedVisibilityScope else null,
+                    enabled = isSharedActive
                 )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onClick
-                        ),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MiniPlayerArtworkDisc(
-                        track = pageTrack,
-                        isCurrent = isCurrent,
-                        isPlaying = isPlaying,
-                        progressState = if (isCurrent) progressState else null,
-                        progressProvider = effectiveProgressProvider,
-                        progressColor = Color.White,
-                        isLiquidGlass = !isPureBlack && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        onPlayPauseClick = onPlayPauseClick
-                    )
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.Center
+                key(pageTrack.id) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onClick
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth().then(trackInfoModifier)) {
-                            Text(
-                                text = pageTrack.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = pageTrack.artist,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        MiniPlayerArtworkDisc(
+                            track = pageTrack,
+                            isCurrent = isCurrent,
+                            isPlaying = isPlaying,
+                            progressState = if (isCurrent) progressState else null,
+                            progressProvider = effectiveProgressProvider,
+                            progressColor = Color.White,
+                            isLiquidGlass = !isPureBlack && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
+                            sharedTransitionScope = if (isSharedActive) sharedTransitionScope else null,
+                            animatedVisibilityScope = if (isSharedActive) animatedVisibilityScope else null,
+                            onPlayPauseClick = onPlayPauseClick
+                        )
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().then(trackInfoModifier)) {
+                                Text(
+                                    text = pageTrack.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = pageTrack.artist,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -1402,14 +1418,16 @@ private fun MiniPlayerArtworkDisc(
                 .background(if (isLiquidGlass) Color(0xFF181A22).copy(alpha = 0.60f) else Color(0xFF22231E)),
             contentAlignment = Alignment.Center
         ) {
-            ArtworkCard(
-                url = track.thumbnail,
-                fallbackTrack = track,
-                modifier = sharedArtwork.fillMaxSize(),
-                cornerRadius = 20.dp,
-                elevation = 0.dp,
-                contentDescription = track.title
-            )
+            key(track.id) {
+                ArtworkCard(
+                    url = track.thumbnail,
+                    fallbackTrack = track,
+                    modifier = sharedArtwork.fillMaxSize(),
+                    cornerRadius = 20.dp,
+                    elevation = 0.dp,
+                    contentDescription = track.title
+                )
+            }
 
             // Semi-transparent dark overlay + Crisp white Play/Pause icon
             Box(

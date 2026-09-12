@@ -10,8 +10,11 @@ data class SongFingerprint(
     val normalizedBaseTitle: String,
     val normalizedArtist: String,
     val cleanedTitle: String,
-    val thumbnail: String
+    val thumbnail: String,
+    val isVideo: Boolean = false,
+    val hasAlbum: Boolean = false
 )
+
 
 /**
  * Intelligent song deduplication engine preventing identical tracks
@@ -97,6 +100,9 @@ object TrackDeduplicator {
             cleanedArt.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
         }
 
+        val isVideo = isVideoOrBloatedTrack(track)
+        val hasAlbum = !track.album.isNullOrBlank()
+
         return SongFingerprint(
             id = track.id.trim(),
             normalizedTitle = normTitle,
@@ -104,9 +110,12 @@ object TrackDeduplicator {
             normalizedBaseTitle = baseTitle,
             normalizedArtist = normArtist,
             cleanedTitle = cleaned,
-            thumbnail = track.thumbnail.trim()
+            thumbnail = track.thumbnail.trim(),
+            isVideo = isVideo,
+            hasAlbum = hasAlbum
         )
     }
+
 
     /**
      * Determines whether two tracks represent the same song.
@@ -182,6 +191,16 @@ object TrackDeduplicator {
     /**
      * Determines whether candidate is a higher quality studio release than current (e.g. Studio Audio Track vs Music Video).
      */
+    fun isBetterQualityTrack(candidateFp: SongFingerprint, currentFp: SongFingerprint): Boolean {
+        if (!candidateFp.isVideo && currentFp.isVideo) return true
+        if (candidateFp.isVideo && !currentFp.isVideo) return false
+
+        if (candidateFp.hasAlbum && !currentFp.hasAlbum) return true
+        if (!candidateFp.hasAlbum && currentFp.hasAlbum) return false
+
+        return false
+    }
+
     fun isBetterQualityTrack(candidate: Track, current: Track): Boolean {
         val candIsVideo = isVideoOrBloatedTrack(candidate)
         val currIsVideo = isVideoOrBloatedTrack(current)
@@ -224,7 +243,8 @@ object TrackDeduplicator {
                 fingerprints.add(fp)
             } else {
                 val existing = uniqueTracks[existingIndex]
-                if (isBetterQualityTrack(track, existing)) {
+                val existingFp = fingerprints[existingIndex]
+                if (isBetterQualityTrack(fp, existingFp) || isBetterQualityTrack(track, existing)) {
                     // Studio track replaces lower-quality music video
                     val cleanTitle = fp.cleanedTitle.ifBlank { track.title }
                     val updated = track.copy(

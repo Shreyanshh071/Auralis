@@ -750,13 +750,7 @@ class AuralisMediaService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         val isCurrentlyPlaying = audioPlayer.isPlaying.value
-        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying)")
-
-        if (isCurrentlyPlaying) {
-            // Keep playback service alive in foreground with notification while actively playing audio
-            super.onTaskRemoved(rootIntent)
-            return
-        }
+        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying) -> stopping playback and cleaning up service")
 
         try {
             com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()

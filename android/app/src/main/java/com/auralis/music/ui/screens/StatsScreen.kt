@@ -78,7 +78,11 @@ import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.StatsViewModel
 import java.util.Locale
 
@@ -112,13 +116,14 @@ fun StatsScreen(
     var showOptionDropdown by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val isDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
     val themePrimary = MaterialTheme.dynamicPrimary
+    val themeBackground = MaterialTheme.dynamicBackground
     val surfaceCardColor = MaterialTheme.colorScheme.surfaceContainer
     val surfaceHighColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val surfaceHighestColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val cardBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.35f else 0.45f)
-    val textPrimary = MaterialTheme.colorScheme.onSurface
+    val textPrimary = MaterialTheme.dynamicOnSurface
     val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
 
     val dateChips = remember(selectedOption, firstEventTs) {
@@ -128,7 +133,7 @@ fun StatsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(themeBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Top App Bar
@@ -168,7 +173,7 @@ fun StatsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = themeBackground
                 ),
                 modifier = Modifier.statusBarsPadding()
             )

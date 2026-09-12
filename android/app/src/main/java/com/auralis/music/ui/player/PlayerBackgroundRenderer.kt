@@ -1,7 +1,7 @@
 package com.auralis.music.ui.player
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,16 +12,25 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -41,8 +50,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.imageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.auralis.music.ui.components.getHighResArtworkUrl
+import com.auralis.music.ui.components.getOptimizedThumbnailUrl
 import com.auralis.music.ui.theme.ArtworkPalette
 import kotlin.math.PI
 import kotlin.math.cos
@@ -70,7 +81,7 @@ enum class PlayerBackgroundStyle(val displayName: String) {
                 "apple music", "apple_music", "apple liquid glass", "liquid glass", "apple glass", "glass" -> APPLE_MUSIC
                 "live mesh", "live_mesh", "mesh" -> LIVE_MESH
                 "pure black", "solid amoled black", "dark black" -> FOLLOW_THEME
-                else -> BLUR
+                else -> GRADIENT
             }
         }
     }
@@ -269,6 +280,91 @@ fun tuneColorForGradient(baseColor: Color, targetValue: Float, satMultiplier: Fl
 }
 
 /**
+ * Linearly interpolates between two [ArtworkPalette] instances component-by-component.
+ */
+fun lerpArtworkPalette(start: ArtworkPalette, stop: ArtworkPalette, fraction: Float): ArtworkPalette {
+    val f = fraction.coerceIn(0f, 1f)
+    if (f <= 0f) return start
+    if (f >= 1f) return stop
+
+    val primary = lerp(start.primary, stop.primary, f)
+    val secondary = lerp(start.secondary, stop.secondary, f)
+    val tertiary = lerp(start.tertiary, stop.tertiary, f)
+    val seed = if (start.seedColor != Color.Unspecified && stop.seedColor != Color.Unspecified) {
+        lerp(start.seedColor, stop.seedColor, f)
+    } else if (stop.seedColor != Color.Unspecified) {
+        stop.seedColor
+    } else {
+        start.seedColor
+    }
+
+    val startGlow = if (start.isMonochrome) {
+        listOf(
+            Color(0xFFE2E2E2), Color(0xFFB8B8B8), Color(0xFF8E8E8E),
+            Color(0xFF686868), Color(0xFF484848), Color(0xFFA2A2A2)
+        )
+    } else {
+        start.glowColors.ifEmpty { listOf(start.primary, start.secondary, start.tertiary) }
+    }
+
+    val stopGlow = if (stop.isMonochrome) {
+        listOf(
+            Color(0xFFE2E2E2), Color(0xFFB8B8B8), Color(0xFF8E8E8E),
+            Color(0xFF686868), Color(0xFF484848), Color(0xFFA2A2A2)
+        )
+    } else {
+        stop.glowColors.ifEmpty { listOf(stop.primary, stop.secondary, stop.tertiary) }
+    }
+
+    val glow = List(6) { idx ->
+        val c1 = startGlow[idx % startGlow.size]
+        val c2 = stopGlow[idx % stopGlow.size]
+        lerp(c1, c2, f)
+    }
+
+    return ArtworkPalette(
+        primary = primary,
+        secondary = secondary,
+        tertiary = tertiary,
+        seedColor = seed,
+        isMonochrome = if (f > 0.5f) stop.isMonochrome else start.isMonochrome,
+        glowColors = glow
+    )
+}
+
+/**
+ * Smoothly and fluidly interpolates an [ArtworkPalette] during track changes over a 650ms FastOutSlowIn curve.
+ * Uses a single [Animatable] float + [lerpArtworkPalette] to animate all color channels together in one
+ * invalidation per frame, eliminating the 10-simultaneous animateColorAsState flood that caused frame jank.
+ */
+@Composable
+fun animateArtworkPalette(
+    targetPalette: ArtworkPalette,
+    durationMillis: Int = 650
+): ArtworkPalette {
+    // Keep track of the "start" snapshot (what was visible the moment the target changed)
+    var currentVisiblePalette by remember { mutableStateOf(targetPalette) }
+    var previousTargetPalette by remember { mutableStateOf(targetPalette) }
+    val animProgress = remember { Animatable(1f) }
+
+    LaunchedEffect(targetPalette) {
+        if (targetPalette != previousTargetPalette) {
+            // Snapshot whatever is CURRENTLY visible at the interruption moment so rapid
+            // A → B → C switches never jump or restart from a stale baseline.
+            currentVisiblePalette = lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+            previousTargetPalette = targetPalette
+            animProgress.snapTo(0f)
+            animProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    return lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+}
+
+/**
  * Unified, reusable Player Background Renderer shared between:
  * - Mini-player (floating pill interior)
  * - Full Now Playing player
@@ -288,55 +384,32 @@ fun PlayerBackground(
     extractedColors: ArtworkPalette,
     modifier: Modifier = Modifier,
     isMiniPlayer: Boolean = false,
+    isPlaying: Boolean = true,
     isVisible: Boolean = true
 ) {
     val context = LocalContext.current
-    val colorSpec = remember { tween<Color>(durationMillis = 650, easing = FastOutSlowInEasing) }
 
-    // Smooth animated color transitions when track changes to prevent jarring flashes
-    val animPrimary by animateColorAsState(extractedColors.primary, colorSpec, label = "bgAnimPrimary")
-    val animSecondary by animateColorAsState(extractedColors.secondary, colorSpec, label = "bgAnimSecondary")
-    val animTertiary by animateColorAsState(extractedColors.tertiary, colorSpec, label = "bgAnimTertiary")
+    // Unified smooth palette interpolation: fluid 650ms continuous color transitions
+    val animatedPalette = animateArtworkPalette(extractedColors, durationMillis = 650)
 
-    val targetGlowColors = remember(extractedColors) {
-        if (extractedColors.isMonochrome) {
-            listOf(
-                Color(0xFFE2E2E2),
-                Color(0xFFB8B8B8),
-                Color(0xFF8E8E8E),
-                Color(0xFF686868),
-                Color(0xFF484848),
-                Color(0xFFA2A2A2)
-            )
+    val animatedGlowColors = remember(animatedPalette) {
+        if (animatedPalette.glowColors.size >= 6) {
+            animatedPalette.glowColors.take(6)
         } else {
-            val baseList = extractedColors.glowColors.ifEmpty {
-                listOf(extractedColors.primary, extractedColors.secondary, extractedColors.tertiary)
-            }.distinct()
-
-            // Normalize to exactly 6 slots by cycling ONLY authentic artwork colors.
-            // NEVER shift hue, so a purple song stays purely purple/violet without synthetic greens!
+            val baseList = animatedPalette.glowColors.ifEmpty {
+                listOf(animatedPalette.primary, animatedPalette.secondary, animatedPalette.tertiary)
+            }
             List(6) { idx -> baseList[idx % baseList.size] }
         }
     }
 
-    val animGlow0 by animateColorAsState(targetGlowColors[0], colorSpec, label = "bgGlow0")
-    val animGlow1 by animateColorAsState(targetGlowColors[1], colorSpec, label = "bgGlow1")
-    val animGlow2 by animateColorAsState(targetGlowColors[2], colorSpec, label = "bgGlow2")
-    val animGlow3 by animateColorAsState(targetGlowColors[3], colorSpec, label = "bgGlow3")
-    val animGlow4 by animateColorAsState(targetGlowColors[4], colorSpec, label = "bgGlow4")
-    val animGlow5 by animateColorAsState(targetGlowColors[5], colorSpec, label = "bgGlow5")
-
-    val animatedGlowColors = remember(animGlow0, animGlow1, animGlow2, animGlow3, animGlow4, animGlow5) {
-        listOf(animGlow0, animGlow1, animGlow2, animGlow3, animGlow4, animGlow5)
-    }
-
     // Unified vibrant gradient stops derived from animated artwork colors
-    val gradStops = remember(animPrimary, animSecondary, animTertiary, extractedColors.isMonochrome) {
+    val gradStops = remember(animatedPalette.primary, animatedPalette.secondary, animatedPalette.tertiary, animatedPalette.isMonochrome) {
         PlayerGradientPalette.create(
-            primary = animPrimary,
-            secondary = animSecondary,
-            tertiary = animTertiary,
-            isMonochrome = extractedColors.isMonochrome
+            primary = animatedPalette.primary,
+            secondary = animatedPalette.secondary,
+            tertiary = animatedPalette.tertiary,
+            isMonochrome = animatedPalette.isMonochrome
         )
     }
 
@@ -349,13 +422,13 @@ fun PlayerBackground(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .background(MaterialTheme.dynamicSurface)
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background)
+                            .background(MaterialTheme.dynamicBackground)
                     )
                 }
             }
@@ -671,9 +744,9 @@ fun PlayerBackground(
                         .background(
                             if (isMiniPlayer) {
                                 Brush.horizontalGradient(
-                                    0.0f to gradStops.miniLeft,
-                                    0.5f to gradStops.miniCenter,
-                                    1.0f to gradStops.miniRight
+                                    0.0f to gradStops.miniLeft.copy(alpha = 0.16f),
+                                    0.5f to gradStops.miniCenter.copy(alpha = 0.10f),
+                                    1.0f to gradStops.miniRight.copy(alpha = 0.20f)
                                 )
                             } else {
                                 Brush.verticalGradient(
@@ -689,9 +762,9 @@ fun PlayerBackground(
                 SeamlessArtworkBlurLayer(
                     artworkUrl = artworkUrl,
                     isMiniPlayer = isMiniPlayer,
-                    blurRadius = if (isMiniPlayer) 28.dp else 42.dp,
-                    scale = if (isMiniPlayer) 1.38f else 1.35f,
-                    targetAlpha = if (isMiniPlayer) 0.82f else 0.80f,
+                    blurRadius = if (isMiniPlayer) 20.dp else 24.dp,
+                    scale = if (isMiniPlayer) 1.35f else 1.35f,
+                    targetAlpha = if (isMiniPlayer) 0.22f else 0.80f,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -703,10 +776,10 @@ fun PlayerBackground(
                             .background(
                                 Brush.verticalGradient(
                                     listOf(
-                                        Color.White.copy(alpha = 0.20f), // top glass specular gleam
-                                        Color.White.copy(alpha = 0.04f), // subtle frosted body sheen
+                                        Color.White.copy(alpha = 0.18f), // top glass specular gleam
+                                        Color.White.copy(alpha = 0.02f), // subtle frosted body sheen
                                         Color.Transparent,               // lets vibrant refraction shine through center
-                                        Color.Black.copy(alpha = 0.26f)  // bottom depth grounding
+                                        Color.Black.copy(alpha = 0.18f)  // bottom depth grounding
                                     )
                                 )
                             )
@@ -715,11 +788,11 @@ fun PlayerBackground(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(18.dp)
+                            .height(14.dp)
                             .background(
                                 Brush.verticalGradient(
                                     listOf(
-                                        Color.White.copy(alpha = 0.16f),
+                                        Color.White.copy(alpha = 0.15f),
                                         Color.Transparent
                                     )
                                 )
@@ -742,6 +815,8 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.LIVE_MESH -> {
+                // ViVi-inspired Live Mesh Dynamic Background
+                // Foundation: Deep vertical gradient anchored to top dominant color
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -795,35 +870,46 @@ private fun SeamlessArtworkBlurLayer(
             }
         }
     }
-    var currentUrl by remember { mutableStateOf<String?>(artworkUrl) }
-    var previousUrl by remember { mutableStateOf<String?>(null) }
-    var isCurrentLoaded by remember(artworkUrl) { mutableStateOf(isInitiallyCached) }
+    // Base layer URL that is confirmed loaded and visible
+    var visibleUrl by remember { mutableStateOf<String?>(artworkUrl) }
+    // Incoming URL that is loading or fading in on top
+    var incomingUrl by remember { mutableStateOf<String?>(null) }
+    var isIncomingLoaded by remember { mutableStateOf(false) }
+
+    val incomingAlpha = remember { Animatable(0f) }
 
     LaunchedEffect(artworkUrl) {
-        if (artworkUrl != currentUrl) {
-            if (!isMiniPlayer && isCurrentLoaded && currentUrl != null) {
-                previousUrl = currentUrl
-            } else {
-                previousUrl = null
+        if (!artworkUrl.isNullOrBlank()) {
+            if (artworkUrl != visibleUrl) {
+                // If previous incoming image has already achieved substantial visibility, promote to visible base
+                if (isIncomingLoaded && incomingAlpha.value >= 0.5f && incomingUrl != null) {
+                    visibleUrl = incomingUrl
+                }
+                incomingUrl = artworkUrl
+                val cached = try {
+                    val memCache = context.imageLoader.memoryCache
+                    val key = coil.memory.MemoryCache.Key(artworkUrl)
+                    memCache?.get(key) != null
+                } catch (_: Exception) { false }
+
+                incomingAlpha.snapTo(0f)
+                isIncomingLoaded = cached
             }
-            currentUrl = artworkUrl
-            isCurrentLoaded = isInitiallyCached
         }
     }
 
-    val incomingAlpha by animateFloatAsState(
-        targetValue = if (isCurrentLoaded) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (isMiniPlayer) 180 else 400,
-            easing = FastOutSlowInEasing
-        ),
-        finishedListener = { alpha ->
-            if (alpha >= 0.99f) {
-                previousUrl = null
-            }
-        },
-        label = "seamlessBlurFade"
-    )
+    LaunchedEffect(isIncomingLoaded) {
+        if (isIncomingLoaded && incomingUrl != null) {
+            incomingAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
+            )
+            visibleUrl = incomingUrl
+            incomingUrl = null
+            isIncomingLoaded = false
+            incomingAlpha.snapTo(0f)
+        }
+    }
 
     val colorFilter = remember(colorMatrix) {
         colorMatrix?.let { ColorFilter.colorMatrix(it) }
@@ -831,17 +917,17 @@ private fun SeamlessArtworkBlurLayer(
 
     Box(modifier = modifier.clipToBounds()) {
         // Base Layer: previously loaded artwork remains visible until incoming layer finishes fading in
-        val prev = previousUrl
-        if (!prev.isNullOrBlank() && incomingAlpha < 1f) {
-            val prevReq = remember(prev) {
+        val base = visibleUrl
+        if (!base.isNullOrBlank()) {
+            val baseReq = remember(base) {
                 ImageRequest.Builder(context)
-                    .data(prev)
+                    .data(base)
                     .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
                     .crossfade(false)
                     .build()
             }
             AsyncImage(
-                model = prevReq,
+                model = baseReq,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 colorFilter = colorFilter,
@@ -850,7 +936,11 @@ private fun SeamlessArtworkBlurLayer(
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
-                        alpha = targetAlpha
+                        alpha = if (incomingUrl != null && isIncomingLoaded) {
+                            targetAlpha * (1f - incomingAlpha.value)
+                        } else {
+                            targetAlpha
+                        }
                         if (rotationZ != 0f) this.rotationZ = rotationZ
                     }
                     .blur(radius = blurRadius)
@@ -858,28 +948,28 @@ private fun SeamlessArtworkBlurLayer(
         }
 
         // Incoming Layer: fades in on top once successfully loaded
-        val curr = currentUrl
-        if (!curr.isNullOrBlank()) {
-            val currentReq = remember(curr) {
+        val inc = incomingUrl
+        if (!inc.isNullOrBlank()) {
+            val incReq = remember(inc) {
                 ImageRequest.Builder(context)
-                    .data(curr)
+                    .data(inc)
                     .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
                     .crossfade(false)
                     .build()
             }
             AsyncImage(
-                model = currentReq,
+                model = incReq,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 colorFilter = colorFilter,
-                onSuccess = { isCurrentLoaded = true },
-                onError = { isCurrentLoaded = false },
+                onSuccess = { isIncomingLoaded = true },
+                onError = { isIncomingLoaded = false },
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
-                        alpha = targetAlpha * incomingAlpha
+                        alpha = targetAlpha * incomingAlpha.value
                         if (rotationZ != 0f) this.rotationZ = rotationZ
                     }
                     .blur(radius = blurRadius)
@@ -889,8 +979,9 @@ private fun SeamlessArtworkBlurLayer(
 }
 
 /**
- * Dual-layer Live Mesh renderer that continuously rotates mesh layers while cross-fading
+ * Dual-layer Live Mesh renderer that continuously rotates mesh layers while fluidly cross-fading
  * artwork between track changes without showing black backgrounds.
+ * Fully preserves the authentic 3-layer multi-speed blurred ViVi music aesthetic.
  */
 @Composable
 private fun LiveMeshArtworkLayer(
@@ -899,30 +990,43 @@ private fun LiveMeshArtworkLayer(
     isMonochrome: Boolean,
     modifier: Modifier = Modifier
 ) {
-    var currentUrl by remember { mutableStateOf<String?>(artworkUrl) }
-    var previousUrl by remember { mutableStateOf<String?>(null) }
-    var isCurrentLoaded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var visibleUrl by remember { mutableStateOf<String?>(artworkUrl) }
+    var incomingUrl by remember { mutableStateOf<String?>(null) }
+    var isIncomingLoaded by remember { mutableStateOf(false) }
+    val incomingAnim = remember { Animatable(0f) }
 
     LaunchedEffect(artworkUrl) {
-        if (artworkUrl != currentUrl) {
-            if (isCurrentLoaded && currentUrl != null) {
-                previousUrl = currentUrl
+        if (!artworkUrl.isNullOrBlank()) {
+            if (artworkUrl != visibleUrl) {
+                if (isIncomingLoaded && incomingAnim.value >= 0.5f && incomingUrl != null) {
+                    visibleUrl = incomingUrl
+                }
+                incomingUrl = artworkUrl
+                val cached = try {
+                    val memCache = context.imageLoader.memoryCache
+                    val key = coil.memory.MemoryCache.Key(artworkUrl)
+                    memCache?.get(key) != null
+                } catch (_: Exception) { false }
+
+                incomingAnim.snapTo(0f)
+                isIncomingLoaded = cached
             }
-            currentUrl = artworkUrl
-            isCurrentLoaded = false
         }
     }
 
-    val incomingAlpha by animateFloatAsState(
-        targetValue = if (isCurrentLoaded) 1f else 0f,
-        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
-        finishedListener = { alpha ->
-            if (alpha >= 0.99f) {
-                previousUrl = null
-            }
-        },
-        label = "liveMeshFade"
-    )
+    LaunchedEffect(isIncomingLoaded) {
+        if (isIncomingLoaded && incomingUrl != null) {
+            incomingAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
+            )
+            visibleUrl = incomingUrl
+            incomingUrl = null
+            isIncomingLoaded = false
+            incomingAnim.snapTo(0f)
+        }
+    }
 
     val matrix = remember(isMonochrome) {
         ColorMatrix().apply {
@@ -973,34 +1077,34 @@ private fun LiveMeshArtworkLayer(
         label = "slowRotation"
     )
 
-    Box(modifier = modifier) {
-        val prev = previousUrl
-        if (!prev.isNullOrBlank() && incomingAlpha < 1f) {
+    Box(modifier = modifier.clipToBounds()) {
+        val base = visibleUrl
+        if (!base.isNullOrBlank()) {
             LiveMeshArtworkContent(
-                url = prev,
+                url = base,
                 isMiniPlayer = isMiniPlayer,
                 colorFilter = colorFilter,
                 miniRotation = miniRotation,
                 anchorRotation = anchorRotation,
                 fastRotation = fastRotation,
                 slowRotation = slowRotation,
-                alpha = 1f - incomingAlpha,
+                alpha = if (incomingUrl != null && isIncomingLoaded) (1f - incomingAnim.value) else 1f,
                 onLoaded = null
             )
         }
 
-        val curr = currentUrl
-        if (!curr.isNullOrBlank()) {
+        val inc = incomingUrl
+        if (!inc.isNullOrBlank()) {
             LiveMeshArtworkContent(
-                url = curr,
+                url = inc,
                 isMiniPlayer = isMiniPlayer,
                 colorFilter = colorFilter,
                 miniRotation = miniRotation,
                 anchorRotation = anchorRotation,
                 fastRotation = fastRotation,
                 slowRotation = slowRotation,
-                alpha = incomingAlpha,
-                onLoaded = { isCurrentLoaded = true }
+                alpha = incomingAnim.value,
+                onLoaded = { isIncomingLoaded = true }
             )
         }
     }
@@ -1024,6 +1128,8 @@ private fun LiveMeshArtworkContent(
             .data(url)
             .size(128, 128)
             .allowHardware(false)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
             .crossfade(false)
             .build()
     }

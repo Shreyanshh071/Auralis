@@ -253,5 +253,92 @@ class AudioQueueManagerTest {
         val updated = manager.addToQueue(atqTrack)
         assertTrue(updated.isUserQueue)
     }
+
+    @Test
+    fun `moveItem moves song downwards and updates order correctly`() {
+        val manager = AudioQueueManager()
+        val tracks = listOf(
+            sampleTrack("1", "Song 1"),
+            sampleTrack("2", "Song 2"),
+            sampleTrack("3", "Song 3"),
+            sampleTrack("4", "Song 4")
+        )
+        manager.setQueue(tracks, startIndex = 0)
+
+        // Move Song 2 (index 1) to index 3 (after Song 4)
+        val state = manager.moveItem(fromIndex = 1, toIndex = 3)
+        assertEquals(4, state.queue.size)
+        assertEquals(listOf("1", "3", "4", "2"), state.queue.map { it.id })
+        // Active index was 0, unaffected
+        assertEquals(0, state.currentIndex)
+        assertEquals("Song 1", state.currentTrack?.title)
+    }
+
+    @Test
+    fun `moveItem moves song upwards and updates order correctly`() {
+        val manager = AudioQueueManager()
+        val tracks = listOf(
+            sampleTrack("1", "Song 1"),
+            sampleTrack("2", "Song 2"),
+            sampleTrack("3", "Song 3"),
+            sampleTrack("4", "Song 4")
+        )
+        manager.setQueue(tracks, startIndex = 1) // Song 2 is playing
+
+        // Move Song 4 (index 3) to index 0 (top of queue)
+        val state = manager.moveItem(fromIndex = 3, toIndex = 0)
+        assertEquals(listOf("4", "1", "2", "3"), state.queue.map { it.id })
+        // Active song (Song 2) was at index 1, moving an item before it shifts active index to 2
+        assertEquals(2, state.currentIndex)
+        assertEquals("Song 2", state.currentTrack?.title)
+    }
+
+    @Test
+    fun `moveItem moving the currently playing song updates currentIndex to destination`() {
+        val manager = AudioQueueManager()
+        val tracks = listOf(
+            sampleTrack("1", "Song 1"),
+            sampleTrack("2", "Song 2"),
+            sampleTrack("3", "Song 3")
+        )
+        manager.setQueue(tracks, startIndex = 0) // Song 1 is playing
+
+        // Move active Song 1 to index 2
+        val state = manager.moveItem(fromIndex = 0, toIndex = 2)
+        assertEquals(listOf("2", "3", "1"), state.queue.map { it.id })
+        assertEquals(2, state.currentIndex)
+        assertEquals("Song 1", state.currentTrack?.title)
+    }
+
+    @Test
+    fun `moveItem with identical or out-of-bounds indices returns unchanged state`() {
+        val manager = AudioQueueManager()
+        val tracks = listOf(sampleTrack("1", "Song 1"), sampleTrack("2", "Song 2"))
+        manager.setQueue(tracks, startIndex = 0)
+
+        val same = manager.moveItem(0, 0)
+        assertEquals(tracks, same.queue)
+
+        val oob = manager.moveItem(-1, 5)
+        assertEquals(tracks, oob.queue)
+    }
+
+    @Test
+    fun `removeItem removes track and shifts active index when removed before active`() {
+        val manager = AudioQueueManager()
+        val tracks = listOf(
+            sampleTrack("1", "Song 1"),
+            sampleTrack("2", "Song 2"),
+            sampleTrack("3", "Song 3")
+        )
+        manager.setQueue(tracks, startIndex = 2) // Song 3 is playing (index 2)
+
+        val state = manager.removeItem(0)
+        assertEquals(2, state.queue.size)
+        assertEquals(listOf("2", "3"), state.queue.map { it.id })
+        // Active index adjusted from 2 to 1
+        assertEquals(1, state.currentIndex)
+        assertEquals("Song 3", state.currentTrack?.title)
+    }
 }
 

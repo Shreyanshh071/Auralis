@@ -528,5 +528,106 @@ class SyllableMergeUnitTest {
         assertEquals("your ", merged[1].word)
         assertEquals("prayers", merged[2].word)
     }
+
+    // ── 12. ACCIDENTAL MERGED WORDS UNGLUING ("Theless" -> "The less") ──────────
+
+    @Test
+    fun testThelessAccidentalMergeSplitsIntoTheAndLess() {
+        val tokenWithSpace = WordTiming.splitAccidentalMergedWord("Theless ")
+        assertEquals(listOf("The ", "less "), tokenWithSpace)
+
+        val tokenLower = WordTiming.splitAccidentalMergedWord("theless")
+        assertEquals(listOf("the ", "less"), tokenLower)
+
+        val fullLine = WordTiming.splitMergedWordsInText("Oh, theless I know the better")
+        assertEquals("Oh, the less I know the better", fullLine)
+
+        val healed = WordTiming.healSplitWordsInText("Theless I know the better")
+        assertEquals("The less I know the better", healed)
+    }
+
+    @Test
+    fun testAccidentalMergedWordTimestampSubdivision() {
+        val mergedWord = LyricWord(
+            word = "Theless ",
+            time = 62250L,
+            duration = 1032L,
+            isBackground = false
+        )
+
+        val splitWords = WordTiming.splitMergedLyricWord(mergedWord)
+        assertEquals(2, splitWords.size)
+
+        val first = splitWords[0]
+        val second = splitWords[1]
+
+        assertEquals("The ", first.word)
+        assertEquals(62250L, first.time)
+        // 1032 * 3 / 7 = 442ms
+        assertEquals(442L, first.duration)
+        assertFalse(first.isBackground)
+
+        assertEquals("less ", second.word)
+        // 62250 + 442 = 62692ms
+        assertEquals(62692L, second.time)
+        // 1032 - 442 = 590ms
+        assertEquals(590L, second.duration)
+        assertFalse(second.isBackground)
+
+        // Exact timing preservation: start of first to end of second equals original interval
+        assertEquals(mergedWord.time, first.time)
+        assertEquals(mergedWord.time + mergedWord.duration!!, second.time + second.duration!!)
+    }
+
+    @Test
+    fun testCommonGluedPrefixSplits() {
+        assertEquals(listOf("and ", "the"), WordTiming.splitAccidentalMergedWord("andthe"))
+        assertEquals(listOf("in ", "my"), WordTiming.splitAccidentalMergedWord("inmy"))
+        assertEquals(listOf("to ", "the"), WordTiming.splitAccidentalMergedWord("tothe"))
+        assertEquals(listOf("for ", "the"), WordTiming.splitAccidentalMergedWord("forthe"))
+        assertEquals(listOf("The ", "Less"), WordTiming.splitAccidentalMergedWord("TheLess"))
+        assertEquals(listOf("of ", "the"), WordTiming.splitAccidentalMergedWord("ofthe"))
+        assertEquals(listOf("with ", "the"), WordTiming.splitAccidentalMergedWord("withthe"))
+    }
+
+    @Test
+    fun testLegitimateEnglishWordsNeverSplit() {
+        val protectedWords = listOf(
+            "together", "without", "forever", "nevertheless", "better", "weather",
+            "hopeless", "careless", "cannot", "superman", "weekend", "theme", "forget"
+        )
+        for (w in protectedWords) {
+            val res = WordTiming.splitAccidentalMergedWord(w)
+            assertEquals("Word '$w' must remain a single token and never be split", listOf(w), res)
+        }
+    }
+
+    @Test
+    fun testSplitMergedWordsInLine() {
+        val line = com.auralis.music.domain.model.LyricLine(
+            time = 53497L,
+            text = "Oh, theless I know the better",
+            words = listOf(
+                LyricWord(word = "Oh, ", time = 53497L, duration = 541L),
+                LyricWord(word = "theless ", time = 54038L, duration = 984L),
+                LyricWord(word = "I ", time = 55022L, duration = 283L),
+                LyricWord(word = "know ", time = 55305L, duration = 478L),
+                LyricWord(word = "the ", time = 55783L, duration = 384L),
+                LyricWord(word = "better", time = 56167L, duration = 2951L)
+            )
+        )
+
+        val cleaned = WordTiming.splitMergedWordsInLine(line)
+        assertEquals("Oh, the less I know the better", cleaned.text)
+        assertNotNull(cleaned.words)
+        assertEquals(7, cleaned.words!!.size)
+        assertEquals("Oh, ", cleaned.words!![0].word)
+        assertEquals("the ", cleaned.words!![1].word)
+        assertEquals("less ", cleaned.words!![2].word)
+        assertEquals("I ", cleaned.words!![3].word)
+        assertEquals("know ", cleaned.words!![4].word)
+        assertEquals("the ", cleaned.words!![5].word)
+        assertEquals("better", cleaned.words!![6].word)
+    }
 }
 

@@ -26,6 +26,11 @@ import com.auralis.music.data.datastore.UpdaterDataStore
 import com.auralis.music.data.datastore.UpdaterSettings
 import com.auralis.music.data.network.UpdateChecker
 import com.auralis.music.data.network.UpdateInfo
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
 
 @Composable
@@ -48,15 +53,16 @@ fun UpdaterScreen(
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0f) }
 
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val onSurface = MaterialTheme.colorScheme.onSurface
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val surfaceColor = MaterialTheme.dynamicSurface
+    val onSurface = MaterialTheme.dynamicOnSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val onBackground = MaterialTheme.colorScheme.onBackground
+    val onBackground = MaterialTheme.dynamicOnBackground
+    val backgroundColor = MaterialTheme.dynamicBackground
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = backgroundColor
     ) {
         Column(
             modifier = Modifier

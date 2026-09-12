@@ -72,7 +72,11 @@ import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.ArtworkPaletteCache
 import com.auralis.music.ui.theme.CuratedPalette
 import com.auralis.music.ui.theme.CuratedPalettes
+import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicColorSchemeFromSeed
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.theme.getPaletteById
 import com.auralis.music.ui.theme.isLightColor
 
@@ -234,9 +238,9 @@ fun ThemeAndColorsScreen(
     val animPreviewTertiary by animateColorAsState(targetPreviewTertiary, colorTween, label = "animPreviewTertiary")
     val animPreviewSurfaceContainer by animateColorAsState(targetPreviewSurfaceContainer, colorTween, label = "animPreviewSurfaceContainer")
 
-    val backgroundColor = MaterialTheme.colorScheme.background
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val onBackground = MaterialTheme.colorScheme.onBackground
+    val backgroundColor = MaterialTheme.dynamicBackground
+    val surfaceColor = MaterialTheme.dynamicSurface
+    val onBackground = MaterialTheme.dynamicOnBackground
 
     Box(
         modifier = modifier

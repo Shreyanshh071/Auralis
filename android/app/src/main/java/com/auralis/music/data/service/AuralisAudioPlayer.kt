@@ -64,6 +64,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     var stopAtEndOfTrack: Boolean = false
         private set
 
+    private val _needsWebView = MutableStateFlow(false)
+    val needsWebView: StateFlow<Boolean> = _needsWebView.asStateFlow()
+
     init {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] Initialized singleton instance")
         com.auralis.music.data.network.AudioStreamResolver.init(appContext)
@@ -295,6 +298,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 nativeRetryCount = 0
                                 isUsingExoPlayer = false
                                 curTrack?.let { track ->
+                                    _needsWebView.value = true
                                     Log.d("AuralisPlayback", "[Fallback] Switching to YouTube HTML5 engine after ExoPlayer error (seek=${savedPos}ms)")
                                     youTubeEngine.loadVideo(track.id, savedPos)
                                 }
@@ -597,7 +601,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             title = track.title,
                             artist = track.artist,
                             quality = currentAudioQuality,
-                            context = appContext
+                            context = appContext,
+                            duration = track.duration
                         )
                     }
                 } catch (e: Exception) {
@@ -662,6 +667,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
             val effectiveId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
             if (!effectiveId.startsWith("sp_") && !effectiveId.startsWith("spotify:")) {
+                _needsWebView.value = true
                 isUsingExoPlayer = false
                 tracker.streamEngine = "YouTube Web Engine"
                 Log.d("AuralisPlayback", "[Audio Engine] Routing to YouTube Web Engine for '${track.title}' ($effectiveId) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
@@ -694,8 +700,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         title = track.title,
                         artist = track.artist,
                         quality = currentAudioQuality,
-                        context = appContext
+                        context = appContext,
+                        duration = track.duration
                     )
+
                 }
 
                 // 🚀 TRUE GAPLESS PLAYBACK PRE-BUFFERING
@@ -819,7 +827,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     val isCached = com.auralis.music.data.network.AudioStreamResolver.getCachedStream(t.id) != null
                     if (!isCached) {
                         Log.d("AuralisPlayback", "[Prewarm] Pre-resolving stream for '${t.title}' (${t.id}) in background...")
-                        com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(t.id, t.title, t.artist)
+                        com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(t.id, t.title, t.artist, duration = t.duration)
                     }
                 } catch (_: Exception) {}
             }
@@ -1264,6 +1272,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun getOrCreateWebView(ctx: Context): View {
+        _needsWebView.value = true
         return youTubeEngine.getOrCreateWebView(ctx)
     }
 

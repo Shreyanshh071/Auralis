@@ -38,25 +38,30 @@ import android.webkit.*
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 
 // Dynamic Palette Synced with MaterialTheme & System Light/Dark Theme
 private val THEME_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.background
+    @Composable get() = MaterialTheme.dynamicBackground
 
 private val CARD_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.surface
+    @Composable get() = MaterialTheme.dynamicSurface
 
 private val PILL_BG: Color
     @Composable get() = MaterialTheme.colorScheme.surfaceContainerHighest
 
 private val PEACH_ACCENT: Color
-    @Composable get() = MaterialTheme.colorScheme.primary
+    @Composable get() = MaterialTheme.dynamicPrimary
 
 private val TEXT_PRIMARY: Color
-    @Composable get() = MaterialTheme.colorScheme.onBackground
+    @Composable get() = MaterialTheme.dynamicOnBackground
 
 private val TEXT_SECONDARY: Color
-    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+    @Composable get() = MaterialTheme.dynamicOnSurface
 
 private val BUTTON_DARK_TEXT: Color
     @Composable get() = MaterialTheme.colorScheme.onPrimary

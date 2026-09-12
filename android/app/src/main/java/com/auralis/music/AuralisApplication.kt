@@ -6,6 +6,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import kotlinx.coroutines.launch
 
 /**
  * Custom Application class that configures a high-performance Coil ImageLoader
@@ -15,10 +16,16 @@ import coil.request.CachePolicy
 class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
-        com.auralis.music.data.network.AudioStreamResolver.init(this)
-        com.auralis.music.data.download.AuralisDownloadManager.init(this)
-        com.auralis.music.service.AuralisFirebaseMessagingService.subscribeToUpdateTopics()
-        com.auralis.music.service.AppUpdateWorker.schedulePeriodicCheck(this)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                com.auralis.music.data.network.AudioStreamResolver.init(this@AuralisApplication)
+                com.auralis.music.data.download.AuralisDownloadManager.init(this@AuralisApplication)
+                com.auralis.music.service.AuralisFirebaseMessagingService.subscribeToUpdateTopics()
+                com.auralis.music.service.AppUpdateWorker.schedulePeriodicCheck(this@AuralisApplication)
+            } catch (e: Exception) {
+                android.util.Log.w("AuralisApp", "Background initialization error: ${e.message}")
+            }
+        }
     }
 
     override fun newImageLoader(): ImageLoader {
@@ -40,7 +47,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
             .networkCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
-            .crossfade(true)
+            .crossfade(false)
             .build()
     }
 }

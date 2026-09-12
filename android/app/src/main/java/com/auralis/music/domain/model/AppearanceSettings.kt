@@ -17,7 +17,7 @@ data class AppearanceSettings(
 
     // ── Player ──
     val newPlayerDesign: Boolean = true,
-    val playerBackgroundStyle: String = "Blur",
+    val playerBackgroundStyle: String = "Gradient",
     val hidePlayerThumbnail: Boolean = false,
     val cropAlbumArt: Boolean = true,
     val playerButtonColors: String = "Default",

@@ -50,12 +50,14 @@ class LyricsRepositoryImpl(
          * 6 = Phase 5: Paxsenix Apple Music syllable-synced lyrics provider integration.
          * 7 = Phase 5.1: strict cache revalidation, downgrade protection, and duration alignment fix.
          * 8 = Phase 5.2: comprehensive syllable-merging engine and split-word healing.
+         * 9 = Phase 5.3: automatic accidental merged-word splitting ("Theless" -> "The less") and cache invalidation.
          */
-        const val LYRICS_PIPELINE_VERSION = 8
+        const val LYRICS_PIPELINE_VERSION = 9
 
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
-            for (line in domain.lines) {
+            val cleanedLines = domain.lines.map { com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(it) }
+            for (line in cleanedLines) {
                 val lineObj = JSONObject()
                 lineObj.put("time", line.time)
                 lineObj.put("text", line.text)
@@ -141,17 +143,16 @@ class LyricsRepositoryImpl(
                         com.auralis.music.data.parser.WordTiming.healSplitWordsInText(text)
                     }
 
-                    lines.add(
-                        LyricLine(
-                            time = time,
-                            text = resolvedText,
-                            words = mergedWords,
-                            isInstrumental = isInst,
-                            isBackground = lineObj.optBoolean("isBackground", false),
-                            endTime = endTime,
-                            agent = agent
-                        )
+                    val baseLine = LyricLine(
+                        time = time,
+                        text = resolvedText,
+                        words = mergedWords,
+                        isInstrumental = isInst,
+                        isBackground = lineObj.optBoolean("isBackground", false),
+                        endTime = endTime,
+                        agent = agent
                     )
+                    lines.add(com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(baseLine))
                 }
 
                 val cleanedLines = lines.filterNot { com.auralis.music.data.parser.LrcParser.isMetadataOrCreditLine(it.text) }

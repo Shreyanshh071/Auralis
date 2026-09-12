@@ -120,18 +120,12 @@ fun HomeScreen(
     // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
     // immediately recompose the screen and visible elements without requiring scroll.
     val themePrimary = MaterialTheme.dynamicPrimary
-    val appearanceSettings = MaterialTheme.appearanceSettings
-    val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val onBackgroundColorInt = MaterialTheme.colorScheme.onBackground.toArgb()
-    val backgroundColorInt = MaterialTheme.colorScheme.background.toArgb()
-    val primaryColorInt = themePrimary.toArgb()
-    val activeThemeKey = "${currentTrackId ?: "sys"}_${appearanceSettings.colorPalette}_${appearanceSettings.appTheme}_${isDarkTheme}_${backgroundColorInt}_${onBackgroundColorInt}_$primaryColorInt"
-    val dynamicPalette = MaterialTheme.dynamicPalette
+    val themeBackground = MaterialTheme.dynamicBackground
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(themeBackground)
     ) {
         val bottomPad = if (currentTrack != null) 180.dp else 100.dp
         LazyColumn(
@@ -142,7 +136,7 @@ fun HomeScreen(
             // ================================================================
             // 1. TOP APP BAR: "Home" Title + Action Icons
             // ================================================================
-            item(key = "home_top_bar_$activeThemeKey", contentType = "header") {
+            item(key = "home_top_bar", contentType = "header") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -206,7 +200,7 @@ fun HomeScreen(
                 // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
                 // ================================================================
                 if (uiState.speedDialPages.isNotEmpty()) {
-                    item(key = "home_speed_dial_$activeThemeKey", contentType = "speed_dial") {
+                    item(key = "home_speed_dial", contentType = "speed_dial") {
                         Text(
                             text = "Speed dial",
                             style = MaterialTheme.typography.titleLarge,
@@ -221,7 +215,7 @@ fun HomeScreen(
                         Column(modifier = Modifier.fillMaxWidth()) {
                             HorizontalPager(
                                 state = pagerState,
-                                key = { pageIndex -> "$pageIndex-$activeThemeKey" },
+                                key = { pageIndex -> pageIndex },
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             pageSpacing = 16.dp,
                             modifier = Modifier
@@ -319,7 +313,7 @@ fun HomeScreen(
             // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
             // ================================================================
             if (uiState.quickPicks.isNotEmpty()) {
-                item(key = "home_quick_picks_$activeThemeKey", contentType = "quick_picks") {
+                item(key = "home_quick_picks", contentType = "quick_picks") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -363,7 +357,7 @@ fun HomeScreen(
                     // 4-Row Snapping Pager of Songs (Eliminates half-scrolled stray 3-dots)
                     HorizontalPager(
                         state = quickPicksPagerState,
-                        key = { pageIndex -> "$pageIndex-$activeThemeKey" },
+                        key = { pageIndex -> pageIndex },
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         pageSpacing = 16.dp,
                         modifier = Modifier
@@ -433,7 +427,7 @@ fun HomeScreen(
             // ================================================================
             val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
             if (keepList.isNotEmpty()) {
-                item(key = "home_keep_listening_$activeThemeKey", contentType = "keep_listening") {
+                item(key = "home_keep_listening", contentType = "keep_listening") {
                     Text(
                         text = "Keep listening",
                         style = MaterialTheme.typography.titleLarge,
@@ -449,7 +443,7 @@ fun HomeScreen(
                     ) {
                         items(
                             items = keepList,
-                            key = { "${it.id}_$activeThemeKey" },
+                            key = { it.id },
                             contentType = { "track" }
                         ) { track ->
                             Column(
@@ -498,7 +492,7 @@ fun HomeScreen(
             // ================================================================
             uiState.similarRecommendations.forEachIndexed { idx, simRec ->
                 if (simRec.items.isNotEmpty()) {
-                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_${idx}_$activeThemeKey", contentType = "similar_shelf") {
+                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -555,7 +549,7 @@ fun HomeScreen(
                         ) {
                             items(
                                 items = simRec.items,
-                                key = { "${it.id}_$activeThemeKey" },
+                                key = { it.id },
                                 contentType = { "track" }
                             ) { track ->
                                 Column(
@@ -600,7 +594,7 @@ fun HomeScreen(
             // ================================================================
             uiState.dynamicSections.forEachIndexed { sIdx, section ->
                 if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
-                    item(key = "dyn_section_${section.title}_${sIdx}_$activeThemeKey", contentType = "dynamic_shelf") {
+                    item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
                                 text = section.title,
@@ -626,7 +620,7 @@ fun HomeScreen(
                                 ) {
                                     items(
                                         items = section.items,
-                                        key = { "${it.id}_$activeThemeKey" },
+                                        key = { it.id },
                                         contentType = { "track" }
                                     ) { track ->
                                         Column(
@@ -673,7 +667,7 @@ fun HomeScreen(
                                 ) {
                                     items(
                                         items = section.albums,
-                                        key = { "${it.id}_$activeThemeKey" },
+                                        key = { it.id },
                                         contentType = { "album" }
                                     ) { album ->
                                         Column(

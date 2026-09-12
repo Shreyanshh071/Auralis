@@ -110,6 +110,9 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.player.PlayerBackgroundStyle
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -150,10 +153,16 @@ fun AppearanceScreen(
         }
     }
 
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val backgroundColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val backgroundColor = MaterialTheme.dynamicBackground
+    val surfaceColor = MaterialTheme.dynamicSurface
     val onBackground = MaterialTheme.colorScheme.onBackground
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+    val outline = MaterialTheme.colorScheme.outline
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
 
     if (showThemeAndColors) {
         ThemeAndColorsScreen(
@@ -205,68 +214,115 @@ fun AppearanceScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // ════ 1. THEME ════
-                item { AppearanceSectionHeader(title = "Theme") }
-                item {
+                item(key = "hdr_theme") { AppearanceSectionHeader(title = "Theme", color = primaryColor) }
+                item(key = "item_theme_colors") {
                     AppearanceClickableItem(
                         icon = Icons.Default.Palette,
                         title = "Theme & Colors",
                         subtitle = "${settings.appTheme} • ${settings.colorPalette}",
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { showThemeAndColors = true }
                     )
                 }
-                item {
+                item(key = "item_high_refresh") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Speed,
                         title = "Enable high refresh rate",
                         subtitle = "Forces the display to run at its highest supported refresh rate (e.g. 120Hz)",
                         isChecked = settings.highRefreshRate,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(highRefreshRate = it) } }
                     )
                 }
-                item {
+                item(key = "item_landscape_scaling") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.AspectRatio,
                         title = "Landscape Scaling",
                         subtitle = "Scale UI in landscape mode for larger screens",
                         isChecked = settings.landscapeScaling,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(landscapeScaling = it) } }
                     )
                 }
-                item {
+                item(key = "item_dynamic_icons") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.ColorLens,
                         title = "Dynamic icon colors",
                         subtitle = "Use dynamic theme colors for the app icon. When disabled, the icon uses solid colors.",
                         isChecked = settings.dynamicIconColors,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(dynamicIconColors = it) } }
                     )
                 }
 
                 // ════ 2. MINI-PLAYER ════
-                item { AppearanceSectionHeader(title = "Mini-player") }
-                item {
+                item(key = "hdr_mini_player") { AppearanceSectionHeader(title = "Mini-player", color = primaryColor) }
+                item(key = "item_mini_design") {
                     AppearanceClickableItem(
                         icon = Icons.Default.PictureInPictureAlt,
                         title = "Mini-player design",
                         subtitle = settings.miniPlayerDesign,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.MINI_PLAYER_DESIGN }
                     )
                 }
-                item {
+                item(key = "item_pure_black_mini") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.DarkMode,
                         title = "Pure black mini player",
                         subtitle = "Force deep AMOLED black background on mini-player",
                         isChecked = settings.pureBlackMiniPlayer,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(pureBlackMiniPlayer = it) } }
                     )
                 }
-                item {
+                item(key = "item_mini_player_bg") {
                     val isPureBlackActive = settings.pureBlackMiniPlayer && settings.miniPlayerDesign != "Expanded mini player"
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = "Mini-player background style",
                         subtitle = if (isPureBlackActive) "Unavailable when pure black is enabled" else PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = {
                             if (!isPureBlackActive) {
                                 activeDialog = AppearanceDialogType.MINI_PLAYER_BG
@@ -276,171 +332,292 @@ fun AppearanceScreen(
                 }
 
                 // ════ 3. PLAYER ════
-                item { AppearanceSectionHeader(title = "Player") }
-                item {
+                item(key = "hdr_player") { AppearanceSectionHeader(title = "Player", color = primaryColor) }
+                item(key = "item_new_player") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.ColorLens,
                         title = "New player design",
                         subtitle = "Modern expanded now-playing screen with rich gestures",
                         isChecked = settings.newPlayerDesign,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(newPlayerDesign = it) } }
                     )
                 }
-                item {
+                item(key = "item_player_bg") {
                     val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle)
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = "Player background style",
                         subtitle = resolvedPlayerBg.displayName,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.PLAYER_BG }
                     )
                 }
-
-
-                item {
+                item(key = "item_player_slider_style") {
                     AppearanceClickableItem(
                         icon = Icons.Default.LinearScale,
                         title = "Player slider style",
                         subtitle = settings.playerSliderStyle,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.PLAYER_SLIDER_STYLE }
                     )
                 }
-                item {
+                item(key = "item_swipe_change_song") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
                         title = "Enable swipe to change song",
                         subtitle = "Swipe horizontally across player to skip or rewind",
                         isChecked = settings.enableSwipeToChangeSong,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(enableSwipeToChangeSong = it) } }
                     )
                 }
 
                 // ════ 4. LYRICS ════
-                item { AppearanceSectionHeader(title = "Lyrics") }
-                item {
+                item(key = "hdr_lyrics") { AppearanceSectionHeader(title = "Lyrics", color = primaryColor) }
+                item(key = "item_experimental_lyrics") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Tune,
                         title = "Experimental Lyrics",
                         subtitle = "Use the experimental multi-line lyrics layout",
                         isChecked = settings.experimentalLyrics,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(experimentalLyrics = it) } }
                     )
                 }
-                item {
+                item(key = "item_lyrics_text_position") {
                     AppearanceClickableItem(
                         icon = Icons.Default.FormatAlignCenter,
                         title = "Lyrics text position",
                         subtitle = settings.lyricsTextPosition,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_POSITION }
                     )
                 }
-                item {
+                item(key = "item_lyrics_animation") {
                     AppearanceClickableItem(
                         icon = Icons.Default.GraphicEq,
                         title = "Lyrics animation",
                         subtitle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.LYRICS_ANIMATION }
                     )
                 }
-                item {
+                item(key = "item_glowing_lyrics") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.ColorLens,
                         title = "Enable glowing lyrics effect",
                         subtitle = "Apply glowing animation and bounce effects to lyrics",
                         isChecked = settings.enableGlowingLyricsEffect,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(enableGlowingLyricsEffect = it) } }
                     )
                 }
-                item {
+                item(key = "item_lyrics_blur") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.HideImage,
                         title = "Standard lyrics blur",
                         subtitle = "Apply soft blur focus to inactive lyrics",
                         isChecked = settings.standardLyricsBlur,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(standardLyricsBlur = it) } }
                     )
                 }
-                item {
+                item(key = "item_lyrics_size") {
                     AppearanceClickableItem(
                         icon = Icons.Default.AspectRatio,
                         title = "Lyrics text size",
                         subtitle = "${settings.lyricsTextSize.roundToInt()} sp",
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_SIZE }
                     )
                 }
-                item {
+                item(key = "item_lyrics_spacing") {
                     AppearanceClickableItem(
                         icon = Icons.Default.LinearScale,
                         title = "Lyrics line spacing",
                         subtitle = "${String.format(java.util.Locale.US, "%.1f", settings.lyricsLineSpacing)}x",
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.LYRICS_LINE_SPACING }
                     )
                 }
-                item {
+                item(key = "item_lyrics_tap") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.TouchApp,
                         title = "Change lyrics on click",
                         subtitle = "Seek track playback to the clicked lyric timestamp",
                         isChecked = settings.changeLyricsOnTap,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(changeLyricsOnTap = it) } }
                     )
                 }
-                item {
+                item(key = "item_lyrics_autoscroll") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.VerticalAlignBottom,
                         title = "Auto scroll lyrics",
                         subtitle = "Automatically keep the active lyric centered in view",
                         isChecked = settings.autoScrollLyrics,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(autoScrollLyrics = it) } }
                     )
                 }
 
                 // ════ 5. MISC ════
-                item { AppearanceSectionHeader(title = "Misc") }
-                item {
+                item(key = "hdr_misc") { AppearanceSectionHeader(title = "Misc", color = primaryColor) }
+                item(key = "item_swipe_queue") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
                         title = "Swipe left to add the song to the queue, or right to play it next",
                         subtitle = null,
                         isChecked = settings.swipeLeftQueueRightPlayNext,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(swipeLeftQueueRightPlayNext = it) } }
                     )
                 }
-                item {
+                item(key = "item_swipe_remove") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
                         title = "Swipe to remove the song from the playlist",
                         subtitle = null,
                         isChecked = settings.swipeToRemoveSongFromPlaylist,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(swipeToRemoveSongFromPlaylist = it) } }
                     )
                 }
-                item {
+                item(key = "item_display_density") {
                     AppearanceClickableItem(
                         icon = Icons.Default.ViewModule,
                         title = "Display density",
                         subtitle = settings.displayDensity,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
                         onClick = { activeDialog = AppearanceDialogType.DISPLAY_DENSITY }
                     )
                 }
 
                 // ════ 6. AUTO PLAYLISTS ════
-                item { AppearanceSectionHeader(title = "Auto playlists") }
-                item {
+                item(key = "hdr_auto_playlists") { AppearanceSectionHeader(title = "Auto playlists", color = primaryColor) }
+                item(key = "item_show_liked") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Favorite,
                         title = "Show Liked playlist",
                         subtitle = null,
                         isChecked = settings.showLikedPlaylist,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(showLikedPlaylist = it) } }
                     )
                 }
-                item {
+                item(key = "item_show_downloaded") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.CheckCircle,
                         title = "Show Downloaded playlist",
                         subtitle = null,
                         isChecked = settings.showDownloadedPlaylist,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
                         onCheckedChange = { update { copy(showDownloadedPlaylist = it) } }
                     )
                 }
@@ -747,10 +924,13 @@ private enum class AppearanceDialogType {
 }
 
 @Composable
-private fun AppearanceSectionHeader(title: String) {
+private fun AppearanceSectionHeader(
+    title: String,
+    color: Color = MaterialTheme.dynamicPrimary
+) {
     Text(
         text = title,
-        color = MaterialTheme.colorScheme.primary,
+        color = color,
         fontWeight = FontWeight.Bold,
         fontSize = 14.sp,
         modifier = Modifier
@@ -765,17 +945,20 @@ private fun AppearanceSwitchItem(
     title: String,
     subtitle: String?,
     isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    primaryColor: Color = MaterialTheme.dynamicPrimary,
+    surfaceColor: Color = MaterialTheme.dynamicSurface,
+    onSurface: Color = MaterialTheme.colorScheme.onSurface,
+    onSurfaceVariant: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    outlineVariant: Color = MaterialTheme.colorScheme.outlineVariant,
+    onPrimary: Color = MaterialTheme.colorScheme.onPrimary,
+    outline: Color = MaterialTheme.colorScheme.outline,
+    surfaceVariant: Color = MaterialTheme.colorScheme.surfaceVariant
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = surfaceColor,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -830,7 +1013,7 @@ private fun AppearanceSwitchItem(
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
+                            tint = onPrimary,
                             modifier = Modifier.size(12.dp)
                         )
                     }
@@ -839,9 +1022,9 @@ private fun AppearanceSwitchItem(
                     checkedThumbColor = primaryColor,
                     checkedTrackColor = primaryColor.copy(alpha = 0.45f),
                     checkedBorderColor = primaryColor,
-                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    uncheckedThumbColor = outline,
+                    uncheckedTrackColor = surfaceVariant,
+                    uncheckedBorderColor = outlineVariant
                 )
             )
         }
@@ -853,17 +1036,17 @@ private fun AppearanceClickableItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    primaryColor: Color = MaterialTheme.dynamicPrimary,
+    surfaceColor: Color = MaterialTheme.dynamicSurface,
+    onSurface: Color = MaterialTheme.colorScheme.onSurface,
+    onSurfaceVariant: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    outlineVariant: Color = MaterialTheme.colorScheme.outlineVariant
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = surfaceColor,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -916,8 +1099,8 @@ private fun AppearanceOptionsDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val surfaceColor = MaterialTheme.dynamicSurface
     val onSurface = MaterialTheme.colorScheme.onSurface
 
     AlertDialog(
@@ -991,7 +1174,7 @@ private fun PlayerSliderStyleChooserDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.dynamicSurface,
         shape = RoundedCornerShape(28.dp),
         text = {
             Column(
@@ -1029,7 +1212,7 @@ private fun PlayerSliderStyleChooserDialog(
             ) {
                 Text(
                     text = "Cancel",
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.dynamicPrimary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
@@ -1045,7 +1228,7 @@ private fun SliderStylePreviewCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
+    val primaryColor = MaterialTheme.dynamicPrimary
     val cardBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
     val borderColor = if (isSelected) primaryColor else Color.White.copy(alpha = 0.12f)
     val borderWidth = if (isSelected) 1.5.dp else 1.dp

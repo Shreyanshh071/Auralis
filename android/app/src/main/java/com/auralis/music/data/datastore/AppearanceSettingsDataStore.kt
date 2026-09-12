@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.domain.model.LyricsAnimationMode
@@ -21,7 +22,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
-val Context.appearanceSettingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "auralis_appearance_settings")
+val Context.appearanceSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "auralis_appearance_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler {
+        emptyPreferences()
+    }
+)
 
 class AppearanceSettingsDataStore(
     private val context: Context
@@ -29,19 +35,11 @@ class AppearanceSettingsDataStore(
     private val dataStore = context.appearanceSettingsDataStore
 
     /**
-     * Synchronously resolves saved settings on cold app start to guarantee Frame 0 renders
-     * with the user's authentic theme, avoiding any momentary flash of default light/dark mode.
+     * Instantly returns default AppearanceSettings for Frame 0 to guarantee non-blocking startup.
+     * Asynchronous updates flow through settingsFlow via StateFlow / collectAsState.
      */
     fun getInitialSettings(): AppearanceSettings {
-        return try {
-            runBlocking(Dispatchers.IO) {
-                withTimeoutOrNull(250L) {
-                    settingsFlow.first()
-                }
-            } ?: AppearanceSettings()
-        } catch (_: Exception) {
-            AppearanceSettings()
-        }
+        return AppearanceSettings()
     }
 
     companion object {
@@ -103,7 +101,7 @@ class AppearanceSettingsDataStore(
 
     val settingsFlow: Flow<AppearanceSettings> = dataStore.data
         .catch { exception ->
-            if (exception is IOException) {
+            if (exception is IOException || exception is androidx.datastore.core.CorruptionException) {
                 emit(emptyPreferences())
             } else {
                 throw exception
@@ -126,9 +124,7 @@ class AppearanceSettingsDataStore(
                 miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
-                playerBackgroundStyle = preferences[PLAYER_BG_STYLE]?.let {
-                    if (it.equals("apple music", ignoreCase = true) || it.equals("apple_music", ignoreCase = true)) "Blur" else it
-                } ?: "Blur",
+                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Gradient",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",
@@ -173,55 +169,59 @@ class AppearanceSettingsDataStore(
         }
 
     suspend fun updateSettings(settings: AppearanceSettings) {
-        dataStore.edit { preferences ->
-            preferences[HIGH_REFRESH_RATE] = settings.highRefreshRate
-            preferences[LANDSCAPE_SCALING] = settings.landscapeScaling
-            preferences[DYNAMIC_THEME] = settings.dynamicTheme
-            preferences[DYNAMIC_ICON_COLORS] = settings.dynamicIconColors
-            preferences[APP_THEME] = settings.appTheme
-            preferences[COLOR_PALETTE] = settings.colorPalette
+        try {
+            dataStore.edit { preferences ->
+                preferences[HIGH_REFRESH_RATE] = settings.highRefreshRate
+                preferences[LANDSCAPE_SCALING] = settings.landscapeScaling
+                preferences[DYNAMIC_THEME] = settings.dynamicTheme
+                preferences[DYNAMIC_ICON_COLORS] = settings.dynamicIconColors
+                preferences[APP_THEME] = settings.appTheme
+                preferences[COLOR_PALETTE] = settings.colorPalette
 
-            preferences[MINI_PLAYER_DESIGN] = settings.miniPlayerDesign
-            preferences[PURE_BLACK_MINI_PLAYER] = settings.pureBlackMiniPlayer
-            preferences[NEW_MINI_PLAYER_DESIGN] = (settings.miniPlayerDesign != "Classic mini player")
-            preferences[MINI_PLAYER_BG_STYLE] = settings.miniPlayerBackgroundStyle
+                preferences[MINI_PLAYER_DESIGN] = settings.miniPlayerDesign
+                preferences[PURE_BLACK_MINI_PLAYER] = settings.pureBlackMiniPlayer
+                preferences[NEW_MINI_PLAYER_DESIGN] = (settings.miniPlayerDesign != "Classic mini player")
+                preferences[MINI_PLAYER_BG_STYLE] = settings.miniPlayerBackgroundStyle
 
-            preferences[NEW_PLAYER_DESIGN] = settings.newPlayerDesign
-            preferences[PLAYER_BG_STYLE] = settings.playerBackgroundStyle
-            preferences[HIDE_PLAYER_THUMBNAIL] = settings.hidePlayerThumbnail
-            preferences[CROP_ALBUM_ART] = settings.cropAlbumArt
-            preferences[PLAYER_BUTTON_COLORS] = settings.playerButtonColors
-            preferences[PLAYER_SLIDER_STYLE] = settings.playerSliderStyle
-            preferences[SHOW_DOWNLOAD_BUTTON] = settings.showDownloadButton
-            preferences[ENABLE_SWIPE_TO_CHANGE_SONG] = settings.enableSwipeToChangeSong
-            preferences[MINI_PLAYER_SWIPE_SENSITIVITY] = settings.miniPlayerSwipeSensitivity
+                preferences[NEW_PLAYER_DESIGN] = settings.newPlayerDesign
+                preferences[PLAYER_BG_STYLE] = settings.playerBackgroundStyle
+                preferences[HIDE_PLAYER_THUMBNAIL] = settings.hidePlayerThumbnail
+                preferences[CROP_ALBUM_ART] = settings.cropAlbumArt
+                preferences[PLAYER_BUTTON_COLORS] = settings.playerButtonColors
+                preferences[PLAYER_SLIDER_STYLE] = settings.playerSliderStyle
+                preferences[SHOW_DOWNLOAD_BUTTON] = settings.showDownloadButton
+                preferences[ENABLE_SWIPE_TO_CHANGE_SONG] = settings.enableSwipeToChangeSong
+                preferences[MINI_PLAYER_SWIPE_SENSITIVITY] = settings.miniPlayerSwipeSensitivity
 
-            preferences[EXPERIMENTAL_LYRICS] = settings.experimentalLyrics
-            preferences[LYRICS_TEXT_POSITION] = settings.lyricsTextPosition
-            preferences[RESPECT_AGENT_POSITIONING] = settings.respectAgentPositioning
-            preferences[CHANGE_LYRICS_ON_TAP] = settings.changeLyricsOnTap
-            preferences[AUTO_SCROLL_LYRICS] = settings.autoScrollLyrics
-            preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] = settings.hideStatusBarOnFullscreen
-            preferences[LYRICS_ANIMATION] = settings.lyricsAnimation
-            preferences[ENABLE_GLOWING_LYRICS] = settings.enableGlowingLyricsEffect
-            preferences[STANDARD_LYRICS_BLUR] = settings.standardLyricsBlur
-            preferences[LYRICS_TEXT_SIZE] = settings.lyricsTextSize
-            preferences[LYRICS_LINE_SPACING] = settings.lyricsLineSpacing
+                preferences[EXPERIMENTAL_LYRICS] = settings.experimentalLyrics
+                preferences[LYRICS_TEXT_POSITION] = settings.lyricsTextPosition
+                preferences[RESPECT_AGENT_POSITIONING] = settings.respectAgentPositioning
+                preferences[CHANGE_LYRICS_ON_TAP] = settings.changeLyricsOnTap
+                preferences[AUTO_SCROLL_LYRICS] = settings.autoScrollLyrics
+                preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] = settings.hideStatusBarOnFullscreen
+                preferences[LYRICS_ANIMATION] = settings.lyricsAnimation
+                preferences[ENABLE_GLOWING_LYRICS] = settings.enableGlowingLyricsEffect
+                preferences[STANDARD_LYRICS_BLUR] = settings.standardLyricsBlur
+                preferences[LYRICS_TEXT_SIZE] = settings.lyricsTextSize
+                preferences[LYRICS_LINE_SPACING] = settings.lyricsLineSpacing
 
-            preferences[DEFAULT_OPEN_TAB] = settings.defaultOpenTab
-            preferences[DEFAULT_LIBRARY_CHIP] = settings.defaultLibraryChip
-            preferences[SWIPE_LEFT_QUEUE_RIGHT_PLAY_NEXT] = settings.swipeLeftQueueRightPlayNext
-            preferences[SWIPE_TO_REMOVE_SONG_FROM_PLAYLIST] = settings.swipeToRemoveSongFromPlaylist
-            preferences[SLIM_BOTTOM_NAV_BAR] = settings.slimBottomNavigationBar
-            preferences[LISTEN_TOGETHER_IN_TOP_BAR] = settings.listenTogetherInTopBar
-            preferences[GRID_CELL_SIZE] = settings.gridCellSize
-            preferences[DISPLAY_DENSITY] = settings.displayDensity
+                preferences[DEFAULT_OPEN_TAB] = settings.defaultOpenTab
+                preferences[DEFAULT_LIBRARY_CHIP] = settings.defaultLibraryChip
+                preferences[SWIPE_LEFT_QUEUE_RIGHT_PLAY_NEXT] = settings.swipeLeftQueueRightPlayNext
+                preferences[SWIPE_TO_REMOVE_SONG_FROM_PLAYLIST] = settings.swipeToRemoveSongFromPlaylist
+                preferences[SLIM_BOTTOM_NAV_BAR] = settings.slimBottomNavigationBar
+                preferences[LISTEN_TOGETHER_IN_TOP_BAR] = settings.listenTogetherInTopBar
+                preferences[GRID_CELL_SIZE] = settings.gridCellSize
+                preferences[DISPLAY_DENSITY] = settings.displayDensity
 
-            preferences[SHOW_LIKED_PLAYLIST] = settings.showLikedPlaylist
-            preferences[SHOW_DOWNLOADED_PLAYLIST] = settings.showDownloadedPlaylist
-            preferences[SHOW_TOP_PLAYLIST] = settings.showTopPlaylist
-            preferences[SHOW_CACHED_PLAYLIST] = settings.showCachedPlaylist
-            preferences[SHOW_UPLOADED_PLAYLIST] = settings.showUploadedPlaylist
+                preferences[SHOW_LIKED_PLAYLIST] = settings.showLikedPlaylist
+                preferences[SHOW_DOWNLOADED_PLAYLIST] = settings.showDownloadedPlaylist
+                preferences[SHOW_TOP_PLAYLIST] = settings.showTopPlaylist
+                preferences[SHOW_CACHED_PLAYLIST] = settings.showCachedPlaylist
+                preferences[SHOW_UPLOADED_PLAYLIST] = settings.showUploadedPlaylist
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AppearanceSettings", "Failed to update appearance settings", e)
         }
     }
 }

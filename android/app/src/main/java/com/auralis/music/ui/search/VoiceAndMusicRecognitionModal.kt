@@ -74,6 +74,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
+import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -132,12 +137,12 @@ fun VoiceAndMusicRecognitionModal(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val backgroundColor = MaterialTheme.colorScheme.background
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val primaryColor = MaterialTheme.dynamicPrimary
+    val backgroundColor = MaterialTheme.dynamicBackground
+    val surfaceColor = MaterialTheme.dynamicSurface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-    val onBackground = MaterialTheme.colorScheme.onBackground
-    val onSurface = MaterialTheme.colorScheme.onSurface
+    val onBackground = MaterialTheme.dynamicOnBackground
+    val onSurface = MaterialTheme.dynamicOnSurface
 
     var showHistorySheet by remember { mutableStateOf(false) }
 

@@ -38,6 +38,8 @@ import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.AuralisApp
 import com.auralis.music.ui.theme.AuralisTheme
 import com.auralis.music.ui.theme.ArtworkPaletteCache
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.viewmodel.AuthViewModel
 import com.auralis.music.ui.viewmodel.HomeViewModel
 import com.auralis.music.ui.viewmodel.LibraryViewModel
@@ -121,7 +123,11 @@ class MainActivity : ComponentActivity() {
             historyRepository = historyRepository,
             searchRepository = searchRepository
         )
-        googleAccountSyncManager.startContinuousCloudSync(lifecycleScope)
+        // Defer cloud sync slightly past initial frame draw so DB/network doesn't contend with cold startup
+        lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(3000L)
+            googleAccountSyncManager.startContinuousCloudSync(this)
+        }
 
         // Background update check & notification on startup
         lifecycleScope.launch(Dispatchers.IO) {
@@ -228,55 +234,32 @@ class MainActivity : ComponentActivity() {
                 appearanceSettings = appearanceSettings,
                 artworkPalette = artworkPaletteForTheme
             ) {
-                val homeViewModel: HomeViewModel = viewModel {
-                    HomeViewModel(historyRepository, searchRepository, innerTubeClient, applicationContext)
-                }
-                val searchViewModel: SearchViewModel = viewModel {
-                    SearchViewModel(searchRepository, applicationContext)
-                }
-                val libraryViewModel: LibraryViewModel = viewModel {
-                    LibraryViewModel(libraryRepository, youtubeImporter, spotifyImporter)
-                }
-                val playerViewModel: PlayerViewModel = viewModel {
-                    PlayerViewModel(
-                        libraryRepository = libraryRepository,
+                val viewModelProvider = remember {
+                    com.auralis.music.ui.viewmodel.AppViewModelProvider(
+                        activity = this@MainActivity,
                         historyRepository = historyRepository,
-                        lyricsRepository = lyricsRepository,
+                        searchRepository = searchRepository,
+                        libraryRepository = libraryRepository,
+                        statsRepository = statsRepository,
                         settingsRepository = settingsRepository,
+                        lyricsRepository = lyricsRepository,
                         audioPlayer = audioPlayer,
                         innerTubeClient = innerTubeClient,
-                        searchRepository = searchRepository,
-                        context = applicationContext
+                        googleAccountSyncManager = googleAccountSyncManager,
+                        youtubeImporter = youtubeImporter,
+                        spotifyImporter = spotifyImporter
                     )
-                }
-                val listenTogetherViewModel: ListenTogetherViewModel = viewModel {
-                    ListenTogetherViewModel(
-                        searchRepository = searchRepository,
-                        syncManager = googleAccountSyncManager
-                    )
-                }
-                val authViewModel: AuthViewModel = viewModel {
-                    AuthViewModel(googleAccountSyncManager)
-                }
-                val statsViewModel: com.auralis.music.ui.viewmodel.StatsViewModel = viewModel {
-                    com.auralis.music.ui.viewmodel.StatsViewModel(statsRepository)
                 }
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
-                    contentColor = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.dynamicBackground,
+                    contentColor = MaterialTheme.dynamicOnBackground
                 ) {
                     AuralisApp(
-                        homeViewModel = homeViewModel,
-                        searchViewModel = searchViewModel,
-                        libraryViewModel = libraryViewModel,
-                        playerViewModel = playerViewModel,
-                        listenTogetherViewModel = listenTogetherViewModel,
-                        authViewModel = authViewModel,
-                        statsViewModel = statsViewModel,
-                        googleAccountSyncManager = googleAccountSyncManager,
+                        viewModelProvider = viewModelProvider,
                         appearanceSettings = appearanceSettings,
+                        googleAccountSyncManager = googleAccountSyncManager,
                         initialNavDestination = liveNavDestination.value
                     )
                 }

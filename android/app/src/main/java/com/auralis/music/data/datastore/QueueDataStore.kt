@@ -18,9 +18,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.booleanPreferencesKey
 
-val Context.queueDataStore: DataStore<Preferences> by preferencesDataStore(name = "auralis_queue")
+val Context.queueDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "auralis_queue",
+    corruptionHandler = ReplaceFileCorruptionHandler {
+        emptyPreferences()
+    }
+)
 
 data class PersistedQueue(
     val tracks: List<Track> = emptyList(),

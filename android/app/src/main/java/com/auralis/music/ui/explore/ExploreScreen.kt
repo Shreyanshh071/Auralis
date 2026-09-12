@@ -102,6 +102,8 @@ import com.auralis.music.ui.theme.LocalReducedMotion
 import com.auralis.music.ui.theme.auralisContentEnter
 import com.auralis.music.ui.theme.auralisContentExit
 import com.auralis.music.ui.theme.auralisIconSwapEnter
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.viewmodel.SearchUiState
 
 private enum class SearchBodyState { SEARCHING, RESULTS, SUGGESTIONS }
@@ -151,7 +153,7 @@ fun ExploreScreen(
     modifier: Modifier = Modifier
 ) {
     val themePrimary = MaterialTheme.dynamicPrimary
-    val dynamicPalette = com.auralis.music.ui.theme.LocalAuralisDynamicPalette.current
+    val themeBackground = MaterialTheme.dynamicBackground
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
@@ -281,7 +283,7 @@ fun ExploreScreen(
             Box(
                 modifier = modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(themeBackground)
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
