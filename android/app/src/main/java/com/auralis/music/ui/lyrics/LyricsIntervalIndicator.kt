@@ -4,6 +4,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -35,66 +39,112 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Modern fluid/wavy countdown & interval progress indicator matching BetterLyrics style.
+ * Modern fluid/wavy countdown & interval progress indicator matching Metrolist style.
  *
- * Renders an organic 8-lobed wavy progress arc sweeping clockwise from top (12 o'clock),
+ * Renders an organic, fluid wavy progress arc sweeping clockwise from top (12 o'clock),
  * accompanied by a dim circular track indicating remaining time, both with smooth rounded stroke caps.
+ * The active stroke and leading edge continuously and smoothly deform as wave crests flow around the circle,
+ * producing an alive, liquid motion while maintaining mathematical progress correctness.
  */
 @Composable
 fun WavyProgressIndicator(
     progress: Float,
     modifier: Modifier = Modifier,
     color: Color = Color.White,
-    trackColor: Color = Color.White.copy(alpha = 0.15f),
-    strokeWidth: Dp = 2.8.dp,
-    lobes: Int = 8,
-    amplitudeRatio: Float = 0.078f
+    trackColor: Color = Color.White.copy(alpha = 0.20f),
+    strokeWidth: Dp = 4.0.dp,
+    gapSize: Dp = 4.0.dp,
+    lobes: Int = 7,
+    amplitudeRatio: Float = 0.10f
 ) {
     val clampedProgress = progress.coerceIn(0f, 1f)
 
+    // Wave animation clock matching Material 3 Expressive 1 cycle per second
+    val infiniteTransition = rememberInfiniteTransition(label = "wavyProgressTransition")
+    val wavePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "wavyProgressPhase"
+    )
+
+    // Reusable path across frames to avoid allocations during draw-phase
+    val path = remember { Path() }
+
     Canvas(modifier = modifier) {
         val strokeWidthPx = strokeWidth.toPx()
+        val gapPx = gapSize.toPx()
         val sizePx = min(size.width, size.height)
-        val maxRadius = (sizePx - strokeWidthPx) / 2f
-        val baseRadius = maxRadius / (1f + amplitudeRatio)
-        val amplitude = baseRadius * amplitudeRatio
         val center = Offset(size.width / 2f, size.height / 2f)
 
-        // 1. Draw remaining circular track (or full circle when idle)
-        val remainingSweep = (1f - clampedProgress) * 360f
-        if (remainingSweep >= 359.5f) {
+        // Circle radius for track lining and wave baseline
+        val baseRadius = (sizePx - strokeWidthPx) / 2f
+        val circumference = 2f * Math.PI.toFloat() * baseRadius
+        val amplitude = baseRadius * amplitudeRatio
+
+        // 1. Calculate track gap spacing
+        // Round caps extend by strokeWidthPx / 2f on each side.
+        // For a visual empty gap of gapPx ("dot sized gap"), center-to-center spacing along circumference is strokeWidthPx + gapPx
+        val pStopPx = clampedProgress * circumference
+        val currentStrokeCapWidth = strokeWidthPx / 2f
+        val trackGapSize = min(pStopPx, gapPx)
+        val horizontalInsets = min(pStopPx, currentStrokeCapWidth)
+        val trackSpacing = horizontalInsets * 2f + trackGapSize
+        val gapDegrees = if (circumference > 0f) (trackSpacing / circumference) * 360f else 0f
+
+        // Draw remaining circular track lining (or full circle when idle)
+        val activeSweep = clampedProgress * 360f
+        if (clampedProgress <= 0.001f) {
             drawCircle(
                 color = trackColor,
                 radius = baseRadius,
                 center = center,
                 style = Stroke(width = strokeWidthPx)
             )
-        } else if (remainingSweep > 2f) {
-            val startAngle = -90f + clampedProgress * 360f
-            drawArc(
-                color = trackColor,
-                startAngle = startAngle,
-                sweepAngle = remainingSweep,
-                useCenter = false,
-                topLeft = Offset(center.x - baseRadius, center.y - baseRadius),
-                size = Size(baseRadius * 2f, baseRadius * 2f),
-                style = Stroke(
-                    width = strokeWidthPx,
-                    cap = StrokeCap.Round
+        } else {
+            val trackStartAngle = -90f + activeSweep + gapDegrees
+            val trackSweepAngle = 360f - activeSweep - 2f * gapDegrees
+            if (trackSweepAngle > 0.5f) {
+                drawArc(
+                    color = trackColor,
+                    startAngle = trackStartAngle,
+                    sweepAngle = trackSweepAngle,
+                    useCenter = false,
+                    topLeft = Offset(center.x - baseRadius, center.y - baseRadius),
+                    size = Size(baseRadius * 2f, baseRadius * 2f),
+                    style = Stroke(
+                        width = strokeWidthPx,
+                        cap = StrokeCap.Round
+                    )
                 )
-            )
+            }
         }
 
-        // 2. Draw active wavy progress arc
-        val activeSweep = clampedProgress * 360f
-        if (activeSweep > 1f) {
-            val path = Path()
-            val steps = (activeSweep * 1.5f).toInt().coerceAtLeast(16)
+        // 2. Draw active fluid wavy progress arc
+        if (activeSweep > 0.8f) {
+            path.rewind()
+            val steps = (activeSweep * 2f).toInt().coerceAtLeast(30)
+            val phaseRad = (wavePhase * 2.0 * Math.PI).toFloat()
+
+            // Smooth amplitude scaling near 0% and 100% so indicator enters and closes gracefully
+            val ampScale = when {
+                clampedProgress < 0.05f -> clampedProgress / 0.05f
+                clampedProgress > 0.95f -> (1f - clampedProgress) / 0.05f
+                else -> 1f
+            }
+            val effAmp = amplitude * ampScale
+
             for (i in 0..steps) {
-                val deg = i.toFloat() / steps.toFloat() * activeSweep
+                val deg = (i.toFloat() / steps.toFloat()) * activeSweep
                 val rad = Math.toRadians((deg - 90.0)).toFloat()
-                val lobeAngle = Math.toRadians((deg * lobes).toDouble()).toFloat()
-                val r = baseRadius + amplitude * sin(lobeAngle)
+                val lobeAngle = Math.toRadians((deg * lobes).toDouble()).toFloat() - phaseRad
+
+                // Anchor at 12 o'clock so the start point matches the circular track baseline
+                val startTaper = if (deg < 18f) (deg / 18f) else 1f
+                val r = baseRadius + effAmp * startTaper * sin(lobeAngle)
                 val x = center.x + r * cos(rad)
                 val y = center.y + r * sin(rad)
                 if (i == 0) {
@@ -184,12 +234,13 @@ fun LyricsIntervalIndicator(
             ) {
                 WavyProgressIndicator(
                     progress = animatedProgress,
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier.size(36.dp),
                     color = color.copy(alpha = 0.95f),
-                    trackColor = color.copy(alpha = 0.15f),
-                    strokeWidth = 2.8.dp,
-                    lobes = 8,
-                    amplitudeRatio = 0.078f
+                    trackColor = color.copy(alpha = 0.20f),
+                    strokeWidth = 4.0.dp,
+                    gapSize = 4.0.dp,
+                    lobes = 7,
+                    amplitudeRatio = 0.10f
                 )
             }
         }

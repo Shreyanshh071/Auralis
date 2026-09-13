@@ -486,8 +486,16 @@ fun SyncedLyricsView(
                             (line.time + estimatedDuration).coerceAtMost(nextStart - 2000L)
                         }
                     }
-                    if (nextStart - gapStart >= 3500L) {
-                        items.add(SyncedLyricsItem.Indicator(index, gapStart, nextStart))
+                    val gapDuration = nextStart - gapStart
+                    if (gapDuration >= 3500L) {
+                        // Short/medium breaks (3.5s to 35s): smooth fluid indicator across full gap
+                        // Extended breaks (>35s, e.g. multi-minute solos or bridges): 8-second count-in into upcoming line
+                        val indicatorStart = if (gapDuration > 35_000L) {
+                            nextStart - 8_000L
+                        } else {
+                            gapStart
+                        }
+                        items.add(SyncedLyricsItem.Indicator(index, indicatorStart, nextStart))
                     }
                 }
             }
@@ -1672,8 +1680,8 @@ internal fun InstrumentalIntroIndicator(
                 color = Color.White.copy(alpha = 0.95f),
                 trackColor = Color.White.copy(alpha = 0.15f),
                 strokeWidth = 2.8.dp,
-                lobes = 8,
-                amplitudeRatio = 0.078f
+                lobes = 7,
+                amplitudeRatio = 0.052f
             )
         }
     }

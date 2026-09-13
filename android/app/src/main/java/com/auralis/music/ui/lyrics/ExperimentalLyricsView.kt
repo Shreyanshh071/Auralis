@@ -347,8 +347,14 @@ fun ExperimentalLyricsView(
                         (line.time + estimatedDuration).coerceAtMost(nextStart - 2000L)
                     }
                 }
-                if (nextStart - gapStart >= 3500L) {
-                    list.add(ExperimentalLyricsListItem.Indicator(index, gapStart, nextStart))
+                val gapDuration = nextStart - gapStart
+                if (gapDuration >= 3500L) {
+                    val indicatorStart = if (gapDuration > 35_000L) {
+                        nextStart - 8_000L
+                    } else {
+                        gapStart
+                    }
+                    list.add(ExperimentalLyricsListItem.Indicator(index, indicatorStart, nextStart))
                 }
             }
         }

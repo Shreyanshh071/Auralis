@@ -117,7 +117,8 @@ class KuGouLyricsSource(
                                             return LyricsCandidate(
                                                 lyricsData = parsed.copy(
                                                     trackName = candSongTitle,
-                                                    artistName = candArtistName
+                                                    artistName = candArtistName,
+                                                    durationMs = if (candDur > 0L) candDur * 1000L else null
                                                 ),
                                                 confidence = confidence,
                                                 syncType = SyncType.LINE_SYNC,

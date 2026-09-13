@@ -68,6 +68,7 @@ class AmllLyricsSource(
                 val candTitle = item.optString("trackName")
                 val candArtist = item.optString("artistName")
                 val candDur = item.optLong("duration", 0L)
+                val candDurationMs = if (candDur > 0L) candDur * 1000L else null
 
                 val confidence = LyricsMatcher.calculateConfidence(
                     queryTitle = query.title,
@@ -81,10 +82,13 @@ class AmllLyricsSource(
                 if (confidence >= 50) {
                     val ttml = item.optString("ttml")
                     if (ttml.isNotBlank()) {
-                        val parsed = TtmlParser.parse(ttml, LyricsProvider.AMLL).copy(
-                            trackName = candTitle,
-                            artistName = candArtist
-                        )
+                        val parsed = TtmlParser.parse(ttml, LyricsProvider.AMLL).let {
+                            it.copy(
+                                trackName = candTitle,
+                                artistName = candArtist,
+                                durationMs = candDurationMs ?: it.durationMs
+                            )
+                        }
                         // Report what the parser actually found. TTML without per-word
                         // end timestamps comes back as LINE_SYNC, and claiming RICHSYNC
                         // for it would enter the word-sync tier with no word timing.
@@ -98,10 +102,13 @@ class AmllLyricsSource(
 
                     val lrc = item.optString("lrc")
                     if (lrc.isNotBlank()) {
-                        val parsed = LrcParser.parse(lrc, LyricsProvider.AMLL).copy(
-                            trackName = candTitle,
-                            artistName = candArtist
-                        )
+                        val parsed = LrcParser.parse(lrc, LyricsProvider.AMLL).let {
+                            it.copy(
+                                trackName = candTitle,
+                                artistName = candArtist,
+                                durationMs = candDurationMs ?: it.durationMs
+                            )
+                        }
                         return LyricsCandidate(
                             lyricsData = parsed,
                             confidence = confidence,

@@ -75,6 +75,7 @@ class MusixmatchLyricsSource(
                 val candTitle = trackObj.optString("track_name")
                 val candArtist = trackObj.optString("artist_name")
                 val candDuration = trackObj.optLong("track_length", 0L)
+                val candDurationMs = if (candDuration > 0L) candDuration * 1000L else null
 
                 if (trackId == 0L) continue
                 val hasRichsync = trackObj.optInt("has_richsync", 0) == 1
@@ -107,9 +108,10 @@ class MusixmatchLyricsSource(
                                     provider = LyricsProvider.MUSIXMATCH,
                                     trackName = candTitle.ifBlank { title },
                                     artistName = candArtist.ifBlank { artist }
-                                )
+                                )?.let { if (candDurationMs != null) it.copy(durationMs = candDurationMs) else it }
                                 if (parsed != null && parsed.lines.isNotEmpty() && parsed.syncType == SyncType.RICHSYNC) {
                                     val alignedParsed = LyricsMatcher.autoAlignLyrics(parsed, query.durationSec, candDuration)
+                                        .copy(durationMs = candDurationMs ?: parsed.durationMs)
                                     return LyricsCandidate(
                                         lyricsData = alignedParsed,
                                         confidence = confidence,
@@ -136,11 +138,12 @@ class MusixmatchLyricsSource(
                                 val alignedParsed = LyricsMatcher.autoAlignLyrics(
                                     lyricsData = parsed.copy(
                                         trackName = candTitle.ifBlank { title },
-                                        artistName = candArtist.ifBlank { artist }
+                                        artistName = candArtist.ifBlank { artist },
+                                        durationMs = candDurationMs ?: parsed.durationMs
                                     ),
                                     trackDurationSec = query.durationSec,
                                     lyricDurationSec = candDuration
-                                )
+                                ).copy(durationMs = candDurationMs ?: parsed.durationMs)
                                 return LyricsCandidate(
                                     lyricsData = alignedParsed,
                                     confidence = confidence,
@@ -173,7 +176,8 @@ class MusixmatchLyricsSource(
                                     lines = lines,
                                     plainLyrics = cleanLyrics,
                                     trackName = candTitle.ifBlank { title },
-                                    artistName = candArtist.ifBlank { artist }
+                                    artistName = candArtist.ifBlank { artist },
+                                    durationMs = candDurationMs
                                 ),
                                 confidence = confidence,
                                 syncType = SyncType.PLAIN,
