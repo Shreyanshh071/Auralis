@@ -15,6 +15,7 @@ import com.auralis.music.data.network.provider.NetEaseLyricsSource
 import com.auralis.music.data.network.provider.PaxsenixLyricsSource
 import com.auralis.music.data.network.provider.UnisonLyricsSource
 import com.auralis.music.data.network.provider.YouTubeInnerTubeLyricsSource
+import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsProvider
 import com.auralis.music.domain.model.SyncType
@@ -125,7 +126,9 @@ class LyricsClient(
             provider: LyricsProvider = LyricsProvider.LRCLIB,
             bestProvider: LyricsProvider = LyricsProvider.LRCLIB,
             isExactVideoMatch: Boolean = false,
-            bestIsExactVideoMatch: Boolean = false
+            bestIsExactVideoMatch: Boolean = false,
+            maxGapMs: Long = 0L,
+            bestMaxGapMs: Long = 0L
         ): Boolean {
             val isAligned = masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             val bestIsAligned = bestMasterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
@@ -134,6 +137,9 @@ class LyricsClient(
                 isAligned && !bestIsAligned -> true
                 !isAligned && bestIsAligned -> false
                 !isAligned && !bestIsAligned -> false
+                // Completeness priority: candidate with significantly smaller void outranks candidate with massive missing void (>45s gap difference)
+                (bestMaxGapMs - maxGapMs) > 45_000L && (tier >= bestTier || score >= bestScore - 15.0) -> true
+                (maxGapMs - bestMaxGapMs) > 45_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
                 tier > bestTier -> true
                 tier < bestTier -> false
                 tier == TIER_WORD -> {
@@ -152,23 +158,75 @@ class LyricsClient(
             }
         }
 
+        internal fun maxInternalGapMs(lines: List<LyricLine>): Long {
+            if (lines.size < 2) return 0L
+            var maxGap = 0L
+            for (i in 0 until lines.size - 1) {
+                val current = lines[i]
+                val next = lines[i + 1]
+                val effEnd = current.effectiveEndTime ?: (current.time + 3000L)
+                val gap = next.time - effEnd
+                if (gap > maxGap) {
+                    maxGap = gap
+                }
+            }
+            return maxGap
+        }
+
+        internal fun fillLyricsGaps(
+            primary: LyricsData,
+            secondaryCandidates: List<LyricsData>
+        ): LyricsData {
+            if (primary.lines.size < 2 || secondaryCandidates.isEmpty()) return primary
+            val missingLinesToInsert = mutableListOf<LyricLine>()
+
+            for (i in 0 until primary.lines.size - 1) {
+                val current = primary.lines[i]
+                val next = primary.lines[i + 1]
+                val gapStart = current.effectiveEndTime ?: (current.time + 3000L)
+                val gapEnd = next.time
+                if (gapEnd - gapStart > 45_000L) {
+                    for (sec in secondaryCandidates) {
+                        val fillingLines = sec.lines.filter {
+                            it.time in (gapStart + 1500L)..(gapEnd - 1500L) &&
+                                it.text.isNotBlank() &&
+                                !it.isInstrumental
+                        }
+                        if (fillingLines.isNotEmpty()) {
+                            missingLinesToInsert.addAll(fillingLines)
+                            break
+                        }
+                    }
+                }
+            }
+            if (missingLinesToInsert.isEmpty()) return primary
+            val mergedLines = (primary.lines + missingLinesToInsert).sortedBy { it.time }
+            return primary.copy(
+                lines = mergedLines,
+                plainLyrics = mergedLines.joinToString("\n") { it.text }
+            )
+        }
+
         /**
          * Whether a candidate is good enough to cancel the remaining providers.
          * Gated on:
          * 1. Word tier.
          * 2. High quality score (>= INSTANT_WIN_SCORE).
-         * 3. Verified audio master alignment (must REJECT MasterMatchStatus.MASTER_MISMATCH).
-         * 4. Top provider preference (BetterLyrics, or Unison when exact-video matched).
+         * 3. No massive internal voids (>45s) indicating dropped sections.
+         * 4. Verified audio master alignment (must REJECT MasterMatchStatus.MASTER_MISMATCH).
+         * 5. Top provider preference (BetterLyrics, or Unison when exact-video matched).
          */
         internal fun isInstantWinner(
             tier: Int,
             score: Double,
             masterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH,
             provider: LyricsProvider = LyricsProvider.BETTER_LYRICS,
-            isExactVideoMatch: Boolean = false
+            isExactVideoMatch: Boolean = false,
+            maxGapMs: Long = 0L
         ): Boolean =
             tier == TIER_WORD &&
             score >= INSTANT_WIN_SCORE &&
+            maxGapMs <= 45_000L &&
             masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH &&
             (provider == LyricsProvider.BETTER_LYRICS || (provider == LyricsProvider.UNISON && isExactVideoMatch))
 
@@ -252,6 +310,13 @@ class LyricsClient(
                 score -= 50.0
             } else if (masterMatch == com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH && (playbackMs > 0L || cand.isExactVideoMatch)) {
                 score += 10.0
+            }
+
+            // 7. Internal gap sanity penalty: massive voids (>45s) indicate missing verses or omissions
+            val maxGap = maxInternalGapMs(lines)
+            if (maxGap > 45_000L && lines.size < 45) {
+                val penalty = (((maxGap - 45_000L) / 1000.0) * 0.4).coerceAtMost(50.0)
+                score -= penalty
             }
 
             return score
@@ -349,6 +414,8 @@ class LyricsClient(
             var completedCount = 0
             var graceDeadlineMs = Long.MAX_VALUE
 
+            val allValidCandidates = mutableListOf<LyricsCandidate>()
+
             while (completedCount < primaryProviders.size) {
                 val betterLyricsActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true
                 val unisonActive = providerJobMap[LyricsProvider.UNISON]?.isActive == true
@@ -359,8 +426,9 @@ class LyricsClient(
 
                 val candidate = if (bestCandidate != null) {
                     if (bestTier == TIER_WORD) {
-                        val canBeBeaten = (bestCandidate.provider != LyricsProvider.BETTER_LYRICS && !bestCandidate.isExactVideoMatch) &&
-                            (betterLyricsActive || (bestCandidate.provider != LyricsProvider.PAXSENIX && paxsenixActive))
+                        val bestHasGap = maxInternalGapMs(bestCandidate.lyricsData.lines) > 45_000L
+                        val canBeBeaten = bestHasGap || ((bestCandidate.provider != LyricsProvider.BETTER_LYRICS && !bestCandidate.isExactVideoMatch) &&
+                            (betterLyricsActive || (bestCandidate.provider != LyricsProvider.PAXSENIX && paxsenixActive)))
                         if (!canBeBeaten) {
                             break
                         }
@@ -400,6 +468,7 @@ class LyricsClient(
                         syncType = resolvedSyncType,
                         lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
                     )
+                    allValidCandidates.add(correctedCand)
 
                     val queryDurationMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
                     val masterMatch = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
@@ -437,6 +506,8 @@ class LyricsClient(
                     // Alignment-aware comparison: matching line sync beats mismatched word sync; BetterLyrics > NetEase > Musixmatch RichSync
                     val currentBestProvider = bestCandidate?.provider ?: LyricsProvider.LRCLIB
                     val currentBestIsExactVideo = bestCandidate?.isExactVideoMatch == true
+                    val candMaxGap = maxInternalGapMs(correctedCand.lyricsData.lines)
+                    val bestCandMaxGap = bestCandidate?.let { maxInternalGapMs(it.lyricsData.lines) } ?: 0L
                     if (bestCandidate == null || outranks(
                             tier = tier,
                             score = score,
@@ -447,7 +518,9 @@ class LyricsClient(
                             provider = correctedCand.provider,
                             bestProvider = currentBestProvider,
                             isExactVideoMatch = correctedCand.isExactVideoMatch,
-                            bestIsExactVideoMatch = currentBestIsExactVideo
+                            bestIsExactVideoMatch = currentBestIsExactVideo,
+                            maxGapMs = candMaxGap,
+                            bestMaxGapMs = bestCandMaxGap
                         )) {
                         bestTier = tier
                         bestScore = score
@@ -470,6 +543,9 @@ class LyricsClient(
                             // When an exact-video word candidate arrives, settle immediately without waiting for studio sources
                             if (correctedCand.isExactVideoMatch) {
                                 graceDeadlineMs = System.currentTimeMillis()
+                            } else if (candMaxGap > 45_000L) {
+                                // Candidate has a massive internal gap; keep race open for complete providers
+                                graceDeadlineMs = t0 + ACTIVE_WORD_PROVIDER_TIMEOUT_MS
                             } else if (correctedCand.provider != LyricsProvider.BETTER_LYRICS && providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true) {
                                 graceDeadlineMs = minOf(graceDeadlineMs, t0 + WORD_SYNC_GRACE_MS)
                             } else {
@@ -478,7 +554,7 @@ class LyricsClient(
                         }
                     }
 
-                    if (isInstantWinner(tier, score, masterMatch, correctedCand.provider, correctedCand.isExactVideoMatch)) {
+                    if (isInstantWinner(tier, score, masterMatch, correctedCand.provider, correctedCand.isExactVideoMatch, candMaxGap)) {
                         Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} tier=$tier masterMatch=$masterMatch in ${System.currentTimeMillis() - t0}ms (Score: $score)")
                         providerJobs.forEach { it.cancel() }
                         return@coroutineScope correctedCand.lyricsData
@@ -489,7 +565,10 @@ class LyricsClient(
             bestCandidate?.let {
                 Log.d(TAG, "[RACE SETTLED] ${it.provider} tier=$bestTier masterMatch=$bestMasterMatch score=$bestScore in ${System.currentTimeMillis() - t0}ms")
             }
-            bestCandidate?.lyricsData
+            bestCandidate?.let { best ->
+                val otherCandidates = allValidCandidates.filter { it.provider != best.provider }.map { it.lyricsData }
+                fillLyricsGaps(best.lyricsData, otherCandidates)
+            }
         }
 
         if (syncedWinner != null && syncedWinner.lines.isNotEmpty()) {

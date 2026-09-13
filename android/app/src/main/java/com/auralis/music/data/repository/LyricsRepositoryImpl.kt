@@ -272,6 +272,15 @@ class LyricsRepositoryImpl(
                                 playbackVideoId = videoId,
                                 audioLeadingSilenceMs = audioLeadingSilenceMs
                             )
+                            val isMasterMismatch = playbackMs > 0L && com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
+                                lyrics = domainLyrics,
+                                playbackDurationMs = playbackMs,
+                                playbackTitle = title,
+                                candidateTitle = candTitle,
+                                playbackChannelTitle = channelTitle,
+                                playbackVideoId = videoId
+                            ) == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
+
                             if (confidence >= 50 && isAcceptable && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 val aligned = if (playbackMs > 0L) {
                                     com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs, audioLeadingSilenceMs)
@@ -282,7 +291,7 @@ class LyricsRepositoryImpl(
                                     memoryCache[trackKey] = aligned
                                     return aligned
                                 }
-                            } else {
+                            } else if (isMasterMismatch || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 lyricsDao.deleteLyrics(trackKey)
                             }
                         }
@@ -378,6 +387,15 @@ class LyricsRepositoryImpl(
                                 playbackVideoId = videoId,
                                 audioLeadingSilenceMs = audioLeadingSilenceMs
                             )
+                            val isMasterMismatch = playbackMs > 0L && com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
+                                lyrics = domainLyrics,
+                                playbackDurationMs = playbackMs,
+                                playbackTitle = title,
+                                candidateTitle = candTitle,
+                                playbackChannelTitle = channelTitle,
+                                playbackVideoId = videoId
+                            ) == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
+
                             if (confidence >= 50 && isAcceptable) {
                                 val aligned = if (playbackMs > 0L) {
                                     com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs, audioLeadingSilenceMs)
@@ -392,7 +410,7 @@ class LyricsRepositoryImpl(
                                         cachedLineSyncFallback = aligned
                                     }
                                 }
-                            } else {
+                            } else if (isMasterMismatch || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 lyricsDao.deleteLyrics(trackKey)
                             }
                         }
@@ -461,15 +479,14 @@ class LyricsRepositoryImpl(
                     val existingIsMismatch = if (existing != null) {
                         val dom = entityToDomain(existing, title, artist)
                         if (dom != null) {
-                            !com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                            com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
                                 lyrics = dom,
                                 playbackDurationMs = playbackMs,
                                 playbackTitle = title,
                                 candidateTitle = dom.trackName ?: title,
                                 playbackChannelTitle = channelTitle,
-                                playbackVideoId = videoId,
-                                audioLeadingSilenceMs = audioLeadingSilenceMs
-                            )
+                                playbackVideoId = videoId
+                            ) == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
                         } else false
                     } else false
 

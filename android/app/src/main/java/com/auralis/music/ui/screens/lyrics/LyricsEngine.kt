@@ -178,9 +178,15 @@ object LyricsEngine {
                 nextStart != null && singingEnd > nextStart -> {
                     adjustedTime >= line.time && adjustedTime <= singingEnd
                 }
-                // Standard main lyric line: gap bridging keeps line highlighted across vocal rests until next line begins
+                // Standard main lyric line: gap bridging keeps line highlighted across vocal rests until next line begins.
+                // For extended instrumental breaks (>35s), release highlight after singing ends (+ grace period) instead of holding for minutes.
                 nextStart != null && !line.isBackground -> {
-                    adjustedTime >= line.time && adjustedTime < nextStart
+                    val isExtendedGap = singingEnd != null && (nextStart - singingEnd) > 35_000L
+                    if (isExtendedGap) {
+                        adjustedTime >= line.time && adjustedTime <= (singingEnd + 3_000L)
+                    } else {
+                        adjustedTime >= line.time && adjustedTime < nextStart
+                    }
                 }
                 // Background vocal with next line ahead: active strictly while singing
                 nextStart != null && line.isBackground -> {

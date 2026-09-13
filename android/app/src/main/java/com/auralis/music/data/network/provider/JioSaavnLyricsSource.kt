@@ -74,6 +74,7 @@ class JioSaavnLyricsSource(
                     moreInfo?.optString("primary_artists") ?: item.optString("primary_artists", "")
                 )
                 val duration = item.optLong("duration", moreInfo?.optLong("duration", 0L) ?: 0L)
+                val candDurationMs = if (duration > 0L) duration * 1000L else null
                 val hasLyrics = item.optString("has_lyrics") == "true" || moreInfo?.optString("has_lyrics") == "true"
 
                 if (songId.isBlank() || !hasLyrics) continue
@@ -88,17 +89,18 @@ class JioSaavnLyricsSource(
                 )
 
                 if (confidence >= 50 && confidence > bestConfidence) {
-                    val lyricsData = fetchLyricsById(songId, songTitle, songArtist)
+                    val lyricsData = fetchLyricsById(songId, songTitle, songArtist, candDurationMs)
                     if (lyricsData != null && lyricsData.lines.isNotEmpty()) {
+                        val finalLyrics = lyricsData.copy(durationMs = candDurationMs ?: lyricsData.durationMs)
                         bestConfidence = confidence
                         bestCandidate = LyricsCandidate(
-                            lyricsData = lyricsData,
+                            lyricsData = finalLyrics,
                             confidence = confidence,
-                            syncType = lyricsData.syncType,
+                            syncType = finalLyrics.syncType,
                             provider = LyricsProvider.JIOSAAVN
                         )
                         // If line-synced and confidence is very high, return immediately
-                        if (lyricsData.syncType == SyncType.LINE_SYNC && confidence >= 80) {
+                        if (finalLyrics.syncType == SyncType.LINE_SYNC && confidence >= 80) {
                             return bestCandidate
                         }
                     }
@@ -111,7 +113,12 @@ class JioSaavnLyricsSource(
         }
     }
 
-    private fun fetchLyricsById(lyricsId: String, trackName: String, artistName: String): LyricsData? {
+    private fun fetchLyricsById(
+        lyricsId: String,
+        trackName: String,
+        artistName: String,
+        candDurationMs: Long? = null
+    ): LyricsData? {
         try {
             val url = "$BASE_URL?__call=lyrics.getLyrics&_format=json&_marker=0&ctx=android&lyrics_id=$lyricsId"
             val req = Request.Builder()
@@ -135,7 +142,8 @@ class JioSaavnLyricsSource(
                 return parsed.copy(
                     trackName = trackName,
                     artistName = artistName,
-                    plainLyrics = formattedText
+                    plainLyrics = formattedText,
+                    durationMs = candDurationMs ?: parsed.durationMs
                 )
             }
 
@@ -146,12 +154,13 @@ class JioSaavnLyricsSource(
                 .map { LyricLine(time = 0L, text = it) }
 
             return LyricsData(
+                provider = LyricsProvider.JIOSAAVN,
                 syncType = SyncType.PLAIN,
                 lines = lines,
                 plainLyrics = formattedText,
-                provider = LyricsProvider.JIOSAAVN,
                 trackName = trackName,
-                artistName = artistName
+                artistName = artistName,
+                durationMs = candDurationMs
             )
         } catch (_: Exception) {
             return null

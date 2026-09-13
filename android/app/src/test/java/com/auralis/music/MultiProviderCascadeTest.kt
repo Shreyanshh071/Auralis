@@ -75,7 +75,7 @@ class MultiProviderCascadeTest {
         val mockClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val url = chain.request().url.toString()
-                val json = if (url.contains("search/get/web")) {
+                val json = if (url.contains("search/get")) {
                     """
                     {
                         "result": {

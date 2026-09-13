@@ -214,4 +214,29 @@ class LyricsGapHighlightingTest {
         assertEquals(setOf(2), LyricsEngine.findVisualActiveLineIndices(lines, 18_000L))
         assertEquals(setOf(2), findExperimentalActiveLineIndices(lines, 18_000L))
     }
+
+    // 9. Extended instrumental gap (> 35s): highlight dims after 3s grace period instead of staying active for minutes
+    @Test
+    fun testExtendedInstrumentalBreakDimsHighlightAfterGracePeriod() {
+        val lineA = LyricLine(time = 10_000L, endTime = 13_000L, text = "Line A")
+        val lineB = LyricLine(time = 73_000L, endTime = 78_000L, text = "Line B") // 60s gap > 35s
+        val lines = listOf(lineA, lineB)
+
+        // During Line A singing
+        assertEquals(setOf(0), LyricsEngine.findVisualActiveLineIndices(lines, 11_000L))
+
+        // During 3s grace period after Line A ends (at 13s)
+        assertEquals(setOf(0), LyricsEngine.findVisualActiveLineIndices(lines, 14_500L))
+        assertEquals(setOf(0), LyricsEngine.findVisualActiveLineIndices(lines, 16_000L)) // 13s + 3s = 16s
+
+        // After grace period during extended break (> 35s), line dims
+        assertEquals(emptySet<Int>(), LyricsEngine.findVisualActiveLineIndices(lines, 16_500L))
+        assertEquals(emptySet<Int>(), LyricsEngine.findVisualActiveLineIndices(lines, 40_000L))
+        assertEquals(emptySet<Int>(), LyricsEngine.findVisualActiveLineIndices(lines, 72_000L))
+        assertEquals(emptySet<Int>(), findExperimentalActiveLineIndices(lines, 40_000L))
+
+        // When next line begins at 73s, it becomes active
+        assertEquals(setOf(1), LyricsEngine.findVisualActiveLineIndices(lines, 73_000L))
+        assertEquals(setOf(1), findExperimentalActiveLineIndices(lines, 73_000L))
+    }
 }

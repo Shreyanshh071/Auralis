@@ -123,8 +123,8 @@ class LyricsPipelineRegressionTest {
             match
         )
         assertNotEquals(MasterMatchStatus.EXACT_MATCH, match)
-        assertFalse(
-            "Unknown candidate duration cannot be accepted without genuine exact video match",
+        assertTrue(
+            "Unknown candidate duration with non-overrunning vocals must be acceptable as compatible match",
             LyricsAlignmentEngine.isAcceptableMasterMatch(lyricsWithoutStatedDuration, 220_000L)
         )
     }
@@ -510,9 +510,9 @@ class LyricsPipelineRegressionTest {
     }
 
     @Test
-    fun testCompatibleOffsetCandidateWithoutAudioLeadingSilenceRejected() {
-        // Goal 2 & Test C: Candidate with 1.5s < delta <= 3.5s, audioLeadingSilenceMs == null,
-        // and no exact video identity must be rejected rather than applying offsetMs = 0
+    fun testCompatibleOffsetCandidateWithoutAudioLeadingSilenceIsAcceptableAndUnshifted() {
+        // Candidate with 1.5s < delta <= 3.5s and audioLeadingSilenceMs == null
+        // remains acceptable for playback and runs unshifted (offsetMs = 0)
         val playbackMs = 200_000L
         val candidateWith2Point5sDelta = LyricsData(
             syncType = SyncType.RICHSYNC,
@@ -534,9 +534,9 @@ class LyricsPipelineRegressionTest {
             playbackDurationMs = playbackMs,
             audioLeadingSilenceMs = null // Unverified leading silence
         )
-        assertFalse("Unverified compatible offset without audio leading silence must be rejected", isAcceptable)
+        assertTrue("Compatible offset without audio leading silence must remain acceptable for playback", isAcceptable)
 
-        // alignToPlayback must NOT guess offsetMs = 0
+        // alignToPlayback must run unshifted (offsetMs = 0)
         val aligned = LyricsAlignmentEngine.alignToPlayback(
             lyrics = candidateWith2Point5sDelta,
             playbackDurationMs = playbackMs,
@@ -628,11 +628,11 @@ class LyricsPipelineRegressionTest {
         assertFalse(LyricsAlignmentEngine.isAcceptableMasterMatch(studioMasterLyrics, musicVideoDurationMs))
 
         // 4. Full Audio playback cut with extra intro silence (~270.8s) -> delta = 2800ms
-        // Without measurable audio leading silence -> unverified COMPATIBLE_OFFSET, rejected
+        // Delta = 2800ms <= 3.5s -> COMPATIBLE_OFFSET, acceptable for playback
         val fullAudioDurationMs = 270_800L
         val fullAudioMatch = LyricsAlignmentEngine.evaluateMasterMatch(studioMasterLyrics, fullAudioDurationMs)
         assertEquals(MasterMatchStatus.COMPATIBLE_OFFSET, fullAudioMatch)
-        assertFalse("Unverified 2.8s offset without audio leading silence must be rejected",
+        assertTrue("Compatible 2.8s offset without audio leading silence remains acceptable for playback",
             LyricsAlignmentEngine.isAcceptableMasterMatch(studioMasterLyrics, fullAudioDurationMs, audioLeadingSilenceMs = null))
 
         // But if leading silence is measured (e.g. 12,400ms vs provider 9,600ms = +2800ms offset):
@@ -773,9 +773,8 @@ class LyricsPipelineRegressionTest {
         assertNotEquals("Unknown candidate duration must NEVER be EXACT_MATCH", MasterMatchStatus.EXACT_MATCH, match)
         assertEquals(MasterMatchStatus.COMPATIBLE_OFFSET, match)
 
-        // Must NOT be accepted without genuine exact video verification
         val isAcceptable = LyricsAlignmentEngine.isAcceptableMasterMatch(nullDurationCandidate, filmPlaybackMs)
-        assertFalse("261s film playback must NOT accept null-duration candidate as exact match", isAcceptable)
+        assertTrue("Null-duration candidate with non-overrunning vocals is acceptable", isAcceptable)
     }
 
     @Test
@@ -799,17 +798,17 @@ class LyricsPipelineRegressionTest {
             LyricsAlignmentEngine.isAcceptableMasterMatch(parsedWithDuration, filmPlaybackMs)
         )
 
-        // If LRCLIB fallback response returned NO duration at all:
+        // If LRCLIB fallback response returned NO duration at all, but vocals extend past the track length:
         val fallbackJsonNoDuration = JSONObject().apply {
             put("id", 1002)
             put("trackName", "Kesariya")
             put("artistName", "Arijit Singh")
-            put("syncedLyrics", "[00:15.20] Line 1\n[00:20.10] Line 2\n[00:25.00] Line 3\n[04:10.00] Kesariya tera ishq")
+            put("syncedLyrics", "[00:15.20] Line 1\n[00:20.10] Line 2\n[00:25.00] Line 3\n[04:28.00] Kesariya tera ishq")
         }
         val parsedNoDuration = lrcSource.parseLrcItem(fallbackJsonNoDuration)!!
         assertNull(parsedNoDuration.durationMs)
         assertFalse(
-            "Fallback candidate with null duration must NOT bypass master check on 261s film cut",
+            "Fallback candidate with null duration and overrunning vocals must NOT bypass master check on 261s film cut",
             LyricsAlignmentEngine.isAcceptableMasterMatch(parsedNoDuration, filmPlaybackMs)
         )
     }
@@ -1017,4 +1016,236 @@ class LyricsPipelineRegressionTest {
         // Verify eviction from Room DB
         coVerify(atLeast = 1) { mockDao.deleteLyrics(trackKey) }
     }
+
+    @Test
+    fun testCandidateWithMassiveGapCannotInstantWin() {
+        // BetterLyrics candidate has a 260s gap (missing vocoder section)
+        val line1 = LyricLine(time = 159_740L, endTime = 163_000L, text = "Tell my mother I'm sorry")
+        val line2 = LyricLine(time = 420_500L, endTime = 425_000L, text = "Baby, now I'm ready, moving on")
+        val lines = listOf(line1, line2)
+        val gap = LyricsClient.maxInternalGapMs(lines)
+        assertTrue("Gap should be > 250s", gap > 250_000L)
+
+        val isInstant = LyricsClient.isInstantWinner(
+            tier = LyricsClient.TIER_WORD,
+            score = 160.0,
+            masterMatch = MasterMatchStatus.EXACT_MATCH,
+            provider = LyricsProvider.BETTER_LYRICS,
+            isExactVideoMatch = false,
+            maxGapMs = gap
+        )
+        assertFalse("Candidate with 260s gap MUST NOT instant-win and cancel other providers", isInstant)
+
+        // Complete candidate without gap CAN instant-win
+        val isInstantComplete = LyricsClient.isInstantWinner(
+            tier = LyricsClient.TIER_WORD,
+            score = 160.0,
+            masterMatch = MasterMatchStatus.EXACT_MATCH,
+            provider = LyricsProvider.BETTER_LYRICS,
+            isExactVideoMatch = false,
+            maxGapMs = 5_000L
+        )
+        assertTrue("Complete candidate with normal gaps can instant-win", isInstantComplete)
+    }
+
+    @Test
+    fun testCompleteCandidateOutranksIncompleteCandidateWithMassiveVoid() {
+        // Even though BetterLyrics normally has higher provider priority than NetEase,
+        // a NetEase candidate with full coverage outranks a BetterLyrics candidate missing > 45s of vocals
+        val netEaseOutranksIncompleteBetterLyrics = LyricsClient.outranks(
+            tier = LyricsClient.TIER_WORD,
+            score = 150.0,
+            provider = LyricsProvider.NETEASE,
+            masterMatch = MasterMatchStatus.EXACT_MATCH,
+            bestTier = LyricsClient.TIER_WORD,
+            bestScore = 155.0,
+            bestProvider = LyricsProvider.BETTER_LYRICS,
+            bestMasterMatch = MasterMatchStatus.EXACT_MATCH,
+            maxGapMs = 12_000L,
+            bestMaxGapMs = 260_000L
+        )
+        assertTrue("Complete candidate MUST outrank incomplete candidate with massive void", netEaseOutranksIncompleteBetterLyrics)
+    }
+
+    @Test
+    fun testFillLyricsGapsGraftsMissingLinesFromSecondaryCandidate() {
+        val incompletePrimary = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = listOf(
+                LyricLine(time = 150_000L, endTime = 160_000L, text = "Tell my mother I'm sorry"),
+                LyricLine(time = 420_000L, endTime = 425_000L, text = "Baby, now I'm ready, moving on")
+            ),
+            provider = LyricsProvider.BETTER_LYRICS,
+            durationMs = 467_000L
+        )
+
+        val secondaryComplete = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = listOf(
+                LyricLine(time = 150_000L, endTime = 160_000L, text = "Tell my mother I'm sorry"),
+                LyricLine(time = 330_000L, endTime = 334_000L, text = "I cannot vanish, you will not scare me"),
+                LyricLine(time = 335_000L, endTime = 339_000L, text = "Try to get through it, try to push through it"),
+                LyricLine(time = 420_000L, endTime = 425_000L, text = "Baby, now I'm ready, moving on")
+            ),
+            provider = LyricsProvider.NETEASE,
+            durationMs = 467_000L
+        )
+
+        val filled = LyricsClient.fillLyricsGaps(incompletePrimary, listOf(secondaryComplete))
+        assertEquals("Should have grafted 2 missing lines to total 4 lines", 4, filled.lines.size)
+        assertEquals("I cannot vanish, you will not scare me", filled.lines[1].text)
+        assertEquals("Try to get through it, try to push through it", filled.lines[2].text)
+        assertTrue("Lines must be sorted by time", filled.lines.zipWithNext().all { it.first.time <= it.second.time })
+    }
+
+    @Test
+    fun testLetItHappenVocoderSectionAndIndicatorResolution() {
+        // Reproduce exact scenario for Tame Impala - Let It Happen (467s duration)
+        // 1. BetterLyrics (Apple Music TTML) transcription drops the vocoder section between 2:39.7 and 7:00.5
+        val betterLyricsLines = listOf(
+            LyricLine(time = 155_000L, endTime = 159_740L, text = "Tell my mother I'm sorry"),
+            LyricLine(time = 420_500L, endTime = 425_000L, text = "Baby, now I'm ready, moving on")
+        )
+        val betterLyricsData = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = betterLyricsLines,
+            provider = LyricsProvider.BETTER_LYRICS,
+            durationMs = 467_000L
+        )
+
+        // 2. NetEase / LRCLIB has the full 63 lines with the vocoder lyrics (5:29 - 7:00)
+        val netEaseLines = listOf(
+            LyricLine(time = 155_000L, endTime = 159_740L, text = "Tell my mother I'm sorry"),
+            LyricLine(time = 329_000L, endTime = 333_000L, text = "I cannot vanish, you will not scare me"),
+            LyricLine(time = 334_000L, endTime = 338_000L, text = "Try to get through it, try to push through it"),
+            LyricLine(time = 420_500L, endTime = 425_000L, text = "Baby, now I'm ready, moving on")
+        )
+        val netEaseData = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = netEaseLines,
+            provider = LyricsProvider.NETEASE,
+            durationMs = 467_000L
+        )
+
+        val blGap = LyricsClient.maxInternalGapMs(betterLyricsLines)
+        val neGap = LyricsClient.maxInternalGapMs(netEaseLines)
+
+        assertTrue("BetterLyrics must have a gap > 250s", blGap > 250_000L)
+        assertTrue("NetEase must not have a gap > 200s", neGap < 200_000L)
+
+        // BetterLyrics must NOT trigger instant win
+        assertFalse(
+            "BetterLyrics with 260s missing section must NOT trigger instant win",
+            LyricsClient.isInstantWinner(
+                tier = LyricsClient.TIER_WORD,
+                score = 160.0,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                provider = LyricsProvider.BETTER_LYRICS,
+                maxGapMs = blGap
+            )
+        )
+
+        // Complete NetEase candidate outranks incomplete BetterLyrics
+        assertTrue(
+            "Complete NetEase candidate must outrank incomplete BetterLyrics",
+            LyricsClient.outranks(
+                tier = LyricsClient.TIER_WORD,
+                score = 150.0,
+                provider = LyricsProvider.NETEASE,
+                masterMatch = MasterMatchStatus.EXACT_MATCH,
+                bestTier = LyricsClient.TIER_WORD,
+                bestScore = 160.0,
+                bestProvider = LyricsProvider.BETTER_LYRICS,
+                bestMasterMatch = MasterMatchStatus.EXACT_MATCH,
+                maxGapMs = neGap,
+                bestMaxGapMs = blGap
+            )
+        )
+
+        // Gap filling fallback: If BetterLyrics was used, it grafts NetEase vocoder lines
+        val healed = LyricsClient.fillLyricsGaps(betterLyricsData, listOf(netEaseData))
+        assertTrue("Healed lyrics must contain vocoder line", healed.lines.any { it.text.contains("vanish") })
+        assertEquals(4, healed.lines.size)
+    }
+
+    @Test
+    fun testNetEaseAndMultiProviderCandidatesAreAcceptable() {
+        val playbackMs = 210_000L
+
+        // NetEase candidate with propagated duration
+        val netEaseWithDuration = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = listOf(createWordTimedLine(10_000L, "Hello")),
+            provider = LyricsProvider.NETEASE,
+            durationMs = 211_500L // 1.5s delta
+        )
+        assertTrue(LyricsAlignmentEngine.isAcceptableMasterMatch(netEaseWithDuration, playbackMs))
+
+        // JioSaavn / KuGou candidate without duration metadata (null duration)
+        val candidateNullDuration = LyricsData(
+            syncType = SyncType.LINE_SYNC,
+            lines = listOf(
+                createLineTimedLine(10_000L, "Hello"),
+                createLineTimedLine(200_000L, "Outro before track ends")
+            ),
+            provider = LyricsProvider.JIOSAAVN,
+            durationMs = null
+        )
+        assertTrue("Candidate without duration must be acceptable if vocals fit in audio bounds",
+            LyricsAlignmentEngine.isAcceptableMasterMatch(candidateNullDuration, playbackMs))
+
+        // Candidate with 2.5s delta (common on YouTube Music streams)
+        val candidate2Point5sDelta = LyricsData(
+            syncType = SyncType.LINE_SYNC,
+            lines = listOf(createLineTimedLine(10_000L, "Hello")),
+            provider = LyricsProvider.KUGOU,
+            durationMs = 212_500L // 2.5s delta
+        )
+        assertTrue("Candidate with 2.5s delta must be acceptable without requiring silence measurement",
+            LyricsAlignmentEngine.isAcceptableMasterMatch(candidate2Point5sDelta, playbackMs, audioLeadingSilenceMs = null))
+    }
+
+    @Test
+    fun testDatabaseCacheNotEvictedOnTemporaryCompatibleOffset() = runBlocking {
+        val mockDao = mockk<LyricsDao>(relaxed = true)
+        val mockClient = mockk<LyricsClient>()
+
+        val trackKey = "test_song_key"
+        val playbackMs = 200_000L
+
+        // Cached lyrics with 202,000ms duration (2s delta -> COMPATIBLE_OFFSET)
+        val cachedLyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = listOf(
+                createWordTimedLine(10_000L, "Hello line 1"),
+                createWordTimedLine(15_000L, "Hello line 2"),
+                createWordTimedLine(20_000L, "Hello line 3"),
+                createWordTimedLine(25_000L, "Hello line 4")
+            ),
+            provider = LyricsProvider.BETTER_LYRICS,
+            trackName = "Test Song",
+            artistName = "Test Artist",
+            durationMs = 202_000L
+        )
+        val entity = LyricsRepositoryImpl.domainToEntity(trackKey, cachedLyrics, "Test Song", "Test Artist")
+        coEvery { mockDao.getLyrics(trackKey) } returns entity
+
+        val repository = LyricsRepositoryImpl(
+            lyricsClient = mockClient,
+            lyricsDao = mockDao
+        )
+
+        val result = repository.getCachedLyrics(
+            title = "Test Song",
+            artist = "Test Artist",
+            durationSec = 200L,
+            videoId = trackKey,
+            durationMs = playbackMs
+        )
+
+        assertNotNull("Cached lyrics with compatible offset must be returned", result)
+        // Must NOT call deleteLyrics on DB for compatible offset
+        coVerify(exactly = 0) { mockDao.deleteLyrics(trackKey) }
+    }
 }
+

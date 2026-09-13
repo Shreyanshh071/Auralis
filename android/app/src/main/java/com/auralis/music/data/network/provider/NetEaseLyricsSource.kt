@@ -25,7 +25,7 @@ class NetEaseLyricsSource(
     override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC, SyncType.PLAIN)
 
     companion object {
-        private const val SEARCH_URL = "https://music.163.com/api/search/get/web"
+        private const val SEARCH_URL = "https://music.163.com/api/search/get"
         private const val LYRIC_URL = "https://music.163.com/api/song/lyric"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     }
@@ -77,7 +77,8 @@ class NetEaseLyricsSource(
                 val artistName = if (artists != null && artists.length() > 0) {
                     artists.optJSONObject(0)?.optString("name") ?: ""
                 } else ""
-                val durationSec = songObj.optLong("duration", 0L) / 1000L
+                val durationMs = songObj.optLong("duration", 0L).takeIf { it > 0L }
+                val durationSec = (durationMs ?: 0L) / 1000L
 
                 val confidence = LyricsMatcher.calculateConfidence(
                     queryTitle = query.title,
@@ -89,9 +90,10 @@ class NetEaseLyricsSource(
                 )
 
                 if (confidence >= 50 && confidence > bestConfidence) {
-                    val rawLyrics = fetchLyricsBySongId(songId, songName, artistName)
+                    val rawLyrics = fetchLyricsBySongId(songId, songName, artistName, durationMs)
                     if (rawLyrics != null && rawLyrics.lines.isNotEmpty()) {
                         val lyricsData = LyricsMatcher.autoAlignLyrics(rawLyrics, query.durationSec, durationSec)
+                            .copy(durationMs = durationMs ?: rawLyrics.durationMs)
                         bestConfidence = confidence
                         bestCandidate = LyricsCandidate(
                             lyricsData = lyricsData,
@@ -115,7 +117,12 @@ class NetEaseLyricsSource(
         }
     }
 
-    private fun fetchLyricsBySongId(songId: Long, trackName: String, artistName: String): LyricsData? {
+    private fun fetchLyricsBySongId(
+        songId: Long,
+        trackName: String,
+        artistName: String,
+        candDurationMs: Long? = null
+    ): LyricsData? {
         try {
             val url = "$LYRIC_URL?os=pc&id=$songId&lv=-1&kv=-1&tv=-1&yv=-1&rv=-1"
             val req = Request.Builder()
@@ -145,7 +152,11 @@ class NetEaseLyricsSource(
                     if (ttmlContent.isNotBlank()) {
                         val parsedTtml = com.auralis.music.data.parser.TtmlParser.parse(ttmlContent, LyricsProvider.NETEASE)
                         if (parsedTtml.lines.isNotEmpty() && parsedTtml.syncType == SyncType.RICHSYNC) {
-                            return parsedTtml.copy(trackName = trackName, artistName = artistName)
+                            return parsedTtml.copy(
+                                trackName = trackName,
+                                artistName = artistName,
+                                durationMs = candDurationMs ?: parsedTtml.durationMs
+                            )
                         }
                     }
                 }
@@ -156,7 +167,7 @@ class NetEaseLyricsSource(
             if (rawYrc.isNotBlank() && !rawYrc.contains("纯音乐")) {
                 val parsedYrc = YrcParser.parse(rawYrc, LyricsProvider.NETEASE, trackName, artistName)
                 if (parsedYrc != null && parsedYrc.lines.isNotEmpty() && parsedYrc.syncType == SyncType.RICHSYNC) {
-                    return parsedYrc
+                    return parsedYrc.copy(durationMs = candDurationMs ?: parsedYrc.durationMs)
                 }
             }
 
@@ -171,7 +182,8 @@ class NetEaseLyricsSource(
                         plainLyrics = "[Instrumental]",
                         provider = LyricsProvider.NETEASE,
                         trackName = trackName,
-                        artistName = artistName
+                        artistName = artistName,
+                        durationMs = candDurationMs
                     )
                 }
                 return null
@@ -180,7 +192,8 @@ class NetEaseLyricsSource(
             val parsed = LrcParser.parse(rawLrc, LyricsProvider.NETEASE)
             return parsed.copy(
                 trackName = trackName,
-                artistName = artistName
+                artistName = artistName,
+                durationMs = candDurationMs ?: parsed.durationMs
             )
         } catch (_: Exception) {
             return null

@@ -219,12 +219,10 @@ object LyricsAlignmentEngine {
      *
      * Invariants:
      * - [MasterMatchStatus.EXACT_MATCH]: Always acceptable (|delta| <= 1.5s or genuine exact video ID match).
-     * - [MasterMatchStatus.MASTER_MISMATCH]: Definite mismatch (|delta| > 3.5s or version clash); always rejected.
-     * - [MasterMatchStatus.COMPATIBLE_OFFSET]: 1.5s < |delta| <= 3.5s.
-     *   Acceptable ONLY when:
-     *   1. Verified with measured [audioLeadingSilenceMs] != null, OR
-     *   2. Candidate is a genuine exact YouTube video ID match.
-     *   If unverified, candidate is rejected to prevent applying unaligned lyrics (guessing offsetMs = 0).
+     * - [MasterMatchStatus.COMPATIBLE_OFFSET]: Acceptable (1.5s < |delta| <= 3.5s, or non-overrunning vocals).
+     *   When [audioLeadingSilenceMs] is null, playback runs unshifted (offsetMs = 0).
+     * - [MasterMatchStatus.MASTER_MISMATCH]: Definite mismatch (|delta| > 3.5s, vocals overrun by > 3.5s,
+     *   or version clash); always rejected.
      */
     fun isAcceptableMasterMatch(
         lyrics: LyricsData,
@@ -245,13 +243,6 @@ object LyricsAlignmentEngine {
 
         if (isGenuineExactVideo) return true
 
-        val candDuration = lyrics.durationMs
-        if (candDuration == null || candDuration <= 0L) {
-            // UNKNOWN CANDIDATE DURATION != EXACT MASTER MATCH
-            // Unknown candidate duration cannot be accepted without genuine exact video verification.
-            return false
-        }
-
         val masterMatch = evaluateMasterMatch(
             lyrics = lyrics,
             playbackDurationMs = playbackDurationMs,
@@ -261,11 +252,7 @@ object LyricsAlignmentEngine {
             playbackVideoId = playbackVideoId
         )
 
-        if (masterMatch == MasterMatchStatus.MASTER_MISMATCH) return false
-        if (masterMatch == MasterMatchStatus.COMPATIBLE_OFFSET && audioLeadingSilenceMs == null) {
-            return false
-        }
-        return true
+        return masterMatch != MasterMatchStatus.MASTER_MISMATCH
     }
 
     /**
