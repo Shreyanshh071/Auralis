@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.detectContainerReorderDrag
 import com.auralis.music.ui.components.detectReorderDrag
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -104,6 +105,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -1251,7 +1253,7 @@ private fun ClassicQueueContent(
             val density = LocalDensity.current
             val haptic = LocalHapticFeedback.current
 
-            val localQueue = remember(queueSnapshot) {
+            val localQueue = remember {
                 queueSnapshot.mapIndexed { index, trk ->
                     QueueTrackItem(
                         instanceId = "${trk.id}_${index}",
@@ -1263,13 +1265,17 @@ private fun ClassicQueueContent(
             var draggingInstanceId by remember { mutableStateOf<String?>(null) }
             var isDragging by remember { mutableStateOf(false) }
             var originalDragIndex by remember { mutableStateOf(-1) }
-            var dragVisualOffsetY by remember { mutableFloatStateOf(0f) }
+            var currentPointerY by remember { mutableFloatStateOf(0f) }
+            var grabOffsetY by remember { mutableFloatStateOf(0f) }
+            var lastDragEndTime by remember { mutableStateOf(0L) }
+            var lastSwapTimeMs by remember { mutableStateOf(0L) }
             val queueListState = rememberLazyListState()
 
             LaunchedEffect(queueSnapshot) {
                 if (!isDragging && draggingInstanceId == null) {
-                    val currentTracks = localQueue.map { it.track }
-                    if (currentTracks != queueSnapshot) {
+                    val tracksDiffer = localQueue.size != queueSnapshot.size ||
+                            localQueue.indices.any { localQueue[it].track.id != queueSnapshot[it].id }
+                    if (tracksDiffer) {
                         localQueue.clear()
                         localQueue.addAll(
                             queueSnapshot.mapIndexed { index, trk ->
@@ -1283,82 +1289,62 @@ private fun ClassicQueueContent(
                 }
             }
 
-            val onDragStart: (QueueTrackItem) -> Unit = { item ->
-                val idx = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                if (idx != -1) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    originalDragIndex = idx
-                    draggingInstanceId = item.instanceId
-                    dragVisualOffsetY = 0f
-                    isDragging = true
-                }
-            }
+            fun checkTargetSwap(pointerY: Float) {
+                val currentId = draggingInstanceId ?: return
+                val currIdx = localQueue.indexOfFirst { it.instanceId == currentId }
+                if (currIdx == -1) return
 
-            val onDragDelta: (Float) -> Unit = { deltaY ->
-                dragVisualOffsetY += deltaY
-                val currentId = draggingInstanceId
-                if (currentId != null) {
-                    var currIdx = localQueue.indexOfFirst { it.instanceId == currentId }
-                    if (currIdx != -1) {
-                        val visibleItems = queueListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "queue_track" }
-                        val slotPitch = if (visibleItems.size >= 2) {
-                            val d = kotlin.math.abs(visibleItems[1].offset - visibleItems[0].offset).toFloat()
-                            if (d > 0f) d else density.run { 68.dp.toPx() }
-                        } else {
-                            density.run { 68.dp.toPx() }
-                        }
-                        val threshold = slotPitch * 0.5f
+                // Debounce: wait for animateItemPlacement to settle before allowing the next swap
+                val now = System.currentTimeMillis()
+                if (now - lastSwapTimeMs < 200L) return
 
-                        while (dragVisualOffsetY > threshold && currIdx < localQueue.lastIndex) {
-                            java.util.Collections.swap(localQueue, currIdx, currIdx + 1)
-                            dragVisualOffsetY -= slotPitch
-                            currIdx += 1
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
+                val visibleItems = queueListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "queue_track" }
+                if (visibleItems.isEmpty()) return
 
-                        while (dragVisualOffsetY < -threshold && currIdx > 0) {
+                val currentItemInfo = visibleItems.find { it.key == currentId }
+                val itemHeight = currentItemInfo?.size?.toFloat() ?: density.run { 60.dp.toPx() }
+                val currentCenterY = currentItemInfo?.let { it.offset + (it.size / 2f) }
+                    ?: (pointerY - grabOffsetY + (itemHeight / 2f))
+                val draggedCenterY = pointerY - grabOffsetY + (itemHeight / 2f)
+
+                // Check swap with item ABOVE (currIdx - 1) using 50% midpoint threshold
+                if (currIdx > 0) {
+                    val prevInstanceId = localQueue[currIdx - 1].instanceId
+                    val prevItemInfo = visibleItems.find { it.key == prevInstanceId }
+                    if (prevItemInfo != null) {
+                        val prevCenterY = prevItemInfo.offset + (prevItemInfo.size / 2f)
+                        val swapThreshold = (currentCenterY + prevCenterY) / 2f
+                        if (draggedCenterY < swapThreshold) {
                             java.util.Collections.swap(localQueue, currIdx, currIdx - 1)
-                            dragVisualOffsetY += slotPitch
-                            currIdx -= 1
+                            lastSwapTimeMs = now
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            return
+                        }
+                    }
+                }
+
+                // Check swap with item BELOW (currIdx + 1) using 50% midpoint threshold
+                if (currIdx < localQueue.lastIndex) {
+                    val nextInstanceId = localQueue[currIdx + 1].instanceId
+                    val nextItemInfo = visibleItems.find { it.key == nextInstanceId }
+                    if (nextItemInfo != null) {
+                        val nextCenterY = nextItemInfo.offset + (nextItemInfo.size / 2f)
+                        val swapThreshold = (currentCenterY + nextCenterY) / 2f
+                        if (draggedCenterY > swapThreshold) {
+                            java.util.Collections.swap(localQueue, currIdx, currIdx + 1)
+                            lastSwapTimeMs = now
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            return
                         }
                     }
                 }
             }
 
-            val onDragEnd: () -> Unit = {
-                val finalIdx = localQueue.indexOfFirst { it.instanceId == draggingInstanceId }
-                val startIdx = originalDragIndex
-                isDragging = false
-                draggingInstanceId = null
-                dragVisualOffsetY = 0f
-                originalDragIndex = -1
-                if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
-                    onReorderQueue?.invoke(startIdx, finalIdx)
-                }
-            }
-
-            val onDragCancel: () -> Unit = {
-                localQueue.clear()
-                localQueue.addAll(
-                    queueSnapshot.mapIndexed { idx, trk ->
-                        QueueTrackItem(
-                            instanceId = "${trk.id}_${idx}",
-                            track = trk
-                        )
-                    }
-                )
-                isDragging = false
-                draggingInstanceId = null
-                dragVisualOffsetY = 0f
-                originalDragIndex = -1
-            }
-
-            // Auto-scroll when dragging near viewport top/bottom edges
+            // Smooth edge auto-scroll: Choreographer vsync synced for butter-smooth 120fps scrolling
             LaunchedEffect(isDragging) {
                 if (!isDragging) return@LaunchedEffect
-                val edgeZonePx = density.run { 56.dp.toPx() }
-                val maxSpeedPxPerSec = density.run { 600.dp.toPx() }
+                val edgeZonePx = density.run { 80.dp.toPx() }
+                val maxSpeedPxPerSec = density.run { 360.dp.toPx() }
                 var lastFrameNanos = 0L
 
                 while (isDragging && isActive) {
@@ -1373,18 +1359,18 @@ private fun ClassicQueueContent(
                     val viewportHeight = queueListState.layoutInfo.viewportSize.height.toFloat()
                     if (viewportHeight <= 0f) continue
 
-                    val currentId = draggingInstanceId ?: continue
-                    val draggedItemInfo = queueListState.layoutInfo.visibleItemsInfo.find { it.key == currentId } ?: continue
-                    val draggedVisualTop = draggedItemInfo.offset.toFloat() + dragVisualOffsetY
-                    val draggedVisualBottom = draggedVisualTop + draggedItemInfo.size
-
+                    val pointerY = currentPointerY
                     val scrollDelta = when {
-                        draggedVisualTop < edgeZonePx && queueListState.canScrollBackward -> {
-                            val factor = ((edgeZonePx - draggedVisualTop) / edgeZonePx).coerceIn(0f, 1f)
+                        pointerY < edgeZonePx && queueListState.canScrollBackward -> {
+                            val dist = (edgeZonePx - pointerY).coerceAtLeast(0f)
+                            val normalized = (dist / edgeZonePx).coerceIn(0f, 1f)
+                            val factor = normalized * normalized
                             -(factor * maxSpeedPxPerSec * dtSec)
                         }
-                        draggedVisualBottom > (viewportHeight - edgeZonePx) && queueListState.canScrollForward -> {
-                            val factor = ((draggedVisualBottom - (viewportHeight - edgeZonePx)) / edgeZonePx).coerceIn(0f, 1f)
+                        pointerY > (viewportHeight - edgeZonePx) && queueListState.canScrollForward -> {
+                            val dist = (pointerY - (viewportHeight - edgeZonePx)).coerceAtLeast(0f)
+                            val normalized = (dist / edgeZonePx).coerceIn(0f, 1f)
+                            val factor = normalized * normalized
                             factor * maxSpeedPxPerSec * dtSec
                         }
                         else -> 0f
@@ -1392,14 +1378,71 @@ private fun ClassicQueueContent(
 
                     if (scrollDelta != 0f) {
                         queueListState.scrollBy(scrollDelta)
-                        onDragDelta(scrollDelta)
+                        checkTargetSwap(pointerY)
                     }
                 }
             }
 
             LazyColumn(
                 state = queueListState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        val handleThresholdPx = density.run { 64.dp.toPx() }
+                        detectContainerReorderDrag(
+                            isHandleArea = { pos -> pos.x >= (size.width - handleThresholdPx) },
+                            onDragStart = { downOffset, currentOffset ->
+                                val visibleItems = queueListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "queue_track" }
+                                val hitItem = visibleItems.find { info ->
+                                    downOffset.y >= info.offset && downOffset.y <= (info.offset + info.size)
+                                } ?: visibleItems.minByOrNull { kotlin.math.abs(downOffset.y - (it.offset + it.size / 2f)) }
+
+                                if (hitItem != null) {
+                                    val hitInstanceId = hitItem.key as? String
+                                    val idx = if (hitInstanceId != null) localQueue.indexOfFirst { it.instanceId == hitInstanceId } else -1
+                                    if (idx != -1) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        originalDragIndex = idx
+                                        draggingInstanceId = hitInstanceId
+                                        grabOffsetY = downOffset.y - hitItem.offset.toFloat()
+                                        currentPointerY = currentOffset.y
+                                        isDragging = true
+                                        checkTargetSwap(currentPointerY)
+                                    }
+                                }
+                            },
+                            onDrag = { currentOffset ->
+                                currentPointerY = currentOffset.y
+                                checkTargetSwap(currentPointerY)
+                            },
+                            onDragEnd = {
+                                lastDragEndTime = System.currentTimeMillis()
+                                val finalIdx = localQueue.indexOfFirst { it.instanceId == draggingInstanceId }
+                                val startIdx = originalDragIndex
+                                isDragging = false
+                                draggingInstanceId = null
+                                originalDragIndex = -1
+                                if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
+                                    onReorderQueue?.invoke(startIdx, finalIdx)
+                                }
+                            },
+                            onDragCancel = {
+                                lastDragEndTime = System.currentTimeMillis()
+                                localQueue.clear()
+                                localQueue.addAll(
+                                    queueSnapshot.mapIndexed { idx, trk ->
+                                        QueueTrackItem(
+                                            instanceId = "${trk.id}_${idx}",
+                                            track = trk
+                                        )
+                                    }
+                                )
+                                isDragging = false
+                                draggingInstanceId = null
+                                originalDragIndex = -1
+                            }
+                        )
+                    },
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 itemsIndexed(
@@ -1411,50 +1454,32 @@ private fun ClassicQueueContent(
                     val isCurrent = index == queueCurrentIndex
                     val primaryColor = MaterialTheme.colorScheme.primary
                     val isItemBeingDragged = queueItem.instanceId == draggingInstanceId
-                    val translationY = if (isItemBeingDragged) dragVisualOffsetY else 0f
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .zIndex(if (isItemBeingDragged) 10f else 0f)
-                            .graphicsLayer {
-                                this.translationY = translationY
-                                if (isItemBeingDragged) {
-                                    scaleX = 1.03f
-                                    scaleY = 1.03f
-                                    shadowElevation = 24.dp.toPx()
-                                }
-                            }
                             .then(
-                                if (!isItemBeingDragged) {
+                                if (isItemBeingDragged) {
+                                    Modifier.graphicsLayer { alpha = 0.25f }
+                                } else {
                                     Modifier.animateItemPlacement(
                                         animationSpec = tween(
                                             durationMillis = 180,
                                             easing = FastOutSlowInEasing
                                         )
                                     )
-                                } else {
-                                    Modifier
                                 }
                             )
                             .clip(queueItemShape)
                             .background(
-                                if (isItemBeingDragged) {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f)
-                                } else if (isCurrent) {
+                                if (isCurrent) {
                                     primaryColor.copy(alpha = 0.20f)
                                 } else {
                                     inactiveRowBg
                                 }
                             )
-                            .then(
-                                if (isItemBeingDragged) {
-                                    Modifier.border(1.5.dp, primaryColor, queueItemShape)
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .clickable(enabled = !isDragging) {
+                            .clickable(enabled = !isDragging && (System.currentTimeMillis() - lastDragEndTime > 450L)) {
+                                if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
                                 val currentRealIndex = queueSnapshot.indexOfFirst { it.id == item.id }
                                 val targetIndex = if (currentRealIndex != -1) currentRealIndex else index
                                 onSelectQueueTrack(targetIndex)
@@ -1495,24 +1520,101 @@ private fun ClassicQueueContent(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                         }
-                        // Drag Handle (comfortable 48dp hit area, instant drag or hold)
+                        // Drag Handle (comfortable 48dp hit area, visual grip)
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
-                                .pointerInput(queueItem.instanceId) {
-                                    detectReorderDrag(
-                                        onDragStart = { onDragStart(queueItem) },
-                                        onDrag = { deltaY -> onDragDelta(deltaY) },
-                                        onDragEnd = { onDragEnd() },
-                                        onDragCancel = { onDragCancel() }
-                                    )
-                                },
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {}
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DragHandle,
                                 contentDescription = "Drag to reorder song",
                                 tint = if (isItemBeingDragged) primaryColor else Color.White.copy(alpha = 0.50f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // FLOATING DRAGGED CARD OVERLAY
+            val draggedQueueItem = localQueue.find { it.instanceId == draggingInstanceId }
+            if (isDragging && draggedQueueItem != null) {
+                val draggedTrack = draggedQueueItem.track
+                val isCurrent = draggedTrack.id == uiState.currentTrack?.id
+                val primaryColor = MaterialTheme.colorScheme.primary
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset {
+                            IntOffset(
+                                x = 0,
+                                y = (currentPointerY - grabOffsetY).roundToInt()
+                            )
+                        }
+                        .zIndex(999f)
+                        .graphicsLayer {
+                            scaleX = 1.04f
+                            scaleY = 1.04f
+                            shadowElevation = 32f
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(queueItemShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f))
+                            .border(1.5.dp, primaryColor, queueItemShape)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ArtworkCard(
+                            url = draggedTrack.thumbnail,
+                            modifier = Modifier.size(44.dp),
+                            cornerRadius = queueArtworkCorner,
+                            contentDescription = draggedTrack.title
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = draggedTrack.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                                color = if (isCurrent) primaryColor else Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = draggedTrack.artist,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = subtitleColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (isCurrent) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                contentDescription = "Playing",
+                                tint = primaryColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Box(
+                            modifier = Modifier.size(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DragHandle,
+                                contentDescription = "Dragging song",
+                                tint = primaryColor,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
