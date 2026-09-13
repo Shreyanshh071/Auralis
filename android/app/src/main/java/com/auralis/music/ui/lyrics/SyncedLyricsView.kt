@@ -478,24 +478,22 @@ fun SyncedLyricsView(
                     val nextLine = effectiveLines[index + 1]
                     val nextStart = nextLine.time
                     val effEnd = line.effectiveEndTime
-                    val gapStart = when {
-                        effEnd != null -> effEnd
-                        line.text.isBlank() -> line.time
-                        else -> {
-                            val estimatedDuration = (line.text.length * 100L).coerceIn(2500L, 5000L)
-                            (line.time + estimatedDuration).coerceAtMost(nextStart - 2000L)
-                        }
+                    // Genuine instrumental break verification:
+                    // - Word-synced lyrics with known end time: requires >= 5.0s of genuine vocal silence.
+                    // - Line-synced lyrics without end times: requires >= 10.0s between line starts to avoid
+                    //   false-triggering during normal conversational lyric line cadences (4-8s).
+                    val isGenuineBreak = if (effEnd != null) {
+                        (nextStart - effEnd) >= 5_000L
+                    } else {
+                        (nextStart - line.time) >= 10_000L
                     }
-                    val gapDuration = nextStart - gapStart
-                    if (gapDuration >= 3500L) {
-                        // Short/medium breaks (3.5s to 35s): smooth fluid indicator across full gap
-                        // Extended breaks (>35s, e.g. multi-minute solos or bridges): 8-second count-in into upcoming line
-                        val indicatorStart = if (gapDuration > 35_000L) {
-                            nextStart - 8_000L
-                        } else {
-                            gapStart
+                    if (isGenuineBreak) {
+                        // Count-in indicator strictly counts down the last 4.5 seconds into the upcoming vocal line.
+                        // Coerced at least after the previous line has completely finished singing.
+                        val indicatorStart = (nextStart - 4_500L).coerceAtLeast(effEnd ?: (line.time + 3_000L))
+                        if (nextStart > indicatorStart) {
+                            items.add(SyncedLyricsItem.Indicator(index, indicatorStart, nextStart))
                         }
-                        items.add(SyncedLyricsItem.Indicator(index, indicatorStart, nextStart))
                     }
                 }
             }
@@ -646,8 +644,10 @@ fun SyncedLyricsView(
 
         val isIntroActiveState = remember(isSynced, introDurationMs, offsetMs, positionState) {
             derivedStateOf {
-                isSynced && introDurationMs >= 1500L &&
-                    (positionState.value + offsetMs).coerceAtLeast(0L) < introDurationMs
+                if (!isSynced || introDurationMs < 4_500L) return@derivedStateOf false
+                val currentMs = (positionState.value + offsetMs).coerceAtLeast(0L)
+                val countInStart = introDurationMs - 4_500L
+                currentMs in countInStart..introDurationMs
             }
         }
         // The intro indicator shows whole seconds and a 380 ms dot cycle, so a
@@ -1646,10 +1646,14 @@ internal fun InstrumentalIntroIndicator(
     currentTimeMsState: State<Long>,
     introDurationMs: Long,
     modifier: Modifier = Modifier,
+    countInDurationMs: Long = 4_500L,
     onSkipIntro: (() -> Unit)? = null
 ) {
     val currentTimeMs = currentTimeMsState.value
-    val progress = (currentTimeMs.toFloat() / introDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+    val countInStart = (introDurationMs - countInDurationMs).coerceAtLeast(0L)
+    val progress = if (introDurationMs > countInStart) {
+        ((currentTimeMs - countInStart).toFloat() / (introDurationMs - countInStart).toFloat()).coerceIn(0f, 1f)
+    } else 0f
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
         animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.LinearEasing),

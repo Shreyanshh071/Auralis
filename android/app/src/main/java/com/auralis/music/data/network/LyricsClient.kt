@@ -137,9 +137,9 @@ class LyricsClient(
                 isAligned && !bestIsAligned -> true
                 !isAligned && bestIsAligned -> false
                 !isAligned && !bestIsAligned -> false
-                // Completeness priority: candidate with significantly smaller void outranks candidate with massive missing void (>45s gap difference)
-                (bestMaxGapMs - maxGapMs) > 45_000L && (tier >= bestTier || score >= bestScore - 15.0) -> true
-                (maxGapMs - bestMaxGapMs) > 45_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
+                // Completeness priority: candidate with significantly smaller void outranks candidate with missing void (>= 18s gap difference)
+                (bestMaxGapMs - maxGapMs) >= 18_000L && (tier >= bestTier || score >= bestScore - 15.0) -> true
+                (maxGapMs - bestMaxGapMs) >= 18_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
                 tier > bestTier -> true
                 tier < bestTier -> false
                 tier == TIER_WORD -> {
@@ -177,18 +177,35 @@ class LyricsClient(
             primary: LyricsData,
             secondaryCandidates: List<LyricsData>
         ): LyricsData {
-            if (primary.lines.size < 2 || secondaryCandidates.isEmpty()) return primary
+            if (primary.lines.isEmpty() || secondaryCandidates.isEmpty()) return primary
             val missingLinesToInsert = mutableListOf<LyricLine>()
 
+            // 1. Check intro void: primary first line starts after a significant void (>= 8s)
+            val primaryFirstTime = primary.lines.firstOrNull { !it.isInstrumental }?.time ?: 0L
+            if (primaryFirstTime >= 8_000L) {
+                for (sec in secondaryCandidates) {
+                    val introLines = sec.lines.filter {
+                        it.time in 1_500L..(primaryFirstTime - 1_500L) &&
+                            it.text.isNotBlank() &&
+                            !it.isInstrumental
+                    }
+                    if (introLines.isNotEmpty()) {
+                        missingLinesToInsert.addAll(introLines)
+                        break
+                    }
+                }
+            }
+
+            // 2. Check internal gaps between consecutive lines (>= 8s)
             for (i in 0 until primary.lines.size - 1) {
                 val current = primary.lines[i]
                 val next = primary.lines[i + 1]
                 val gapStart = current.effectiveEndTime ?: (current.time + 3000L)
                 val gapEnd = next.time
-                if (gapEnd - gapStart > 45_000L) {
+                if (gapEnd - gapStart >= 8_000L) {
                     for (sec in secondaryCandidates) {
                         val fillingLines = sec.lines.filter {
-                            it.time in (gapStart + 1500L)..(gapEnd - 1500L) &&
+                            it.time in (gapStart + 1200L)..(gapEnd - 1200L) &&
                                 it.text.isNotBlank() &&
                                 !it.isInstrumental
                         }
@@ -199,6 +216,23 @@ class LyricsClient(
                     }
                 }
             }
+
+            // 3. Check outro void: primary ends early (>= 8s before secondary's last line)
+            val primaryLastTime = primary.lines.lastOrNull { !it.isInstrumental }?.let { it.effectiveEndTime ?: it.time } ?: 0L
+            if (primaryLastTime > 0L) {
+                for (sec in secondaryCandidates) {
+                    val outroLines = sec.lines.filter {
+                        it.time >= (primaryLastTime + 2_000L) &&
+                            it.text.isNotBlank() &&
+                            !it.isInstrumental
+                    }
+                    if (outroLines.isNotEmpty()) {
+                        missingLinesToInsert.addAll(outroLines)
+                        break
+                    }
+                }
+            }
+
             if (missingLinesToInsert.isEmpty()) return primary
             val mergedLines = (primary.lines + missingLinesToInsert).sortedBy { it.time }
             return primary.copy(
@@ -212,7 +246,7 @@ class LyricsClient(
          * Gated on:
          * 1. Word tier.
          * 2. High quality score (>= INSTANT_WIN_SCORE).
-         * 3. No massive internal voids (>45s) indicating dropped sections.
+         * 3. No internal voids (>18s) indicating dropped sections.
          * 4. Verified audio master alignment (must REJECT MasterMatchStatus.MASTER_MISMATCH).
          * 5. Top provider preference (BetterLyrics, or Unison when exact-video matched).
          */
@@ -226,7 +260,7 @@ class LyricsClient(
         ): Boolean =
             tier == TIER_WORD &&
             score >= INSTANT_WIN_SCORE &&
-            maxGapMs <= 45_000L &&
+            maxGapMs <= 18_000L &&
             masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH &&
             (provider == LyricsProvider.BETTER_LYRICS || (provider == LyricsProvider.UNISON && isExactVideoMatch))
 

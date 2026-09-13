@@ -322,8 +322,9 @@ fun ExperimentalLyricsView(
 
     val isIntroActiveState = remember(isSynced, introDurationMs) {
         derivedStateOf {
-            isSynced && introDurationMs >= 1500L &&
-                currentPositionState < introDurationMs
+            if (!isSynced || introDurationMs < 4_500L) return@derivedStateOf false
+            val countInStart = introDurationMs - 4_500L
+            currentPositionState in countInStart..introDurationMs
         }
     }
     val introTimeState = remember {
@@ -339,22 +340,22 @@ fun ExperimentalLyricsView(
             if (index < effectiveLines.size - 1) {
                 val nextStart = effectiveLines[index + 1].time
                 val effEnd = line.effectiveEndTime
-                val gapStart = when {
-                    effEnd != null -> effEnd
-                    line.text.isBlank() -> line.time
-                    else -> {
-                        val estimatedDuration = (line.text.length * 100L).coerceIn(2500L, 5000L)
-                        (line.time + estimatedDuration).coerceAtMost(nextStart - 2000L)
-                    }
+                // Genuine instrumental break verification:
+                // - Word-synced lyrics with known end time: requires >= 5.0s of genuine vocal silence.
+                // - Line-synced lyrics without end times: requires >= 10.0s between line starts to avoid
+                //   false-triggering during normal conversational lyric line cadences (4-8s).
+                val isGenuineBreak = if (effEnd != null) {
+                    (nextStart - effEnd) >= 5_000L
+                } else {
+                    (nextStart - line.time) >= 10_000L
                 }
-                val gapDuration = nextStart - gapStart
-                if (gapDuration >= 3500L) {
-                    val indicatorStart = if (gapDuration > 35_000L) {
-                        nextStart - 8_000L
-                    } else {
-                        gapStart
+                if (isGenuineBreak) {
+                    // Count-in indicator strictly counts down the last 4.5 seconds into the upcoming vocal line.
+                    // Coerced at least after the previous line has completely finished singing.
+                    val indicatorStart = (nextStart - 4_500L).coerceAtLeast(effEnd ?: (line.time + 3_000L))
+                    if (nextStart > indicatorStart) {
+                        list.add(ExperimentalLyricsListItem.Indicator(index, indicatorStart, nextStart))
                     }
-                    list.add(ExperimentalLyricsListItem.Indicator(index, indicatorStart, nextStart))
                 }
             }
         }

@@ -1169,6 +1169,69 @@ class LyricsPipelineRegressionTest {
     }
 
     @Test
+    fun testFillLyricsGapsHealsIntroAndOutroVoidsAcrossCatalog() {
+        // Primary candidate dropped the first verse (starts at 30s) and outro (ends at 120s of a 180s song)
+        val primaryWithMissingIntroAndOutro = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = listOf(
+                createWordTimedLine(30_000L, "Main chorus line 1"),
+                createWordTimedLine(60_000L, "Main chorus line 2"),
+                createWordTimedLine(120_000L, "Bridge line")
+            ),
+            provider = LyricsProvider.BETTER_LYRICS,
+            durationMs = 180_000L
+        )
+
+        // Secondary candidate has the full intro verse and outro
+        val secondaryFull = LyricsData(
+            syncType = SyncType.LINE_SYNC,
+            lines = listOf(
+                createLineTimedLine(5_000L, "Intro line 1"),
+                createLineTimedLine(12_000L, "Intro line 2"),
+                createLineTimedLine(30_000L, "Main chorus line 1"),
+                createLineTimedLine(60_000L, "Main chorus line 2"),
+                createLineTimedLine(120_000L, "Bridge line"),
+                createLineTimedLine(150_000L, "Outro line 1"),
+                createLineTimedLine(165_000L, "Outro line 2")
+            ),
+            provider = LyricsProvider.LRCLIB,
+            durationMs = 180_000L
+        )
+
+        val healed = LyricsClient.fillLyricsGaps(primaryWithMissingIntroAndOutro, listOf(secondaryFull))
+        // Should have grafted 2 intro lines and 2 outro lines -> total 7 lines
+        assertEquals("Total lines must be 7 after healing intro and outro", 7, healed.lines.size)
+        assertEquals("First line must be the grafted intro line", "Intro line 1", healed.lines.first().text)
+        assertEquals(5_000L, healed.lines.first().time)
+        assertEquals("Last line must be the grafted outro line", "Outro line 2", healed.lines.last().text)
+        assertEquals(165_000L, healed.lines.last().time)
+        assertTrue("Lines must be ordered strictly by timestamp", healed.lines.zipWithNext().all { it.first.time <= it.second.time })
+    }
+
+    @Test
+    fun testInstantWinnerRejectsCandidateWithVoidGreaterThan18Seconds() {
+        // Candidate with 20s gap (>18s) must not instant win and cancel other providers
+        val cannotInstantWin = LyricsClient.isInstantWinner(
+            tier = LyricsClient.TIER_WORD,
+            score = 150.0,
+            masterMatch = MasterMatchStatus.EXACT_MATCH,
+            provider = LyricsProvider.BETTER_LYRICS,
+            maxGapMs = 20_000L
+        )
+        assertFalse("Candidate with 20s void must not instant win", cannotInstantWin)
+
+        // Candidate with normal 10s gap (<=18s) can instant win
+        val canInstantWin = LyricsClient.isInstantWinner(
+            tier = LyricsClient.TIER_WORD,
+            score = 150.0,
+            masterMatch = MasterMatchStatus.EXACT_MATCH,
+            provider = LyricsProvider.BETTER_LYRICS,
+            maxGapMs = 10_000L
+        )
+        assertTrue("Complete candidate with normal gap <=18s can instant win", canInstantWin)
+    }
+
+    @Test
     fun testNetEaseAndMultiProviderCandidatesAreAcceptable() {
         val playbackMs = 210_000L
 
