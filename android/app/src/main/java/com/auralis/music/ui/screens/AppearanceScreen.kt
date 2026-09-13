@@ -153,6 +153,12 @@ fun AppearanceScreen(
         }
     }
 
+    LaunchedEffect(settings.playerBackgroundStyle) {
+        if (PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle) == PlayerBackgroundStyle.APPLE_MUSIC) {
+            update { copy(playerBackgroundStyle = PlayerBackgroundStyle.GRADIENT.displayName) }
+        }
+    }
+
     val primaryColor = MaterialTheme.dynamicPrimary
     val backgroundColor = MaterialTheme.dynamicBackground
     val surfaceColor = MaterialTheme.dynamicSurface
@@ -351,7 +357,9 @@ fun AppearanceScreen(
                     )
                 }
                 item(key = "item_player_bg") {
-                    val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle)
+                    val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
+                        if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else it
+                    }
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = "Player background style",
@@ -667,8 +675,12 @@ fun AppearanceScreen(
             )
         }
         AppearanceDialogType.PLAYER_BG -> {
-            val bgOptions = PlayerBackgroundStyle.entries.map { it.displayName }
-            val currentStyle = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle)
+            val bgOptions = PlayerBackgroundStyle.entries
+                .filter { it != PlayerBackgroundStyle.APPLE_MUSIC }
+                .map { it.displayName }
+            val currentStyle = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
+                if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else it
+            }
             AppearanceOptionsDialog(
                 title = "Player background style",
                 options = bgOptions,

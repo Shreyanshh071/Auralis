@@ -554,7 +554,8 @@ fun NowPlayingModal(
     } ?: remember { mutableFloatStateOf(1f) }
 
     val playerBgStyle = remember(appearance.playerBackgroundStyle) {
-        PlayerBackgroundStyle.fromKey(appearance.playerBackgroundStyle)
+        val style = PlayerBackgroundStyle.fromKey(appearance.playerBackgroundStyle)
+        if (style == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else style
     }
 
     // Vibrant gradient palette derived from artwork colors
