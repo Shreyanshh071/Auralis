@@ -32,4 +32,9 @@ interface PlaybackClockSource {
 
     /** Playback rate multiplier, `1.0f` at normal speed. */
     fun speed(): Float
+
+    /**
+     * Whether the engine is currently buffering or preparing after a seek or network stall.
+     */
+    fun isBuffering(): Boolean = false
 }

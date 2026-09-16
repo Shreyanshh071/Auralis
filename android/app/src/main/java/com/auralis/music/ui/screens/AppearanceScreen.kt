@@ -159,6 +159,17 @@ fun AppearanceScreen(
         }
     }
 
+    LaunchedEffect(settings.experimentalLyrics) {
+        if (settings.experimentalLyrics) {
+            update {
+                copy(
+                    experimentalLyrics = false,
+                    lyricsAnimation = com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS.displayName
+                )
+            }
+        }
+    }
+
     val primaryColor = MaterialTheme.dynamicPrimary
     val backgroundColor = MaterialTheme.dynamicBackground
     val surfaceColor = MaterialTheme.dynamicSurface
@@ -405,23 +416,6 @@ fun AppearanceScreen(
 
                 // ════ 4. LYRICS ════
                 item(key = "hdr_lyrics") { AppearanceSectionHeader(title = "Lyrics", color = primaryColor) }
-                item(key = "item_experimental_lyrics") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Tune,
-                        title = "Experimental Lyrics",
-                        subtitle = "Use the experimental multi-line lyrics layout",
-                        isChecked = settings.experimentalLyrics,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(experimentalLyrics = it) } }
-                    )
-                }
                 item(key = "item_lyrics_text_position") {
                     AppearanceClickableItem(
                         icon = Icons.Default.FormatAlignCenter,

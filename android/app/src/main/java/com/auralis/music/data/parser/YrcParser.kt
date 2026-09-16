@@ -11,6 +11,9 @@ object YrcParser {
 
     private val YRC_LINE_REGEX = Regex("""^\[(\d+),(\d+)](.*)""")
     private val YRC_WORD_REGEX = Regex("""\((\d+),(\d+),\d+\)([^(]*)""")
+    private val CREDIT_LINE_REGEX = Regex(
+        """(?i)^(?:作词|作曲|编曲|制作|监制|录音|混音|吉他|贝斯|鼓|键盘|弦乐|合音|企划|OP|SP|Lyricist|Composer|Producer|Written\s*by|Music\s*by|Words\s*by)\s*[:：]"""
+    )
 
     /**
      * Parses NetEase Cloud Music YRC content into [LyricsData].
@@ -76,6 +79,9 @@ object YrcParser {
                 val lineEndMs = if (lineDurMs > 0L) lineStartMs + lineDurMs else null
                 val fullText = lineSb.toString().trim()
                 if (fullText.isNotEmpty()) {
+                    if (lineStartMs < 8000L && CREDIT_LINE_REGEX.containsMatchIn(fullText)) {
+                        continue
+                    }
                     lines.add(
                         LyricLine(
                             time = lineStartMs,
@@ -137,6 +143,9 @@ object YrcParser {
 
                 val fullText = lineSb.toString().trim()
                 if (fullText.isNotEmpty()) {
+                    if (lineStartMs < 8000L && CREDIT_LINE_REGEX.containsMatchIn(fullText)) {
+                        continue
+                    }
                     lines.add(
                         LyricLine(
                             time = lineStartMs,

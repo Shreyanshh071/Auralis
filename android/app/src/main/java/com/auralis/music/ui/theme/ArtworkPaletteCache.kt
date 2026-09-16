@@ -32,7 +32,8 @@ data class ArtworkPalette(
     val tertiary: Color,
     val seedColor: Color = primary,
     val isMonochrome: Boolean = false,
-    val glowColors: List<Color> = emptyList()
+    val glowColors: List<Color> = emptyList(),
+    val isPlaceholder: Boolean = false
 ) {
     val isDefault: Boolean
         get() = this == ArtworkPaletteCache.defaultPalette
@@ -104,11 +105,106 @@ object ArtworkPaletteCache {
 
     fun getCached(key: String): ArtworkPalette? {
         if (key.isBlank()) return null
-        return synchronized(memoryCache) { memoryCache[key] }
+        return synchronized(memoryCache) {
+            val item = memoryCache[key]
+            if (item != null && !item.isPlaceholder) item else null
+        }
+    }
+
+    /**
+     * Instantly retrieves the palette from memory cache or Coil's preloaded bitmap cache.
+     * Returns in <1ms without hitting disk or network, enabling zero-frame-delay background updates.
+     */
+    fun getCachedOrFastExtract(context: Context, trackId: String?, thumbnailUrl: String?): ArtworkPalette? {
+        if (!trackId.isNullOrBlank()) {
+            getCached(trackId)?.takeIf { !it.isDefault && !it.isPlaceholder }?.let { return it }
+        }
+        if (!thumbnailUrl.isNullOrBlank()) {
+            getCached(thumbnailUrl)?.takeIf { !it.isDefault && !it.isPlaceholder }?.let { return it }
+        }
+        if (thumbnailUrl.isNullOrBlank()) return null
+
+        try {
+            val memCache = context.imageLoader.memoryCache
+            if (memCache != null) {
+                val candidateKeys = listOfNotNull(
+                    coil.memory.MemoryCache.Key(thumbnailUrl),
+                    getHighResArtworkUrl(thumbnailUrl)?.let { coil.memory.MemoryCache.Key(it) }
+                )
+                for (cacheKey in candidateKeys) {
+                    val value = memCache[cacheKey]
+                    val bmp = value?.bitmap
+                    if (bmp != null && !bmp.isRecycled) {
+                        // Offload bitmap palette analysis to background thread to ensure buttery 120fps UI
+                        cacheScope.launch(Dispatchers.IO) {
+                            try {
+                                val palette = extractFromBitmap(bmp)
+                                if (!palette.isDefault && !palette.isPlaceholder) {
+                                    if (!trackId.isNullOrBlank()) put(trackId, palette)
+                                    put(thumbnailUrl, palette)
+                                    if (currentTrackId == trackId) {
+                                        _currentPalette.value = palette
+                                    }
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                        return null
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
+    /**
+     * Synchronously returns an authoritative, distinct ArtworkPalette for the track.
+     * Checks memory cache, Coil's preloaded bitmap cache, dominant color, and finally
+     * a deterministic vibrant seed derived from the track. Guarantees immediate color
+     * resolution on Frame 0 with zero delay or freeze.
+     */
+    fun getOrCreatePalette(context: Context, track: Track?): ArtworkPalette {
+        if (track == null) return defaultPalette
+        val trackId = track.id.ifBlank { track.thumbnail }
+        getCachedOrFastExtract(context, trackId, track.thumbnail)?.let { return it }
+
+        if (track.dominantColor != null && track.dominantColor != 0) {
+            val color = Color(track.dominantColor)
+            val fallback = ArtworkPalette(
+                primary = color,
+                secondary = color,
+                tertiary = color,
+                seedColor = color,
+                glowColors = listOf(color, color, color),
+                isPlaceholder = false
+            )
+            if (trackId.isNotBlank()) put(trackId, fallback)
+            return fallback
+        }
+
+        // Return current active palette as a temporary placeholder so UI holds existing color
+        // without flashing a synthetic hash color!
+        val cur = _currentPalette.value
+        if (!cur.isDefault) {
+            return cur.copy(isPlaceholder = true)
+        }
+
+        val hash = kotlin.math.abs((track.id.ifBlank { track.title }).hashCode())
+        val hue = (hash % 360).toFloat()
+        val hsv = floatArrayOf(hue, 0.70f, 0.60f)
+        val argb = android.graphics.Color.HSVToColor(hsv)
+        val seed = Color(argb)
+        return ArtworkPalette(
+            primary = seed,
+            secondary = seed,
+            tertiary = seed,
+            seedColor = seed,
+            glowColors = listOf(seed, seed, seed),
+            isPlaceholder = true
+        )
     }
 
     fun put(key: String, palette: ArtworkPalette) {
-        if (key.isBlank()) return
+        if (key.isBlank() || palette.isPlaceholder) return
         synchronized(memoryCache) { memoryCache[key] = palette }
     }
 
@@ -254,18 +350,21 @@ object ArtworkPaletteCache {
         }
 
         val trackId = track.id.ifBlank { track.thumbnail }
-        if (trackId == currentTrackId && _currentPalette.value != defaultPalette) return
+        if (trackId == currentTrackId && _currentPalette.value != defaultPalette && !_currentPalette.value.isPlaceholder) return
         currentTrackId = trackId
 
         // 1. Instant hit from internal LRU memory cache
         val cached = getCached(trackId) ?: getCached(track.thumbnail)
-        if (cached != null) {
+        if (cached != null && !cached.isPlaceholder) {
             extractionJob?.cancel()
             _currentPalette.value = cached
             return
         }
 
-        // 2. Synchronous check: inspect Coil's in-memory cache for preloaded bitmap
+        // 2. Check Coil's in-memory cache for preloaded bitmap → extract in background
+        // ── PERF FIX #2: Previously this called extractFromBitmap() synchronously on the ──
+        // ── caller's thread (often Main). Now offloaded to Dispatchers.IO. ──
+        var coilBitmap: Bitmap? = null
         try {
             val memCache = context.imageLoader.memoryCache
             if (memCache != null) {
@@ -277,24 +376,26 @@ object ArtworkPaletteCache {
                     val value = memCache[cacheKey]
                     val bmp = value?.bitmap
                     if (bmp != null && !bmp.isRecycled) {
-                        val palette = extractFromBitmap(bmp)
-                        put(trackId, palette)
-                        put(track.thumbnail, palette)
-                        extractionJob?.cancel()
-                        _currentPalette.value = palette
-                        return
+                        coilBitmap = bmp
+                        break
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        // 3. Off-main-thread extraction
+        // 3. Off-main-thread extraction (from Coil cache hit or network fetch)
         // Keep the current palette active during async extraction so Compose animateColorAsState
         // can smoothly morph colors from the previous song to the new song once ready.
         extractionJob?.cancel()
         extractionJob = cacheScope.launch {
-            val palette = extractPalette(context, trackId, track.thumbnail)
-            if (currentTrackId == trackId) {
+            val palette = if (coilBitmap != null && !coilBitmap.isRecycled) {
+                extractFromBitmap(coilBitmap)
+            } else {
+                extractPalette(context, trackId, track.thumbnail)
+            }
+            if (!palette.isDefault && !palette.isPlaceholder && currentTrackId == trackId) {
+                put(trackId, palette)
+                put(track.thumbnail, palette)
                 _currentPalette.value = palette
             }
         }
@@ -307,8 +408,8 @@ object ArtworkPaletteCache {
         if (artworkUrl.isBlank()) return defaultPalette
 
         // 1. Check memory cache first
-        getCached(key)?.let { return it }
-        getCached(artworkUrl)?.let { return it }
+        getCached(key)?.takeIf { !it.isPlaceholder }?.let { return it }
+        getCached(artworkUrl)?.takeIf { !it.isPlaceholder }?.let { return it }
 
         val targetUrl = getHighResArtworkUrl(artworkUrl)
         val urlCandidates = mutableListOf<String>()

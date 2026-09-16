@@ -160,9 +160,11 @@ fun ExploreScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
     val handleTrackClick: (Track, List<Track>) -> Unit = { track, list ->
-        focusManager.clearFocus(force = true)
-        keyboardController?.hide()
-        onTrackClick(track, list)
+        if (!uiState.isSearching) {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+            onTrackClick(track, list)
+        }
     }
 
     val handleOpenArtist: (Artist) -> Unit = { artist ->
@@ -194,29 +196,44 @@ fun ExploreScreen(
         else -> null
     }
 
-    LaunchedEffect(currentDetail) {
-        if (currentDetail != null) {
+    // ── PERF FIX #1: Extract stable navigation identity from ExploreDetail ──
+    // Using the full data class as identity causes loading/content updates to restart
+    // the navigation animation. Instead, key on type + unique ID only.
+    val detailKey: String? = when (currentDetail) {
+        is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> "artist:${currentDetail.artistPage.artist.id.ifBlank { currentDetail.artistPage.artist.name }}"
+        is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> "album:${currentDetail.album.id.ifBlank { currentDetail.album.title }}"
+        null -> null
+    }
+
+    LaunchedEffect(detailKey) {
+        if (detailKey != null) {
             focusManager.clearFocus(force = true)
             keyboardController?.hide()
         }
     }
 
     AnimatedContent(
-        targetState = currentDetail,
+        targetState = detailKey,
         transitionSpec = {
-            if (targetState != null) {
+            if (targetState != null && initialState == null) {
+                detailForwardEnter togetherWith detailForwardExit
+            } else if (targetState == null && initialState != null) {
+                detailBackwardEnter togetherWith detailBackwardExit
+            } else if (targetState != null && initialState != null && targetState != initialState) {
                 detailForwardEnter togetherWith detailForwardExit
             } else {
-                detailBackwardEnter togetherWith detailBackwardExit
+                androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
             }
         },
         label = "SearchDetailTransition"
-    ) { detail ->
-        when (detail) {
-            is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
+    ) { targetKey ->
+        // Read current detail for actual rendering (content may update without triggering transition)
+        when {
+            targetKey != null && currentDetail is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
+                val artistDetail = currentDetail as com.auralis.music.ui.viewmodel.ExploreDetail.Artist
                 ArtistScreen(
-                    artistPage = detail.artistPage,
-                    isLoading = detail.isLoading,
+                    artistPage = artistDetail.artistPage,
+                    isLoading = artistDetail.isLoading,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
                     userPlaylists = userPlaylists,
@@ -238,11 +255,12 @@ fun ExploreScreen(
                     modifier = modifier
                 )
             }
-            is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
+            targetKey != null && currentDetail is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
+                val albumDetail = currentDetail as com.auralis.music.ui.viewmodel.ExploreDetail.Album
                 com.auralis.music.ui.screens.AlbumScreen(
-                    album = detail.album,
-                    tracks = detail.tracks,
-                    isLoading = detail.isLoading,
+                    album = albumDetail.album,
+                    tracks = albumDetail.tracks,
+                    isLoading = albumDetail.isLoading,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
                     userPlaylists = userPlaylists,
@@ -261,7 +279,7 @@ fun ExploreScreen(
                     modifier = modifier
                 )
             }
-            null -> {
+            else -> {
             val hasResults = uiState.query.isNotBlank() && (
                 uiState.searchResults.songs.isNotEmpty() ||
                 uiState.searchResults.artists.isNotEmpty() ||
@@ -424,7 +442,7 @@ fun ExploreScreen(
             // 2. SEARCH BODY: SPINNER | RESULTS | LIVE SUGGESTIONS
             // ================================================================
             val bodyState = when {
-                uiState.isSearching && uiState.searchResults.isEmpty() -> SearchBodyState.SEARCHING
+                uiState.isSearching -> SearchBodyState.SEARCHING
                 uiState.hasSubmittedSearch -> SearchBodyState.RESULTS
                 else -> SearchBodyState.SUGGESTIONS
             }
@@ -438,7 +456,24 @@ fun ExploreScreen(
                 modifier = Modifier.fillMaxSize(),
                 label = "searchBodyTransition"
             ) { targetBody ->
-                when (targetBody) {
+                val isCurrentTarget = targetBody == bodyState
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (!isCurrentTarget) {
+                                Modifier.pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    }
+                                }
+                            } else Modifier
+                        )
+                ) {
+                    when (targetBody) {
                     SearchBodyState.SEARCHING -> {
                         Box(
                             modifier = Modifier
@@ -619,6 +654,7 @@ fun ExploreScreen(
 }
 }
 }
+}
 
     // Options Menu
     selectedTrackForMenu?.let { track ->
@@ -726,7 +762,13 @@ private fun SearchResultsView(
                 )
             }
 
-            item(key = "card_top_result") {
+            val topResultKey = when (val tr = results.topResult) {
+                is SearchTopResult.SongResult -> "card_top_song_${tr.track.id}"
+                is SearchTopResult.ArtistResult -> "card_top_artist_${tr.artist.id}"
+                is SearchTopResult.AlbumResult -> "card_top_album_${tr.album.id}"
+                else -> "card_top_none"
+            }
+            item(key = topResultKey) {
                 when (val tr = results.topResult) {
                     is SearchTopResult.SongResult -> {
                         val track = tr.track
@@ -746,6 +788,7 @@ private fun SearchResultsView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 ArtworkCard(
+                                    sizeToConstraints = true,
                                     url = track.thumbnail,
                                     modifier = Modifier.size(72.dp),
                                     cornerRadius = 12.dp,
@@ -796,6 +839,7 @@ private fun SearchResultsView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 ArtworkCard(
+                                    sizeToConstraints = true,
                                     url = artist.thumbnail ?: "",
                                     modifier = Modifier.size(72.dp).clip(CircleShape),
                                     cornerRadius = 36.dp,
@@ -838,6 +882,7 @@ private fun SearchResultsView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 ArtworkCard(
+                                    sizeToConstraints = true,
                                     url = album.thumbnail,
                                     modifier = Modifier.size(72.dp),
                                     cornerRadius = 12.dp,
@@ -913,6 +958,7 @@ private fun SearchResultsView(
                             ) {
                                 if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail.contains("i.ytimg.com/vi/")) {
                                     ArtworkCard(
+                                        sizeToConstraints = true,
                                         url = primaryArtist.thumbnail,
                                         modifier = Modifier.size(46.dp).clip(CircleShape),
                                         cornerRadius = 23.dp,
@@ -978,6 +1024,7 @@ private fun SearchResultsView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 ArtworkCard(
+                                    sizeToConstraints = true,
                                     url = primaryAlbum.thumbnail,
                                     modifier = Modifier.size(46.dp),
                                     cornerRadius = 8.dp,
@@ -1028,6 +1075,7 @@ private fun SearchResultsView(
                         ) {
                             if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail.contains("i.ytimg.com/vi/")) {
                                 ArtworkCard(
+                                    sizeToConstraints = true,
                                     url = primaryArtist.thumbnail,
                                     modifier = Modifier.size(50.dp).clip(CircleShape),
                                     cornerRadius = 25.dp,
@@ -1092,6 +1140,7 @@ private fun SearchResultsView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             ArtworkCard(
+                                sizeToConstraints = true,
                                 url = primaryAlbum.thumbnail,
                                 modifier = Modifier.size(50.dp),
                                 cornerRadius = 8.dp,
@@ -1258,6 +1307,7 @@ private fun TrackRowItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             ArtworkCard(
+                sizeToConstraints = true,
                 url = track.thumbnail,
                 modifier = Modifier.size(50.dp),
                 cornerRadius = 8.dp,

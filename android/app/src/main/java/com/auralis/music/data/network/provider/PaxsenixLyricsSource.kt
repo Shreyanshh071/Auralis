@@ -296,17 +296,74 @@ class PaxsenixLyricsSource(
                 .header("Accept", "application/json")
                 .build()
 
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.w(TAG, "Paxsenix request for track ID ${track.id} failed: HTTP ${resp.code}")
+            val (isSuccess, respCode, bodyStr) = client.newCall(req).execute().use { resp ->
+                Triple(resp.isSuccessful, resp.code, if (resp.isSuccessful) resp.body?.string() else null)
+            }
+
+            if (!isSuccess || bodyStr.isNullOrBlank()) {
+                Log.w(TAG, "Paxsenix request for track ID ${track.id} failed: HTTP $respCode; checking AMLL TTML DB fallback...")
+                return fetchAmllTtmlDbFallback(track, query, targetDurationMs)
+            }
+
+            return parsePaxsenixResponse(bodyStr, track, query, targetDurationMs)
+                ?: fetchAmllTtmlDbFallback(track, query, targetDurationMs)
+        } catch (e: Exception) {
+            Log.w(TAG, "Exception during Paxsenix lyrics fetch: ${e.message}; checking AMLL TTML DB fallback...")
+            return fetchAmllTtmlDbFallback(track, query, targetDurationMs)
+        }
+    }
+
+    private fun fetchAmllTtmlDbFallback(
+        track: AppleMusicTrack,
+        query: LyricsSearchQuery,
+        targetDurationMs: Long?
+    ): LyricsCandidate? {
+        try {
+            val amllSource = AmllLyricsSource(client = client, tokenManager = tokenManager)
+            val ttmlContent = amllSource.fetchTtmlFromDb("am-lyrics", track.id) ?: return null
+            if (ttmlContent.isBlank()) return null
+
+            val parsed = TtmlParser.parse(ttmlContent, LyricsProvider.PAXSENIX)
+            if (parsed.lines.isEmpty()) return null
+
+            val effectiveDurMs = track.durationInMillis ?: parsed.effectiveDurationMs
+            if (targetDurationMs != null && targetDurationMs > 0L && effectiveDurMs > 0L) {
+                val deltaMs = abs(targetDurationMs - effectiveDurMs)
+                if (deltaMs > LyricsAlignmentEngine.COMPATIBLE_OFFSET_MAX_DELTA_MS) {
                     return null
                 }
-
-                val bodyStr = resp.body?.string() ?: return null
-                return parsePaxsenixResponse(bodyStr, track, query, targetDurationMs)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Exception during Paxsenix lyrics fetch: ${e.message}")
+
+            val candDurSec = (effectiveDurMs.takeIf { it > 0L } ?: 0L) / 1000L
+            val confidence = LyricsMatcher.calculateConfidence(
+                queryTitle = query.title,
+                queryArtist = query.artist,
+                candidateTitle = track.name,
+                candidateArtist = track.artistName,
+                queryDurationSec = query.durationSec,
+                candidateDurationSec = candDurSec.takeIf { it > 0L },
+                queryAlbum = query.album
+            )
+            if (confidence < 50) return null
+
+            val isWord = com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(parsed.lines)
+            val syncType = if (isWord) SyncType.RICHSYNC else SyncType.LINE_SYNC
+
+            val candidateData = parsed.copy(
+                trackName = track.name,
+                artistName = track.artistName,
+                durationMs = effectiveDurMs.takeIf { it > 0L } ?: parsed.durationMs,
+                syncType = syncType
+            )
+
+            Log.d(TAG, "Recovered Apple Music TTML from AMLL TTML DB for track '${track.name}' (id=${track.id})")
+            return LyricsCandidate(
+                lyricsData = candidateData,
+                confidence = confidence,
+                syncType = syncType,
+                provider = LyricsProvider.PAXSENIX
+            )
+        } catch (_: Exception) {
             return null
         }
     }

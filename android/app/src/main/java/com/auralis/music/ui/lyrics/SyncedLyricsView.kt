@@ -124,7 +124,9 @@ fun SyncedLyricsView(
     onSearchManually: (() -> Unit)? = null,
     track: com.auralis.music.domain.model.Track? = null,
     lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
-    isPlaying: Boolean = true
+    isPlaying: Boolean = true,
+    isBuffering: Boolean = false,
+    audioLeadingSilenceMs: Long? = null
 ) {
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {
@@ -146,9 +148,43 @@ fun SyncedLyricsView(
                   stated lyrics duration: ${lyrics.durationMs}ms (effective: ${lyrics.effectiveDurationMs}ms)
                   playback duration: ${playbackDurationMs}ms (diff: ${playbackDurationMs - lyrics.effectiveDurationMs}ms)
                   leading silence: ${lyrics.leadingSilenceMs}ms
+                  applied offset: ${lyrics.appliedOffsetMs}ms
                   whether word timing exists: $hasWordTiming
                   line count: ${lyrics.lines.size}
                   track: "${track?.title}" by "${track?.artist}"
+                ======================================================================
+            """.trimIndent())
+        }
+    }
+
+    // ── DIAGNOSTIC REQUIREMENT 2: Log exact playback sync state when the first vocal starts ──
+    var hasLoggedFirstVocalDiag by remember(lyrics, track?.id) { mutableStateOf(false) }
+    val firstVocalLine = remember(lyrics) { lyrics?.lines?.firstOrNull { !it.isInstrumental } }
+    LaunchedEffect(positionState.value, lyrics, track?.id) {
+        val fvLine = firstVocalLine ?: return@LaunchedEffect
+        val curPos = positionState.value + offsetMs
+        if (!hasLoggedFirstVocalDiag && curPos >= (fvLine.time - 50L) && curPos <= (fvLine.time + 4000L)) {
+            hasLoggedFirstVocalDiag = true
+            val exoPos = lyricsClockSource?.rawPositionMs() ?: -1L
+            val appliedOffset = lyrics?.appliedOffsetMs ?: 0L
+            val firstWord = fvLine.words?.firstOrNull()
+            val alignedFirstWordTime = firstWord?.time ?: fvLine.time
+            val origFirstWordTime = alignedFirstWordTime - appliedOffset
+            val activeWord = fvLine.words?.firstOrNull { curPos in it.time..(it.endTime ?: (it.time + (it.duration ?: 0L))) }
+                ?: firstWord
+            val activeVideoId = track?.id ?: "unknown"
+
+            android.util.Log.i("LYRICS_DIAG", """
+                ======================================================================
+                [LYRICS_DIAG_FIRST_VOCAL] First vocal playback sync snapshot:
+                  1. ExoPlayer currentPosition: ${exoPos}ms
+                  2. audioLeadingSilenceMs: ${audioLeadingSilenceMs}ms
+                  3. original first-word timestamp: ${origFirstWordTime}ms
+                  4. aligned first-word timestamp: ${alignedFirstWordTime}ms
+                  5. LyricsClock current position: ${curPos}ms
+                  6. currently highlighted lyric word: '${activeWord?.word}'
+                  7. current lyric line timestamp: ${fvLine.time}ms
+                  8. video/audio ID actually being played: $activeVideoId
                 ======================================================================
             """.trimIndent())
         }
@@ -289,12 +325,17 @@ fun SyncedLyricsView(
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     var pendingSeekTarget by remember { mutableStateOf<SyncedPendingSeekTarget?>(null) }
 
-    LaunchedEffect(positionState.value) {
+    LaunchedEffect(positionState.value, isBuffering) {
         val pending = pendingSeekTarget
         if (pending != null) {
+            val now = System.currentTimeMillis()
             val currentPos = positionState.value + offsetMs
-            val hasConverged = kotlin.math.abs(currentPos - pending.targetTimeMs) <= 350L
-            val isTimedOut = (System.currentTimeMillis() - pending.timestamp) > 650L
+            val clockSourceBuffering = isBuffering || (lyricsClockSource?.isBuffering() == true)
+            val clockSourcePlaying = lyricsClockSource?.isPlaying() ?: isPlaying
+            val hasReachedTarget = kotlin.math.abs(currentPos - pending.targetTimeMs) <= 350L
+            val minTimeElapsed = (now - pending.timestamp) >= 80L
+            val hasConverged = minTimeElapsed && hasReachedTarget && !clockSourceBuffering && clockSourcePlaying
+            val isTimedOut = (now - pending.timestamp) > 1500L
             if (hasConverged || isTimedOut) {
                 pendingSeekTarget = null
             }
@@ -363,13 +404,14 @@ fun SyncedLyricsView(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
-    if (appearance.experimentalLyrics) {
+    if (appearance.shouldUseExperimentalLyrics) {
         ExperimentalLyricsView(
             lyrics = lyrics,
             positionState = positionState,
             onSeekTo = onSeekTo,
             modifier = modifier,
             isPlaying = isPlaying,
+            isBuffering = isBuffering,
             lyricsClockSource = lyricsClockSource,
             offsetMs = offsetMs,
             onOffsetChange = onOffsetChange,
@@ -644,10 +686,9 @@ fun SyncedLyricsView(
 
         val isIntroActiveState = remember(isSynced, introDurationMs, offsetMs, positionState) {
             derivedStateOf {
-                if (!isSynced || introDurationMs < 4_500L) return@derivedStateOf false
+                if (!isSynced || introDurationMs < 1500L) return@derivedStateOf false
                 val currentMs = (positionState.value + offsetMs).coerceAtLeast(0L)
-                val countInStart = introDurationMs - 4_500L
-                currentMs in countInStart..introDurationMs
+                currentMs < introDurationMs
             }
         }
         // The intro indicator shows whole seconds and a 380 ms dot cycle, so a
@@ -1339,7 +1380,7 @@ private fun LyricLineRow(
         }
     }
 
-    val effectivePlaybackPosition = if (isCurrent && animationMode != LyricsAnimationMode.AURALIS && animationMode != LyricsAnimationMode.KARAOKE) {
+    val effectivePlaybackPosition = if (isCurrent && animationMode != LyricsAnimationMode.AURALIS) {
         positionState.value + offsetMs
     } else if (isPast) {
         line.effectiveEndTime ?: (line.time + 10_000L)
@@ -1396,8 +1437,7 @@ private fun LyricLineRow(
         } else {
             // Active line: choose animation mode
             when (animationMode) {
-                LyricsAnimationMode.AURALIS,
-                LyricsAnimationMode.KARAOKE -> {
+                LyricsAnimationMode.AURALIS -> {
                     if (hasWordTiming) {
                         // High-performance draw-phase word-by-word karaoke highlight
                         Text(
@@ -1551,22 +1591,6 @@ private fun LyricLineRow(
                         lineSpacingMultiplier = lineSpacingMultiplier
                     )
                 }
-                LyricsAnimationMode.SLIDE -> {
-                    BasicWordLyricsLine(
-                        mode = LyricsAnimationMode.SLIDE,
-                        line = line,
-                        words = effectiveWords,
-                        isActive = isCurrent,
-                        effectivePlaybackPosition = effectivePlaybackPosition,
-                        lineColor = effectiveLineColor,
-                        accentColor = effectiveAccentColor,
-                        textAlign = textAlign,
-                        alignment = horizontalAlignment,
-                        fontSizeSp = fontSize.value,
-                        lineSpacingMultiplier = lineSpacingMultiplier,
-                        enableGlowEffect = enableGlowEffect
-                    )
-                }
                 LyricsAnimationMode.APPLE_MUSIC_V2 -> {
                     AppleMusicLyricsLine(
                         isV2 = true,
@@ -1646,14 +1670,12 @@ internal fun InstrumentalIntroIndicator(
     currentTimeMsState: State<Long>,
     introDurationMs: Long,
     modifier: Modifier = Modifier,
-    countInDurationMs: Long = 4_500L,
     onSkipIntro: (() -> Unit)? = null
 ) {
     val currentTimeMs = currentTimeMsState.value
-    val countInStart = (introDurationMs - countInDurationMs).coerceAtLeast(0L)
-    val progress = if (introDurationMs > countInStart) {
-        ((currentTimeMs - countInStart).toFloat() / (introDurationMs - countInStart).toFloat()).coerceIn(0f, 1f)
-    } else 0f
+    // Reaches 100% 650ms before line 0 starts singing, then completes and collapses smoothly
+    val effectiveEnd = (introDurationMs - 650L).coerceAtLeast(1000L)
+    val progress = (currentTimeMs.toFloat() / effectiveEnd.toFloat()).coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
         animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.LinearEasing),
@@ -1682,10 +1704,11 @@ internal fun InstrumentalIntroIndicator(
                 progress = animatedProgress,
                 modifier = Modifier.size(34.dp),
                 color = Color.White.copy(alpha = 0.95f),
-                trackColor = Color.White.copy(alpha = 0.15f),
-                strokeWidth = 2.8.dp,
+                trackColor = Color.White.copy(alpha = 0.18f),
+                strokeWidth = 3.0.dp,
+                gapSize = 3.0.dp,
                 lobes = 7,
-                amplitudeRatio = 0.052f
+                amplitudeRatio = 0.085f
             )
         }
     }

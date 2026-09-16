@@ -94,7 +94,7 @@ object TtmlParser {
                 }
             }
 
-            // 2. Extract leadingSilence from <iTunesMetadata>
+            // 2. Extract leadingSilence from <iTunesMetadata>, <tt>, or <metadata>
             val metaNodes = doc.getElementsByTagName("iTunesMetadata")
             for (i in 0 until metaNodes.length) {
                 val metaElem = metaNodes.item(i) as? Element ?: continue
@@ -104,6 +104,33 @@ object TtmlParser {
                     if (parsed >= 0L) {
                         leadingSilenceMs = parsed
                         break
+                    }
+                }
+            }
+            if (leadingSilenceMs == null) {
+                val ttNodes = doc.getElementsByTagName("tt")
+                if (ttNodes.length > 0) {
+                    val ttElem = ttNodes.item(0) as? Element
+                    if (ttElem != null) {
+                        val silenceAttr = attr(ttElem, "leadingSilence").takeIf { it.isNotBlank() }
+                        if (silenceAttr != null) {
+                            val parsed = parseTimestamp(silenceAttr)
+                            if (parsed >= 0L) leadingSilenceMs = parsed
+                        }
+                    }
+                }
+            }
+            if (leadingSilenceMs == null) {
+                val metadataNodes = doc.getElementsByTagName("metadata")
+                for (i in 0 until metadataNodes.length) {
+                    val metaElem = metadataNodes.item(i) as? Element ?: continue
+                    val silenceAttr = attr(metaElem, "leadingSilence").takeIf { it.isNotBlank() }
+                    if (silenceAttr != null) {
+                        val parsed = parseTimestamp(silenceAttr)
+                        if (parsed >= 0L) {
+                            leadingSilenceMs = parsed
+                            break
+                        }
                     }
                 }
             }

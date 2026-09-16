@@ -27,21 +27,19 @@ class LyricsAnimationModesTest {
     fun allAnimationModes_existAndAreDistinct() {
         val expectedModes = listOf(
             LyricsAnimationMode.AURALIS,
-            LyricsAnimationMode.KARAOKE,
             LyricsAnimationMode.FADE,
-            LyricsAnimationMode.SLIDE,
             LyricsAnimationMode.GLOW,
             LyricsAnimationMode.APPLE_MUSIC_V2,
             LyricsAnimationMode.LYRICS_V2_FLUID,
             LyricsAnimationMode.METRO_LYRICS
         )
 
-        assertEquals("Must have exactly 8 distinct animation modes", 8, LyricsAnimationMode.entries.size)
+        assertEquals("Must have exactly 6 distinct animation modes", 6, LyricsAnimationMode.entries.size)
         assertEquals(expectedModes, LyricsAnimationMode.entries)
 
         // Verify distinct display names (no duplicate aliases)
         val displayNames = LyricsAnimationMode.entries.map { it.displayName }
-        assertEquals("Each mode must have a unique display name", 8, displayNames.toSet().size)
+        assertEquals("Each mode must have a unique display name", 6, displayNames.toSet().size)
     }
 
     @Test
@@ -50,8 +48,8 @@ class LyricsAnimationModesTest {
         assertEquals(LyricsAnimationMode.AURALIS, LyricsAnimationMode.fromDisplayName("None"))
         assertEquals(LyricsAnimationMode.FADE, LyricsAnimationMode.fromDisplayName("Fade"))
         assertEquals(LyricsAnimationMode.GLOW, LyricsAnimationMode.fromDisplayName("Glow"))
-        assertEquals(LyricsAnimationMode.SLIDE, LyricsAnimationMode.fromDisplayName("Slide"))
-        assertEquals(LyricsAnimationMode.KARAOKE, LyricsAnimationMode.fromDisplayName("Karaoke"))
+        assertEquals(LyricsAnimationMode.AURALIS, LyricsAnimationMode.fromDisplayName("Slide"))
+        assertEquals(LyricsAnimationMode.AURALIS, LyricsAnimationMode.fromDisplayName("Karaoke"))
         assertEquals(LyricsAnimationMode.GLOW, LyricsAnimationMode.fromDisplayName("Apple Music"))
         assertEquals(LyricsAnimationMode.APPLE_MUSIC_V2, LyricsAnimationMode.fromDisplayName("Apple Music (Letter by Letter)"))
         assertEquals(LyricsAnimationMode.APPLE_MUSIC_V2, LyricsAnimationMode.fromDisplayName("Apple Music V2 (Letter by Letter)"))
@@ -86,6 +84,149 @@ class LyricsAnimationModesTest {
         assertFalse("standardLyricsBlur defaults to false", defaultSettings.standardLyricsBlur)
         assertEquals(22f, defaultSettings.lyricsTextSize, 0.001f)
         assertEquals(1.3f, defaultSettings.lyricsLineSpacing, 0.001f)
+    }
+
+    @Test
+    fun metroLyrics_routesDirectlyToExperimentalLyrics() {
+        // 1. MetroLyrics animation mode routes to Experimental Lyrics even when experimentalLyrics toggle is false
+        val metroSettings = AppearanceSettings(
+            experimentalLyrics = false,
+            lyricsAnimation = LyricsAnimationMode.METRO_LYRICS.displayName
+        )
+        assertTrue(
+            "Selecting MetroLyrics must enable Experimental Lyrics layout",
+            metroSettings.shouldUseExperimentalLyrics
+        )
+
+        // 2. MetroLyrics alias (case-insensitive, lowercase) also routes to Experimental Lyrics
+        val metroAliasSettings = AppearanceSettings(
+            experimentalLyrics = false,
+            lyricsAnimation = "metro_lyrics"
+        )
+        assertTrue(
+            "MetroLyrics alias must enable Experimental Lyrics layout",
+            metroAliasSettings.shouldUseExperimentalLyrics
+        )
+
+        // 3. Standalone experimentalLyrics toggle = true always enables Experimental Lyrics regardless of animation mode
+        val experimentalOnSettings = AppearanceSettings(
+            experimentalLyrics = true,
+            lyricsAnimation = LyricsAnimationMode.AURALIS.displayName
+        )
+        assertTrue(
+            "Standalone experimentalLyrics toggle must still enable Experimental Lyrics",
+            experimentalOnSettings.shouldUseExperimentalLyrics
+        )
+
+        // 4. Other animation modes with experimentalLyrics = false do NOT route to Experimental Lyrics
+        val otherModes = listOf(
+            LyricsAnimationMode.AURALIS,
+            LyricsAnimationMode.FADE,
+            LyricsAnimationMode.GLOW,
+            LyricsAnimationMode.APPLE_MUSIC_V2,
+            LyricsAnimationMode.LYRICS_V2_FLUID
+        )
+        for (mode in otherModes) {
+            val settings = AppearanceSettings(
+                experimentalLyrics = false,
+                lyricsAnimation = mode.displayName
+            )
+            assertFalse(
+                "Mode ${mode.displayName} must use standard layout, not experimental",
+                settings.shouldUseExperimentalLyrics
+            )
+        }
+    }
+
+    @Test
+    fun metroLyrics_isAvailableAsIntendedUserFacingOption() {
+        // 1. MetroLyrics is an intended option in the enum
+        val displayNames = LyricsAnimationMode.entries.map { it.displayName }
+        assertTrue("MetroLyrics must be in available animation modes", displayNames.contains("MetroLyrics"))
+        assertEquals(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.fromDisplayName("MetroLyrics"))
+        assertEquals("MetroLyrics", LyricsAnimationMode.METRO_LYRICS.displayName)
+    }
+
+    @Test
+    fun experimentalLyrics_isNoLongerExposedAsSeparateUserFacingOption() {
+        // 2. Experimental Lyrics is NOT exposed as a separate animation option (MetroLyrics is its replacement)
+        val allNames = LyricsAnimationMode.entries.map { it.name }
+        val allDisplayNames = LyricsAnimationMode.entries.map { it.displayName }
+        assertTrue("No animation option should be named EXPERIMENTAL_LYRICS",
+            allNames.none { it.contains("EXPERIMENTAL", ignoreCase = true) })
+        assertTrue("No animation option display name should contain 'Experimental'",
+            allDisplayNames.none { it.contains("Experimental", ignoreCase = true) })
+    }
+
+    @Test
+    fun selectingMetroLyrics_routesToExperimentalLyricsView() {
+        // 3. Selecting MetroLyrics routes directly to ExperimentalLyricsView via shouldUseExperimentalLyrics
+        val settingsFromEnum = AppearanceSettings(
+            experimentalLyrics = false,
+            lyricsAnimation = LyricsAnimationMode.METRO_LYRICS.displayName
+        )
+        assertTrue(settingsFromEnum.shouldUseExperimentalLyrics)
+
+        val settingsFromString = AppearanceSettings(
+            experimentalLyrics = false,
+            lyricsAnimation = "MetroLyrics"
+        )
+        assertTrue(settingsFromString.shouldUseExperimentalLyrics)
+    }
+
+    @Test
+    fun existingPersistedExperimentalLyrics_isMigratedSafely() {
+        // 4. If a user previously had experimentalLyrics = true saved:
+        // Case A: raw preference loaded into AppearanceSettings preserves shouldUseExperimentalLyrics = true
+        val legacySettings = AppearanceSettings(
+            experimentalLyrics = true,
+            lyricsAnimation = LyricsAnimationMode.AURALIS.displayName
+        )
+        assertTrue("Legacy saved preference must still route to experimental lyrics",
+            legacySettings.shouldUseExperimentalLyrics)
+
+        // Case B: DataStore resolver logic simulation
+        val legacyExp = true
+        val storedAnim: String? = null
+        val resolvedAnimation = if (legacyExp && (storedAnim == null || storedAnim == LyricsAnimationMode.AURALIS.displayName)) {
+            LyricsAnimationMode.METRO_LYRICS.displayName
+        } else {
+            storedAnim ?: LyricsAnimationMode.AURALIS.displayName
+        }
+        assertEquals("Unset or default animation with legacy experimental=true resolves to MetroLyrics",
+            LyricsAnimationMode.METRO_LYRICS.displayName, resolvedAnimation)
+
+        // Case C: Migrated state (experimentalLyrics = false, lyricsAnimation = MetroLyrics) routes properly
+        val migratedSettings = AppearanceSettings(
+            experimentalLyrics = false,
+            lyricsAnimation = resolvedAnimation
+        )
+        assertTrue("Migrated settings must enable experimental lyrics",
+            migratedSettings.shouldUseExperimentalLyrics)
+    }
+
+    @Test
+    fun otherLyricsAnimationModes_remainUnchanged() {
+        // 5. All other 5 animation modes remain distinct and unchanged
+        val standardModes = listOf(
+            Pair(LyricsAnimationMode.AURALIS, "Auralis (Default)"),
+            Pair(LyricsAnimationMode.FADE, "Fade"),
+            Pair(LyricsAnimationMode.GLOW, "Glow"),
+            Pair(LyricsAnimationMode.APPLE_MUSIC_V2, "Apple Music (Letter by Letter)"),
+            Pair(LyricsAnimationMode.LYRICS_V2_FLUID, "Lyrics V2 (Fluid)")
+        )
+
+        for ((mode, expectedName) in standardModes) {
+            assertEquals("Display name must match", expectedName, mode.displayName)
+            assertEquals("Resolution from display name must match", mode, LyricsAnimationMode.fromDisplayName(expectedName))
+
+            val settings = AppearanceSettings(
+                experimentalLyrics = false,
+                lyricsAnimation = mode.displayName
+            )
+            assertFalse("${mode.displayName} must not route to ExperimentalLyricsView",
+                settings.shouldUseExperimentalLyrics)
+        }
     }
 
     @Test

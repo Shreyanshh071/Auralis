@@ -11,7 +11,11 @@ data class LyricsSearchQuery(
     val videoId: String? = null,
     val album: String? = null,
     val channelTitle: String? = null,
-    val durationMs: Long? = null
+    val durationMs: Long? = null,
+    val isrc: String? = null,
+    val spotifyId: String? = null,
+    val appleMusicId: String? = null,
+    val audioLeadingSilenceMs: Long? = null
 )
 
 data class LyricsCandidate(

@@ -97,7 +97,8 @@ data class LyricsData(
     val durationMs: Long? = null,
     val leadingSilenceMs: Long? = null,
     val isExactVideoMatch: Boolean = false,
-    val matchedVideoId: String? = null
+    val matchedVideoId: String? = null,
+    val appliedOffsetMs: Long = 0L
 ) {
     /**
      * Stated or inferred duration of the lyrics track in milliseconds.

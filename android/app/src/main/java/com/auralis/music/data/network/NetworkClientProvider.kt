@@ -28,8 +28,38 @@ object NetworkClientProvider {
     }
 
     /**
+     * Resilient DNS resolver that bypasses carrier-level ISP DNS sinkholes (e.g. Reliance Jio in India
+     * returning 49.44.79.236 for music.163.com) by transparently falling back to official NetEase
+     * overseas edge CDN IP addresses (103.135.240.77 / 78).
+     */
+    object ResilientLyricsDns : okhttp3.Dns {
+        private val OVERSEAS_NETEASE_IPS by lazy {
+            listOf(
+                java.net.InetAddress.getByAddress("music.163.com", byteArrayOf(103.toByte(), 135.toByte(), 240.toByte(), 77.toByte())),
+                java.net.InetAddress.getByAddress("music.163.com", byteArrayOf(103.toByte(), 135.toByte(), 240.toByte(), 78.toByte()))
+            )
+        }
+        private val BLOCKED_SINKHOLE_IPS = setOf("49.44.79.236", "127.0.0.1", "0.0.0.0")
+
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            if (hostname.equals("music.163.com", ignoreCase = true) ||
+                hostname.equals("interface.music.163.com", ignoreCase = true) ||
+                hostname.endsWith(".music.163.com", ignoreCase = true)) {
+                try {
+                    val sysIps = okhttp3.Dns.SYSTEM.lookup(hostname)
+                    if (sysIps.isNotEmpty() && sysIps.none { BLOCKED_SINKHOLE_IPS.contains(it.hostAddress) }) {
+                        return sysIps
+                    }
+                } catch (_: Exception) {}
+                return OVERSEAS_NETEASE_IPS
+            }
+            return okhttp3.Dns.SYSTEM.lookup(hostname)
+        }
+    }
+
+    /**
      * Dedicated ultra-fast HTTP client for parallel lyrics retrieval.
-     * Features aggressive connection timeouts and high connection reuse to eliminate network latency.
+     * Features aggressive connection timeouts, resilient DNS, and high connection reuse.
      */
     val lyricsHttpClient: OkHttpClient by lazy {
         val dispatcher = Dispatcher().apply {
@@ -38,6 +68,7 @@ object NetworkClientProvider {
         }
         OkHttpClient.Builder()
             .dispatcher(dispatcher)
+            .dns(ResilientLyricsDns)
             .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .connectTimeout(2500, TimeUnit.MILLISECONDS)
             .readTimeout(3000, TimeUnit.MILLISECONDS)

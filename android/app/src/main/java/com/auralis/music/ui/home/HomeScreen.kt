@@ -131,7 +131,7 @@ fun HomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize(),
-            contentPadding = PaddingValues(top = 2.dp, bottom = bottomPad)
+            contentPadding = PaddingValues(top = 0.dp, bottom = bottomPad)
         ) {
             // ================================================================
             // 1. TOP APP BAR: "Home" Title + Action Icons
@@ -382,6 +382,7 @@ fun HomeScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     ArtworkCard(
+                                        sizeToConstraints = true,
                                         url = track.thumbnail,
                                         modifier = Modifier.size(48.dp),
                                         cornerRadius = 8.dp,

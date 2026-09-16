@@ -267,8 +267,13 @@ fun LibraryScreen(
             }
         },
         label = "PlaylistDetailTransition"
-    ) { _ ->
-        val selectedPl = uiState.selectedPlaylist
+    ) { targetPlaylistId ->
+        // ── PERF FIX #1: Resolve the playlist from the transition slot's identity ──
+        // so outgoing content stays outgoing and incoming stays incoming.
+        val selectedPl = if (targetPlaylistId != null) {
+            uiState.selectedPlaylist?.takeIf { it.id == targetPlaylistId }
+                ?: uiState.playlists.firstOrNull { it.id == targetPlaylistId }
+        } else null
         if (selectedPl != null) {
             PlaylistDetailView(
                 playlist = selectedPl,
@@ -1071,6 +1076,7 @@ private fun SmartLibraryListRow(
         ) {
             if (tracks.isNotEmpty()) {
                 ArtworkCard(
+                    sizeToConstraints = true,
                     url = tracks.first().thumbnail,
                     fallbackTrack = tracks.first(),
                     modifier = Modifier.fillMaxSize(),
@@ -1136,6 +1142,7 @@ private fun UserPlaylistListRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         ArtworkCard(
+            sizeToConstraints = true,
             url = playlist.coverUrl ?: firstValid?.thumbnail,
             fallbackTrack = firstValid,
             modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)),
@@ -2013,6 +2020,7 @@ private fun PlaylistDetailView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ArtworkCard(
+                            sizeToConstraints = true,
                             url = draggedTrack.thumbnail,
                             modifier = Modifier.size(48.dp),
                             cornerRadius = 8.dp,
@@ -2665,6 +2673,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             ArtworkCard(
+                sizeToConstraints = true,
                 url = track.thumbnail,
                 modifier = Modifier.size(48.dp),
                 cornerRadius = 8.dp,

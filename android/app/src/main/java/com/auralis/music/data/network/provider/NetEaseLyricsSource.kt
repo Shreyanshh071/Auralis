@@ -65,6 +65,7 @@ class NetEaseLyricsSource(
             val songs = json.optJSONObject("result")?.optJSONArray("songs") ?: return null
 
             var bestCandidate: LyricsCandidate? = null
+            var bestCandidateTier = com.auralis.music.data.network.LyricsClient.TIER_NONE
             var bestConfidence = 0
 
             for (i in 0 until songs.length()) {
@@ -80,6 +81,15 @@ class NetEaseLyricsSource(
                 val durationMs = songObj.optLong("duration", 0L).takeIf { it > 0L }
                 val durationSec = (durationMs ?: 0L) / 1000L
 
+                val targetDurationMs = query.durationMs?.takeIf { it > 0L }
+                    ?: (query.durationSec?.let { it * 1000L }?.takeIf { it > 0L })
+                if (targetDurationMs != null && targetDurationMs > 0L && durationMs != null && durationMs > 0L) {
+                    val deltaMs = kotlin.math.abs(targetDurationMs - durationMs)
+                    if (deltaMs > com.auralis.music.domain.lyrics.LyricsAlignmentEngine.COMPATIBLE_OFFSET_MAX_DELTA_MS) {
+                        continue // Reject master mismatch: duration delta > 3.5s (e.g. 321s vs 326s)
+                    }
+                }
+
                 val confidence = LyricsMatcher.calculateConfidence(
                     queryTitle = query.title,
                     queryArtist = query.artist,
@@ -89,23 +99,28 @@ class NetEaseLyricsSource(
                     candidateDurationSec = durationSec
                 )
 
-                if (confidence >= 50 && confidence > bestConfidence) {
+                if (confidence >= 50) {
                     val rawLyrics = fetchLyricsBySongId(songId, songName, artistName, durationMs)
                     if (rawLyrics != null && rawLyrics.lines.isNotEmpty()) {
                         val lyricsData = LyricsMatcher.autoAlignLyrics(rawLyrics, query.durationSec, durationSec)
-                            .copy(durationMs = durationMs ?: rawLyrics.durationMs)
-                        bestConfidence = confidence
-                        bestCandidate = LyricsCandidate(
+                            .let { if (it.syncType == SyncType.RICHSYNC) it else it.copy(durationMs = durationMs ?: rawLyrics.durationMs) }
+                        val tier = com.auralis.music.data.network.LyricsClient.tierOf(lyricsData)
+                        val candidate = LyricsCandidate(
                             lyricsData = lyricsData,
                             confidence = confidence,
-                            syncType = lyricsData.syncType,
+                            syncType = if (tier == com.auralis.music.data.network.LyricsClient.TIER_WORD) SyncType.RICHSYNC else lyricsData.syncType,
                             provider = LyricsProvider.NETEASE
                         )
-                        if (lyricsData.syncType == SyncType.RICHSYNC && confidence >= 65) {
-                            return bestCandidate
+
+                        // Immediately return valid genuine word-level karaoke sync without querying remaining candidates
+                        if (tier == com.auralis.music.data.network.LyricsClient.TIER_WORD && confidence >= 60) {
+                            return candidate
                         }
-                        if (lyricsData.syncType == SyncType.LINE_SYNC && confidence >= 80) {
-                            return bestCandidate
+
+                        if (tier > bestCandidateTier || (tier == bestCandidateTier && confidence > bestConfidence)) {
+                            bestCandidateTier = tier
+                            bestConfidence = confidence
+                            bestCandidate = candidate
                         }
                     }
                 }
@@ -167,7 +182,11 @@ class NetEaseLyricsSource(
             if (rawYrc.isNotBlank() && !rawYrc.contains("纯音乐")) {
                 val parsedYrc = YrcParser.parse(rawYrc, LyricsProvider.NETEASE, trackName, artistName)
                 if (parsedYrc != null && parsedYrc.lines.isNotEmpty() && parsedYrc.syncType == SyncType.RICHSYNC) {
-                    return parsedYrc.copy(durationMs = candDurationMs ?: parsedYrc.durationMs)
+                    return parsedYrc.copy(
+                        durationMs = candDurationMs ?: parsedYrc.durationMs,
+                        trackName = trackName,
+                        artistName = artistName
+                    )
                 }
             }
 

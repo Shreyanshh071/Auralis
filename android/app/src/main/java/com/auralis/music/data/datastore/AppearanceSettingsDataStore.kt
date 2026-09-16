@@ -108,6 +108,14 @@ class AppearanceSettingsDataStore(
             }
         }
         .map { preferences ->
+            val legacyExpLyrics = preferences[EXPERIMENTAL_LYRICS] ?: false
+            val storedAnimation = preferences[LYRICS_ANIMATION]
+            val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
+                LyricsAnimationMode.METRO_LYRICS.displayName
+            } else {
+                storedAnimation ?: LyricsAnimationMode.AURALIS.displayName
+            }
+
             AppearanceSettings(
                 highRefreshRate = preferences[HIGH_REFRESH_RATE] ?: true,
                 landscapeScaling = preferences[LANDSCAPE_SCALING] ?: false,
@@ -139,13 +147,13 @@ class AppearanceSettingsDataStore(
                 enableSwipeToChangeSong = preferences[ENABLE_SWIPE_TO_CHANGE_SONG] ?: true,
                 miniPlayerSwipeSensitivity = preferences[MINI_PLAYER_SWIPE_SENSITIVITY] ?: 73,
 
-                experimentalLyrics = preferences[EXPERIMENTAL_LYRICS] ?: false,
+                experimentalLyrics = legacyExpLyrics,
                 lyricsTextPosition = preferences[LYRICS_TEXT_POSITION] ?: "Centre",
                 respectAgentPositioning = preferences[RESPECT_AGENT_POSITIONING] ?: true,
                 changeLyricsOnTap = preferences[CHANGE_LYRICS_ON_TAP] ?: true,
                 autoScrollLyrics = preferences[AUTO_SCROLL_LYRICS] ?: true,
                 hideStatusBarOnFullscreen = preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] ?: false,
-                lyricsAnimation = preferences[LYRICS_ANIMATION] ?: LyricsAnimationMode.AURALIS.displayName,
+                lyricsAnimation = resolvedAnimation,
                 enableGlowingLyricsEffect = preferences[ENABLE_GLOWING_LYRICS] ?: false,
                 standardLyricsBlur = preferences[STANDARD_LYRICS_BLUR] ?: false,
                 lyricsTextSize = preferences[LYRICS_TEXT_SIZE] ?: 22f,

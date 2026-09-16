@@ -3,9 +3,9 @@ package com.auralis.music.ui.lyrics
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -34,32 +35,33 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Modern fluid/wavy countdown & interval progress indicator matching Metrolist style.
+ * Expressive fluid/wavy progress indicator matching Metrolist & Material 3 Expressive.
  *
  * Renders an organic, fluid wavy progress arc sweeping clockwise from top (12 o'clock),
  * accompanied by a dim circular track indicating remaining time, both with smooth rounded stroke caps.
- * The active stroke and leading edge continuously and smoothly deform as wave crests flow around the circle,
- * producing an alive, liquid motion while maintaining mathematical progress correctness.
+ * The active stroke undulates seamlessly while cosine tapering at both endpoints anchors the moving
+ * tip concentric to the circular track without bobbing.
  */
 @Composable
 fun WavyProgressIndicator(
     progress: Float,
     modifier: Modifier = Modifier,
     color: Color = Color.White,
-    trackColor: Color = Color.White.copy(alpha = 0.20f),
-    strokeWidth: Dp = 4.0.dp,
-    gapSize: Dp = 4.0.dp,
+    trackColor: Color = Color.White.copy(alpha = 0.18f),
+    strokeWidth: Dp = 3.0.dp,
+    gapSize: Dp = 3.0.dp,
     lobes: Int = 7,
-    amplitudeRatio: Float = 0.10f
+    amplitudeRatio: Float = 0.085f
 ) {
     val clampedProgress = progress.coerceIn(0f, 1f)
 
-    // Wave animation clock matching Material 3 Expressive 1 cycle per second
+    // Wave animation clock matching Material 3 Expressive: 1 cycle per second
     val infiniteTransition = rememberInfiniteTransition(label = "wavyProgressTransition")
     val wavePhase by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -80,14 +82,13 @@ fun WavyProgressIndicator(
         val sizePx = min(size.width, size.height)
         val center = Offset(size.width / 2f, size.height / 2f)
 
-        // Circle radius for track lining and wave baseline
+        // Circle radius for track lining and wave baseline (34dp container with 3.0dp stroke)
         val baseRadius = (sizePx - strokeWidthPx) / 2f
-        val circumference = 2f * Math.PI.toFloat() * baseRadius
-        val amplitude = baseRadius * amplitudeRatio
+        if (baseRadius <= 0f) return@Canvas
+        val circumference = 2f * PI.toFloat() * baseRadius
+        val maxAmplitude = baseRadius * amplitudeRatio
 
-        // 1. Calculate track gap spacing
-        // Round caps extend by strokeWidthPx / 2f on each side.
-        // For a visual empty gap of gapPx ("dot sized gap"), center-to-center spacing along circumference is strokeWidthPx + gapPx
+        // 1. Calculate track gap spacing (dot-sized gap with rounded caps)
         val pStopPx = clampedProgress * circumference
         val currentStrokeCapWidth = strokeWidthPx / 2f
         val trackGapSize = min(pStopPx, gapPx)
@@ -95,8 +96,9 @@ fun WavyProgressIndicator(
         val trackSpacing = horizontalInsets * 2f + trackGapSize
         val gapDegrees = if (circumference > 0f) (trackSpacing / circumference) * 360f else 0f
 
-        // Draw remaining circular track lining (or full circle when idle)
         val activeSweep = clampedProgress * 360f
+
+        // Draw remaining circular track lining (or full circle when idle)
         if (clampedProgress <= 0.001f) {
             drawCircle(
                 color = trackColor,
@@ -126,25 +128,36 @@ fun WavyProgressIndicator(
         // 2. Draw active fluid wavy progress arc
         if (activeSweep > 0.8f) {
             path.rewind()
-            val steps = (activeSweep * 2f).toInt().coerceAtLeast(30)
-            val phaseRad = (wavePhase * 2.0 * Math.PI).toFloat()
 
-            // Smooth amplitude scaling near 0% and 100% so indicator enters and closes gracefully
+            // Rapid smooth entry so organic waves undulate immediately from countdown start
             val ampScale = when {
-                clampedProgress < 0.05f -> clampedProgress / 0.05f
-                clampedProgress > 0.95f -> (1f - clampedProgress) / 0.05f
+                clampedProgress < 0.03f -> (clampedProgress / 0.03f)
+                clampedProgress > 0.97f -> ((1f - clampedProgress) / 0.03f)
                 else -> 1f
             }
-            val effAmp = amplitude * ampScale
+            val effAmp = maxAmplitude * ampScale
+
+            val steps = (activeSweep * 2.5f).toInt().coerceIn(36, 180)
+            val phaseRad = (wavePhase * 2.0 * PI).toFloat()
+            // Taper angle at both ends (anchor at 12 o'clock and moving tip at activeSweep)
+            // ensures the moving tip never bobs or breaks concentricity with the circular track.
+            val taperAngle = 20f.coerceAtMost(activeSweep / 3f)
 
             for (i in 0..steps) {
                 val deg = (i.toFloat() / steps.toFloat()) * activeSweep
                 val rad = Math.toRadians((deg - 90.0)).toFloat()
                 val lobeAngle = Math.toRadians((deg * lobes).toDouble()).toFloat() - phaseRad
 
-                // Anchor at 12 o'clock so the start point matches the circular track baseline
-                val startTaper = if (deg < 18f) (deg / 18f) else 1f
-                val r = baseRadius + effAmp * startTaper * sin(lobeAngle)
+                val startDist = deg
+                val endDist = activeSweep - deg
+                val startT = if (taperAngle > 0f) (startDist / taperAngle).coerceIn(0f, 1f) else 1f
+                val endT = if (taperAngle > 0f) (endDist / taperAngle).coerceIn(0f, 1f) else 1f
+                // Cosine easing for smooth C1 continuous derivatives at endpoints
+                val startWeight = (1f - cos(startT * PI.toFloat())) / 2f
+                val endWeight = (1f - cos(endT * PI.toFloat())) / 2f
+                val taper = startWeight * endWeight
+
+                val r = baseRadius + effAmp * taper * sin(lobeAngle)
                 val x = center.x + r * cos(rad)
                 val y = center.y + r * sin(rad)
                 if (i == 0) {
@@ -171,7 +184,7 @@ fun WavyProgressIndicator(
  * Modern lyrics instrumental music filler indicator.
  *
  * Displays a clean, elegant wavy progress ring that fills smoothly clockwise
- * as the instrumental gap between lyrics progresses, matching the BetterLyrics style.
+ * as the instrumental gap between lyrics progresses, matching Metrolist style.
  * Includes smooth entry/exit animations and tap-to-skip support.
  */
 @Composable
@@ -234,13 +247,13 @@ fun LyricsIntervalIndicator(
             ) {
                 WavyProgressIndicator(
                     progress = animatedProgress,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(34.dp),
                     color = color.copy(alpha = 0.95f),
-                    trackColor = color.copy(alpha = 0.20f),
-                    strokeWidth = 4.0.dp,
-                    gapSize = 4.0.dp,
+                    trackColor = color.copy(alpha = 0.18f),
+                    strokeWidth = 3.0.dp,
+                    gapSize = 3.0.dp,
                     lobes = 7,
-                    amplitudeRatio = 0.10f
+                    amplitudeRatio = 0.085f
                 )
             }
         }

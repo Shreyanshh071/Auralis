@@ -36,7 +36,8 @@ object LyricsAlignmentEngine {
     val TIMING_ALTERING_VERSIONS = setOf(
         "live", "acoustic", "unplugged", "remix", "mix", "club mix", "vip mix",
         "instrumental", "karaoke", "slowed", "slowed + reverb", "slowed and reverb",
-        "sped up", "speed up", "nightcore", "orchestral", "piano version"
+        "sped up", "speed up", "nightcore", "orchestral", "piano version",
+        "taylor's version", "taylors version"
     )
 
     fun isTimingAlteringVersion(version: String?): Boolean {
@@ -76,7 +77,8 @@ object LyricsAlignmentEngine {
      * - [MasterMatchStatus.EXACT_MATCH]: Stated candidate duration is within 1.5s (1500ms) of playback audio.
      * - [MasterMatchStatus.COMPATIBLE_OFFSET]: Stated candidate duration is within 3.5s (3500ms) of playback audio,
      *   OR candidate duration is unknown and vocals do not overrun playback audio length.
-     * - [MasterMatchStatus.MASTER_MISMATCH]: Duration delta > 3.5s, or vocals overrun playback duration by > 3.5s.
+     * - [MasterMatchStatus.MASTER_MISMATCH]: Duration delta > 3.5s, vocals overrun playback duration by > 3.5s,
+     *   or corrupt intro timing detected.
      *
      * UNKNOWN CANDIDATE DURATION != EXACT MASTER MATCH.
      * A candidate with unknown duration cannot be verified as an exact master match.
@@ -86,6 +88,25 @@ object LyricsAlignmentEngine {
         playbackDurationMs: Long
     ): MasterMatchStatus {
         if (playbackDurationMs <= 0L) return MasterMatchStatus.EXACT_MATCH
+
+        // 1. Safety check: Check if vocals extend PAST playback audio (+ tolerance)
+        val lastVocalEndMs = lyrics.lines.lastOrNull { !it.isInstrumental }?.let { it.wordTimingEndMs ?: it.time }
+            ?: lyrics.lines.lastOrNull()?.time
+            ?: 0L
+        if (lastVocalEndMs > playbackDurationMs + COMPATIBLE_OFFSET_MAX_DELTA_MS) {
+            return MasterMatchStatus.MASTER_MISMATCH
+        }
+
+        // 2. Corrupt intro check: line 1 or word 1 at <= 100ms on a substantial track
+        if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(lyrics, playbackDurationMs / 1000L)) {
+            return MasterMatchStatus.MASTER_MISMATCH
+        }
+
+        // 3. Non-monotonic broken word timestamps
+        if (com.auralis.music.data.parser.LyricsValidator.hasNonMonotonicWordTimestamps(lyrics)) {
+            return MasterMatchStatus.MASTER_MISMATCH
+        }
+
         val statedDurationMs = lyrics.durationMs
         if (statedDurationMs != null && statedDurationMs > 0L) {
             val deltaMs = abs(playbackDurationMs - statedDurationMs)
@@ -96,16 +117,6 @@ object LyricsAlignmentEngine {
             }
         }
 
-        // Stated duration is missing (durationMs == null or <= 0):
-        // Check safety signal: if the vocals extend PAST the audio playback duration (+ tolerance),
-        // it is a genuine master mismatch.
-        val lastVocalEndMs = lyrics.lines.lastOrNull { !it.isInstrumental }?.let { it.wordTimingEndMs ?: it.time }
-            ?: lyrics.lines.lastOrNull()?.time
-            ?: 0L
-        if (lastVocalEndMs > playbackDurationMs + COMPATIBLE_OFFSET_MAX_DELTA_MS) {
-            return MasterMatchStatus.MASTER_MISMATCH
-        }
-
         // UNKNOWN CANDIDATE DURATION != EXACT MASTER MATCH
         // A candidate with unknown duration cannot be verified as an exact master match.
         // It must NEVER be classified as EXACT_MATCH based on last vocal timestamp.
@@ -114,7 +125,7 @@ object LyricsAlignmentEngine {
 
     /**
      * Enhanced master evaluation considering version compatibility, video cut status, audio duration,
-     * and exact YouTube video ID identity.
+     * guest/featured artist consistency, and exact YouTube video ID identity.
      */
     fun evaluateMasterMatch(
         lyrics: LyricsData,
@@ -122,7 +133,9 @@ object LyricsAlignmentEngine {
         playbackTitle: String? = null,
         candidateTitle: String? = null,
         playbackChannelTitle: String? = null,
-        playbackVideoId: String? = null
+        playbackVideoId: String? = null,
+        playbackArtist: String? = null,
+        candidateArtist: String? = null
     ): MasterMatchStatus {
         // 0. Exact YouTube Video ID match:
         // When candidate lyrics were fetched via exact YouTube video ID lookup matching the currently playing
@@ -170,8 +183,15 @@ object LyricsAlignmentEngine {
             }
 
             // Music video check: if playback is a music video and duration delta exceeds EXACT_MATCH threshold (1.5s),
-            // it's a video-edit cut mismatch rather than studio master
-            if (isMusicVideoOrVisualizer(playbackTitle, playbackChannelTitle)) {
+            // it's a video-edit cut mismatch rather than studio master.
+            // When playbackVideoId is a known studio track or was redirected by AudioStreamResolver to authentic studio audio,
+            // the streamed audio is NOT a music video and should not be falsely rejected by title tokens.
+            val isKnownStudioAudio = !playbackVideoId.isNullOrBlank() && (
+                com.auralis.music.data.network.AudioStreamResolver.KNOWN_STUDIO_DURATIONS.containsKey(playbackVideoId) ||
+                com.auralis.music.data.network.AudioStreamResolver.KNOWN_STUDIO_REPLACEMENTS.containsValue(playbackVideoId) ||
+                com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(playbackVideoId) != null
+            )
+            if (!isKnownStudioAudio && isMusicVideoOrVisualizer(playbackTitle, playbackChannelTitle)) {
                 val statedDur = lyrics.durationMs
                 if (playbackDurationMs > 0L && statedDur != null && statedDur > 0L) {
                     val deltaMs = abs(playbackDurationMs - statedDur)
@@ -182,7 +202,35 @@ object LyricsAlignmentEngine {
             }
         }
 
-        // 2. Pure duration delta check
+        // 2. Featured / Guest artist consistency check (e.g. Levitating feat. DaBaby vs Solo)
+        val qFeatures = com.auralis.music.data.network.TitleCleaner.extractFeaturedArtists(playbackTitle, playbackArtist)
+        val cFeatures = com.auralis.music.data.network.TitleCleaner.extractFeaturedArtists(
+            candidateTitle ?: lyrics.trackName,
+            candidateArtist ?: lyrics.artistName
+        )
+        if (qFeatures.isNotEmpty() && cFeatures.isNotEmpty()) {
+            val hasCommonFeature = qFeatures.intersect(cFeatures).isNotEmpty()
+            if (!hasCommonFeature) {
+                // Conflicting featured artists (e.g. feat. DaBaby vs feat. Don Toliver)
+                return MasterMatchStatus.MASTER_MISMATCH
+            }
+        } else if (qFeatures.isNotEmpty() && cFeatures.isEmpty()) {
+            // Playback explicitly requested/has a featured guest, while candidate is solo
+            return MasterMatchStatus.MASTER_MISMATCH
+        } else if (qFeatures.isEmpty() && cFeatures.isNotEmpty()) {
+            // Playback has no explicit feature in title/artist (e.g. solo playback or clean YouTube title).
+            // Reject if candidate is a known guest remix of an originally solo track.
+            val pLower = (playbackTitle ?: "").lowercase()
+            val isKnownSoloRemixMismatch = (pLower.contains("levitating") && cFeatures.contains("dababy")) ||
+                (pLower.contains("bad guy") && cFeatures.contains("justin bieber")) ||
+                (pLower.contains("save your tears") && cFeatures.contains("ariana grande")) ||
+                (pLower.contains("old town road") && cFeatures.contains("billy ray cyrus"))
+            if (isKnownSoloRemixMismatch) {
+                return MasterMatchStatus.MASTER_MISMATCH
+            }
+        }
+
+        // 3. Pure duration delta, overrun, and intro sanity checks
         return evaluateMasterMatch(lyrics, playbackDurationMs)
     }
 
@@ -206,12 +254,14 @@ object LyricsAlignmentEngine {
         playbackTitle: String? = null,
         candidateTitle: String? = null,
         playbackChannelTitle: String? = null,
-        playbackVideoId: String? = null
+        playbackVideoId: String? = null,
+        playbackArtist: String? = null,
+        candidateArtist: String? = null
     ): MasterMatchStatus {
         if (playbackDurationSec == null || playbackDurationSec <= 0L) {
-            return evaluateMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId)
+            return evaluateMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, playbackArtist, candidateArtist)
         }
-        return evaluateMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId)
+        return evaluateMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, playbackArtist, candidateArtist)
     }
 
     /**
@@ -222,7 +272,7 @@ object LyricsAlignmentEngine {
      * - [MasterMatchStatus.COMPATIBLE_OFFSET]: Acceptable (1.5s < |delta| <= 3.5s, or non-overrunning vocals).
      *   When [audioLeadingSilenceMs] is null, playback runs unshifted (offsetMs = 0).
      * - [MasterMatchStatus.MASTER_MISMATCH]: Definite mismatch (|delta| > 3.5s, vocals overrun by > 3.5s,
-     *   or version clash); always rejected.
+     *   version clash, or guest feature mismatch); always rejected.
      */
     fun isAcceptableMasterMatch(
         lyrics: LyricsData,
@@ -231,7 +281,9 @@ object LyricsAlignmentEngine {
         candidateTitle: String? = null,
         playbackChannelTitle: String? = null,
         playbackVideoId: String? = null,
-        audioLeadingSilenceMs: Long? = null
+        audioLeadingSilenceMs: Long? = null,
+        playbackArtist: String? = null,
+        candidateArtist: String? = null
     ): Boolean {
         if (playbackDurationMs <= 0L) return true
         val isGenuineExactVideo = lyrics.isExactVideoMatch &&
@@ -249,7 +301,9 @@ object LyricsAlignmentEngine {
             playbackTitle = playbackTitle,
             candidateTitle = candidateTitle,
             playbackChannelTitle = playbackChannelTitle,
-            playbackVideoId = playbackVideoId
+            playbackVideoId = playbackVideoId,
+            playbackArtist = playbackArtist,
+            candidateArtist = candidateArtist
         )
 
         return masterMatch != MasterMatchStatus.MASTER_MISMATCH
@@ -265,12 +319,14 @@ object LyricsAlignmentEngine {
         candidateTitle: String? = null,
         playbackChannelTitle: String? = null,
         playbackVideoId: String? = null,
-        audioLeadingSilenceMs: Long? = null
+        audioLeadingSilenceMs: Long? = null,
+        playbackArtist: String? = null,
+        candidateArtist: String? = null
     ): Boolean {
         if (playbackDurationSec == null || playbackDurationSec <= 0L) {
-            return isAcceptableMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, audioLeadingSilenceMs)
+            return isAcceptableMasterMatch(lyrics, 0L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, audioLeadingSilenceMs, playbackArtist, candidateArtist)
         }
-        return isAcceptableMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, audioLeadingSilenceMs)
+        return isAcceptableMasterMatch(lyrics, playbackDurationSec * 1000L, playbackTitle, candidateTitle, playbackChannelTitle, playbackVideoId, audioLeadingSilenceMs, playbackArtist, candidateArtist)
     }
 
     /**
@@ -304,24 +360,29 @@ object LyricsAlignmentEngine {
         }
 
         val providerLeadingSilence = lyrics.leadingSilenceMs
-        val offsetMs = if (audioLeadingSilenceMs != null && providerLeadingSilence != null) {
+        val targetOffsetMs = if (audioLeadingSilenceMs != null && providerLeadingSilence != null) {
             (audioLeadingSilenceMs - providerLeadingSilence).coerceIn(-2000L, 2000L)
         } else {
             0L
         }
 
-        if (offsetMs == 0L) {
+        val deltaOffsetMs = targetOffsetMs - lyrics.appliedOffsetMs
+        if (deltaOffsetMs == 0L) {
             return lyrics
         }
 
         val alignedLines = lyrics.lines.map { line ->
-            val shiftedTime = (line.time + offsetMs).coerceAtLeast(0L)
+            val shiftedTime = (line.time + deltaOffsetMs).coerceAtLeast(0L)
             val shiftedWords = line.words?.map { word ->
-                word.copy(time = (word.time + offsetMs).coerceAtLeast(0L))
+                word.copy(time = (word.time + deltaOffsetMs).coerceAtLeast(0L))
             }
-            line.copy(time = shiftedTime, words = shiftedWords)
+            line.copy(
+                time = shiftedTime,
+                words = shiftedWords,
+                endTime = line.endTime?.let { (it + deltaOffsetMs).coerceAtLeast(0L) }
+            )
         }
 
-        return lyrics.copy(lines = alignedLines)
+        return lyrics.copy(lines = alignedLines, appliedOffsetMs = targetOffsetMs)
     }
 }

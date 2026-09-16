@@ -90,14 +90,14 @@ class SearchViewModel(
     private var liveSongsJob: Job? = null
 
     fun onQueryChange(newQuery: String) {
-        _uiState.update { it.copy(query = newQuery, hasSubmittedSearch = false) }
-
         suggestionsJob?.cancel()
         liveSongsJob?.cancel()
+        searchJob?.cancel()
 
         if (newQuery.isBlank()) {
             _uiState.update {
                 it.copy(
+                    query = newQuery,
                     suggestions = emptyList(),
                     liveSongRecommendations = emptyList(),
                     searchResults = SearchResults(),
@@ -109,6 +109,15 @@ class SearchViewModel(
         }
 
         val trimmed = newQuery.trim()
+        _uiState.update {
+            it.copy(
+                query = newQuery,
+                hasSubmittedSearch = false,
+                suggestions = emptyList(),
+                liveSongRecommendations = emptyList(),
+                searchResults = SearchResults()
+            )
+        }
 
         // 1. Fast text autocomplete suggestions (top 3)
         suggestionsJob = viewModelScope.launch {
@@ -188,9 +197,21 @@ class SearchViewModel(
         liveSongsJob?.cancel()
         searchJob?.cancel()
 
-        _uiState.update { it.copy(query = trimmed, isSearching = true, hasSubmittedSearch = true, suggestions = emptyList(), detailStack = emptyList(), selectedArtistPage = null, selectedAlbum = null) }
+        _uiState.update {
+            it.copy(
+                query = trimmed,
+                isSearching = true,
+                hasSubmittedSearch = true,
+                suggestions = emptyList(),
+                liveSongRecommendations = emptyList(),
+                searchResults = SearchResults(),
+                detailStack = emptyList(),
+                selectedArtistPage = null,
+                selectedAlbum = null
+            )
+        }
 
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             val isPaused = context?.let { ctx ->
                 com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseSearchHistory
             } ?: false
@@ -198,13 +219,16 @@ class SearchViewModel(
                 searchRepository.recordSearchQuery(trimmed)
             }
             val results = searchRepository.search(trimmed)
-            _uiState.update { it.copy(searchResults = results, isSearching = false, hasSubmittedSearch = true) }
+            if (isActive && trimmed.equals(_uiState.value.query.trim(), ignoreCase = true)) {
+                _uiState.update { it.copy(searchResults = results, isSearching = false, hasSubmittedSearch = true) }
+            }
         }
     }
 
     fun clearSearch() {
         suggestionsJob?.cancel()
         liveSongsJob?.cancel()
+        searchJob?.cancel()
         _uiState.update {
             it.copy(
                 query = "",

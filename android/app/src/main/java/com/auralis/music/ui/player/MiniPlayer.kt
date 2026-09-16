@@ -79,10 +79,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -172,7 +168,6 @@ fun MiniPlayer(
     onClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null && queue.isEmpty()) return
@@ -406,25 +401,25 @@ fun MiniPlayer(
         )
     }
 
-    // Smooth animated color transitions when track changes (matching the global 650ms timeline)
+    // Smooth animated color transitions when track changes (matching the global 320ms timeline)
     val animGradLeft by animateColorAsState(
         targetValue = gradStops.miniLeft,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "miniGradLeft"
     )
     val animGradMid by animateColorAsState(
         targetValue = gradStops.miniCenter,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "miniGradMid"
     )
     val animGradRight by animateColorAsState(
         targetValue = gradStops.miniRight,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "miniGradRight"
     )
     val animGradEnd by animateColorAsState(
         targetValue = gradStops.glowAccent,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "miniGradEnd"
     )
 
@@ -476,7 +471,6 @@ fun MiniPlayer(
                     progressProvider = effectiveProgressProvider,
                     isFavorite = isFavorite,
                     dominantColor = animGradMid,
-                    hazeState = hazeState,
                     onPlayPauseClick = onPlayPauseClick,
                     onPreviousClick = onPreviousClick,
                     onNextClick = onNextClick,
@@ -497,7 +491,6 @@ fun MiniPlayer(
                     isPureBlack = appearance.pureBlackMiniPlayer,
                     activeStyle = activeStyle,
                     extractedColors = extractedColors,
-                    hazeState = hazeState,
                     onPlayPauseClick = onPlayPauseClick,
                     onPreviousClick = onPreviousClick,
                     onNextClick = onNextClick,
@@ -529,7 +522,6 @@ fun MiniPlayer(
                 animGradLeft = animGradLeft,
                 animGradMid = animGradMid,
                 animGradRight = animGradRight,
-                hazeState = hazeState,
                 sensitivityRatio = sensitivityRatio,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -559,7 +551,6 @@ private fun ExpandedMiniPlayerView(
     progressProvider: () -> Float,
     isFavorite: Boolean,
     dominantColor: Color,
-    hazeState: HazeState?,
     onPlayPauseClick: () -> Unit,
     onPreviousClick: (() -> Unit)?,
     onNextClick: (() -> Unit)?,
@@ -583,19 +574,7 @@ private fun ExpandedMiniPlayerView(
                 spotColor = dominantColor.copy(alpha = 0.50f)
             )
             .clip(cardShape)
-            .then(
-                if (hazeState != null) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeStyle(
-                            backgroundColor = dominantColor.copy(alpha = 0.20f),
-                            tint = HazeTint(dominantColor.copy(alpha = 0.25f)),
-                            blurRadius = 30.dp,
-                            noiseFactor = 0.02f
-                        )
-                    )
-                } else Modifier
-            )
+            .background(Color(0xFF0C0D14))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
@@ -835,7 +814,6 @@ private fun ClassicMiniPlayerView(
     isPureBlack: Boolean,
     activeStyle: PlayerBackgroundStyle,
     extractedColors: ArtworkPalette,
-    hazeState: HazeState?,
     onPlayPauseClick: () -> Unit,
     onPreviousClick: (() -> Unit)?,
     onNextClick: (() -> Unit)?,
@@ -846,7 +824,7 @@ private fun ClassicMiniPlayerView(
     val bgColor = if (isPureBlack) {
         Color.Black
     } else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
-        if (hazeState != null) Color.Transparent else Color(0xFF10121A).copy(alpha = 0.85f)
+        Color(0xFF10121A).copy(alpha = 0.85f)
     } else {
         Color(0xFF161616)
     }
@@ -864,19 +842,6 @@ private fun ClassicMiniPlayerView(
             .padding(horizontal = 8.dp, vertical = 3.dp)
             .shadow(elevation = 10.dp, shape = shape)
             .clip(shape)
-            .then(
-                if (!isPureBlack && hazeState != null && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC || activeStyle == PlayerBackgroundStyle.BLUR)) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeStyle(
-                            backgroundColor = Color(0xFF10121A),
-                            tint = HazeTint(Color(0xFF10121A).copy(alpha = 0.45f)),
-                            blurRadius = 30.dp,
-                            noiseFactor = 0.02f
-                        )
-                    )
-                } else Modifier
-            )
             .background(bgColor)
             .border(1.dp, borderColor, shape)
     ) {
@@ -1055,7 +1020,6 @@ private fun NewMiniPlayerPillView(
     animGradLeft: Color,
     animGradMid: Color,
     animGradRight: Color,
-    hazeState: HazeState?,
     sensitivityRatio: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
@@ -1072,7 +1036,7 @@ private fun NewMiniPlayerPillView(
     val actualBgColor = if (isPureBlack) {
         Color.Black
     } else when (activeStyle) {
-        PlayerBackgroundStyle.APPLE_MUSIC -> if (hazeState != null) Color.Transparent else Color(0xFF10121A).copy(alpha = 0.85f)
+        PlayerBackgroundStyle.APPLE_MUSIC -> Color(0xFF10121A).copy(alpha = 0.85f)
         PlayerBackgroundStyle.GLOW_MOTION, PlayerBackgroundStyle.LIVE_MESH -> Color(0xFF050505)
         PlayerBackgroundStyle.GRADIENT -> Color(0xFF08080A)
         else -> Color(0xFF141512)
@@ -1123,19 +1087,6 @@ private fun NewMiniPlayerPillView(
                 spotColor = if (isPureBlack) Color.Black else spotShadowColor
             )
             .clip(pillShape)
-            .then(
-                if (!isPureBlack && hazeState != null && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC || activeStyle == PlayerBackgroundStyle.BLUR)) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeStyle(
-                            backgroundColor = Color(0xFF10121A),
-                            tint = HazeTint(Color(0xFF10121A).copy(alpha = 0.40f)),
-                            blurRadius = 30.dp,
-                            noiseFactor = 0.02f
-                        )
-                    )
-                } else Modifier
-            )
             .background(actualBgColor)
             .then(actualBorderModifier)
     ) {
@@ -1170,6 +1121,7 @@ private fun NewMiniPlayerPillView(
                 state = pagerState,
                 key = { page -> queueTracks.getOrNull(page)?.id ?: page },
                 userScrollEnabled = isHorizontalSwipeEnabled,
+                beyondViewportPageCount = 1,
                 flingBehavior = pagerFlingBehavior,
                 modifier = Modifier
                     .weight(1f)

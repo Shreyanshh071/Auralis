@@ -26,11 +26,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -333,14 +336,16 @@ fun lerpArtworkPalette(start: ArtworkPalette, stop: ArtworkPalette, fraction: Fl
 }
 
 /**
- * Smoothly and fluidly interpolates an [ArtworkPalette] during track changes over a 650ms FastOutSlowIn curve.
+ * Interpolates an [ArtworkPalette] with an immediate-start, 240ms settle.
+ * Automatically accelerates transition when rapid track skips interrupt an active transition, keeping pace
+ * dynamically with fast swiping and button skipping.
  * Uses a single [Animatable] float + [lerpArtworkPalette] to animate all color channels together in one
  * invalidation per frame, eliminating the 10-simultaneous animateColorAsState flood that caused frame jank.
  */
 @Composable
 fun animateArtworkPalette(
     targetPalette: ArtworkPalette,
-    durationMillis: Int = 650
+    durationMillis: Int = PlayerTransitionMotion.paletteDurationMillis
 ): ArtworkPalette {
     // Keep track of the "start" snapshot (what was visible the moment the target changed)
     var currentVisiblePalette by remember { mutableStateOf(targetPalette) }
@@ -353,10 +358,14 @@ fun animateArtworkPalette(
             // A → B → C switches never jump or restart from a stale baseline.
             currentVisiblePalette = lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
             previousTargetPalette = targetPalette
+
+            // When changing tracks rapidly ("fast fast"), accelerate interpolation to dynamically catch up
+            val transitionSpec = PlayerTransitionMotion.paletteSpec(animProgress.value, durationMillis)
+
             animProgress.snapTo(0f)
             animProgress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing)
+                animationSpec = transitionSpec
             )
         }
     }
@@ -385,38 +394,49 @@ fun PlayerBackground(
     modifier: Modifier = Modifier,
     isMiniPlayer: Boolean = false,
     isPlaying: Boolean = true,
-    isVisible: Boolean = true
+    isVisible: Boolean = true,
+    secondaryArtworkUrl: String? = null,
+    swipeFraction: Float = 0f
 ) {
     val context = LocalContext.current
 
-    // Unified smooth palette interpolation: fluid 650ms continuous color transitions
-    val animatedPalette = animateArtworkPalette(extractedColors, durationMillis = 650)
+    val isSwiping = swipeFraction > 0.005f && secondaryArtworkUrl != null
+    // If we are actively swiping, the palette is already mathematically interpolated in real-time by swipeFraction.
+    // Committed changes use one interruptible palette driver.
+    val effectivePalette = if (isSwiping) {
+        extractedColors
+    } else {
+        animateArtworkPalette(extractedColors)
+    }
 
-    val animatedGlowColors = remember(animatedPalette) {
-        if (animatedPalette.glowColors.size >= 6) {
-            animatedPalette.glowColors.take(6)
+    val animatedGlowColors = remember(effectivePalette) {
+        if (effectivePalette.glowColors.size >= 6) {
+            effectivePalette.glowColors.take(6)
         } else {
-            val baseList = animatedPalette.glowColors.ifEmpty {
-                listOf(animatedPalette.primary, animatedPalette.secondary, animatedPalette.tertiary)
+            val baseList = effectivePalette.glowColors.ifEmpty {
+                listOf(effectivePalette.primary, effectivePalette.secondary, effectivePalette.tertiary)
             }
             List(6) { idx -> baseList[idx % baseList.size] }
         }
     }
 
     // Unified vibrant gradient stops derived from animated artwork colors
-    val gradStops = remember(animatedPalette.primary, animatedPalette.secondary, animatedPalette.tertiary, animatedPalette.isMonochrome) {
+    val gradStops = remember(effectivePalette.primary, effectivePalette.secondary, effectivePalette.tertiary, effectivePalette.isMonochrome) {
         PlayerGradientPalette.create(
-            primary = animatedPalette.primary,
-            secondary = animatedPalette.secondary,
-            tertiary = animatedPalette.tertiary,
-            isMonochrome = animatedPalette.isMonochrome
+            primary = effectivePalette.primary,
+            secondary = effectivePalette.secondary,
+            tertiary = effectivePalette.tertiary,
+            isMonochrome = effectivePalette.isMonochrome
         )
     }
 
-    Box(
-        modifier = modifier.clipToBounds()
-    ) {
-        when (style) {
+    Crossfade(
+        targetState = style,
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        modifier = modifier.clipToBounds(),
+        label = "playerBackgroundStyleCrossfade"
+    ) { currentStyle ->
+        when (currentStyle) {
             PlayerBackgroundStyle.FOLLOW_THEME -> {
                 if (isMiniPlayer) {
                     Box(
@@ -509,58 +529,41 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.BLUR -> {
-                // Base surface: dynamic vibrant gradient stops ensuring the player NEVER flashes black during changes
+                val blurColorMatrix = remember(effectivePalette.isMonochrome) {
+                    if (effectivePalette.isMonochrome) {
+                        ColorMatrix().apply { setToSaturation(0f) }
+                    } else {
+                        null
+                    }
+                }
+
+                // Base surface: dynamic theme background to avoid flash during initial load
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            if (isMiniPlayer) {
-                                Brush.horizontalGradient(
-                                    0.0f to gradStops.miniLeft,
-                                    0.5f to gradStops.miniCenter,
-                                    1.0f to gradStops.miniRight
-                                )
-                            } else {
-                                Brush.verticalGradient(
-                                    0.0f to gradStops.topVibrant,
-                                    0.48f to gradStops.midHarmonic,
-                                    1.0f to gradStops.bottomObsidian
-                                )
-                            }
-                        )
+                        .background(if (isMiniPlayer) MaterialTheme.dynamicSurface else MaterialTheme.dynamicBackground)
                 )
 
-                // Seamless Dual-Layer Blurred Artwork (zero black frames while image decodes)
+                // Seamless Dual-Layer Blurred Artwork (zero black frames while image decodes, matching Metrolist)
                 SeamlessArtworkBlurLayer(
                     artworkUrl = artworkUrl,
                     isMiniPlayer = isMiniPlayer,
-                    blurRadius = if (isMiniPlayer) 20.dp else 24.dp,
-                    scale = if (isMiniPlayer) 1.25f else 1.15f,
-                    targetAlpha = if (isMiniPlayer) 0.95f else 0.88f,
+                    blurRadius = if (isMiniPlayer) 50.dp else 120.dp,
+                    scale = if (isMiniPlayer) 1.20f else 1.10f,
+                    targetAlpha = 1.0f,
+                    colorMatrix = blurColorMatrix,
+                    translationYRatio = 0f,
+                    secondaryArtworkUrl = secondaryArtworkUrl,
+                    swipeFraction = swipeFraction,
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Legibility Scrim
-                if (isMiniPlayer) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.28f))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.00f to Color.Black.copy(alpha = 0.18f),
-                                    0.40f to Color.Black.copy(alpha = 0.28f),
-                                    0.75f to Color.Black.copy(alpha = 0.48f),
-                                    1.00f to Color.Black.copy(alpha = 0.62f)
-                                )
-                            )
-                    )
-                }
+                // Legibility Scrim: uniform dark overlay matching Metrolist exactly (30% full player, 35% mini player)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = if (isMiniPlayer) 0.35f else 0.30f))
+                )
             }
 
             PlayerBackgroundStyle.GLOW_MOTION -> {
@@ -762,9 +765,11 @@ fun PlayerBackground(
                 SeamlessArtworkBlurLayer(
                     artworkUrl = artworkUrl,
                     isMiniPlayer = isMiniPlayer,
-                    blurRadius = if (isMiniPlayer) 20.dp else 24.dp,
-                    scale = if (isMiniPlayer) 1.35f else 1.35f,
+                    blurRadius = if (isMiniPlayer) 24.dp else 85.dp,
+                    scale = if (isMiniPlayer) 1.35f else 1.55f,
                     targetAlpha = if (isMiniPlayer) 0.22f else 0.80f,
+                    secondaryArtworkUrl = secondaryArtworkUrl,
+                    swipeFraction = swipeFraction,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -832,7 +837,9 @@ fun PlayerBackground(
                 LiveMeshArtworkLayer(
                     artworkUrl = artworkUrl,
                     isMiniPlayer = isMiniPlayer,
-                    isMonochrome = extractedColors.isMonochrome,
+                    isMonochrome = effectivePalette.isMonochrome,
+                    secondaryArtworkUrl = secondaryArtworkUrl,
+                    swipeFraction = swipeFraction,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -856,124 +863,153 @@ private fun SeamlessArtworkBlurLayer(
     targetAlpha: Float,
     modifier: Modifier = Modifier,
     colorMatrix: ColorMatrix? = null,
-    rotationZ: Float = 0f
+    rotationZ: Float = 0f,
+    translationYRatio: Float = 0f,
+    secondaryArtworkUrl: String? = null,
+    swipeFraction: Float = 0f
 ) {
     val context = LocalContext.current
-    val isInitiallyCached = remember(artworkUrl) {
-        if (artworkUrl.isNullOrBlank()) false else {
-            try {
-                val memCache = context.imageLoader.memoryCache
-                val key = coil.memory.MemoryCache.Key(artworkUrl)
-                memCache?.get(key) != null
-            } catch (_: Exception) {
-                false
-            }
-        }
-    }
-    // Base layer URL that is confirmed loaded and visible
-    var visibleUrl by remember { mutableStateOf<String?>(artworkUrl) }
-    // Incoming URL that is loading or fading in on top
-    var incomingUrl by remember { mutableStateOf<String?>(null) }
-    var isIncomingLoaded by remember { mutableStateOf(false) }
-
-    val incomingAlpha = remember { Animatable(0f) }
-
-    LaunchedEffect(artworkUrl) {
-        if (!artworkUrl.isNullOrBlank()) {
-            if (artworkUrl != visibleUrl) {
-                // If previous incoming image has already achieved substantial visibility, promote to visible base
-                if (isIncomingLoaded && incomingAlpha.value >= 0.5f && incomingUrl != null) {
-                    visibleUrl = incomingUrl
-                }
-                incomingUrl = artworkUrl
-                val cached = try {
-                    val memCache = context.imageLoader.memoryCache
-                    val key = coil.memory.MemoryCache.Key(artworkUrl)
-                    memCache?.get(key) != null
-                } catch (_: Exception) { false }
-
-                incomingAlpha.snapTo(0f)
-                isIncomingLoaded = cached
-            }
-        }
-    }
-
-    LaunchedEffect(isIncomingLoaded) {
-        if (isIncomingLoaded && incomingUrl != null) {
-            incomingAlpha.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
-            )
-            visibleUrl = incomingUrl
-            incomingUrl = null
-            isIncomingLoaded = false
-            incomingAlpha.snapTo(0f)
-        }
-    }
-
     val colorFilter = remember(colorMatrix) {
         colorMatrix?.let { ColorFilter.colorMatrix(it) }
     }
 
-    Box(modifier = modifier.clipToBounds()) {
-        // Base Layer: previously loaded artwork remains visible until incoming layer finishes fading in
-        val base = visibleUrl
-        if (!base.isNullOrBlank()) {
-            val baseReq = remember(base) {
-                ImageRequest.Builder(context)
-                    .data(base)
-                    .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
-                    .crossfade(false)
-                    .build()
-            }
-            AsyncImage(
-                model = baseReq,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                colorFilter = colorFilter,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = if (incomingUrl != null && isIncomingLoaded) {
-                            targetAlpha * (1f - incomingAlpha.value)
-                        } else {
-                            targetAlpha
-                        }
-                        if (rotationZ != 0f) this.rotationZ = rotationZ
-                    }
-                    .blur(radius = blurRadius)
-            )
-        }
+    // Ping-pong layer slots: Slot 0 (base) and Slot 1 (overlay)
+    // slot1Alpha: 0f = Slot 0 is fully visible; 1f = Slot 1 is fully visible.
+    var slot0Url by remember { mutableStateOf<String?>(artworkUrl) }
+    var slot1Url by remember { mutableStateOf<String?>(null) }
+    var activeSlot by remember { mutableIntStateOf(0) }
+    val slot1Alpha = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
 
-        // Incoming Layer: fades in on top once successfully loaded
-        val inc = incomingUrl
-        if (!inc.isNullOrBlank()) {
-            val incReq = remember(inc) {
+    LaunchedEffect(artworkUrl, swipeFraction) {
+        if (!artworkUrl.isNullOrBlank() && swipeFraction <= 0.005f) {
+            val currentActiveUrl = if (activeSlot == 0) slot0Url else slot1Url
+            if (artworkUrl != currentActiveUrl) {
+                if (activeSlot == 0) {
+                    slot1Url = artworkUrl
+                    activeSlot = 1
+                    slot1Alpha.animateTo(1f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                } else {
+                    slot0Url = artworkUrl
+                    activeSlot = 0
+                    slot1Alpha.animateTo(0f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                }
+            }
+        }
+    }
+
+    Box(modifier = modifier.clipToBounds()) {
+        if (secondaryArtworkUrl != null && swipeFraction > 0.005f) {
+            val prim = artworkUrl ?: (if (activeSlot == 0) slot0Url else slot1Url)
+            if (!prim.isNullOrBlank()) {
+                val primReq = remember(prim) {
+                    ImageRequest.Builder(context)
+                        .data(prim)
+                        .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                        .allowHardware(false)
+                        .crossfade(false)
+                        .build()
+                }
+                AsyncImage(
+                    model = primReq,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = colorFilter,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                            alpha = targetAlpha * (1f - swipeFraction)
+                            if (rotationZ != 0f) this.rotationZ = rotationZ
+                        }
+                        .blur(radius = blurRadius)
+                )
+            }
+
+            val secReq = remember(secondaryArtworkUrl) {
                 ImageRequest.Builder(context)
-                    .data(inc)
+                    .data(secondaryArtworkUrl)
                     .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                    .allowHardware(false)
                     .crossfade(false)
                     .build()
             }
             AsyncImage(
-                model = incReq,
+                model = secReq,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 colorFilter = colorFilter,
-                onSuccess = { isIncomingLoaded = true },
-                onError = { isIncomingLoaded = false },
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
-                        alpha = targetAlpha * incomingAlpha.value
+                        if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                        alpha = targetAlpha * swipeFraction
                         if (rotationZ != 0f) this.rotationZ = rotationZ
                     }
                     .blur(radius = blurRadius)
             )
+        } else {
+            // Stable Ping-Pong Dual-Layer: Slot 0 and Slot 1 persist seamlessly.
+            // When reaching 1f or 0f, the active image is NEVER destroyed or reset, preventing any black flash.
+            val u0 = slot0Url
+            if (!u0.isNullOrBlank()) {
+                val req0 = remember(u0) {
+                    ImageRequest.Builder(context)
+                        .data(u0)
+                        .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                        .allowHardware(false)
+                        .crossfade(false)
+                        .build()
+                }
+                AsyncImage(
+                    model = req0,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = colorFilter,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                            alpha = targetAlpha
+                            if (rotationZ != 0f) this.rotationZ = rotationZ
+                        }
+                        .blur(radius = blurRadius)
+                )
+            }
+
+            val u1 = slot1Url
+            if (!u1.isNullOrBlank()) {
+                val req1 = remember(u1) {
+                    ImageRequest.Builder(context)
+                        .data(u1)
+                        .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                        .allowHardware(false)
+                        .crossfade(false)
+                        .build()
+                }
+                AsyncImage(
+                    model = req1,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = colorFilter,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                            alpha = targetAlpha * slot1Alpha.value
+                            if (rotationZ != 0f) this.rotationZ = rotationZ
+                        }
+                        .blur(radius = blurRadius)
+                )
+            }
         }
     }
 }
@@ -988,43 +1024,31 @@ private fun LiveMeshArtworkLayer(
     artworkUrl: String?,
     isMiniPlayer: Boolean,
     isMonochrome: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    secondaryArtworkUrl: String? = null,
+    swipeFraction: Float = 0f
 ) {
     val context = LocalContext.current
-    var visibleUrl by remember { mutableStateOf<String?>(artworkUrl) }
-    var incomingUrl by remember { mutableStateOf<String?>(null) }
-    var isIncomingLoaded by remember { mutableStateOf(false) }
-    val incomingAnim = remember { Animatable(0f) }
+    var slot0Url by remember { mutableStateOf<String?>(artworkUrl) }
+    var slot1Url by remember { mutableStateOf<String?>(null) }
+    var activeSlot by remember { mutableIntStateOf(0) }
+    val slot1Alpha = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(artworkUrl) {
-        if (!artworkUrl.isNullOrBlank()) {
-            if (artworkUrl != visibleUrl) {
-                if (isIncomingLoaded && incomingAnim.value >= 0.5f && incomingUrl != null) {
-                    visibleUrl = incomingUrl
+    LaunchedEffect(artworkUrl, swipeFraction) {
+        if (!artworkUrl.isNullOrBlank() && swipeFraction <= 0.005f) {
+            val currentActiveUrl = if (activeSlot == 0) slot0Url else slot1Url
+            if (artworkUrl != currentActiveUrl) {
+                if (activeSlot == 0) {
+                    slot1Url = artworkUrl
+                    activeSlot = 1
+                    slot1Alpha.animateTo(1f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                } else {
+                    slot0Url = artworkUrl
+                    activeSlot = 0
+                    slot1Alpha.animateTo(0f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
                 }
-                incomingUrl = artworkUrl
-                val cached = try {
-                    val memCache = context.imageLoader.memoryCache
-                    val key = coil.memory.MemoryCache.Key(artworkUrl)
-                    memCache?.get(key) != null
-                } catch (_: Exception) { false }
-
-                incomingAnim.snapTo(0f)
-                isIncomingLoaded = cached
             }
-        }
-    }
-
-    LaunchedEffect(isIncomingLoaded) {
-        if (isIncomingLoaded && incomingUrl != null) {
-            incomingAnim.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
-            )
-            visibleUrl = incomingUrl
-            incomingUrl = null
-            isIncomingLoaded = false
-            incomingAnim.snapTo(0f)
         }
     }
 
@@ -1078,34 +1102,63 @@ private fun LiveMeshArtworkLayer(
     )
 
     Box(modifier = modifier.clipToBounds()) {
-        val base = visibleUrl
-        if (!base.isNullOrBlank()) {
+        if (secondaryArtworkUrl != null && swipeFraction > 0.005f) {
+            val prim = artworkUrl ?: (if (activeSlot == 0) slot0Url else slot1Url)
+            if (!prim.isNullOrBlank()) {
+                LiveMeshArtworkContent(
+                    url = prim,
+                    isMiniPlayer = isMiniPlayer,
+                    colorFilter = colorFilter,
+                    miniRotation = miniRotation,
+                    anchorRotation = anchorRotation,
+                    fastRotation = fastRotation,
+                    slowRotation = slowRotation,
+                    alpha = 1f - swipeFraction,
+                    onLoaded = null
+                )
+            }
             LiveMeshArtworkContent(
-                url = base,
+                url = secondaryArtworkUrl,
                 isMiniPlayer = isMiniPlayer,
                 colorFilter = colorFilter,
                 miniRotation = miniRotation,
                 anchorRotation = anchorRotation,
                 fastRotation = fastRotation,
                 slowRotation = slowRotation,
-                alpha = if (incomingUrl != null && isIncomingLoaded) (1f - incomingAnim.value) else 1f,
+                alpha = swipeFraction,
                 onLoaded = null
             )
-        }
+        } else {
+            // Stable Ping-Pong Live Mesh Layers
+            val u0 = slot0Url
+            if (!u0.isNullOrBlank()) {
+                LiveMeshArtworkContent(
+                    url = u0,
+                    isMiniPlayer = isMiniPlayer,
+                    colorFilter = colorFilter,
+                    miniRotation = miniRotation,
+                    anchorRotation = anchorRotation,
+                    fastRotation = fastRotation,
+                    slowRotation = slowRotation,
+                    alpha = 1f,
+                    onLoaded = null
+                )
+            }
 
-        val inc = incomingUrl
-        if (!inc.isNullOrBlank()) {
-            LiveMeshArtworkContent(
-                url = inc,
-                isMiniPlayer = isMiniPlayer,
-                colorFilter = colorFilter,
-                miniRotation = miniRotation,
-                anchorRotation = anchorRotation,
-                fastRotation = fastRotation,
-                slowRotation = slowRotation,
-                alpha = incomingAnim.value,
-                onLoaded = { isIncomingLoaded = true }
-            )
+            val u1 = slot1Url
+            if (!u1.isNullOrBlank()) {
+                LiveMeshArtworkContent(
+                    url = u1,
+                    isMiniPlayer = isMiniPlayer,
+                    colorFilter = colorFilter,
+                    miniRotation = miniRotation,
+                    anchorRotation = anchorRotation,
+                    fastRotation = fastRotation,
+                    slowRotation = slowRotation,
+                    alpha = slot1Alpha.value,
+                    onLoaded = null
+                )
+            }
         }
     }
 }

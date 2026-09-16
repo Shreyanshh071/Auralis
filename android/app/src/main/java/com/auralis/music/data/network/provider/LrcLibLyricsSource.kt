@@ -97,16 +97,22 @@ class LrcLibLyricsSource(
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)
             val rawLyrics = parseLrcItem(json) ?: return null
+            if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(rawLyrics, durationSec)) {
+                return null
+            }
             val candDuration = (rawLyrics.durationMs?.let { it / 1000L }) ?: json.optLong("duration", 0L)
             val lyricsData = LyricsMatcher.autoAlignLyrics(rawLyrics, durationSec, candDuration)
 
+            val candAlbum = json.optString("albumName").ifBlank { null }
             val confidence = LyricsMatcher.calculateConfidence(
                 queryTitle = title,
                 queryArtist = artist,
                 candidateTitle = lyricsData.trackName ?: title,
                 candidateArtist = lyricsData.artistName ?: artist,
                 queryDurationSec = durationSec,
-                candidateDurationSec = candDuration
+                candidateDurationSec = candDuration,
+                queryAlbum = album,
+                candidateAlbum = candAlbum
             )
 
             if (confidence < 45) return null
@@ -146,6 +152,7 @@ class LrcLibLyricsSource(
                 val item = array.optJSONObject(i) ?: continue
                 val candTitle = item.optString("trackName")
                 val candArtist = item.optString("artistName")
+                val candAlbum = item.optString("albumName")
                 val candDuration = item.optLong("duration", 0L)
                 val hasSynced = !item.optString("syncedLyrics").isNullOrBlank()
 
@@ -155,7 +162,9 @@ class LrcLibLyricsSource(
                     candidateTitle = candTitle,
                     candidateArtist = candArtist,
                     queryDurationSec = query.durationSec,
-                    candidateDurationSec = candDuration
+                    candidateDurationSec = candDuration,
+                    queryAlbum = query.album,
+                    candidateAlbum = candAlbum
                 )
 
                 if (confidence < 45) continue
@@ -179,6 +188,9 @@ class LrcLibLyricsSource(
                 if (totalScore > bestScore) {
                     val rawParsed = parseLrcItem(item)
                     if (rawParsed != null && rawParsed.lines.isNotEmpty()) {
+                        if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(rawParsed, query.durationSec)) {
+                            continue
+                        }
                         val alignedParsed = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
                         bestScore = totalScore
                         bestCandidate = LyricsCandidate(
