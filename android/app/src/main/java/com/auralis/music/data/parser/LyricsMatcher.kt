@@ -251,17 +251,32 @@ object LyricsMatcher {
 
         // 4. Version Score (0.0 to 1.0)
         val qVersion = TitleCleaner.extractVersion(queryTitle)
+            ?: queryAlbum?.let { TitleCleaner.extractVersion(it) }
         val cVersion = TitleCleaner.extractVersion(candidateTitle)
+            ?: candidateAlbum?.let { TitleCleaner.extractVersion(it) }
         val versionScore: Double = when {
             qVersion == null && cVersion == null -> 1.0
-            qVersion != null && cVersion != null && qVersion.equals(cVersion, ignoreCase = true) -> 1.0
+            qVersion != null && cVersion != null && (qVersion.equals(cVersion, ignoreCase = true) || qVersion.contains(cVersion, ignoreCase = true) || cVersion.contains(qVersion, ignoreCase = true)) -> 1.0
             qVersion != null && cVersion == null -> 0.40
             qVersion == null && cVersion != null -> 0.30
             else -> 0.20
         }
 
+        // 5. Album Score & Consistency Check
+        val albumBonus = if (!queryAlbum.isNullOrBlank() && !candidateAlbum.isNullOrBlank()) {
+            val qAlb = queryAlbum.trim().lowercase()
+            val cAlb = candidateAlbum.trim().lowercase()
+            if (qAlb == cAlb || qAlb.contains(cAlb) || cAlb.contains(qAlb) || diceCoefficient(qAlb, cAlb) >= 0.70) {
+                5 // Bonus for verified album match
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+
         val composite = (titleScore * 0.40) + (artistScore * 0.30) + (durationScore * 0.20) + (versionScore * 0.10)
-        return (composite * 100).toInt().coerceIn(0, 100)
+        return ((composite * 100).toInt() + albumBonus).coerceIn(0, 100)
     }
 
     /**

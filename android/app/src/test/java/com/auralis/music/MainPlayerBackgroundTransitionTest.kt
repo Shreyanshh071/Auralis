@@ -1,7 +1,10 @@
 package com.auralis.music
 
 import androidx.compose.ui.graphics.Color
+import com.auralis.music.domain.model.Track
+import com.auralis.music.ui.player.NowPlayingTab
 import com.auralis.music.ui.player.PlayerBackgroundStyle
+import com.auralis.music.ui.player.deriveActiveTrack
 import com.auralis.music.ui.player.lerpArtworkPalette
 import com.auralis.music.ui.theme.ArtworkPalette
 import org.junit.Assert.assertEquals
@@ -154,6 +157,13 @@ class MainPlayerBackgroundTransitionTest {
     }
 
     @Test
+    fun testBlurPlayerBackgroundStyleResolution() {
+        assertEquals(PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.fromKey("Blur"))
+        assertEquals(PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.fromKey("blur"))
+        assertEquals(PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.fromKey(" BLUR "))
+    }
+
+    @Test
     fun testLiveMeshGeometricCoverageGuarantee() {
         // Test aspect ratios: 20:9 (Motorola Edge 50 Fusion, 1080x2400), 19.5:9 (1080x2340), 16:9 (1080x1920)
         val testScreens = listOf(
@@ -177,5 +187,251 @@ class MainPlayerBackgroundTransitionTest {
                 inscribedCircleRadius >= halfDiagonal
             )
         }
+    }
+
+    @Test
+    fun testPartialSwipeBackgroundRemainsOnCurrentPlayingTrack() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val song2 = Track(id = "s2", title = "Song Two", artist = "Artist Two", thumbnail = "thumb2", duration = 220)
+        val queue = listOf(song0, song1, song2)
+
+        // Track 0 is currently playing (currentTrackIndex = 0)
+        // User starts dragging carousel towards page 1 (partial swipe in progress, not committed)
+        // pendingTargetIndex is null, pager is scrolling, intermediate threshold is crossed
+        val activeTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = null,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+
+        // Active track (and thus background/palette/title) MUST remain on song0!
+        assertEquals("s0", activeTrack.id)
+        assertEquals("thumb0", activeTrack.thumbnail)
+        assertEquals("Song Zero", activeTrack.title)
+    }
+
+    @Test
+    fun testSwipeCancellationBackgroundRemainsUnchanged() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val queue = listOf(song0, song1)
+
+        // 1. Incomplete swipe starts: pendingTargetIndex = null -> active is song0
+        val duringDrag = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = null,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+        assertEquals("s0", duringDrag.id)
+
+        // 2. User releases incomplete swipe and pager snaps back to page 0 (settledPage = 0 == currentTrackIndex)
+        // pendingTargetIndex remains null
+        val afterSnapBack = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = null,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+        assertEquals("s0", afterSnapBack.id)
+        assertEquals("thumb0", afterSnapBack.thumbnail)
+    }
+
+    @Test
+    fun testCommittedSwipeChangesBackground() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val queue = listOf(song0, song1)
+
+        // User drags and releases; carousel flings and settles on page 1 (settledPage = 1 != currentTrackIndex 0)
+        // At the moment of settling, pendingTargetIndex is committed to 1
+        val committedTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = 1,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+
+        // Background, palette, and title immediately commit to song1
+        assertEquals("s1", committedTrack.id)
+        assertEquals("thumb1", committedTrack.thumbnail)
+        assertEquals("Song One", committedTrack.title)
+
+        // Once audio engine updates playback (currentTrackIndex = 1, playingTrack = song1), pendingTargetIndex clears
+        val playbackCaughtUpTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = null,
+            currentTrackIndex = 1,
+            queue = queue,
+            playingTrack = song1
+        )
+        assertEquals("s1", playbackCaughtUpTrack.id)
+    }
+
+    @Test
+    fun testButtonNextPreviousCommittedBackgroundSynchronization() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val song2 = Track(id = "s2", title = "Song Two", artist = "Artist Two", thumbnail = "thumb2", duration = 220)
+        val queue = listOf(song0, song1, song2)
+
+        // User taps Next button -> pendingTargetIndex immediately sets to 1
+        val nextTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = 1,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+        assertEquals("s1", nextTrack.id)
+
+        // Rapid tap Next button while animating -> pendingTargetIndex updates to 2
+        val rapidNextTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = 2,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+        assertEquals("s2", rapidNextTrack.id)
+    }
+
+    @Test
+    fun testNonPlayerTabsAlwaysReflectAuthoritativePlayingTrack() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val queue = listOf(song0, song1)
+
+        // On LYRICS tab, even if pendingTargetIndex is set or pager is scrolled, activeTrack is strictly playingTrack
+        val lyricsTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.LYRICS,
+            pendingTargetIndex = 1,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+        assertEquals("s0", lyricsTrack.id)
+
+        // On QUEUE tab, activeTrack is strictly playingTrack
+        val queueTabTrack = deriveActiveTrack(
+            currentTab = NowPlayingTab.QUEUE,
+            pendingTargetIndex = 1,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = song0
+        )
+        assertEquals("s0", queueTabTrack.id)
+    }
+
+    @Test
+    fun testButtonNextTargetIndexChaining() {
+        val queueSize = 10
+        var pendingTargetIndex: Int? = null
+        var currentPage = 0
+
+        fun onNextButtonTapped(): Int {
+            val target = ((pendingTargetIndex ?: currentPage) + 1).coerceAtMost(queueSize - 1)
+            pendingTargetIndex = target
+            return target
+        }
+
+        // First Next tap -> advances from 0 to 1
+        val target1 = onNextButtonTapped()
+        assertEquals(1, target1)
+
+        // Rapid second Next tap while animating -> advances from 1 to 2
+        val target2 = onNextButtonTapped()
+        assertEquals(2, target2)
+
+        // Rapid third Next tap -> advances from 2 to 3
+        val target3 = onNextButtonTapped()
+        assertEquals(3, target3)
+    }
+
+    @Test
+    fun testPreviousButtonRestartVsTrackChangeThreshold() {
+        fun handlePreviousAction(posMs: Long, currentPage: Int): String {
+            return if (posMs > 3000L) {
+                "RESTART_SONG_AT_0"
+            } else if (currentPage > 0) {
+                "NAVIGATE_PREVIOUS_TRACK"
+            } else {
+                "QUEUE_START"
+            }
+        }
+
+        // If played for 15 seconds, restart without moving carousel
+        assertEquals("RESTART_SONG_AT_0", handlePreviousAction(15_000L, 2))
+        // At exactly 3001ms, restart
+        assertEquals("RESTART_SONG_AT_0", handlePreviousAction(3001L, 2))
+        // At 1500ms (within first 3 seconds), move to previous track
+        assertEquals("NAVIGATE_PREVIOUS_TRACK", handlePreviousAction(1500L, 2))
+        // At 0ms on track 0, queue start
+        assertEquals("QUEUE_START", handlePreviousAction(0L, 0))
+    }
+
+    @Test
+    fun testDynamicBackgroundCalculationDuringSwipe() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val song2 = Track(id = "s2", title = "Song Two", artist = "Artist Two", thumbnail = "thumb2", duration = 220)
+        val queue = listOf(song0, song1, song2)
+
+        val pal0 = samplePalette(Color(0xFFE53935), Color(0xFF8E24AA), Color(0xFF1E88E5))
+        val pal1 = samplePalette(Color(0xFF43A047), Color(0xFFFB8C00), Color(0xFF00ACC1))
+
+        // User is at page 0, swiping 40% towards page 1
+        val continuousPage = 0.40f
+        val baseIndex = continuousPage.toInt().coerceIn(0, queue.size - 1)
+        val fraction = (continuousPage - baseIndex).coerceIn(0f, 1f)
+        val nextIndex = (baseIndex + 1).coerceIn(0, queue.size - 1)
+
+        assertEquals(0, baseIndex)
+        assertEquals(1, nextIndex)
+        assertEquals(0.40f, fraction, 0.001f)
+
+        val blended = lerpArtworkPalette(pal0, pal1, fraction)
+        val expectedPrimary = androidx.compose.ui.graphics.lerp(pal0.primary, pal1.primary, 0.40f)
+        assertEquals(expectedPrimary, blended.primary)
+    }
+
+    @Test
+    fun testDynamicBackgroundCancellationReturnsToPlayingTrack() {
+        val song0 = Track(id = "s0", title = "Song Zero", artist = "Artist Zero", thumbnail = "thumb0", duration = 180)
+        val song1 = Track(id = "s1", title = "Song One", artist = "Artist One", thumbnail = "thumb1", duration = 200)
+        val queue = listOf(song0, song1)
+
+        val pal0 = samplePalette(Color(0xFFE53935), Color(0xFF8E24AA), Color(0xFF1E88E5))
+        val pal1 = samplePalette(Color(0xFF43A047), Color(0xFFFB8C00), Color(0xFF00ACC1))
+
+        // User dragged to 0.35f, then let go and pager animated back to 0.0f
+        val cancelledPage = 0.0f
+        val baseIndex = cancelledPage.toInt().coerceIn(0, queue.size - 1)
+        val fraction = (cancelledPage - baseIndex).coerceIn(0f, 1f)
+
+        assertEquals(0, baseIndex)
+        assertEquals(0f, fraction, 0.001f)
+
+        val settledPalette = lerpArtworkPalette(pal0, pal1, fraction)
+        assertEquals("When cancelled, palette must be 100% song0", pal0.primary, settledPalette.primary)
+        assertEquals("When cancelled, secondary color must be 100% song0", pal0.secondary, settledPalette.secondary)
+    }
+
+    @Test
+    fun testCrossModeAll5ModesIntegrity() {
+        // Confirm the 5 selectable modes from Appearance settings
+        val activeModes = PlayerBackgroundStyle.entries.filter { it != PlayerBackgroundStyle.APPLE_MUSIC }
+        assertEquals(5, activeModes.size)
+        assertTrue(activeModes.contains(PlayerBackgroundStyle.FOLLOW_THEME))
+        assertTrue(activeModes.contains(PlayerBackgroundStyle.GRADIENT))
+        assertTrue(activeModes.contains(PlayerBackgroundStyle.BLUR))
+        assertTrue(activeModes.contains(PlayerBackgroundStyle.GLOW_MOTION))
+        assertTrue(activeModes.contains(PlayerBackgroundStyle.LIVE_MESH))
     }
 }

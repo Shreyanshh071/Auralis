@@ -11,8 +11,16 @@ import android.graphics.Color as AndroidColor
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
-import com.auralis.music.ui.components.detectContainerReorderDrag
-import com.auralis.music.ui.components.detectReorderDrag
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.mutableLongStateOf
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import sh.calvin.reorderable.rememberScroller
+import com.auralis.music.ui.components.QueueTrackItem
+import com.auralis.music.ui.components.createQueueTrackItem
+import com.auralis.music.ui.components.syncLocalQueueWithSnapshot
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -146,6 +154,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.palette.graphics.Palette
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import kotlinx.coroutines.Job
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
@@ -179,6 +191,37 @@ enum class NowPlayingTab {
     PLAYER
 }
 
+data class DynamicBackgroundData(
+    val primaryArtworkUrl: String?,
+    val secondaryArtworkUrl: String?,
+    val swipeFraction: Float,
+    val palette: com.auralis.music.ui.theme.ArtworkPalette
+)
+
+/**
+ * Authoritative Active Track Synchronization:
+ * During an incomplete/partial swipe, the currently playing track remains strictly authoritative
+ * for the background, palette, title, and audio.
+ * The activeTrack is ONLY committed to a new queue track when:
+ * 1. A Next/Previous button is tapped (pendingTargetIndex is set), or
+ * 2. A manual carousel swipe genuinely settles on a new page (pendingTargetIndex is set on settle).
+ * If the user releases an incomplete swipe and the pager snaps back, the background remains unchanged.
+ */
+fun deriveActiveTrack(
+    currentTab: NowPlayingTab,
+    pendingTargetIndex: Int?,
+    currentTrackIndex: Int,
+    queue: List<Track>,
+    playingTrack: Track
+): Track {
+    if (currentTab == NowPlayingTab.PLAYER && pendingTargetIndex != null && queue.isNotEmpty()) {
+        if (pendingTargetIndex in queue.indices) {
+            return queue[pendingTargetIndex]
+        }
+    }
+    return playingTrack
+}
+
 /**
  * Boosts HSV color saturation and balances lightness to ensure rich, vibrant aurora blooms
  * that never appear muddy, dull, or washed out.
@@ -194,10 +237,7 @@ private fun boostColorVibrancy(color: Color, minSaturation: Float = 0.65f, targe
     return Color(AndroidColor.HSVToColor(hsv))
 }
 
-data class QueueTrackItem(
-    val instanceId: String,
-    val track: Track
-)
+typealias QueueTrackItem = com.auralis.music.ui.components.QueueTrackItem
 
 /**
  * Pixel-Perfect Fullscreen Now Playing Modal & Sheet with dynamic fluid aurora background,
@@ -287,42 +327,46 @@ fun NowPlayingModal(
     var pendingTargetIndex by remember { mutableStateOf<Int?>(null) }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
 
-    // Active track follows the visible page in the carousel ONLY when the user is actively
-    // swiping in the Player tab. On the Lyrics or Queue tab, or during natural/button track
-    // changes, activeTrack immediately reflects the currently playing track so top header title,
-    // background artwork, and dynamic palette colors update instantaneously.
-    val activeTrack = remember(currentTab, pagerState.currentPage, pagerState.isScrollInProgress, isProgrammaticScroll, pendingTargetIndex, queue, track) {
-        val isUserSwiping = !isProgrammaticScroll && (pagerState.isScrollInProgress || pendingTargetIndex != null)
-        if (currentTab == NowPlayingTab.PLAYER && isUserSwiping && queue.isNotEmpty() && pagerState.currentPage in queue.indices) {
-            val pageTrack = queue[pagerState.currentPage]
-            if (pageTrack.id == track.id) track else pageTrack
+    // Active track authoritative synchronization:
+    // During an incomplete/partial swipe, the currently playing track remains strictly authoritative
+    // for background, palette, title, and audio.
+    // The activeTrack is ONLY committed to a new queue track when:
+    // 1. A Next/Previous button is tapped (pendingTargetIndex is set), or
+    // 2. A manual carousel swipe genuinely settles on a new page (pendingTargetIndex is set on settle).
+    val activeTrack = remember(currentTab, pendingTargetIndex, currentTrackIndex, queue, track) {
+        deriveActiveTrack(currentTab, pendingTargetIndex, currentTrackIndex, queue, track)
+    }
+
+    val handleNext = {
+        pendingTargetIndex = null
+        onNextClick()
+    }
+
+    val handlePrevious = {
+        pendingTargetIndex = null
+        if (playbackPositionState.value > 3000L) {
+            onSeekTo(0L)
         } else {
-            track
+            onPreviousClick()
         }
     }
 
     // 1. Programmatically sync pager when the active track changes externally (Next/Prev buttons, song end, playlist tap, etc.)
     LaunchedEffect(currentTrackIndex, track.id, currentTab) {
         if (pendingTargetIndex != null) {
-            if (currentTrackIndex == pendingTargetIndex) {
-                // User swipe target has been fulfilled by playback!
-                pendingTargetIndex = null
-            } else {
-                // User explicitly swiped to pendingTargetIndex and playback is still catching up.
-                // DO NOT force-scroll backwards to currentTrackIndex!
-                return@LaunchedEffect
-            }
+            pendingTargetIndex = null
         }
 
         if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
             isProgrammaticScroll = true
             try {
                 if (currentTab == NowPlayingTab.PLAYER) {
-                    if (kotlin.math.abs(pagerState.currentPage - currentTrackIndex) <= 1) {
+                    val distance = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
+                    if (distance == 1 && !pagerState.isScrollInProgress) {
                         pagerState.animateScrollToPage(
                             page = currentTrackIndex,
                             animationSpec = androidx.compose.animation.core.tween(
-                                durationMillis = 350,
+                                durationMillis = 200,
                                 easing = androidx.compose.animation.core.FastOutSlowInEasing
                             )
                         )
@@ -375,21 +419,61 @@ fun NowPlayingModal(
         snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
             .collect { (isScrolling, settledPage) ->
-                if (currentTab == NowPlayingTab.PLAYER && !isScrolling && !isProgrammaticScroll && userSwipedPager) {
-                    userSwipedPager = false
-                    if (queue.isNotEmpty() && settledPage in queue.indices && settledPage != currentTrackIndex) {
-                        pendingTargetIndex = settledPage
-                        val targetTrack = queue[settledPage]
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                if (currentTab == NowPlayingTab.PLAYER && !isScrolling) {
+                    if (userSwipedPager && !isProgrammaticScroll) {
+                        userSwipedPager = false
+                        if (queue.isNotEmpty() && settledPage in queue.indices && settledPage != currentTrackIndex) {
+                            pendingTargetIndex = settledPage
+                            val targetTrack = queue[settledPage]
                             com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
+                            onSelectQueueTrack(settledPage)
+                        } else if (settledPage == currentTrackIndex) {
+                            pendingTargetIndex = null
                         }
-                        onSelectQueueTrack(settledPage)
+                    } else {
+                        userSwipedPager = false
+                        if (settledPage == currentTrackIndex) {
+                            pendingTargetIndex = null
+                        }
                     }
-                } else if (!isScrolling && settledPage == currentTrackIndex) {
-                    pendingTargetIndex = null
-                    userSwipedPager = false
                 }
             }
+    }
+
+    // Proactively pre-cache adjacent artwork and blur thumbnails in Coil memory cache
+    LaunchedEffect(pagerState.currentPage, queue) {
+        if (queue.isNotEmpty()) {
+            val nextTrack = queue.getOrNull(pagerState.currentPage + 1)
+            val prevTrack = queue.getOrNull(pagerState.currentPage - 1)
+            withContext(Dispatchers.IO) {
+                val imageLoader = context.imageLoader
+                listOfNotNull(nextTrack, prevTrack).forEach { t ->
+                    val fullUrl = getHighResArtworkUrl(t.thumbnail)
+                    val reqFull = ImageRequest.Builder(context)
+                        .data(fullUrl)
+                        // PERF FIX #2: Reduced from 1200x1200 to 600x600
+                        // 600px is ample for the carousel card display surface.
+                        // Palette extraction uses its own 128x128 requests.
+                        .size(600, 600)
+                        .allowHardware(true)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                    imageLoader.enqueue(reqFull)
+
+                    t.thumbnail?.let { thumb ->
+                        val reqBlur = ImageRequest.Builder(context)
+                            .data(thumb)
+                            .size(256, 256)
+                            .allowHardware(false)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                        imageLoader.enqueue(reqBlur)
+                    }
+                }
+            }
+        }
     }
 
     var showSleepDialog by remember { mutableStateOf(false) }
@@ -442,28 +526,19 @@ fun NowPlayingModal(
 
     var activeTrackPalette by remember(activeTrack.id) {
         mutableStateOf(
-            com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(activeTrack.id)
-                ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(activeTrack.thumbnail)
+            com.auralis.music.ui.theme.ArtworkPaletteCache.getOrCreatePalette(context, activeTrack)
         )
     }
 
     LaunchedEffect(activeTrack.id, activeTrack.thumbnail, isDynamicAccent) {
         if (isDynamicAccent) {
-            if (activeTrackPalette == null || activeTrackPalette?.isDefault == true) {
-                val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(activeTrack.id)
-                    ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(activeTrack.thumbnail)
-                if (cached != null && !cached.isDefault) {
-                    activeTrackPalette = cached
-                } else {
-                    val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
-                        context = context,
-                        key = activeTrack.id,
-                        artworkUrl = activeTrack.thumbnail
-                    )
-                    if (!palette.isDefault) {
-                        activeTrackPalette = palette
-                    }
-                }
+            val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                context = context,
+                key = activeTrack.id,
+                artworkUrl = activeTrack.thumbnail
+            )
+            if (!palette.isDefault) {
+                activeTrackPalette = palette
             }
         }
     }
@@ -485,7 +560,7 @@ fun NowPlayingModal(
                 com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette
             }
         } else {
-            val candidate = activeTrackPalette?.takeIf { !it.isDefault }
+            val candidate = activeTrackPalette.takeIf { !it.isDefault }
                 ?: (if (com.auralis.music.ui.theme.ArtworkPaletteCache.isCurrentTrack(activeTrack.id) && !sharedPalette.isDefault) sharedPalette else null)
                 ?: lastValidPalette.takeIf { !it.isDefault }
                 ?: com.auralis.music.ui.theme.ArtworkPaletteCache.defaultPalette
@@ -496,26 +571,38 @@ fun NowPlayingModal(
         }
     }
 
-    // Proactively pre-extract artwork palettes for current + neighboring tracks in the queue
-    // so swiping immediately hits memory cache with zero delay or color interruption.
+    // Authoritative background state: strictly anchored to the committed activeTrack.
+    // Partial/cancelled swipes move only the album card; the background remains stable
+    // on the playing song and transitions exactly once upon a committed track change.
+    val dynamicBgData = remember(
+        activeTrack,
+        extractedColors
+    ) {
+        DynamicBackgroundData(
+            primaryArtworkUrl = activeTrack.thumbnail,
+            secondaryArtworkUrl = null,
+            swipeFraction = 0f,
+            palette = extractedColors
+        )
+    }
+
+    // Proactively pre-extract artwork palettes in parallel for current + upcoming queue tracks
+    // so swiping or fast-skipping immediately hits memory cache with zero delay or color interruption.
     LaunchedEffect(currentTrackIndex, pagerState.currentPage, currentTab, queue, isDynamicAccent) {
         if (queue.isNotEmpty() && isDynamicAccent) {
             val cur = if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex
-            val targets = listOfNotNull(
-                queue.getOrNull(cur),
-                queue.getOrNull(cur - 1),
-                queue.getOrNull(cur + 1),
-                queue.getOrNull(cur + 2),
-                queue.getOrNull(cur - 2)
-            )
-            withContext(Dispatchers.IO) {
+            val targets = (-2..4).mapNotNull { offset -> queue.getOrNull(cur + offset) }.distinctBy { it.id }
+            kotlinx.coroutines.coroutineScope {
                 targets.forEach { targetTrack ->
-                    if (com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(targetTrack.id) == null) {
-                        com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
-                            context = context,
-                            key = targetTrack.id,
-                            artworkUrl = targetTrack.thumbnail
-                        )
+                    launch(Dispatchers.IO) {
+                        val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(targetTrack.id)
+                        if (cached == null || cached.isPlaceholder) {
+                            com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                                context = context,
+                                key = targetTrack.id,
+                                artworkUrl = targetTrack.thumbnail
+                            )
+                        }
                     }
                 }
             }
@@ -523,10 +610,8 @@ fun NowPlayingModal(
     }
 
     // Smooth continuous color interpolation executed on song/palette change, completely static while playing
-    val colorSpec = tween<Color>(durationMillis = 650, easing = FastOutSlowInEasing)
+    val colorSpec = tween<Color>(durationMillis = 320, easing = FastOutSlowInEasing)
     val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedColors.primary, colorSpec, label = "animPrimary")
-    val animatedSecondaryColor by androidx.compose.animation.animateColorAsState(extractedColors.secondary, colorSpec, label = "animSecondary")
-    val animatedTertiaryColor by androidx.compose.animation.animateColorAsState(extractedColors.tertiary, colorSpec, label = "animTertiary")
 
     val dragOffsetY = remember { Animatable(0f) }
     LaunchedEffect(activeTrack.id) {
@@ -610,8 +695,10 @@ fun NowPlayingModal(
         // ====================================================================
         PlayerBackground(
             style = playerBgStyle,
-            artworkUrl = activeTrack.thumbnail,
-            extractedColors = extractedColors,
+            artworkUrl = dynamicBgData.primaryArtworkUrl,
+            extractedColors = dynamicBgData.palette,
+            secondaryArtworkUrl = dynamicBgData.secondaryArtworkUrl,
+            swipeFraction = dynamicBgData.swipeFraction,
             modifier = Modifier.fillMaxSize(),
             isMiniPlayer = false,
             isPlaying = uiState.isPlaying
@@ -844,7 +931,12 @@ fun NowPlayingModal(
                         SyncedLyricsView(
                             lyrics = uiState.lyrics,
                             positionState = lyricsPositionState,
-                            onSeekTo = onSeekTo,
+                            onSeekTo = { posMs ->
+                                onSeekTo(posMs)
+                                if (!uiState.isPlaying) {
+                                    onPlayPauseClick()
+                                }
+                            },
                             isLoading = uiState.isLoadingLyrics,
                             lyricsMode = com.auralis.music.domain.model.LyricsMode.CINEMA,
                             offsetMs = uiState.lyricsOffsetMs,
@@ -852,7 +944,9 @@ fun NowPlayingModal(
                             onSearchManually = { showManualLyricsSearch = true },
                             track = uiState.currentTrack,
                             lyricsClockSource = lyricsClockSource,
-                            isPlaying = uiState.isPlaying
+                            isPlaying = uiState.isPlaying,
+                            isBuffering = uiState.isBuffering,
+                            audioLeadingSilenceMs = uiState.audioLeadingSilenceMs
                         )
                     }
                 }
@@ -874,133 +968,34 @@ fun NowPlayingModal(
                     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
                     val localQueue = remember {
-                        queueSnapshot.mapIndexed { index, track ->
-                            QueueTrackItem(
-                                instanceId = "${track.id}_${index}",
-                                track = track
-                            )
+                        queueSnapshot.map { track ->
+                            createQueueTrackItem(track)
                         }.toMutableStateList()
                     }
 
-                    var draggingInstanceId by remember { mutableStateOf<String?>(null) }
-                    var isDragging by remember { mutableStateOf(false) }
-                    var originalDragIndex by remember { mutableStateOf(-1) }
-                    var currentPointerY by remember { mutableFloatStateOf(0f) }
-                    var grabOffsetY by remember { mutableFloatStateOf(0f) }
-                    var lastDragEndTime by remember { mutableStateOf(0L) }
-                    var lastSwapTimeMs by remember { mutableStateOf(0L) }
-                    val queueListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    val queueListState = rememberLazyListState()
+                    var startDragIndex by remember { mutableIntStateOf(-1) }
+                    var lastDragEndTime by remember { mutableLongStateOf(0L) }
+
+                    val edgeScrollSpeed = with(density) { 45.dp.toPx() }
+                    val scroller = rememberScroller(
+                        scrollableState = queueListState,
+                        pixelPerSecond = edgeScrollSpeed
+                    )
+                    val reorderableLazyListState = rememberReorderableLazyListState(
+                        lazyListState = queueListState,
+                        scroller = scroller
+                    ) { from, to ->
+                        val fromIndex = from.index
+                        val toIndex = to.index
+                        if (fromIndex in localQueue.indices && toIndex in localQueue.indices) {
+                            localQueue.add(toIndex, localQueue.removeAt(fromIndex))
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        }
+                    }
 
                     LaunchedEffect(queueSnapshot) {
-                        if (!isDragging && draggingInstanceId == null) {
-                            val tracksDiffer = localQueue.size != queueSnapshot.size ||
-                                    localQueue.indices.any { localQueue[it].track.id != queueSnapshot[it].id }
-                            if (tracksDiffer) {
-                                localQueue.clear()
-                                localQueue.addAll(
-                                    queueSnapshot.mapIndexed { index, track ->
-                                        QueueTrackItem(
-                                            instanceId = "${track.id}_${index}",
-                                            track = track
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    fun checkTargetSwap(pointerY: Float) {
-                        val currentId = draggingInstanceId ?: return
-                        val currIdx = localQueue.indexOfFirst { it.instanceId == currentId }
-                        if (currIdx == -1) return
-
-                        // Debounce: wait for animateItemPlacement to settle before allowing the next swap
-                        val now = System.currentTimeMillis()
-                        if (now - lastSwapTimeMs < 200L) return
-
-                        val visibleItems = queueListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "queue_track" }
-                        if (visibleItems.isEmpty()) return
-
-                        val currentItemInfo = visibleItems.find { it.key == currentId }
-                        val itemHeight = currentItemInfo?.size?.toFloat() ?: density.run { 60.dp.toPx() }
-                        val currentCenterY = currentItemInfo?.let { it.offset + (it.size / 2f) }
-                            ?: (pointerY - grabOffsetY + (itemHeight / 2f))
-                        val draggedCenterY = pointerY - grabOffsetY + (itemHeight / 2f)
-
-                        // Check swap with item ABOVE (currIdx - 1) using 50% midpoint threshold
-                        if (currIdx > 0) {
-                            val prevInstanceId = localQueue[currIdx - 1].instanceId
-                            val prevItemInfo = visibleItems.find { it.key == prevInstanceId }
-                            if (prevItemInfo != null) {
-                                val prevCenterY = prevItemInfo.offset + (prevItemInfo.size / 2f)
-                                val swapThreshold = (currentCenterY + prevCenterY) / 2f
-                                if (draggedCenterY < swapThreshold) {
-                                    java.util.Collections.swap(localQueue, currIdx, currIdx - 1)
-                                    lastSwapTimeMs = now
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    return
-                                }
-                            }
-                        }
-
-                        // Check swap with item BELOW (currIdx + 1) using 50% midpoint threshold
-                        if (currIdx < localQueue.lastIndex) {
-                            val nextInstanceId = localQueue[currIdx + 1].instanceId
-                            val nextItemInfo = visibleItems.find { it.key == nextInstanceId }
-                            if (nextItemInfo != null) {
-                                val nextCenterY = nextItemInfo.offset + (nextItemInfo.size / 2f)
-                                val swapThreshold = (currentCenterY + nextCenterY) / 2f
-                                if (draggedCenterY > swapThreshold) {
-                                    java.util.Collections.swap(localQueue, currIdx, currIdx + 1)
-                                    lastSwapTimeMs = now
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    return
-                                }
-                            }
-                        }
-                    }
-
-                    // Smooth edge auto-scroll: Choreographer vsync synced for butter-smooth 120fps scrolling
-                    LaunchedEffect(isDragging) {
-                        if (!isDragging) return@LaunchedEffect
-                        val edgeZonePx = density.run { 80.dp.toPx() }
-                        val maxSpeedPxPerSec = density.run { 360.dp.toPx() }
-                        var lastFrameNanos = 0L
-
-                        while (isDragging && isActive) {
-                            val frameNanos = androidx.compose.runtime.withFrameNanos { it }
-                            if (lastFrameNanos == 0L) {
-                                lastFrameNanos = frameNanos
-                                continue
-                            }
-                            val dtSec = (frameNanos - lastFrameNanos).coerceAtMost(32_000_000L) / 1_000_000_000f
-                            lastFrameNanos = frameNanos
-
-                            val viewportHeight = queueListState.layoutInfo.viewportSize.height.toFloat()
-                            if (viewportHeight <= 0f) continue
-
-                            val pointerY = currentPointerY
-                            val scrollDelta = when {
-                                pointerY < edgeZonePx && queueListState.canScrollBackward -> {
-                                    val dist = (edgeZonePx - pointerY).coerceAtLeast(0f)
-                                    val normalized = (dist / edgeZonePx).coerceIn(0f, 1f)
-                                    val factor = normalized * normalized
-                                    -(factor * maxSpeedPxPerSec * dtSec)
-                                }
-                                pointerY > (viewportHeight - edgeZonePx) && queueListState.canScrollForward -> {
-                                    val dist = (pointerY - (viewportHeight - edgeZonePx)).coerceAtLeast(0f)
-                                    val normalized = (dist / edgeZonePx).coerceIn(0f, 1f)
-                                    val factor = normalized * normalized
-                                    factor * maxSpeedPxPerSec * dtSec
-                                }
-                                else -> 0f
-                            }
-
-                            if (scrollDelta != 0f) {
-                                queueListState.scrollBy(scrollDelta)
-                                checkTargetSwap(pointerY)
-                            }
-                        }
+                        syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
                     }
 
                     Box(
@@ -1020,242 +1015,121 @@ fun NowPlayingModal(
                             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                                 LazyColumn(
                                     state = queueListState,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .pointerInput(Unit) {
-                                            val handleThresholdPx = density.run { 64.dp.toPx() }
-                                            detectContainerReorderDrag(
-                                                isHandleArea = { pos -> pos.x >= (size.width - handleThresholdPx) },
-                                                onDragStart = { downOffset, currentOffset ->
-                                                    val visibleItems = queueListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "queue_track" }
-                                                    val hitItem = visibleItems.find { info ->
-                                                        downOffset.y >= info.offset && downOffset.y <= (info.offset + info.size)
-                                                    } ?: visibleItems.minByOrNull { kotlin.math.abs(downOffset.y - (it.offset + it.size / 2f)) }
-
-                                                    if (hitItem != null) {
-                                                        val hitInstanceId = hitItem.key as? String
-                                                        val idx = if (hitInstanceId != null) localQueue.indexOfFirst { it.instanceId == hitInstanceId } else -1
-                                                        if (idx != -1) {
-                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                            originalDragIndex = idx
-                                                            draggingInstanceId = hitInstanceId
-                                                            grabOffsetY = downOffset.y - hitItem.offset.toFloat()
-                                                            currentPointerY = currentOffset.y
-                                                            isDragging = true
-                                                            checkTargetSwap(currentPointerY)
-                                                        }
-                                                    }
-                                                },
-                                                onDrag = { currentOffset ->
-                                                    currentPointerY = currentOffset.y
-                                                    checkTargetSwap(currentPointerY)
-                                                },
-                                                onDragEnd = {
-                                                    lastDragEndTime = System.currentTimeMillis()
-                                                    val finalIdx = localQueue.indexOfFirst { it.instanceId == draggingInstanceId }
-                                                    val startIdx = originalDragIndex
-                                                    isDragging = false
-                                                    draggingInstanceId = null
-                                                    originalDragIndex = -1
-                                                    if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
-                                                        onReorderQueue?.invoke(startIdx, finalIdx)
-                                                    }
-                                                },
-                                                onDragCancel = {
-                                                    lastDragEndTime = System.currentTimeMillis()
-                                                    localQueue.clear()
-                                                    localQueue.addAll(
-                                                        queueSnapshot.mapIndexed { idx, trk ->
-                                                            QueueTrackItem(
-                                                                instanceId = "${trk.id}_${idx}",
-                                                                track = trk
-                                                            )
-                                                        }
-                                                    )
-                                                    isDragging = false
-                                                    draggingInstanceId = null
-                                                    originalDragIndex = -1
-                                                }
-                                            )
-                                        },
+                                    modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    itemsIndexed(
+                                    items(
                                         items = localQueue,
-                                        key = { _, item -> item.instanceId },
-                                        contentType = { _, _ -> "queue_track" }
-                                    ) { index, item ->
-                                        val isCurrent = if (!isDragging) {
-                                            index == queueCurrentIndex
-                                        } else {
-                                            item.track.id == uiState.currentTrack?.id
-                                        }
-                                        val isItemBeingDragged = draggingInstanceId == item.instanceId
+                                        key = { it.instanceId },
+                                        contentType = { "queue_track" }
+                                    ) { item ->
+                                        val isCurrent = item.track.id == uiState.currentTrack?.id
                                         val primaryColor = MaterialTheme.colorScheme.primary
 
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .then(
-                                                    if (isItemBeingDragged) {
-                                                        Modifier.graphicsLayer { alpha = 0.25f }
-                                                    } else {
-                                                        Modifier.animateItemPlacement(
-                                                            animationSpec = tween(
-                                                                durationMillis = 180,
-                                                                easing = FastOutSlowInEasing
-                                                            )
-                                                        )
-                                                    }
-                                                )
-                                                .clip(queueItemShape)
-                                                .background(
-                                                    if (isCurrent) {
-                                                        primaryColor.copy(alpha = 0.20f)
-                                                    } else {
-                                                        inactiveRowBg
-                                                    }
-                                                )
-                                                .clickable(enabled = !isDragging && (System.currentTimeMillis() - lastDragEndTime > 450L)) {
-                                                    if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
-                                                    val actualIndex = queueSnapshot.indexOfFirst { it.id == item.track.id }.takeIf { it >= 0 } ?: index
-                                                    onSelectQueueTrack(actualIndex)
-                                                    currentTab = NowPlayingTab.PLAYER
-                                                }
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            ArtworkCard(
-                                                url = item.track.thumbnail,
-                                                modifier = Modifier.size(44.dp),
-                                                cornerRadius = queueArtworkCorner,
-                                                contentDescription = item.track.title
+                                        ReorderableItem(
+                                            state = reorderableLazyListState,
+                                            key = item.instanceId,
+                                            animateItemModifier = Modifier.animateItem(
+                                                fadeInSpec = null,
+                                                placementSpec = PlayerTransitionMotion.queuePlacement,
+                                                fadeOutSpec = null
                                             )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = item.track.title,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                                    color = if (isCurrent) primaryColor else Color.White,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = item.track.artist,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = subtitleColor,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            if (isCurrent) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                                                    contentDescription = "Playing",
-                                                    tint = primaryColor,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                            }
-
-                                            // Drag Handle (comfortable 48dp hit area, visual grip)
-                                            Box(
+                                        ) { isDragging ->
+                                            val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp)
+                                            Row(
                                                 modifier = Modifier
-                                                    .size(48.dp)
-                                                    .clickable(
-                                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                                        indication = null,
-                                                        onClick = {}
-                                                    ),
-                                                contentAlignment = Alignment.Center
+                                                    .fillMaxWidth()
+                                                    .shadow(elevation, queueItemShape)
+                                                    .clip(queueItemShape)
+                                                    .background(
+                                                        if (isDragging) {
+                                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f)
+                                                        } else if (isCurrent) {
+                                                            primaryColor.copy(alpha = 0.20f)
+                                                        } else {
+                                                            inactiveRowBg
+                                                        }
+                                                    )
+                                                    .then(
+                                                        if (isDragging) {
+                                                            Modifier.border(1.5.dp, primaryColor, queueItemShape)
+                                                        } else {
+                                                            Modifier
+                                                        }
+                                                    )
+                                                    .clickable(enabled = !reorderableLazyListState.isAnyItemDragging && (System.currentTimeMillis() - lastDragEndTime > 450L)) {
+                                                        if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
+                                                        val actualIndex = queueSnapshot.indexOfFirst { it.id == item.track.id }.takeIf { it >= 0 } ?: localQueue.indexOfFirst { it.instanceId == item.instanceId }
+                                                        if (actualIndex >= 0) {
+                                                            onSelectQueueTrack(actualIndex)
+                                                            currentTab = NowPlayingTab.PLAYER
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DragHandle,
-                                                    contentDescription = "Drag to reorder song",
-                                                    tint = if (isItemBeingDragged) primaryColor else Color.White.copy(alpha = 0.50f),
-                                                    modifier = Modifier.size(22.dp)
+                                                ArtworkCard(
+                                                    url = item.track.thumbnail,
+                                                    modifier = Modifier.size(44.dp),
+                                                    cornerRadius = queueArtworkCorner,
+                                                    contentDescription = item.track.title
                                                 )
-                                            }
-                                        }
-                                    }
-                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = item.track.title,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = if (isCurrent || isDragging) FontWeight.Bold else FontWeight.SemiBold,
+                                                        color = if (isCurrent || isDragging) primaryColor else Color.White,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = item.track.artist,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = subtitleColor,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                if (isCurrent) {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                                        contentDescription = "Playing",
+                                                        tint = primaryColor,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                }
 
-                                // FLOATING DRAGGED CARD OVERLAY
-                                val draggedQueueItem = localQueue.find { it.instanceId == draggingInstanceId }
-                                if (isDragging && draggedQueueItem != null) {
-                                    val draggedTrack = draggedQueueItem.track
-                                    val isCurrent = draggedTrack.id == uiState.currentTrack?.id
-                                    val primaryColor = MaterialTheme.colorScheme.primary
-
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .offset {
-                                                IntOffset(
-                                                    x = 0,
-                                                    y = (currentPointerY - grabOffsetY).roundToInt()
-                                                )
-                                            }
-                                            .zIndex(999f)
-                                            .graphicsLayer {
-                                                scaleX = 1.04f
-                                                scaleY = 1.04f
-                                                shadowElevation = 32f
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(queueItemShape)
-                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f))
-                                                .border(1.5.dp, primaryColor, queueItemShape)
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            ArtworkCard(
-                                                url = draggedTrack.thumbnail,
-                                                modifier = Modifier.size(44.dp),
-                                                cornerRadius = queueArtworkCorner,
-                                                contentDescription = draggedTrack.title
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = draggedTrack.title,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                                    color = if (isCurrent) primaryColor else Color.White,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = draggedTrack.artist,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = subtitleColor,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            if (isCurrent) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                                                    contentDescription = "Playing",
-                                                    tint = primaryColor,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                            }
-                                            Box(
-                                                modifier = Modifier.size(48.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DragHandle,
-                                                    contentDescription = "Dragging song",
-                                                    tint = primaryColor,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
+                                                // Drag Handle (comfortable 48dp hit area, visual grip)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(48.dp)
+                                                        .draggableHandle(
+                                                            onDragStarted = {
+                                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                                startDragIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
+                                                            },
+                                                            onDragStopped = {
+                                                                lastDragEndTime = System.currentTimeMillis()
+                                                                val finalIdx = localQueue.indexOfFirst { it.instanceId == item.instanceId }
+                                                                val startIdx = startDragIndex
+                                                                if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
+                                                                    onReorderQueue?.invoke(startIdx, finalIdx)
+                                                                }
+                                                                startDragIndex = -1
+                                                            }
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.DragHandle,
+                                                        contentDescription = "Drag to reorder song",
+                                                        tint = if (isDragging) primaryColor else Color.White.copy(alpha = 0.50f),
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1281,29 +1155,12 @@ fun NowPlayingModal(
                                 .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
-                            // Ambient Radial Halo directly behind artwork
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(1.04f)
-                                    .aspectRatio(1f)
-                                    .graphicsLayer { alpha = controlsAlpha }
-                                    .background(
-                                        Brush.radialGradient(
-                                            colors = listOf(
-                                                animatedPrimaryColor.copy(alpha = 0.65f),
-                                                animatedSecondaryColor.copy(alpha = 0.30f),
-                                                Color.Transparent
-                                            )
-                                        ),
-                                        shape = CircleShape
-                                    )
-                            )
-
                             // Main Album Artwork Carousel (Native Jetpack Compose Horizontal Pager)
                             HorizontalPager(
                                 state = pagerState,
                                 key = { page -> queue.getOrNull(page)?.id ?: page },
                                 userScrollEnabled = appearance.enableSwipeToChangeSong,
+                                beyondViewportPageCount = 1,
                                 flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                                     state = pagerState,
                                     snapPositionalThreshold = 0.35f
@@ -1311,20 +1168,20 @@ fun NowPlayingModal(
                                 modifier = Modifier
                                     .fillMaxWidth(0.98f)
                                     .aspectRatio(1f)
-                                    .shadow(
-                                        elevation = 32.dp,
-                                        shape = RoundedCornerShape(28.dp),
-                                        ambientColor = animatedPrimaryColor,
-                                        spotColor = animatedPrimaryColor
-                                    )
-                                    .clip(RoundedCornerShape(28.dp))
+                                    .graphicsLayer {
+                                        shadowElevation = 32.dp.toPx()
+                                        shape = RoundedCornerShape(28.dp)
+                                        clip = true
+                                        ambientShadowColor = animatedPrimaryColor
+                                        spotShadowColor = animatedPrimaryColor
+                                    }
                             ) { page ->
                                 val isCurrentPage = page == pagerState.currentPage
                                 val pageTrack = if (queue.isNotEmpty() && page in queue.indices) {
                                     val qTrack = queue[page]
-                                    if (qTrack.id == track.id) track else qTrack
+                                    if (qTrack.id == activeTrack.id) activeTrack else qTrack
                                 } else {
-                                    track
+                                    activeTrack
                                 }
                                 // Only the playing page claims the shared key — the pager
                                 // keeps neighbours composed off-screen and two live layouts
@@ -1352,7 +1209,7 @@ fun NowPlayingModal(
                                         )
                                     }
                                 } else {
-                                    val isSharedArtworkActive = isCurrentPage && !pagerState.isScrollInProgress && (pageTrack.id == track.id)
+                                    val isSharedArtworkActive = (page == (pendingTargetIndex ?: currentTrackIndex) && pageTrack.id == activeTrack.id)
                                     key(pageTrack.id) {
                                         ArtworkCard(
                                             url = pageTrack.thumbnail,
@@ -1369,7 +1226,9 @@ fun NowPlayingModal(
                                             elevation = 0.dp,
                                             contentDescription = pageTrack.title,
                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                            highRes = true
+                                            highRes = true,
+                                            // Pager motion owns the transition; cached artwork is ready immediately.
+                                            crossfade = false
                                         )
                                     }
                                 }
@@ -1585,7 +1444,7 @@ fun NowPlayingModal(
                                      .clip(CircleShape)
                                      .background(Color.White.copy(alpha = 0.12f))
                                      .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                     .tactileBounce(scaleDown = 0.84f, onClick = onPreviousClick),
+                                     .tactileBounce(scaleDown = 0.84f, onClick = handlePrevious),
                                  contentAlignment = Alignment.Center
                              ) {
                                  Icon(
@@ -1600,7 +1459,8 @@ fun NowPlayingModal(
                              Box(
                                  modifier = Modifier
                                      .height(66.dp)
-                                     .fillMaxWidth(0.72f)
+                                     .weight(1f)
+                                     .padding(horizontal = 14.dp)
                                      .shadow(
                                          elevation = 16.dp,
                                          shape = CircleShape,
@@ -1648,7 +1508,7 @@ fun NowPlayingModal(
                                      .clip(CircleShape)
                                      .background(Color.White.copy(alpha = 0.12f))
                                      .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                     .tactileBounce(scaleDown = 0.84f, onClick = onNextClick),
+                                     .tactileBounce(scaleDown = 0.84f, onClick = handleNext),
                                  contentAlignment = Alignment.Center
                              ) {
                                  Icon(
@@ -1752,8 +1612,8 @@ fun NowPlayingModal(
                     onSeekTo(posMs)
                 },
                 onPlayPauseClick = onPlayPauseClick,
-                onNextClick = onNextClick,
-                onPreviousClick = onPreviousClick,
+                onNextClick = handleNext,
+                onPreviousClick = handlePrevious,
                 onToggleFavorite = onToggleFavorite,
                 onDismiss = onDismiss,
                 onSelectQueueTrack = onSelectQueueTrack,

@@ -55,13 +55,14 @@ data class AppearanceSettings(
     val showTopPlaylist: Boolean = true,
     val showCachedPlaylist: Boolean = true,
     val showUploadedPlaylist: Boolean = true
-)
+) {
+    val shouldUseExperimentalLyrics: Boolean
+        get() = experimentalLyrics || LyricsAnimationMode.fromDisplayName(lyricsAnimation) == LyricsAnimationMode.METRO_LYRICS
+}
 
 enum class LyricsAnimationMode(val displayName: String) {
     AURALIS("Auralis (Default)"),
-    KARAOKE("Karaoke"),
     FADE("Fade"),
-    SLIDE("Slide"),
     GLOW("Glow"),
     APPLE_MUSIC_V2("Apple Music (Letter by Letter)"),
     LYRICS_V2_FLUID("Lyrics V2 (Fluid)"),
@@ -77,12 +78,12 @@ enum class LyricsAnimationMode(val displayName: String) {
                     name.contains("lyrics_v2", ignoreCase = true) -> LYRICS_V2_FLUID
                     name.contains("vivi", ignoreCase = true) -> LYRICS_V2_FLUID
                     name.contains("metro", ignoreCase = true) -> METRO_LYRICS
-                    name.contains("karaoke", ignoreCase = true) -> KARAOKE
-                    name.contains("slide", ignoreCase = true) -> SLIDE
                     name.contains("glow", ignoreCase = true) -> GLOW
                     name.contains("apple", ignoreCase = true) -> GLOW
                     name.contains("fade", ignoreCase = true) -> FADE
                     name.contains("none", ignoreCase = true) -> AURALIS
+                    name.contains("karaoke", ignoreCase = true) -> AURALIS
+                    name.contains("slide", ignoreCase = true) -> AURALIS
                     else -> AURALIS
                 }
         }

@@ -37,7 +37,8 @@ data class PlayerUiState(
     val sleepTimerSeconds: Long = 0,
     val isSleepTimerEndOfSong: Boolean = false,
     val showLyricsView: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val audioLeadingSilenceMs: Long? = null
 )
 
 @OptIn(UnstableApi::class)
@@ -111,6 +112,7 @@ class PlayerViewModel(
     private val lyricsUpgradeAttempted =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private var radioJob: Job? = null
+    private var palettePreloadJob: Job? = null
     private var isAutoRadioMode: Boolean = true
 
     init {
@@ -169,6 +171,12 @@ class PlayerViewModel(
             viewModelScope.launch {
                 player.currentTrack.collect { activeTrack ->
                     if (activeTrack != null) {
+                        palettePreloadJob?.cancel()
+                        context?.let { ctx ->
+                            palettePreloadJob = viewModelScope.launch(Dispatchers.Default) {
+                                com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, activeTrack)
+                            }
+                        }
                         val isNewTrack = _uiState.value.currentTrack?.id != activeTrack.id
                         if (isNewTrack) {
                             val reqId = currentPlaybackRequestId.incrementAndGet()
@@ -249,6 +257,24 @@ class PlayerViewModel(
                 }
             }
 
+            viewModelScope.launch {
+                player.audioLeadingSilenceMs.collect { silenceMs ->
+                    if (silenceMs != null) {
+                        _uiState.update { current ->
+                            val currentLyrics = current.lyrics ?: return@update current
+                            val playbackMs = current.durationMs.takeIf { it > 0L }
+                                ?: ((current.currentTrack?.duration ?: 0L) * 1000L)
+                            val aligned = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(
+                                currentLyrics,
+                                playbackMs,
+                                silenceMs
+                            )
+                            current.copy(lyrics = aligned, audioLeadingSilenceMs = silenceMs)
+                        }
+                    }
+                }
+            }
+
             player.setOnGaplessTransitionCallback { nextTrack ->
                 val effectiveTrack = nextTrack
                 val reqId = currentPlaybackRequestId.incrementAndGet()
@@ -283,16 +309,18 @@ class PlayerViewModel(
 
                 // Background pre-fetch lyrics for next song in queue for 0ms instant display upon transition
                 if (nextInQueue != null) {
+                    val nextEffectiveId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(nextInQueue.id) ?: nextInQueue.id
+                    val nextEffectiveDuration = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(nextInQueue.id, nextInQueue.duration)
                     viewModelScope.launch(Dispatchers.IO) {
                         try {
                             lyricsRepository.getLyrics(
                                 title = nextInQueue.title,
                                 artist = nextInQueue.artist,
-                                durationSec = nextInQueue.duration,
-                                videoId = nextInQueue.id,
+                                durationSec = nextEffectiveDuration,
+                                videoId = nextEffectiveId,
                                 album = nextInQueue.album,
                                 channelTitle = nextInQueue.channelTitle,
-                                durationMs = nextInQueue.duration * 1000L,
+                                durationMs = nextEffectiveDuration * 1000L,
                                 forceRefresh = false
                             )
                         } catch (_: Exception) {}
@@ -411,7 +439,8 @@ class PlayerViewModel(
         context?.let { ctx ->
             // Dispatch palette extraction off the main thread — toHct() + Coil mem-cache lookup
             // must not block the UI thread during the song-skip tap.
-            viewModelScope.launch(Dispatchers.Default) {
+            palettePreloadJob?.cancel()
+            palettePreloadJob = viewModelScope.launch(Dispatchers.Default) {
                 com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, track)
             }
             // Pre-extract palette for neighboring tracks in background
@@ -581,10 +610,11 @@ class PlayerViewModel(
 
     fun next() {
         Log.d("AuralisPlayback", "[PlayerViewModel] next() triggered")
+        palettePreloadJob?.cancel()
         context?.let { ctx ->
             val nextIdx = _uiState.value.currentIndex + 1
             _uiState.value.queue.getOrNull(nextIdx)?.let { nextTrack ->
-                viewModelScope.launch(Dispatchers.Default) {
+                palettePreloadJob = viewModelScope.launch(Dispatchers.Default) {
                     com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, nextTrack)
                 }
             }
@@ -704,11 +734,12 @@ class PlayerViewModel(
 
     fun previous() {
         Log.d("AuralisPlayback", "[PlayerViewModel] previous() triggered")
+        palettePreloadJob?.cancel()
         if (_playbackPositionMs.value <= 3000) {
             context?.let { ctx ->
                 val prevIdx = _uiState.value.currentIndex - 1
                 _uiState.value.queue.getOrNull(prevIdx)?.let { prevTrack ->
-                    viewModelScope.launch(Dispatchers.Default) {
+                    palettePreloadJob = viewModelScope.launch(Dispatchers.Default) {
                         com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(ctx, prevTrack)
                     }
                 }
@@ -888,20 +919,25 @@ class PlayerViewModel(
             )
         }
         lyricsJob = viewModelScope.launch {
+            val effectiveVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+            val effectiveDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
+
             // 1. Instant check in local cache (memory + Room DB) for 0ms display
             val exactDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
                 ?: _uiState.value.durationMs.takeIf { it > 0L }
-                ?: (track.duration * 1000L)
+                ?: (effectiveDurationSec * 1000L)
 
+            val currentSilence = audioPlayer?.audioLeadingSilenceMs?.value
             val cached = withContext(Dispatchers.IO) {
                 lyricsRepository.getCachedLyrics(
                     title = track.title,
                     artist = track.artist,
-                    durationSec = track.duration,
-                    videoId = track.id,
+                    durationSec = effectiveDurationSec,
+                    videoId = effectiveVideoId,
                     album = track.album,
                     channelTitle = track.channelTitle,
-                    durationMs = exactDurationMs
+                    durationMs = exactDurationMs,
+                    audioLeadingSilenceMs = currentSilence
                 )
             }
             // A cached RICHSYNC entry is already the best tier available; nothing to
@@ -914,9 +950,8 @@ class PlayerViewModel(
                 return@launch
             }
 
-            // Anything weaker paints immediately but is not final: a cached
-            // LINE_SYNC row used to be permanent, so a track whose word timing only
-            // became reachable later could never pick it up. One upgrade attempt per
+            // Otherwise, show whatever we have (even LINE_SYNC) while background upgrade runs.
+            // A network upgrade is only attempted once per unique (title, artist, duration)
             // track per session, and the result is kept only if it ranks higher.
             val cachedIsUsable = cached != null && cached.syncType != com.auralis.music.domain.model.SyncType.PLAIN
             if (requestId == currentPlaybackRequestId.get()) {
@@ -926,7 +961,7 @@ class PlayerViewModel(
                 }
             }
 
-            val trackKey = (track.id.takeIf { it.isNotBlank() } ?: "${track.title}::${track.artist}::${track.duration}").lowercase()
+            val trackKey = (effectiveVideoId.takeIf { it.isNotBlank() } ?: "${track.title}::${track.artist}::$effectiveDurationSec").lowercase()
             if (cachedIsUsable && !lyricsUpgradeAttempted.add(trackKey)) {
                 return@launch
             }
@@ -937,11 +972,12 @@ class PlayerViewModel(
                     lyricsRepository.getLyrics(
                         title = track.title,
                         artist = track.artist,
-                        durationSec = track.duration,
-                        videoId = track.id,
+                        durationSec = effectiveDurationSec,
+                        videoId = effectiveVideoId,
                         album = track.album,
                         channelTitle = track.channelTitle,
                         durationMs = exactDurationMs,
+                        audioLeadingSilenceMs = audioPlayer?.audioLeadingSilenceMs?.value ?: currentSilence,
                         // The caches were already consulted above; without this the
                         // upgrade query would just return the same cached row.
                         forceRefresh = true
@@ -1015,15 +1051,17 @@ class PlayerViewModel(
         _uiState.update { it.copy(isLoadingLyrics = true) }
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
+            val effectiveVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+            val effectiveDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
             val exactDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
                 ?: _uiState.value.durationMs.takeIf { it > 0L }
-                ?: (track.duration * 1000L)
+                ?: (effectiveDurationSec * 1000L)
             val data = withContext(Dispatchers.IO) {
                 lyricsRepository.getLyrics(
                     title = customTitle.ifBlank { track.title },
                     artist = customArtist.ifBlank { track.artist },
-                    durationSec = track.duration,
-                    videoId = track.id,
+                    durationSec = effectiveDurationSec,
+                    videoId = effectiveVideoId,
                     album = track.album,
                     channelTitle = track.channelTitle,
                     durationMs = exactDurationMs,

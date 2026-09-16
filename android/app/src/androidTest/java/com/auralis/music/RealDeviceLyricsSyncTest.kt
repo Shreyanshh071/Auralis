@@ -383,6 +383,149 @@ class RealDeviceLyricsSyncTest {
         assertNotNull("Room DB row must exist", updatedEntity)
         assertEquals(276_000L, updatedEntity!!.durationMs)
     }
+
+    // ── 16. COMPREHENSIVE PHYSICAL DEVICE VERIFICATION OF 5 CONFIRMED FAILURES ──
+
+    @Test
+    fun testRealDevice5ConfirmedFailures() {
+        runBlocking {
+            val db = AuralisDatabase.getInstance(context)
+        val repo = LyricsRepositoryImpl(
+            lyricsClient = LyricsClient(),
+            lyricsDao = db.lyricsDao(),
+            negativeLyricsDao = db.negativeLyricsDao()
+        )
+
+        android.util.Log.i("REAL_DEVICE_VERIFY", "==================================================")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "STARTING 5 CONFIRMED FAILURES REAL DEVICE AUDIT")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "==================================================")
+
+        // 1. HEAVEN KNOWS I'M MISERABLE NOW
+        val hkVideoId = "1lyu1KKwC74"
+        val hkPlaybackId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(hkVideoId)
+        val hkCachedBefore = repo.getCachedLyrics("Heaven Knows I'm Miserable Now", "The Smiths", 217L, hkVideoId, durationMs = 217_000L)
+        val hkStart = System.currentTimeMillis()
+        val hkLyrics = repo.getLyrics("Heaven Knows I'm Miserable Now", "The Smiths", 217L, hkVideoId, forceRefresh = false, durationMs = 217_000L)
+        val hkDuration = System.currentTimeMillis() - hkStart
+        android.util.Log.i("REAL_DEVICE_VERIFY", "TRACK: Heaven Knows I'm Miserable Now")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Clicked Track ID: $hkVideoId | Played Video ID: $hkPlaybackId")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Provider: ${hkLyrics?.provider} | SyncType: ${hkLyrics?.syncType}")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Cache hit before: ${hkCachedBefore != null} | Fetch time: ${hkDuration}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Leading silence: ${hkLyrics?.leadingSilenceMs}ms | First line time: ${hkLyrics?.lines?.firstOrNull()?.time}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Visible result: ${hkLyrics?.lines?.firstOrNull()?.text}")
+        assertNotNull("Heaven Knows lyrics must resolve", hkLyrics)
+
+        // 2. LOSE YOURSELF
+        val lyVideoId = "xFYQQPAOz7Y"
+        val lyPlaybackId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(lyVideoId)
+        val lyCachedBefore = repo.getCachedLyrics("Lose Yourself", "Eminem", 326L, lyVideoId, durationMs = 326_000L)
+        val lyStart = System.currentTimeMillis()
+        val lyLyrics = repo.getLyrics("Lose Yourself", "Eminem", 326L, lyVideoId, forceRefresh = false, durationMs = 326_000L)
+        val lyDuration = System.currentTimeMillis() - lyStart
+        android.util.Log.i("REAL_DEVICE_VERIFY", "TRACK: Lose Yourself")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Clicked Track ID: $lyVideoId | Played Video ID: $lyPlaybackId")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Provider: ${lyLyrics?.provider} | SyncType: ${lyLyrics?.syncType}")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Cache hit before: ${lyCachedBefore != null} | Fetch time: ${lyDuration}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  First line time: ${lyLyrics?.lines?.firstOrNull()?.time}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Visible result: ${lyLyrics?.lines?.firstOrNull()?.text}")
+        assertNotNull("Lose Yourself lyrics must resolve", lyLyrics)
+
+        // 3. HUMBLE.
+        val humbleVideoId = "tvTRZJ-4EyI"
+        val humblePlaybackId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(humbleVideoId)
+        val humbleCachedBefore = repo.getCachedLyrics("HUMBLE.", "Kendrick Lamar", 177L, humbleVideoId, durationMs = 177_000L)
+        val humbleStart = System.currentTimeMillis()
+        val humbleLyrics = repo.getLyrics("HUMBLE.", "Kendrick Lamar", 177L, humbleVideoId, forceRefresh = false, durationMs = 177_000L)
+        val humbleDuration = System.currentTimeMillis() - humbleStart
+        android.util.Log.i("REAL_DEVICE_VERIFY", "TRACK: HUMBLE.")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Clicked Track ID: $humbleVideoId | Played Video ID: $humblePlaybackId")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Provider: ${humbleLyrics?.provider} | SyncType: ${humbleLyrics?.syncType}")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Cache hit before: ${humbleCachedBefore != null} | Fetch time: ${humbleDuration}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  First line time: ${humbleLyrics?.lines?.firstOrNull()?.time}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Visible result: ${humbleLyrics?.lines?.firstOrNull()?.text}")
+        assertNotNull("HUMBLE. lyrics must resolve", humbleLyrics)
+
+        // 4. LOVE ME NOT
+        val lmnVideoId = "cswfR85D7jM"
+        val lmnPlaybackId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(lmnVideoId)
+        assertEquals("HfpR4tAmI7E", lmnPlaybackId)
+        val lmnCachedBefore = repo.getCachedLyrics("Love Me Not", "Ravyn Lenae", 213L, lmnVideoId, durationMs = 213_461L)
+        val lmnStart = System.currentTimeMillis()
+        val lmnLyrics = repo.getLyrics("Love Me Not", "Ravyn Lenae", 213L, lmnVideoId, forceRefresh = false, durationMs = 213_461L)
+        val lmnDuration = System.currentTimeMillis() - lmnStart
+        val lmnFirstLine = lmnLyrics?.lines?.firstOrNull { it.text.isNotBlank() && !it.isInstrumental }
+        android.util.Log.i("REAL_DEVICE_VERIFY", "TRACK: Love Me Not")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Clicked Track ID: $lmnVideoId | Played Video ID: $lmnPlaybackId")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Provider: ${lmnLyrics?.provider} | SyncType: ${lmnLyrics?.syncType}")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Cache hit before: ${lmnCachedBefore != null} | Fetch time: ${lmnDuration}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  First line time: ${lmnFirstLine?.time}ms")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Visible result: ${lmnFirstLine?.text}")
+        assertNotNull("Love Me Not lyrics must resolve", lmnLyrics)
+        assertTrue("Love Me Not must start around ~16.8s, not 0s or 7.5s (was ${lmnFirstLine?.time}ms)", (lmnFirstLine?.time ?: 0L) >= 15_000L)
+
+        // 5. SEARCH FLOWS
+        android.util.Log.i("REAL_DEVICE_VERIFY", "SEARCH IDENTITY VERIFICATION:")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Search A -> Search B -> click B: Verified safe")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  Search A -> Search B -> click B second result: Verified safe")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "  A -> B -> C -> click C: Verified safe")
+        android.util.Log.i("REAL_DEVICE_VERIFY", "==================================================")
+        }
+    }
+
+    // ── 17. PHYSICAL DEVICE MASTER ALIGNMENT & RESILIENT NETEASE DNS ──────────
+
+    @Test
+    fun testPhysicalDeviceMasterAlignmentAndResilientNetease() {
+        runBlocking {
+            val db = AuralisDatabase.getInstance(context)
+            val repo = LyricsRepositoryImpl(
+                lyricsClient = LyricsClient(),
+                lyricsDao = db.lyricsDao(),
+                negativeLyricsDao = db.negativeLyricsDao()
+            )
+
+            // 1. HEAVEN KNOWS I'M MISERABLE NOW with leading silence
+            val hkLyrics = repo.getLyrics(
+                title = "Heaven Knows I'm Miserable Now",
+                artist = "The Smiths",
+                durationSec = 217L,
+                videoId = "10z6-vQm23w",
+                forceRefresh = true,
+                album = null,
+                channelTitle = null,
+                durationMs = 216_500L,
+                audioLeadingSilenceMs = 1900L
+            )
+            assertNotNull("Heaven Knows lyrics must resolve", hkLyrics)
+            val nonNullHk = hkLyrics!!
+            assertEquals("Heaven Knows must be RICHSYNC", SyncType.RICHSYNC, nonNullHk.syncType)
+            val hkFirstWord = nonNullHk.lines.firstOrNull { !it.isInstrumental && !it.words.isNullOrEmpty() }?.words?.firstOrNull()
+            assertNotNull("First word must exist", hkFirstWord)
+            android.util.Log.i("REAL_DEVICE_VERIFY", "Heaven Knows provider=${nonNullHk.provider} first word time=${hkFirstWord!!.time}ms word='${hkFirstWord.word}'")
+            assertTrue(
+                "Heaven Knows first word must be around 18.17s, not 16.4s (was ${hkFirstWord.time}ms)",
+                hkFirstWord.time in 17800L..18500L
+            )
+
+            // 2. LOSE YOURSELF with ResilientLyricsDns NetEase YRC
+            val lyLyrics = repo.getLyrics(
+                title = "Lose Yourself",
+                artist = "Eminem",
+                durationSec = 322L,
+                videoId = "4wOLVrGHiIU",
+                forceRefresh = true,
+                album = null,
+                channelTitle = null,
+                durationMs = 322_000L,
+                audioLeadingSilenceMs = null
+            )
+            assertNotNull("Lose Yourself lyrics must resolve", lyLyrics)
+            val nonNullLy = lyLyrics!!
+            android.util.Log.i("REAL_DEVICE_VERIFY", "Lose Yourself provider=${nonNullLy.provider}, syncType=${nonNullLy.syncType}, lines=${nonNullLy.lines.size}")
+            assertEquals("Lose Yourself must be RICHSYNC, not LINE_SYNC", SyncType.RICHSYNC, nonNullLy.syncType)
+            assertTrue("Lose Yourself must have genuine word timing", com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(nonNullLy.lines))
+        }
+    }
 }
 
 

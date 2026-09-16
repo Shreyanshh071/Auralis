@@ -149,15 +149,15 @@ fun AuralisFloatingDock(
 
     val fallbackGradient = if (isDark) {
         listOf(
-            Color.White.copy(alpha = 0.14f),
-            surfaceVariant.copy(alpha = 0.65f),
-            backgroundColor.copy(alpha = 0.78f)
+            Color.White.copy(alpha = 0.16f),
+            surfaceVariant.copy(alpha = 0.35f),
+            surfaceColor.copy(alpha = 0.45f)
         )
     } else {
         listOf(
-            surfaceColor.copy(alpha = 0.90f),
-            surfaceVariant.copy(alpha = 0.80f),
-            backgroundColor.copy(alpha = 0.88f)
+            Color.White.copy(alpha = 0.55f),
+            surfaceVariant.copy(alpha = 0.40f),
+            surfaceColor.copy(alpha = 0.50f)
         )
     }
 
@@ -192,8 +192,8 @@ fun AuralisFloatingDock(
                             Modifier.hazeEffect(
                                 state = hazeState,
                                 style = HazeStyle(
-                                    backgroundColor = surfaceColor,
-                                    tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.58f else 0.72f)),
+                                    backgroundColor = Color.Transparent,
+                                    tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.40f else 0.50f)),
                                     blurRadius = 24.dp,
                                     noiseFactor = 0.02f
                                 )
@@ -277,8 +277,8 @@ fun AuralisFloatingDock(
                                     Modifier.hazeEffect(
                                         state = hazeState,
                                         style = HazeStyle(
-                                            backgroundColor = surfaceColor,
-                                            tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.58f else 0.72f)),
+                                            backgroundColor = Color.Transparent,
+                                            tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.40f else 0.50f)),
                                             blurRadius = 24.dp,
                                             noiseFactor = 0.02f
                                         )

@@ -55,6 +55,7 @@ fun TrackRow(
         ) {
         // Thumbnail
         ArtworkCard(
+            sizeToConstraints = true,
             url = track.thumbnail,
             modifier = Modifier.size(52.dp),
             cornerRadius = 8.dp,

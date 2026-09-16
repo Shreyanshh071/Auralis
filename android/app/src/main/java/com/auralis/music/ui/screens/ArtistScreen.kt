@@ -443,6 +443,7 @@ fun ArtistScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ArtworkCard(
+                            sizeToConstraints = true,
                             url = track.thumbnail,
                             modifier = Modifier.size(48.dp),
                             cornerRadius = 8.dp,

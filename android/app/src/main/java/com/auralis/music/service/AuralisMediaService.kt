@@ -1,5 +1,6 @@
 package com.auralis.music.service
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -14,14 +15,15 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
-import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import coil.ImageLoader
@@ -61,6 +63,7 @@ class AuralisMediaService : MediaSessionService() {
     private var currentActiveMetadata: androidx.media3.common.MediaMetadata? = null
 
     companion object {
+        const val ACTION_START = "com.auralis.music.ACTION_START"
         const val ACTION_PLAY = "com.auralis.music.ACTION_PLAY"
         const val ACTION_PAUSE = "com.auralis.music.ACTION_PAUSE"
         const val ACTION_TOGGLE = "com.auralis.music.ACTION_TOGGLE"
@@ -79,30 +82,18 @@ class AuralisMediaService : MediaSessionService() {
         const val NOTIFICATION_ID = 1001
     }
 
+    private var sessionActivityPendingIntent: PendingIntent? = null
+
     override fun onCreate() {
         super.onCreate()
-        // 1. Create notification channel synchronously
+        // 1. Create notification channel synchronously with low importance and public lockscreen visibility
         createNotificationChannel()
-
-        // 2. Clear any lingering/stale legacy notifications from notification shade
-        try {
-            NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
-        } catch (_: Exception) {}
-
-        // 3. Configure Jetpack Media3 DefaultMediaNotificationProvider so foreground
-        // service lifecycle is seamlessly linked to the active MediaSession without posting
-        // duplicate or unwanted manual notification cards in the shade.
-        setMediaNotificationProvider(
-            DefaultMediaNotificationProvider.Builder(this)
-                .setChannelId(CHANNEL_ID)
-                .build()
-        )
 
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         val player = audioPlayer.exoPlayer
 
         // Configure system activity launch intent for lockscreen / notification taps
-        val sessionActivityPendingIntent = PendingIntent.getActivity(
+        sessionActivityPendingIntent = PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java).apply {
@@ -354,45 +345,67 @@ class AuralisMediaService : MediaSessionService() {
 
         // 2. Build Custom MediaSession with custom actions and command handling
         val session = MediaSession.Builder(this, forwardingPlayer)
-            .setSessionActivity(sessionActivityPendingIntent)
+            .setSessionActivity(sessionActivityPendingIntent!!)
             .setCallback(AuralisSessionCallback())
             .setCustomLayout(buildCustomLayout(audioPlayer.isFavorite.value))
             .build()
         mediaSession = session
         addSession(session)
 
-        // 3. Clear any duplicate notifications from previous runs
-        try {
-            NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
-        } catch (_: Exception) {}
-
         fun dispatchPlaybackState(isPlaying: Boolean) {
-            val state = if (audioPlayer.currentTrack.value != null) Player.STATE_READY else Player.STATE_IDLE
+            val track = audioPlayer.currentTrack.value
+            val isBuffering = audioPlayer.isBuffering.value
+            val state = if (track != null) Player.STATE_READY else Player.STATE_IDLE
+            val playWhenReady = isPlaying || isBuffering
+
+            val eventFlags = FlagSet.Builder()
+                .add(Player.EVENT_IS_PLAYING_CHANGED)
+                .add(Player.EVENT_PLAY_WHEN_READY_CHANGED)
+                .add(Player.EVENT_PLAYBACK_STATE_CHANGED)
+                .add(Player.EVENT_TIMELINE_CHANGED)
+                .add(Player.EVENT_METADATA)
+                .build()
+            val events = Player.Events(eventFlags)
+
             for (listener in sessionListeners) {
                 try {
                     listener.onIsPlayingChanged(isPlaying)
-                    listener.onPlayWhenReadyChanged(isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                    listener.onPlayWhenReadyChanged(playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                     listener.onPlaybackStateChanged(state)
+                    listener.onEvents(forwardingPlayer, events)
                 } catch (_: Exception) {}
             }
         }
 
-        // 3. Keep MediaSession callback synced with current audio playback states
+        // Keep MediaSession callback synced with current audio playback states
         serviceScope.launch {
             audioPlayer.isPlaying.collectLatest { isPlaying ->
-                val track = audioPlayer.currentTrack.value
-                val isFav = audioPlayer.isFavorite.value
-                updateMediaSessionMetadata(track, isPlaying, isFav)
-                dispatchPlaybackState(isPlaying)
+                withContext(Dispatchers.Main) {
+                    dispatchPlaybackState(isPlaying)
+                    refreshNotification()
+                }
+                updateMediaSessionMetadata(audioPlayer.currentTrack.value, isPlaying, audioPlayer.isFavorite.value)
+            }
+        }
+
+        serviceScope.launch {
+            audioPlayer.isBuffering.collectLatest {
+                withContext(Dispatchers.Main) {
+                    dispatchPlaybackState(audioPlayer.isPlaying.value)
+                    refreshNotification()
+                }
             }
         }
 
         serviceScope.launch {
             audioPlayer.isFavorite.collectLatest { isFav ->
-                val track = audioPlayer.currentTrack.value
-                val isPlaying = audioPlayer.isPlaying.value
-                updateMediaSessionMetadata(track, isPlaying, isFav)
-                mediaSession?.setCustomLayout(buildCustomLayout(isFav))
+                try {
+                    mediaSession?.setCustomLayout(buildCustomLayout(isFav))
+                } catch (_: Exception) {}
+                withContext(Dispatchers.Main) {
+                    refreshNotification()
+                }
+                updateMediaSessionMetadata(audioPlayer.currentTrack.value, audioPlayer.isPlaying.value, isFav)
             }
         }
 
@@ -406,11 +419,21 @@ class AuralisMediaService : MediaSessionService() {
                             ?: imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(track.thumbnail ?: ""))?.bitmap
                     } else null
 
+                    // ── PERF FIX #2: Move CPU-heavy bitmap processing off Main thread ──
+                    // processForMediaNotification (crop+resize), saveMasterArtworkToCache (disk I/O),
+                    // and toByteArray (JPEG encode) previously ran synchronously on Dispatchers.Main.
                     var localArtworkUri: android.net.Uri? = null
+                    var artworkBytes: ByteArray? = null
                     if (cachedBitmap != null) {
-                        val processed = ArtworkProcessor.processForMediaNotification(cachedBitmap, targetSize = 600)
+                        val (processed, artUri, bytes) = withContext(Dispatchers.IO) {
+                            val p = ArtworkProcessor.processForMediaNotification(cachedBitmap, targetSize = 600)
+                            val uri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, p)
+                            val b = ArtworkProcessor.toByteArray(p, quality = 92)
+                            Triple(p, uri, b)
+                        }
                         currentArtworkBitmap = processed
-                        localArtworkUri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, processed)
+                        localArtworkUri = artUri
+                        artworkBytes = bytes
                     } else {
                         currentArtworkBitmap = null
                     }
@@ -427,9 +450,9 @@ class AuralisMediaService : MediaSessionService() {
                         .setArtist(track.artist)
                         .setArtworkUri(initialArtworkUri)
 
-                    if (currentArtworkBitmap != null) {
+                    if (artworkBytes != null) {
                         initialMetaBuilder.setArtworkData(
-                            ArtworkProcessor.toByteArray(currentArtworkBitmap!!, quality = 92),
+                            artworkBytes,
                             androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER
                         )
                     }
@@ -443,11 +466,16 @@ class AuralisMediaService : MediaSessionService() {
                     currentActiveMetadata = initialMeta
                     currentActiveMediaItem = initialItem
 
-                    try {
-                        if (player.currentMediaItem?.mediaId != track.id && player.currentMediaItem?.localConfiguration == null) {
-                            player.setMediaItem(initialItem)
-                        }
-                    } catch (_: Exception) {}
+                    // ForwardingPlayer dynamically supplies currentActiveMetadata and currentActiveMediaItem
+                    // to Media3 MediaSession without injecting URI-less dummy items into ExoPlayer.
+
+                    val metaFlags = FlagSet.Builder()
+                        .add(Player.EVENT_MEDIA_METADATA_CHANGED)
+                        .add(Player.EVENT_PLAYLIST_METADATA_CHANGED)
+                        .add(Player.EVENT_MEDIA_ITEM_TRANSITION)
+                        .add(Player.EVENT_TIMELINE_CHANGED)
+                        .build()
+                    val metaEvents = Player.Events(metaFlags)
 
                     withContext(Dispatchers.Main) {
                         for (listener in sessionListeners) {
@@ -455,33 +483,20 @@ class AuralisMediaService : MediaSessionService() {
                                 listener.onMediaMetadataChanged(initialMeta)
                                 listener.onPlaylistMetadataChanged(initialMeta)
                                 listener.onMediaItemTransition(initialItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
+                                listener.onEvents(forwardingPlayer, metaEvents)
                             } catch (_: Exception) {}
                         }
                         dispatchPlaybackState(audioPlayer.isPlaying.value)
+                        refreshNotification()
                     }
                 }
                 updateMediaSessionMetadata(track, audioPlayer.isPlaying.value, audioPlayer.isFavorite.value)
             }
         }
 
-        // Observe playing state changes
-        serviceScope.launch {
-            audioPlayer.isPlaying.collectLatest { isPlaying ->
-                withContext(Dispatchers.Main) {
-                    dispatchPlaybackState(isPlaying)
-                }
-                updateMediaSessionMetadata(audioPlayer.currentTrack.value, isPlaying, audioPlayer.isFavorite.value)
-            }
-        }
-
-        // Observe favorite changes to update custom layout in Android 13/14 System Media Card
-        serviceScope.launch {
-            audioPlayer.isFavorite.collectLatest { isFav ->
-                try {
-                    mediaSession?.setCustomLayout(buildCustomLayout(isFav))
-                } catch (_: Exception) {}
-                updateMediaSessionMetadata(audioPlayer.currentTrack.value, audioPlayer.isPlaying.value, isFav)
-            }
+        // Synchronously publish foreground notification on service startup if a track is present
+        if (audioPlayer.currentTrack.value != null) {
+            refreshNotification()
         }
     }
 
@@ -489,31 +504,55 @@ class AuralisMediaService : MediaSessionService() {
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         Log.d("AuralisPlayback", "[AuralisMediaService] onStartCommand received action=${intent?.action}, startId=$startId")
 
+        // 1. Immediately and synchronously satisfy foreground service guarantee before processing intent
+        refreshNotification()
+
         when (intent?.action) {
+            ACTION_START, null -> {
+                Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_START -> foreground service confirmed active")
+                refreshNotification()
+            }
             ACTION_PLAY -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_PLAY -> audioPlayer.resume()")
                 audioPlayer.resume()
+                refreshNotification()
             }
             ACTION_PAUSE -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_PAUSE -> audioPlayer.pause()")
                 audioPlayer.pause()
+                refreshNotification()
             }
             ACTION_TOGGLE -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_TOGGLE -> audioPlayer.togglePlayPause()")
                 audioPlayer.togglePlayPause()
+                refreshNotification()
             }
             ACTION_NEXT -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_NEXT -> audioPlayer.next()")
                 audioPlayer.next()
+                refreshNotification()
             }
             ACTION_PREVIOUS -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_PREVIOUS -> audioPlayer.previous()")
                 audioPlayer.previous()
+                refreshNotification()
             }
-            ACTION_SEEK_BACK -> audioPlayer.seekBackward(10000L)
-            ACTION_SEEK_FORWARD -> audioPlayer.seekForward(10000L)
-            ACTION_TOGGLE_FAVORITE -> audioPlayer.toggleFavorite()
-            ACTION_TOGGLE_REPEAT -> audioPlayer.toggleRepeat()
+            ACTION_SEEK_BACK -> {
+                audioPlayer.seekBackward(10000L)
+                refreshNotification()
+            }
+            ACTION_SEEK_FORWARD -> {
+                audioPlayer.seekForward(10000L)
+                refreshNotification()
+            }
+            ACTION_TOGGLE_FAVORITE -> {
+                audioPlayer.toggleFavorite()
+                refreshNotification()
+            }
+            ACTION_TOGGLE_REPEAT -> {
+                audioPlayer.toggleRepeat()
+                refreshNotification()
+            }
             ACTION_STOP -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_STOP -> audioPlayer.stop() and stopSelf()")
                 audioPlayer.stop()
@@ -529,6 +568,155 @@ class AuralisMediaService : MediaSessionService() {
             }
         }
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun createActionPendingIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, AuralisMediaService::class.java).apply {
+            this.action = action
+        }
+        return PendingIntent.getService(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun buildMediaNotification(
+        track: Track?,
+        isPlaying: Boolean,
+        isBuffering: Boolean,
+        isFav: Boolean,
+        artwork: Bitmap?
+    ): Notification {
+        val prevPending = createActionPendingIntent(ACTION_PREVIOUS, 1)
+        val playPausePending = createActionPendingIntent(if (isPlaying) ACTION_PAUSE else ACTION_PLAY, 2)
+        val nextPending = createActionPendingIntent(ACTION_NEXT, 3)
+        val favPending = createActionPendingIntent(ACTION_TOGGLE_FAVORITE, 4)
+        val stopPending = createActionPendingIntent(ACTION_STOP, 5)
+
+        val prevAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_media_previous,
+            "Previous",
+            prevPending
+        ).build()
+
+        val playPauseAction = NotificationCompat.Action.Builder(
+            if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+            if (isPlaying) "Pause" else "Play",
+            playPausePending
+        ).build()
+
+        val nextAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_media_next,
+            "Next",
+            nextPending
+        ).build()
+
+        val favAction = NotificationCompat.Action.Builder(
+            if (isFav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
+            if (isFav) "Favorited" else "Favorite",
+            favPending
+        ).build()
+
+        val session = mediaSession
+        val mediaStyle = if (session != null) {
+            MediaStyleNotificationHelper.MediaStyle(session)
+                .setShowActionsInCompactView(0, 1, 2)
+        } else {
+            androidx.media.app.NotificationCompat.MediaStyle()
+                .setShowActionsInCompactView(0, 1, 2)
+        }
+
+        val title = track?.title?.ifBlank { "Auralis" } ?: "Auralis"
+        val artist = track?.artist?.ifBlank { "Playing music" } ?: "Playing music"
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setStyle(mediaStyle)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(artist)
+            .setSubText(if (isBuffering) "Buffering..." else null)
+            .setContentIntent(sessionActivityPendingIntent)
+            .setDeleteIntent(stopPending)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setOngoing(isPlaying || isBuffering)
+            .addAction(prevAction)
+            .addAction(playPauseAction)
+            .addAction(nextAction)
+            .addAction(favAction)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+
+        if (artwork != null) {
+            builder.setLargeIcon(artwork)
+        }
+
+        return builder.build()
+    }
+
+    fun refreshNotification() {
+        val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+        val track = audioPlayer.currentTrack.value
+        val isPlaying = audioPlayer.isPlaying.value
+        val isBuffering = audioPlayer.isBuffering.value
+        val isFav = audioPlayer.isFavorite.value
+
+        if (track == null) {
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Exception) {}
+            try {
+                NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
+            } catch (_: Exception) {}
+            return
+        }
+
+        val notification = buildMediaNotification(
+            track = track,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            isFav = isFav,
+            artwork = currentArtworkBitmap
+        )
+
+        val shouldRunForeground = isPlaying || isBuffering
+        if (shouldRunForeground) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+            } catch (e: Exception) {
+                Log.w("AuralisPlayback", "[AuralisMediaService] startForeground notice: ${e.message}")
+                try {
+                    NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+                } catch (_: Exception) {}
+            }
+        } else {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(false)
+                }
+            } catch (_: Exception) {}
+            try {
+                NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+            } catch (e: Exception) {
+                Log.w("AuralisPlayback", "[AuralisMediaService] NotificationManager notify notice: ${e.message}")
+            }
+        }
+    }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        refreshNotification()
     }
 
     private fun buildCustomLayout(isFavorite: Boolean): List<CommandButton> {
@@ -643,14 +831,25 @@ class AuralisMediaService : MediaSessionService() {
                         currentActiveMediaItem = updatedItem
 
                         // Update MediaSession with artworkData byte array and URI for studio clarity in Android 13/14/15 Quick Settings & Lockscreen
+                        val flags = FlagSet.Builder()
+                            .add(Player.EVENT_MEDIA_METADATA_CHANGED)
+                            .add(Player.EVENT_PLAYLIST_METADATA_CHANGED)
+                            .build()
+                        val events = Player.Events(flags)
+
                         withContext(Dispatchers.Main) {
                             try {
+                                val currentForwardingPlayer = mediaSession?.player
                                 for (listener in sessionListeners) {
                                     try {
                                         listener.onMediaMetadataChanged(updatedMeta)
                                         listener.onPlaylistMetadataChanged(updatedMeta)
+                                        if (currentForwardingPlayer != null) {
+                                            listener.onEvents(currentForwardingPlayer, events)
+                                        }
                                     } catch (_: Exception) {}
                                 }
+                                refreshNotification()
                             } catch (_: Exception) {}
                         }
                     }
@@ -695,6 +894,8 @@ class AuralisMediaService : MediaSessionService() {
                 .build()
         }
 
+        @Deprecated("Deprecated in Java")
+        @Suppress("DEPRECATION")
         override fun onPlayerCommandRequest(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -750,8 +951,15 @@ class AuralisMediaService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         val isCurrentlyPlaying = audioPlayer.isPlaying.value
-        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying) -> stopping playback and cleaning up service")
+        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying)")
 
+        if (isCurrentlyPlaying) {
+            Log.d("AuralisPlayback", "[AuralisMediaService] Preserving background audio playback across onTaskRemoved")
+            refreshNotification()
+            return
+        }
+
+        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved while paused/idle -> performing graceful cleanup")
         try {
             com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
         } catch (_: Exception) {}

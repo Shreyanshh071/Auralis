@@ -214,6 +214,7 @@ fun HistorySheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             ArtworkCard(
+                                sizeToConstraints = true,
                                 url = track.thumbnail,
                                 modifier = Modifier.size(52.dp),
                                 cornerRadius = 10.dp,

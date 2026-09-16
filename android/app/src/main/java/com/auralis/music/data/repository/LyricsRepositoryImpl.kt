@@ -51,12 +51,28 @@ class LyricsRepositoryImpl(
          * 7 = Phase 5.1: strict cache revalidation, downgrade protection, and duration alignment fix.
          * 8 = Phase 5.2: comprehensive syllable-merging engine and split-word healing.
          * 9 = Phase 5.3: automatic accidental merged-word splitting ("Theless" -> "The less") and cache invalidation.
+         * 10 = Phase 5.4: real-device sync accuracy, master matching, and gap-filler duplicate protection.
+         * 11 = Phase 5.5: master-aware audio leading silence alignment & resilient NetEase DNS.
+         * 12 = Phase 5.6: Float PCM leading silence processor & studio audio duration mapping.
          */
-        const val LYRICS_PIPELINE_VERSION = 9
+        const val LYRICS_PIPELINE_VERSION = 12
 
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
-            val cleanedLines = domain.lines.map { com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(it) }
+            val rawOffset = -domain.appliedOffsetMs
+            val cleanedLines = domain.lines.map { line ->
+                val unshifted = if (rawOffset != 0L) {
+                    val shiftedWords = line.words?.map { w ->
+                        w.copy(time = (w.time + rawOffset).coerceAtLeast(0L))
+                    }
+                    line.copy(
+                        time = (line.time + rawOffset).coerceAtLeast(0L),
+                        words = shiftedWords,
+                        endTime = line.endTime?.let { (it + rawOffset).coerceAtLeast(0L) }
+                    )
+                } else line
+                com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(unshifted)
+            }
             for (line in cleanedLines) {
                 val lineObj = JSONObject()
                 lineObj.put("time", line.time)
@@ -227,9 +243,12 @@ class LyricsRepositoryImpl(
                 candidateTitle = candTitle,
                 playbackChannelTitle = channelTitle,
                 playbackVideoId = videoId,
-                audioLeadingSilenceMs = audioLeadingSilenceMs
+                audioLeadingSilenceMs = audioLeadingSilenceMs,
+                playbackArtist = artist,
+                candidateArtist = candArtist
             )
-            if (confidence >= 50 && isAcceptable && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cached)) {
+            val isIntroCorrupt = com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cached, durationSec)
+            if (confidence >= 50 && isAcceptable && !isIntroCorrupt && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cached)) {
                 val aligned = if (playbackMs > 0L) {
                     com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(cached, playbackMs, audioLeadingSilenceMs)
                 } else cached
@@ -270,7 +289,9 @@ class LyricsRepositoryImpl(
                                 candidateTitle = candTitle,
                                 playbackChannelTitle = channelTitle,
                                 playbackVideoId = videoId,
-                                audioLeadingSilenceMs = audioLeadingSilenceMs
+                                audioLeadingSilenceMs = audioLeadingSilenceMs,
+                                playbackArtist = artist,
+                                candidateArtist = candArtist
                             )
                             val isMasterMismatch = playbackMs > 0L && com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
                                 lyrics = domainLyrics,
@@ -278,10 +299,14 @@ class LyricsRepositoryImpl(
                                 playbackTitle = title,
                                 candidateTitle = candTitle,
                                 playbackChannelTitle = channelTitle,
-                                playbackVideoId = videoId
+                                playbackVideoId = videoId,
+                                playbackArtist = artist,
+                                candidateArtist = candArtist
                             ) == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
 
-                            if (confidence >= 50 && isAcceptable && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
+                            val isDomainIntroCorrupt = com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(domainLyrics, durationSec)
+
+                            if (confidence >= 50 && isAcceptable && !isDomainIntroCorrupt && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 val aligned = if (playbackMs > 0L) {
                                     com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs, audioLeadingSilenceMs)
                                 } else {
@@ -291,8 +316,9 @@ class LyricsRepositoryImpl(
                                     memoryCache[trackKey] = aligned
                                     return aligned
                                 }
-                            } else if (isMasterMismatch || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
+                            } else if (isMasterMismatch || isDomainIntroCorrupt || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 lyricsDao.deleteLyrics(trackKey)
+                                memoryCache.remove(trackKey)
                             }
                         }
                     }
@@ -337,9 +363,12 @@ class LyricsRepositoryImpl(
                     candidateTitle = candTitle,
                     playbackChannelTitle = channelTitle,
                     playbackVideoId = videoId,
-                    audioLeadingSilenceMs = audioLeadingSilenceMs
+                    audioLeadingSilenceMs = audioLeadingSilenceMs,
+                    playbackArtist = artist,
+                    candidateArtist = candArtist
                 )
-                if (confidence >= 50 && isAcceptable) {
+                val isIntroCorrupt = com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cached, durationSec)
+                if (confidence >= 50 && isAcceptable && !isIntroCorrupt && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cached)) {
                     val aligned = if (playbackMs > 0L) {
                         com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(cached, playbackMs, audioLeadingSilenceMs)
                     } else cached
@@ -385,7 +414,9 @@ class LyricsRepositoryImpl(
                                 candidateTitle = candTitle,
                                 playbackChannelTitle = channelTitle,
                                 playbackVideoId = videoId,
-                                audioLeadingSilenceMs = audioLeadingSilenceMs
+                                audioLeadingSilenceMs = audioLeadingSilenceMs,
+                                playbackArtist = artist,
+                                candidateArtist = candArtist
                             )
                             val isMasterMismatch = playbackMs > 0L && com.auralis.music.domain.lyrics.LyricsAlignmentEngine.evaluateMasterMatch(
                                 lyrics = domainLyrics,
@@ -393,10 +424,14 @@ class LyricsRepositoryImpl(
                                 playbackTitle = title,
                                 candidateTitle = candTitle,
                                 playbackChannelTitle = channelTitle,
-                                playbackVideoId = videoId
+                                playbackVideoId = videoId,
+                                playbackArtist = artist,
+                                candidateArtist = candArtist
                             ) == com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
 
-                            if (confidence >= 50 && isAcceptable) {
+                            val isDomainIntroCorrupt = com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(domainLyrics, durationSec)
+
+                            if (confidence >= 50 && isAcceptable && !isDomainIntroCorrupt && !com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 val aligned = if (playbackMs > 0L) {
                                     com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(domainLyrics, playbackMs, audioLeadingSilenceMs)
                                 } else domainLyrics
@@ -410,8 +445,9 @@ class LyricsRepositoryImpl(
                                         cachedLineSyncFallback = aligned
                                     }
                                 }
-                            } else if (isMasterMismatch || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
+                            } else if (isMasterMismatch || isDomainIntroCorrupt || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 lyricsDao.deleteLyrics(trackKey)
+                                memoryCache.remove(trackKey)
                             }
                         }
                     }
@@ -451,8 +487,11 @@ class LyricsRepositoryImpl(
                     candidateTitle = existingDomain.trackName ?: title,
                     playbackChannelTitle = channelTitle,
                     playbackVideoId = videoId,
-                    audioLeadingSilenceMs = audioLeadingSilenceMs
+                    audioLeadingSilenceMs = audioLeadingSilenceMs,
+                    playbackArtist = artist,
+                    candidateArtist = existingDomain.artistName ?: artist
                 ) &&
+                    !com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(existingDomain, durationSec) &&
                     com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(existingDomain.lines)
             } else false
 

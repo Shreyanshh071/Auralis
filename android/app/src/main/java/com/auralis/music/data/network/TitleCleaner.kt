@@ -5,22 +5,25 @@ import com.auralis.music.data.parser.IndicScriptNormalizer
 object TitleCleaner {
 
     // Meaningful musical versions that MUST be preserved when matching lyrics
+    // Meaningful musical versions that MUST be preserved when matching lyrics
     private val VERSION_KEYWORDS = listOf(
         "remix", "mix", "club mix", "vip mix", "extended mix", "extended version", "extended",
         "acoustic", "acoustic version", "live", "live version", "live at", "live in",
         "instrumental", "unplugged", "orchestral", "piano version", "slowed + reverb",
         "slowed and reverb", "slowed", "sped up", "speed up", "radio edit",
-        "cover", "re-recorded", "part 1", "part 2", "part 3", "vol 1", "vol 2"
+        "taylor's version", "taylors version", "tv",
+        "cover", "re-recorded", "part 1", "part 2", "part 3", "vol 1", "vol 2",
+        "2008 remaster", "2011 remaster", "2015 remaster", "2020 remaster", "remastered", "remaster"
     )
 
     // Extraneous YouTube video, label, resolution, and promotional bracket noise
     private val BRACKET_NOISE_REGEX = Regex(
-        """(?i)[\(\[\{][^)\]\}]*(?:official\s*(?:music)?\s*(?:video|audio)|\b(?:video|audio)\b|music\s*video|lyric\s*video|lyrics|audio\s*song|video\s*song|full\s*video(?:\s*song)?|full\s*audio(?:\s*song)?|lyrical(?:\s*video)?|visualizer|remaster(?:ed)?|hd\s*video|4k|hq|prod\.?|ost|special\s*edition|exclusive|bhojpuri\s*video(?:\s*song)?|bhojpuri\s*song(?:\s*\d{4})?|new\s*song\s*\d{4}|hit\s*song)[^)\]\}]*[\)\]\}]"""
+        """(?i)[\(\[\{][^)\]\}]*(?:official\s*(?:music)?\s*(?:video|audio)|\b(?:video|audio)\b|music\s*video|lyric\s*video|lyrics|audio\s*song|video\s*song|full\s*video(?:\s*song)?|full\s*audio(?:\s*song)?|full\s*song|lyrical(?:\s*video)?|visualizer|remaster(?:ed)?|hd\s*video|4k|hq|prod\.?|ost|special\s*edition|exclusive|the\s*song\s*of\s*youth|the\s*soup\s*of\s*love|song\s*of\s*the\s*year|bhojpuri\s*video(?:\s*song)?|bhojpuri\s*song(?:\s*\d{4})?|new\s*song\s*\d{4}|hit\s*song)[^)\]\}]*[\)\]\}]"""
     )
 
     // Movie, soundtrack, and OST attribution noise (e.g. (From "Brahmastra"), - From "Movie", (OST))
     private val MOVIE_ATTRIBUTION_REGEX = Regex(
-        """(?i)\s*[\(\[\{/\-]\s*(?:from\s+(?:the\s+)?(?:motion\s+picture\s+)?(?:soundtrack\s+)?["'“”‘’]?[^()\[\]{}]+["'“”‘’]?|original\s+motion\s+picture\s+soundtrack|soundtrack\s+version|ost)[\)\]\}]?"""
+        """(?i)\s*[\(\[\{/\-]\s*(?:from\s+(?:the\s+)?(?:motion\s+picture\s+)?(?:soundtrack\s+)?["'“”‘’]?[^()\[\]{}]+["'“”‘’]?|original\s+motion\s+picture\s+soundtrack|soundtrack\s+version|soundtrack|ost)[\)\]\}]?"""
     )
 
     // Pipe separated label/artist channel spam (common in Indian and regional releases)
@@ -36,18 +39,53 @@ object TitleCleaner {
     private val EMPTY_BRACKETS_REGEX = Regex("""\(\s*\)|\[\s*\]|\{\s*\}""")
     private val MULTI_SPACE = Regex("""\s+""")
 
+    private val FEAT_ARTIST_BRACKET_REGEX = Regex("""(?i)[\(\[\{]\s*(?:feat\.?|ft\.?|featuring)\s+([^()\[\]{}]+)[\)\]\}]""")
+    private val WITH_ARTIST_BRACKET_REGEX_FEATURE = Regex("""(?i)[\(\[\{]\s*with\s+([^()\[\]{}]+)[\)\]\}]""")
+    private val FEAT_ARTIST_TRAILING_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring)\s+(.+)$""")
+
+    /**
+     * Extracts guest or featured artists from title or artist credits.
+     * e.g. "Levitating (feat. DaBaby)" -> setOf("dababy")
+     * e.g. "bad guy (with Justin Bieber)" -> setOf("justin bieber")
+     * e.g. "Save Your Tears (Remix) [with Ariana Grande]" -> setOf("ariana grande")
+     */
+    fun extractFeaturedArtists(title: String?, artist: String? = null): Set<String> {
+        val features = mutableSetOf<String>()
+        val textsToScan = listOfNotNull(title, artist)
+
+        for (text in textsToScan) {
+            FEAT_ARTIST_BRACKET_REGEX.findAll(text).forEach { match ->
+                splitArtistNames(match.groupValues[1]).forEach { features.add(it) }
+            }
+            WITH_ARTIST_BRACKET_REGEX_FEATURE.findAll(text).forEach { match ->
+                splitArtistNames(match.groupValues[1]).forEach { features.add(it) }
+            }
+            FEAT_ARTIST_TRAILING_REGEX.findAll(text).forEach { match ->
+                splitArtistNames(match.groupValues[1]).forEach { features.add(it) }
+            }
+        }
+        return features
+    }
+
+    private fun splitArtistNames(raw: String): List<String> {
+        return raw.split(Regex("""(?i)[,&/|]|\s+and\s+"""))
+            .map { it.trim().lowercase().replace(Regex("""^[^\p{L}\p{Nd}]+|[^\p{L}\p{Nd}]+$"""), "") }
+            .filter { it.isNotBlank() && it != "the" }
+    }
+
     /**
      * Strips movie attribution and soundtrack tags from a title specifically for lyrics provider search.
      * (e.g. "Deva Deva (From \"Brahmastra\")" -> "Deva Deva").
      */
     fun cleanCoreSongTitle(rawTitle: String): String {
         val cleaned = cleanTitle(rawTitle)
-        val core = MOVIE_ATTRIBUTION_REGEX.replace(cleaned, "").trim(' ', '-', '|', ':', '_')
+        var core = MOVIE_ATTRIBUTION_REGEX.replace(cleaned, "").trim(' ', '-', '|', ':', '_')
+        core = BRACKET_NOISE_REGEX.replace(core, "").trim(' ', '-', '|', ':', '_')
         return core.ifBlank { cleaned }
     }
 
     /**
-     * Extracts version information (e.g. "Remix", "Acoustic", "Live") from a raw title string.
+     * Extracts version information (e.g. "Remix", "Acoustic", "Live", "Taylor's Version") from a raw title string.
      */
     fun extractVersion(rawTitle: String): String? {
         val lower = rawTitle.lowercase()
@@ -60,6 +98,8 @@ object TitleCleaner {
                     kw.startsWith("acoustic") -> "Acoustic"
                     kw.startsWith("remix") || kw.endsWith("remix") -> "Remix"
                     kw.startsWith("instrumental") -> "Instrumental"
+                    kw.startsWith("taylor") -> "Taylor's Version"
+                    kw == "tv" -> "Taylor's Version"
                     kw.startsWith("part 1") -> "Part 1"
                     kw.startsWith("part 2") -> "Part 2"
                     kw.startsWith("part 3") -> "Part 3"

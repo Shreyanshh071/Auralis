@@ -287,6 +287,7 @@ fun ExperimentalLyricsView(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
     isPlaying: Boolean = true,
+    isBuffering: Boolean = false,
     lyricsClockSource: PlaybackClockSource? = null,
     offsetMs: Long = 0L,
     onOffsetChange: ((Long) -> Unit)? = null,
@@ -322,9 +323,8 @@ fun ExperimentalLyricsView(
 
     val isIntroActiveState = remember(isSynced, introDurationMs) {
         derivedStateOf {
-            if (!isSynced || introDurationMs < 4_500L) return@derivedStateOf false
-            val countInStart = introDurationMs - 4_500L
-            currentPositionState in countInStart..introDurationMs
+            if (!isSynced || introDurationMs < 1500L) return@derivedStateOf false
+            currentPositionState < introDurationMs
         }
     }
     val introTimeState = remember {
@@ -383,7 +383,7 @@ fun ExperimentalLyricsView(
     }
 
     // Continuous playback clock interpolator
-    LaunchedEffect(lyrics, effectiveLines, isPlaying, lyricsClockSource) {
+    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource) {
         if (effectiveLines.isEmpty()) {
             activeLineIndices = emptySet()
             return@LaunchedEffect
@@ -395,32 +395,33 @@ fun ExperimentalLyricsView(
         while (isActive) {
             delay(25)
             val now = System.currentTimeMillis()
+            val clockSourcePlaying = lyricsClockSource?.isPlaying() ?: isPlaying
+            val clockSourceBuffering = isBuffering || (lyricsClockSource?.isBuffering() == true)
+            val rawPos = lyricsClockSource?.rawPositionMs() ?: positionState.value
+
+            // Prefer positionState.value when actively advancing (smoothly interpolated at 60fps
+            // by rememberLyricsClock), falling back to rawPos if clock is uninitialized or lagging.
             val basePos = if (lyricsClockSource != null) {
-                lyricsClockSource.rawPositionMs()
+                val clockPos = positionState.value
+                if (clockPos > 0L && kotlin.math.abs(clockPos - rawPos) <= 1500L) {
+                    clockPos
+                } else {
+                    rawPos
+                }
             } else {
                 positionState.value
             }
 
-            if (basePos != lastBasePos) {
-                // If base position jumped significantly (e.g. user scrubbed the progress bar)
-                // and it doesn't match our pending seek target, clear the pending seek target.
-                val pending = pendingSeekTarget
-                if (pending != null && kotlin.math.abs(basePos - pending.targetTimeMs) > 1000L) {
-                    pendingSeekTarget = null
-                }
-                lastBasePos = basePos
-                lastUpdateTime = now
-            }
-
-            val elapsed = now - lastUpdateTime
-            val currentPos = lastBasePos + (if (isPlaying) elapsed else 0L) + offsetMs
-            currentPositionState = currentPos
-
-            // Check pending seek target convergence/timeout
+            // Check pending seek target convergence/timeout:
+            // The seek is in-flight until audio is actually advancing at/near the target,
+            // the player is ready (not buffering), and minimum dispatch time has elapsed.
             val pending = pendingSeekTarget
             val isSeekingInFlight = if (pending != null) {
-                val hasConverged = kotlin.math.abs(currentPos - pending.targetTimeMs) <= 350L
-                val isTimedOut = (now - pending.timestamp) > 650L
+                val hasAudioReached = kotlin.math.abs(basePos - pending.targetTimeMs) <= 350L ||
+                    kotlin.math.abs(rawPos - pending.targetTimeMs) <= 350L
+                val minTimeElapsed = (now - pending.timestamp) >= 80L
+                val hasConverged = minTimeElapsed && hasAudioReached && !clockSourceBuffering && clockSourcePlaying
+                val isTimedOut = (now - pending.timestamp) > 1500L
                 if (hasConverged || isTimedOut) {
                     pendingSeekTarget = null
                     false
@@ -428,6 +429,26 @@ fun ExperimentalLyricsView(
                     true
                 }
             } else false
+
+            if (basePos != lastBasePos) {
+                // If base position jumped significantly (e.g. user scrubbed the progress bar)
+                // and it doesn't match our pending seek target, clear the pending seek target.
+                if (pending != null && kotlin.math.abs(basePos - pending.targetTimeMs) > 1000L) {
+                    pendingSeekTarget = null
+                }
+                lastBasePos = basePos
+                lastUpdateTime = now
+            }
+
+            val currentPos = if (isSeekingInFlight && pending != null) {
+                // Pin strictly to the seek target timestamp so lyrics don't run ahead during buffering
+                pending.targetTimeMs + offsetMs
+            } else {
+                val isAdvancing = clockSourcePlaying && !clockSourceBuffering
+                val elapsed = if (isAdvancing) (now - lastUpdateTime).coerceIn(0L, 500L) else 0L
+                lastBasePos + elapsed + offsetMs
+            }
+            currentPositionState = currentPos
 
             if (isSeekingInFlight && pending != null) {
                 val target = pending.lineIndex
@@ -774,6 +795,7 @@ fun ExperimentalLyricsView(
                                     displayedCurrentLineIndex = deferredCurrentLineIndex,
                                     syncType = lyrics?.syncType ?: SyncType.PLAIN,
                                     isPlaying = isPlaying,
+                                    isBuffering = isBuffering || (pendingSeekTarget != null),
                                     onSizeChanged = { },
                                     onClick = {
                                         if (isSelectionModeActive) {
@@ -995,6 +1017,7 @@ internal fun ExperimentalLyricsLine(
     displayedCurrentLineIndex: Int,
     syncType: SyncType,
     isPlaying: Boolean,
+    isBuffering: Boolean = false,
     onSizeChanged: (Int) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -1195,7 +1218,8 @@ internal fun ExperimentalLyricsLine(
                         isBackground = line.isBackground,
                         focusedAlpha = focusedAlpha,
                         alignment = agentTextAlign,
-                        isPlaying = isPlaying
+                        isPlaying = isPlaying,
+                        isBuffering = isBuffering
                     )
                 } else {
                     Text(
@@ -1247,7 +1271,8 @@ private fun ExperimentalWordLevelLyrics(
     isBackground: Boolean,
     focusedAlpha: Float,
     alignment: TextAlign,
-    isPlaying: Boolean
+    isPlaying: Boolean,
+    isBuffering: Boolean = false
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -1257,31 +1282,38 @@ private fun ExperimentalWordLevelLyrics(
         }
     }
 
+    val currentPositionUpdated by rememberUpdatedState(currentPositionState)
+    val isPlayingUpdated by rememberUpdatedState(isPlaying)
+    val isBufferingUpdated by rememberUpdatedState(isBuffering)
+
     var smoothPosition by remember { mutableLongStateOf(currentPositionState) }
 
-    LaunchedEffect(isActiveLine, isPlaying) {
-        if (isActiveLine && isPlaying) {
-            var lastPos = currentPositionState
+    val shouldSmooth = isActiveLine && isPlaying && !isBuffering
+
+    LaunchedEffect(shouldSmooth) {
+        if (shouldSmooth) {
+            var lastPos = currentPositionUpdated
             var lastUpdate = System.currentTimeMillis()
             while (isActive) {
                 withFrameMillis {
                     val now = System.currentTimeMillis()
-                    val pos = currentPositionState
+                    val pos = currentPositionUpdated
                     if (pos != lastPos) {
                         lastPos = pos
                         lastUpdate = now
                     }
-                    val elapsed = now - lastUpdate
+                    val isAdvancing = isPlayingUpdated && !isBufferingUpdated
+                    val elapsed = if (isAdvancing) (now - lastUpdate).coerceIn(0L, 500L) else 0L
                     smoothPosition = lastPos + elapsed
                 }
             }
         } else {
-            smoothPosition = currentPositionState
+            smoothPosition = currentPositionUpdated
         }
     }
 
     LaunchedEffect(currentPositionState) {
-        if (!isActiveLine) {
+        if (!shouldSmooth) {
             smoothPosition = currentPositionState
         }
     }

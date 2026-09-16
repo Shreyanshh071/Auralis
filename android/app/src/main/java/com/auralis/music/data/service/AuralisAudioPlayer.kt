@@ -124,6 +124,15 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private var nativeRetryCount = 0
     private var streamResolveJob: Job? = null
 
+    val audioLeadingSilenceProcessor = AudioLeadingSilenceProcessor().apply {
+        onLeadingSilenceDetected = { silenceMs ->
+            Log.d("AuralisPlayback", "[AudioLeadingSilence] Detected stream leading silence: ${silenceMs}ms for '${_currentTrack.value?.title}'")
+            _audioLeadingSilenceMs.value = silenceMs
+        }
+    }
+    private val _audioLeadingSilenceMs = MutableStateFlow<Long?>(null)
+    val audioLeadingSilenceMs: StateFlow<Long?> = _audioLeadingSilenceMs.asStateFlow()
+
     val exoPlayer: ExoPlayer by lazy {
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             com.auralis.music.data.network.NetworkClientProvider.okHttpClient
@@ -148,13 +157,27 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             .setBufferDurationsMs(
                 /* minBufferMs = */ 15_000,
                 /* maxBufferMs = */ 50_000,
-                /* bufferForPlaybackMs = */ 400,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_000
+                /* bufferForPlaybackMs = */ 200,
+                /* bufferForPlaybackAfterRebufferMs = */ 250
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        ExoPlayer.Builder(appContext)
+        val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(appContext) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink? {
+                return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(audioLeadingSilenceProcessor))
+                    .build()
+            }
+        }
+
+        ExoPlayer.Builder(appContext, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .build().apply {
@@ -190,6 +213,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             val seekMs = newPosition.positionMs
                             _playbackPositionMs.value = seekMs
                             youTubeEngine.seekTo(seekMs)
+                            _isBuffering.value = (playbackState == Player.STATE_BUFFERING)
                         }
                     }
 
@@ -348,12 +372,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     /**
-     * Engine-agnostic: covers the WebView fallback path too. Deliberately reads
-     * the mirrored flag rather than `exoPlayer.isPlaying`, so a buffer stall
-     * (which keeps `isPlaying` true while the position stops moving) is caught
-     * by the carry clamp instead of being extrapolated through.
+     * Engine-agnostic: covers the WebView fallback path too. Returns true only
+     * when the track is unpaused AND not stalled on a buffer refill, so the
+     * lyrics highlight freezes during rebuffer rather than sprinting ahead.
      */
-    override fun isPlaying(): Boolean = _isPlaying.value
+    override fun isPlaying(): Boolean = _isPlaying.value && !_isBuffering.value
+
+    override fun isBuffering(): Boolean = _isBuffering.value
 
     override fun speed(): Float {
         if (!isUsingExoPlayer) return 1.0f
@@ -558,6 +583,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         } catch (_: Exception) {}
         youTubeEngine.stop()
 
+        audioLeadingSilenceProcessor.resetDetection()
+        _audioLeadingSilenceMs.value = null
+
         _currentTrack.value = track
         _playbackError.value = null
         _durationMs.value = track.duration * 1000L
@@ -567,20 +595,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
         Log.d("AuralisPlayback", "[Play Request #$requestId] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s, initialSeek=${initialSeekMs}ms")
 
-        // Start MediaSessionService for uninterrupted background audio
-        try {
-            val intent = Intent(appContext, AuralisMediaService::class.java)
-            try {
-                appContext.startService(intent)
-            } catch (e: Exception) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    androidx.core.content.ContextCompat.startForegroundService(appContext, intent)
-                }
-            }
-            Log.d("AuralisPlayback", "[MediaSession Service] Service started for background audio")
-        } catch (e: Exception) {
-            Log.w("AuralisPlayback", "[MediaSession Service] Service start notice: ${e.message}")
-        }
+        // Start MediaSessionService for uninterrupted background audio and immediate foreground notification
+        startMediaService(AuralisMediaService.ACTION_START)
 
         // Fast-path resolution for native ExoPlayer audio stream (stutter-free native AudioTrack)
         streamResolveJob = scope.launch {
@@ -930,6 +946,22 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         persistQueue()
     }
 
+    fun startMediaService(action: String = AuralisMediaService.ACTION_START) {
+        try {
+            val intent = Intent(appContext, AuralisMediaService::class.java).apply {
+                this.action = action
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                androidx.core.content.ContextCompat.startForegroundService(appContext, intent)
+            } else {
+                appContext.startService(intent)
+            }
+            Log.d("AuralisPlayback", "[MediaSession Service] Service started with action=$action")
+        } catch (e: Exception) {
+            Log.w("AuralisPlayback", "[MediaSession Service] Service start notice: ${e.message}")
+        }
+    }
+
     fun resume() {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() blocked - user is listener in Listen Together room")
@@ -937,6 +969,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         val curTrack = _currentTrack.value ?: return
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() called (isUsingExo=$isUsingExoPlayer, mediaItems=${exoPlayer.mediaItemCount}, track=${curTrack.title}, seek=${_playbackPositionMs.value}ms)")
+
+        startMediaService(AuralisMediaService.ACTION_START)
 
         if (isUsingExoPlayer && exoPlayer.mediaItemCount > 0) {
             if (exoPlayer.playbackState == Player.STATE_IDLE) {
@@ -947,6 +981,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         } else if (!isUsingExoPlayer && youTubeEngine.hasActiveStream()) {
             youTubeEngine.play()
             _isPlaying.value = true
+        } else if (streamResolveJob?.isActive == true) {
+            Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() called while stream resolution is in-flight for '${curTrack.title}', preserving active resolution")
         } else {
             // Cold start, stream unloaded, or cleared: re-resolve stream and play from saved position
             val durMs = (curTrack.duration * 1000L).takeIf { it > 0 } ?: _durationMs.value
@@ -977,6 +1013,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         youTubeEngine.pause()
         _isPlaying.value = false
+        startMediaService(AuralisMediaService.ACTION_START)
         persistQueue()
     }
 
@@ -1004,8 +1041,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             val dur = exoPlayer.duration
             val target = if (dur > 0 && bounded >= dur) (dur - 500L).coerceAtLeast(0L) else bounded
             exoPlayer.seekTo(target)
+            _isBuffering.value = (exoPlayer.playbackState == Player.STATE_BUFFERING)
         } else {
             youTubeEngine.seekTo(bounded)
+            _isBuffering.value = youTubeEngine.isBuffering.value
         }
         persistQueue()
     }

@@ -57,7 +57,7 @@ object NewUserSeedProvider {
             artist = "Tame Impala",
             album = "Currents",
             duration = 217,
-            thumbnail = "https://i.ytimg.com/vi/PvM79DJ2PmM/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/PvM79DJ2PmM/mqdefault.jpg"
         ),
         Track(
             id = "rymYToIEL9o",
@@ -65,7 +65,7 @@ object NewUserSeedProvider {
             artist = "Tame Impala",
             album = "The Slow Rush",
             duration = 238,
-            thumbnail = "https://i.ytimg.com/vi/rymYToIEL9o/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/rymYToIEL9o/mqdefault.jpg"
         ),
         Track(
             id = "NMRhx71bGo4",
@@ -73,7 +73,7 @@ object NewUserSeedProvider {
             artist = "Tame Impala",
             album = "Currents",
             duration = 468,
-            thumbnail = "https://i.ytimg.com/vi/NMRhx71bGo4/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/NMRhx71bGo4/mqdefault.jpg"
         ),
 
         // Kanye West
@@ -83,7 +83,7 @@ object NewUserSeedProvider {
             artist = "Kanye West",
             album = "Graduation",
             duration = 238,
-            thumbnail = "https://i.ytimg.com/vi/cxKs2b5lRsA/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/cxKs2b5lRsA/mqdefault.jpg"
         ),
         Track(
             id = "s40BTpfAELs",
@@ -91,7 +91,7 @@ object NewUserSeedProvider {
             artist = "Kanye West",
             album = "808s & Heartbreak",
             duration = 211,
-            thumbnail = "https://i.ytimg.com/vi/s40BTpfAELs/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/s40BTpfAELs/mqdefault.jpg"
         ),
         Track(
             id = "12hLNbXKCs4",
@@ -99,7 +99,7 @@ object NewUserSeedProvider {
             artist = "Kanye West",
             album = "Graduation",
             duration = 313,
-            thumbnail = "https://i.ytimg.com/vi/12hLNbXKCs4/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/12hLNbXKCs4/mqdefault.jpg"
         ),
 
         // Karan Aujla
@@ -109,7 +109,7 @@ object NewUserSeedProvider {
             artist = "Karan Aujla",
             album = "Tauba Tauba",
             duration = 208,
-            thumbnail = "https://i.ytimg.com/vi/N6_EvGT0ZfM/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/N6_EvGT0ZfM/mqdefault.jpg"
         ),
         Track(
             id = "U4qD41gPQMU",
@@ -117,7 +117,7 @@ object NewUserSeedProvider {
             artist = "Karan Aujla",
             album = "Making Memories",
             duration = 156,
-            thumbnail = "https://i.ytimg.com/vi/U4qD41gPQMU/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/U4qD41gPQMU/mqdefault.jpg"
         ),
         Track(
             id = "0DS5jYQeiw0",
@@ -125,7 +125,7 @@ object NewUserSeedProvider {
             artist = "Karan Aujla",
             album = "Winning Speech",
             duration = 228,
-            thumbnail = "https://i.ytimg.com/vi/0DS5jYQeiw0/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/0DS5jYQeiw0/mqdefault.jpg"
         ),
 
         // Radiohead
@@ -135,7 +135,7 @@ object NewUserSeedProvider {
             artist = "Radiohead",
             album = "Pablo Honey",
             duration = 239,
-            thumbnail = "https://i.ytimg.com/vi/9RfVp-GhKfs/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/9RfVp-GhKfs/mqdefault.jpg"
         ),
         Track(
             id = "nbCOAPR33ME",
@@ -143,7 +143,7 @@ object NewUserSeedProvider {
             artist = "Radiohead",
             album = "OK Computer",
             duration = 262,
-            thumbnail = "https://i.ytimg.com/vi/nbCOAPR33ME/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/nbCOAPR33ME/mqdefault.jpg"
         ),
         Track(
             id = "7374CZQoS2Y",
@@ -151,7 +151,7 @@ object NewUserSeedProvider {
             artist = "Radiohead",
             album = "OK Computer",
             duration = 229,
-            thumbnail = "https://i.ytimg.com/vi/7374CZQoS2Y/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/7374CZQoS2Y/mqdefault.jpg"
         ),
 
         // KR$NA
@@ -161,7 +161,7 @@ object NewUserSeedProvider {
             artist = "KR\$NA",
             album = "No Cap",
             duration = 206,
-            thumbnail = "https://i.ytimg.com/vi/6Zv9mSiZGBU/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/6Zv9mSiZGBU/mqdefault.jpg"
         ),
         Track(
             id = "brXz6f3EPFM",
@@ -169,7 +169,7 @@ object NewUserSeedProvider {
             artist = "KR\$NA",
             album = "FAR FROM OVER",
             duration = 200,
-            thumbnail = "https://i.ytimg.com/vi/brXz6f3EPFM/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/brXz6f3EPFM/mqdefault.jpg"
         ),
         Track(
             id = "mLaQwQHpP6A",
@@ -177,7 +177,7 @@ object NewUserSeedProvider {
             artist = "KR\$NA",
             album = "I Guess",
             duration = 187,
-            thumbnail = "https://i.ytimg.com/vi/mLaQwQHpP6A/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/mLaQwQHpP6A/mqdefault.jpg"
         ),
 
         // Arijit Singh
@@ -187,7 +187,7 @@ object NewUserSeedProvider {
             artist = "Arijit Singh",
             album = "Brahmastra",
             duration = 269,
-            thumbnail = "https://i.ytimg.com/vi/NJAv_7lHUIU/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/NJAv_7lHUIU/mqdefault.jpg"
         ),
         Track(
             id = "fsiPzT50ZiM",
@@ -195,7 +195,7 @@ object NewUserSeedProvider {
             artist = "Arijit Singh",
             album = "Aashiqui 2",
             duration = 262,
-            thumbnail = "https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/fsiPzT50ZiM/mqdefault.jpg"
         ),
         Track(
             id = "YALvuUpY_b0",
@@ -203,7 +203,7 @@ object NewUserSeedProvider {
             artist = "Arijit Singh",
             album = "Bhediya",
             duration = 262,
-            thumbnail = "https://i.ytimg.com/vi/YALvuUpY_b0/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/YALvuUpY_b0/mqdefault.jpg"
         ),
 
         // KK
@@ -213,7 +213,7 @@ object NewUserSeedProvider {
             artist = "KK",
             album = "Jannat",
             duration = 304,
-            thumbnail = "https://i.ytimg.com/vi/zv-tbc4F818/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/zv-tbc4F818/mqdefault.jpg"
         ),
         Track(
             id = "XPu9ZE4Onzc",
@@ -221,7 +221,7 @@ object NewUserSeedProvider {
             artist = "KK",
             album = "Woh Lamhe",
             duration = 267,
-            thumbnail = "https://i.ytimg.com/vi/XPu9ZE4Onzc/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/XPu9ZE4Onzc/mqdefault.jpg"
         ),
         Track(
             id = "12pMB_mCBOo",
@@ -229,7 +229,7 @@ object NewUserSeedProvider {
             artist = "KK",
             album = "Bhool Bhulaiyaa",
             duration = 342,
-            thumbnail = "https://i.ytimg.com/vi/12pMB_mCBOo/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/12pMB_mCBOo/mqdefault.jpg"
         ),
 
         // Shreya Ghoshal
@@ -239,7 +239,7 @@ object NewUserSeedProvider {
             artist = "Shreya Ghoshal",
             album = "Aashiqui 2",
             duration = 315,
-            thumbnail = "https://i.ytimg.com/vi/1If9aw74Tj4/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/1If9aw74Tj4/mqdefault.jpg"
         ),
         Track(
             id = "MEjnFgMh3qE",
@@ -247,7 +247,7 @@ object NewUserSeedProvider {
             artist = "Shreya Ghoshal",
             album = "Happy New Year",
             duration = 273,
-            thumbnail = "https://i.ytimg.com/vi/MEjnFgMh3qE/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/MEjnFgMh3qE/mqdefault.jpg"
         ),
         Track(
             id = "eSu6HHRn1UE",
@@ -255,7 +255,7 @@ object NewUserSeedProvider {
             artist = "Shreya Ghoshal",
             album = "Bajirao Mastani",
             duration = 340,
-            thumbnail = "https://i.ytimg.com/vi/eSu6HHRn1UE/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/eSu6HHRn1UE/mqdefault.jpg"
         ),
 
         // Atif Aslam
@@ -265,7 +265,7 @@ object NewUserSeedProvider {
             artist = "Atif Aslam",
             album = "Coke Studio Season 8",
             duration = 617,
-            thumbnail = "https://i.ytimg.com/vi/qmBW9-fUvag/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/qmBW9-fUvag/mqdefault.jpg"
         ),
         Track(
             id = "3M3o3Ak1qBY",
@@ -273,7 +273,7 @@ object NewUserSeedProvider {
             artist = "Atif Aslam",
             album = "Ramaiya Vastavaiya",
             duration = 236,
-            thumbnail = "https://i.ytimg.com/vi/3M3o3Ak1qBY/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/3M3o3Ak1qBY/mqdefault.jpg"
         ),
         Track(
             id = "swcCuuQKGJ4",
@@ -281,7 +281,7 @@ object NewUserSeedProvider {
             artist = "Atif Aslam",
             album = "Race",
             duration = 313,
-            thumbnail = "https://i.ytimg.com/vi/swcCuuQKGJ4/hqdefault.jpg"
+            thumbnail = "https://i.ytimg.com/vi/swcCuuQKGJ4/mqdefault.jpg"
         )
     )
 

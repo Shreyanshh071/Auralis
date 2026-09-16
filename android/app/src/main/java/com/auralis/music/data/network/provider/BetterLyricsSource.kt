@@ -160,7 +160,6 @@ class BetterLyricsSource(
 
             val candTitle = json.optString("trackName").ifBlank { json.optString("name").ifBlank { cleanTitle } }
             val candArtist = json.optString("artistName").ifBlank { json.optString("artist").ifBlank { artistToUse } }
-            val candDuration = json.optLong("duration", 0L).takeIf { it > 0 }
 
             val rawParsed = BetterLyricsParser.parse(
                 content = lyricsContent,
@@ -168,6 +167,10 @@ class BetterLyricsSource(
                 trackName = candTitle,
                 artistName = candArtist
             ) ?: return null
+
+            // Derive candidate duration from parsed TTML when JSON duration is missing (e.g. Boidu TTML)
+            val candDuration = rawParsed.durationMs?.let { it / 1000L }?.takeIf { it > 0 }
+                ?: json.optLong("duration", 0L).takeIf { it > 0 }
 
             val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
 
@@ -177,7 +180,8 @@ class BetterLyricsSource(
                 candidateTitle = candTitle,
                 candidateArtist = candArtist,
                 queryDurationSec = query.durationSec,
-                candidateDurationSec = candDuration
+                candidateDurationSec = candDuration,
+                queryAlbum = query.album
             )
 
             if (confidence < 50) return null
@@ -236,6 +240,7 @@ class BetterLyricsSource(
             var candDuration: Long? = null
             var bestDurDiff = Long.MAX_VALUE
             var bestIsWord = false
+            var bestConfidence = -1
 
             val targetDurSec = query.durationSec?.takeIf { it > 0 }
                 ?: query.durationMs?.let { it / 1000L }?.takeIf { it > 0 }
@@ -246,6 +251,7 @@ class BetterLyricsSource(
                 if (lUrl.isNotBlank()) {
                     val itemTitle = item.optString("track_name").ifBlank { cleanTitle }
                     val itemArtist = item.optString("artist_name").ifBlank { artistToUse }
+                    val itemAlbum = item.optString("album_name").takeIf { it.isNotBlank() }
                     val itemDur = item.optLong("duration", 0L).takeIf { it > 0 }
                     val isWord = item.optString("timing_type").equals("word", ignoreCase = true)
 
@@ -253,9 +259,35 @@ class BetterLyricsSource(
                         kotlin.math.abs(targetDurSec - itemDur)
                     } else 0L
 
+                    // 3.5s master alignment duration gate
+                    if (targetDurSec != null && itemDur != null && durDiff > 3) continue
+
+                    val itemConfidence = LyricsMatcher.calculateConfidence(
+                        queryTitle = query.title,
+                        queryArtist = query.artist,
+                        candidateTitle = itemTitle,
+                        candidateArtist = itemArtist,
+                        queryDurationSec = query.durationSec,
+                        candidateDurationSec = itemDur,
+                        queryAlbum = query.album,
+                        candidateAlbum = itemAlbum
+                    )
+
+                    val qHasRemaster = query.title.contains("remaster", ignoreCase = true) ||
+                            (query.album?.contains("remaster", ignoreCase = true) == true)
+                    val candHasRemaster = itemTitle.contains("remaster", ignoreCase = true) ||
+                            (itemAlbum?.contains("remaster", ignoreCase = true) == true)
+
+                    var effectiveScore = itemConfidence.toDouble()
+                    // 1. Remaster / version alignment
+                    if (qHasRemaster && candHasRemaster) {
+                        effectiveScore += 25.0
+                    }
+
                     val isBetter = bestUrl == null ||
                             (isWord && !bestIsWord) ||
-                            (isWord == bestIsWord && durDiff < bestDurDiff)
+                            (isWord == bestIsWord && effectiveScore > bestConfidence) ||
+                            (isWord == bestIsWord && effectiveScore == bestConfidence.toDouble() && durDiff < bestDurDiff)
 
                     if (isBetter) {
                         bestUrl = lUrl
@@ -264,6 +296,7 @@ class BetterLyricsSource(
                         candDuration = itemDur
                         bestDurDiff = durDiff
                         bestIsWord = isWord
+                        bestConfidence = effectiveScore.toInt()
                     }
                 }
             }
@@ -283,21 +316,23 @@ class BetterLyricsSource(
                 artistName = candArtist
             ) ?: return null
 
-            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
+            val finalCandDur = candDuration ?: rawParsed.durationMs?.let { it / 1000L }
+
+            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, finalCandDur)
             val confidence = LyricsMatcher.calculateConfidence(
                 queryTitle = query.title,
                 queryArtist = query.artist,
                 candidateTitle = candTitle,
                 candidateArtist = candArtist,
                 queryDurationSec = query.durationSec,
-                candidateDurationSec = candDuration,
+                candidateDurationSec = finalCandDur,
                 queryAlbum = query.album
             )
 
             if (confidence < 50) return null
 
-            val finalData = if (aligned.durationMs == null && candDuration != null) {
-                aligned.copy(durationMs = candDuration * 1000L)
+            val finalData = if (aligned.durationMs == null && finalCandDur != null) {
+                aligned.copy(durationMs = finalCandDur * 1000L)
             } else {
                 aligned
             }

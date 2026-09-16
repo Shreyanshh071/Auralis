@@ -1110,7 +1110,6 @@ fun AuralisApp(
                 playerUiState = playerUiState,
                 isGuestInRoom = isGuestInRoom,
                 isNowPlayingOpen = isNowPlayingOpen,
-                hazeState = hazeState,
                 appearanceSettings = appearanceSettings,
                 isSubScreenOpen = isSubScreenOpen,
                 playerSharedScope = playerSharedScope,
@@ -1418,7 +1417,6 @@ private fun MiniPlayerHost(
     playerUiState: PlayerUiState,
     isGuestInRoom: Boolean,
     isNowPlayingOpen: Boolean,
-    hazeState: HazeState,
     appearanceSettings: com.auralis.music.domain.model.AppearanceSettings,
     isSubScreenOpen: Boolean,
     playerSharedScope: SharedTransitionScope,
@@ -1520,8 +1518,7 @@ private fun MiniPlayerHost(
                 },
                 onClick = onOpenNowPlaying,
                 sharedTransitionScope = playerSharedScope,
-                animatedVisibilityScope = this@AnimatedVisibility,
-                hazeState = hazeState
+                animatedVisibilityScope = this@AnimatedVisibility
             )
         }
     }

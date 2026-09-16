@@ -55,17 +55,17 @@ fun getOptimizedThumbnailUrl(url: String?): String? {
             cleaned.replace(GOOGLE_W_REGEX, "=w400-h400-l90-rj")
                 .replace(GOOGLE_S_REGEX, "=s400-c")
         }
-        // YouTube video thumbnail: hqdefault.jpg (480x360), NOT heavy hq720.jpg
+        // YouTube video thumbnail: mqdefault.jpg (320x180 16:9 aspect ratio, NO black letterbox bars), NOT 4:3 letterboxed hqdefault.jpg
         cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu") -> {
             val match = YOUTUBE_VIDEO_ID_REGEX.find(cleaned)?.groupValues?.getOrNull(1)
             if (!match.isNullOrBlank()) {
-                "https://i.ytimg.com/vi/$match/hqdefault.jpg"
+                "https://i.ytimg.com/vi/$match/mqdefault.jpg"
             } else {
                 val noQuery = cleaned.substringBefore('?')
-                noQuery.replace("hq720.jpg", "hqdefault.jpg")
-                    .replace("sddefault.jpg", "hqdefault.jpg")
-                    .replace("mqdefault.jpg", "hqdefault.jpg")
-                    .replace("default.jpg", "hqdefault.jpg")
+                noQuery.replace("hq720.jpg", "mqdefault.jpg")
+                    .replace("sddefault.jpg", "mqdefault.jpg")
+                    .replace("hqdefault.jpg", "mqdefault.jpg")
+                    .replace("default.jpg", "mqdefault.jpg")
             }
         }
         // iTunes / Apple Music: 400x400
@@ -167,7 +167,10 @@ fun ArtworkCard(
     contentDescription: String? = null,
     fallbackTrack: Track? = null,
     contentScale: ContentScale = ContentScale.Crop,
-    highRes: Boolean = false
+    highRes: Boolean = false,
+    crossfade: Boolean = highRes,
+    // Opt in only for bounded browsing thumbnails; player and large artwork keep explicit sizes.
+    sizeToConstraints: Boolean = false
 ) {
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
 
@@ -202,15 +205,24 @@ fun ArtworkCard(
     var isError by remember(activeUrl) { mutableStateOf(false) }
 
     val context = LocalContext.current
-    val imageRequest = remember(activeUrl, highRes) {
+    val imageRequest = remember(context, activeUrl, highRes, crossfade, sizeToConstraints) {
         if (activeUrl.isNullOrBlank()) null else {
+            val isCachedInMemory = try {
+                coil.Coil.imageLoader(context).memoryCache?.get(coil.memory.MemoryCache.Key(activeUrl)) != null
+            } catch (_: Throwable) {
+                false
+            }
             ImageRequest.Builder(context)
                 .data(activeUrl)
-                .size(if (highRes) 1200 else 384, if (highRes) 1200 else 384)
+                .apply {
+                    if (highRes) size(1200, 1200)
+                    else if (!sizeToConstraints) size(384, 384)
+                    // Otherwise AsyncImage supplies its remembered ConstraintsSizeResolver.
+                }
                 .allowHardware(true)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
-                .crossfade(highRes)
+                .crossfade(crossfade && !isCachedInMemory)
                 .build()
         }
     }
