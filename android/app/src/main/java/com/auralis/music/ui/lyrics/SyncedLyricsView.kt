@@ -512,6 +512,10 @@ fun SyncedLyricsView(
             isAutoScrollEnabled = appearance.autoScrollLyrics
         }
 
+        LaunchedEffect(appearance.autoScrollLyrics) {
+            isAutoScrollEnabled = appearance.autoScrollLyrics
+        }
+
         val mergedLyricsItems = remember(effectiveLines) {
             val items = mutableListOf<SyncedLyricsItem>()
             effectiveLines.forEachIndexed { index, line ->
@@ -567,6 +571,32 @@ fun SyncedLyricsView(
                     if (found >= 0) return@derivedStateOf found
                 }
                 if (mergedLyricsItems.isNotEmpty()) 0 else -1
+            }
+        }
+
+        val isCurrentLineCentered by remember(activeMergedIndexState, listState, isUserInteracting) {
+            derivedStateOf {
+                if (isUserInteracting || listState.isScrollInProgress) return@derivedStateOf false
+                val activeIdx = activeMergedIndexState.value
+                if (activeIdx !in mergedLyricsItems.indices) return@derivedStateOf true
+                val layoutInfo = listState.layoutInfo
+                val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIdx } ?: return@derivedStateOf false
+                val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+                if (viewportHeight <= 0) return@derivedStateOf false
+                val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * 0.45f)
+                val itemCenterY = item.offset + (item.size / 2f)
+                kotlin.math.abs(itemCenterY - targetCenterY) < 100f
+            }
+        }
+
+        val shouldShowResyncButton by remember(isAutoScrollEnabled, isCurrentLineCentered, isSynced, selectedIndices.size, appearance.autoScrollLyrics) {
+            derivedStateOf {
+                if (!isSynced || selectedIndices.isNotEmpty()) return@derivedStateOf false
+                if (appearance.autoScrollLyrics) {
+                    !isAutoScrollEnabled
+                } else {
+                    !isCurrentLineCentered
+                }
             }
         }
 
@@ -922,9 +952,9 @@ fun SyncedLyricsView(
             }
         }
 
-        // Floating Re-sync button when auto-scroll is disabled by manual scrolling
+        // Floating Re-sync button when auto-scroll is disabled by manual scrolling or active line is not centered
         AnimatedVisibility(
-            visible = !isAutoScrollEnabled && isSynced && selectedIndices.isEmpty(),
+            visible = shouldShowResyncButton,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
             modifier = Modifier
@@ -1250,21 +1280,22 @@ private fun LyricLineRow(
 ) {
     val isPlain = syncType == SyncType.PLAIN
 
-    val isScrollingNow = isUserInteracting || !isAutoScrollActive
-    val targetBlur = if (!standardBlur || isScrollingNow || !isSynced || isPlain || isSelected || isCurrent) {
+    val targetBlur = if (!standardBlur || !isSynced || isPlain || isSelected || isCurrent) {
         0f
+    } else if (isUserInteracting) {
+        1.5f
     } else {
         when (distanceFromCurrent) {
-            0, 1 -> 0f
-            2 -> 2f
-            3 -> 4f
+            0 -> 0f
+            1 -> 2.5f
+            2 -> 4.5f
             else -> 6f
         }
     }
 
     val animatedBlur by animateFloatAsState(
         targetValue = targetBlur,
-        animationSpec = if (isScrollingNow) androidx.compose.animation.core.snap() else tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        animationSpec = if (isUserInteracting) androidx.compose.animation.core.snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
         label = "LyricStandardBlur"
     )
 
@@ -1395,7 +1426,7 @@ private fun LyricLineRow(
     }
     val effectiveAccentColor = Color.White
 
-    val blurModifier = if (standardBlur && !isScrollingNow && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier
+    val blurModifier = if (standardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier
 
     Column(
         modifier = Modifier

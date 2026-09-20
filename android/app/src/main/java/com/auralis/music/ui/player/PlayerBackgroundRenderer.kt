@@ -454,78 +454,13 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.GRADIENT -> {
-                if (isMiniPlayer) {
-                    // Mini-Player: Horizontal full-pill gradient + radial bloom on controls + polished glass sheen
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    0.0f to gradStops.miniLeft,
-                                    0.48f to gradStops.miniCenter,
-                                    1.0f to gradStops.miniRight
-                                )
-                            )
-                    )
-                    // Radial bloom on the right side behind controls
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(gradStops.glowAccent.copy(alpha = 0.45f), Color.Transparent),
-                                    center = Offset(800f, 60f),
-                                    radius = 350f
-                                )
-                            )
-                    )
-                    // Polished glass sheen (soft highlight at top edge, subtle shadow at bottom)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = 0.18f),
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.18f)
-                                    )
-                                )
-                            )
-                    )
-                } else {
-                    // Full Player: Metrolist & ViVi grade 3-stop vertical gradient + ambient top bloom + contrast overlay
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.0f to gradStops.topVibrant,
-                                    0.48f to gradStops.midHarmonic,
-                                    1.0f to gradStops.bottomObsidian
-                                )
-                            )
-                    )
-                    // Top ambient radiant glow enhancing the dominant hue
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(gradStops.topVibrant.copy(alpha = 0.35f), Color.Transparent),
-                                    center = Offset(450f, 250f),
-                                    radius = 800f
-                                )
-                            )
-                    )
-                    // Subtle contrast wash (ViVi / Metrolist standard alpha = 0.18f)
-                    // ensuring white chevron, track title, seekbar, and playback controls have 100% pristine contrast
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.18f))
-                    )
-                }
+                SeamlessGradientLayer(
+                    palette = extractedColors,
+                    isMiniPlayer = isMiniPlayer,
+                    modifier = Modifier.fillMaxSize(),
+                    secondaryArtworkUrl = secondaryArtworkUrl,
+                    swipeFraction = swipeFraction
+                )
             }
 
             PlayerBackgroundStyle.BLUR -> {
@@ -541,7 +476,7 @@ fun PlayerBackground(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(if (isMiniPlayer) MaterialTheme.dynamicSurface else MaterialTheme.dynamicBackground)
+                        .background(if (isMiniPlayer) Color.Transparent else MaterialTheme.dynamicBackground)
                 )
 
                 // Seamless Dual-Layer Blurred Artwork (zero black frames while image decodes, matching Metrolist)
@@ -550,7 +485,7 @@ fun PlayerBackground(
                     isMiniPlayer = isMiniPlayer,
                     blurRadius = if (isMiniPlayer) 50.dp else 120.dp,
                     scale = if (isMiniPlayer) 1.20f else 1.10f,
-                    targetAlpha = 1.0f,
+                    targetAlpha = if (isMiniPlayer) 0.65f else 1.0f,
                     colorMatrix = blurColorMatrix,
                     translationYRatio = 0f,
                     secondaryArtworkUrl = secondaryArtworkUrl,
@@ -848,6 +783,149 @@ fun PlayerBackground(
 }
 
 /**
+ * Zero-recomposition, GPU-accelerated dual-layer gradient background renderer.
+ * Keeps outgoing track's gradient fully stable in Slot 0/1 while incoming track's gradient
+ * stops are computed ONCE. The incoming slot fades smoothly over the outgoing slot entirely
+ * on the GPU compositor via [Modifier.graphicsLayer], eliminating 30-60 per-frame recompositions,
+ * shader reallocations, and HSV math passes that previously caused transition lag.
+ */
+@Composable
+private fun SeamlessGradientLayer(
+    palette: ArtworkPalette,
+    isMiniPlayer: Boolean,
+    modifier: Modifier = Modifier,
+    secondaryArtworkUrl: String? = null,
+    swipeFraction: Float = 0f
+) {
+    val initialStops = remember {
+        PlayerGradientPalette.create(
+            primary = palette.primary,
+            secondary = palette.secondary,
+            tertiary = palette.tertiary,
+            isMonochrome = palette.isMonochrome
+        )
+    }
+    var slot0Stops by remember { mutableStateOf(initialStops) }
+    var slot1Stops by remember { mutableStateOf(initialStops) }
+    var activeSlot by remember { mutableIntStateOf(0) }
+    val slot1Alpha = remember { Animatable(0f) }
+
+    LaunchedEffect(palette.primary, palette.secondary, palette.tertiary, palette.isMonochrome, swipeFraction) {
+        if (swipeFraction <= 0.005f) {
+            val newStops = PlayerGradientPalette.create(
+                primary = palette.primary,
+                secondary = palette.secondary,
+                tertiary = palette.tertiary,
+                isMonochrome = palette.isMonochrome
+            )
+            val currentActiveStops = if (activeSlot == 0) slot0Stops else slot1Stops
+            if (newStops != currentActiveStops) {
+                if (activeSlot == 0) {
+                    slot1Stops = newStops
+                    activeSlot = 1
+                    slot1Alpha.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = PlayerTransitionMotion.paletteDurationMillis,
+                            easing = FastOutSlowInEasing
+                        )
+                    )
+                } else {
+                    slot0Stops = newStops
+                    activeSlot = 0
+                    slot1Alpha.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(
+                            durationMillis = PlayerTransitionMotion.paletteDurationMillis,
+                            easing = FastOutSlowInEasing
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    Box(modifier = modifier.clipToBounds()) {
+        SingleGradientLayer(
+            stops = slot0Stops,
+            isMiniPlayer = isMiniPlayer,
+            alpha = { if (swipeFraction > 0.005f) 1f - swipeFraction else 1f - slot1Alpha.value },
+            modifier = Modifier.fillMaxSize()
+        )
+        SingleGradientLayer(
+            stops = slot1Stops,
+            isMiniPlayer = isMiniPlayer,
+            alpha = { if (swipeFraction > 0.005f) swipeFraction else slot1Alpha.value },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Composable
+private fun SingleGradientLayer(
+    stops: GradientStops,
+    isMiniPlayer: Boolean,
+    alpha: () -> Float,
+    modifier: Modifier = Modifier
+) {
+    if (isMiniPlayer) {
+        Box(
+            modifier = modifier
+                .graphicsLayer { this.alpha = alpha() }
+                .drawWithCache {
+                    val hGrad = Brush.horizontalGradient(
+                        0.0f to stops.miniLeft.copy(alpha = 0.70f),
+                        0.48f to stops.miniCenter.copy(alpha = 0.65f),
+                        1.0f to stops.miniRight.copy(alpha = 0.75f)
+                    )
+                    val rBloom = Brush.radialGradient(
+                        colors = listOf(stops.glowAccent.copy(alpha = 0.45f), Color.Transparent),
+                        center = Offset(size.width * 0.85f, size.height * 0.5f),
+                        radius = size.width * 0.45f
+                    )
+                    val vSheen = Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.18f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.18f)
+                        )
+                    )
+
+                    onDrawBehind {
+                        drawRect(hGrad)
+                        drawRect(rBloom)
+                        drawRect(vSheen)
+                    }
+                }
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .graphicsLayer { this.alpha = alpha() }
+                .drawWithCache {
+                    val vGrad = Brush.verticalGradient(
+                        0.0f to stops.topVibrant,
+                        0.48f to stops.midHarmonic,
+                        1.0f to stops.bottomObsidian
+                    )
+                    val rBloom = Brush.radialGradient(
+                        colors = listOf(stops.topVibrant.copy(alpha = 0.35f), Color.Transparent),
+                        center = Offset(size.width * 0.45f, size.height * 0.22f),
+                        radius = size.width * 0.85f
+                    )
+                    val contrastWash = Color.Black.copy(alpha = 0.18f)
+
+                    onDrawBehind {
+                        drawRect(vGrad)
+                        drawRect(rBloom)
+                        drawRect(contrastWash)
+                    }
+                }
+        )
+    }
+}
+
+/**
  * Seamless dual-layer blurred artwork renderer.
  * Keeps the previously rendered artwork fully visible while the incoming artwork
  * is decoded by Coil in the background. Once the new bitmap is decoded and emitted,
@@ -906,7 +984,7 @@ private fun SeamlessArtworkBlurLayer(
                     ImageRequest.Builder(context)
                         .data(prim)
                         .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
-                        .allowHardware(false)
+                        .allowHardware(true)
                         .crossfade(false)
                         .build()
                 }
@@ -917,6 +995,7 @@ private fun SeamlessArtworkBlurLayer(
                     colorFilter = colorFilter,
                     modifier = Modifier
                         .fillMaxSize()
+                        .blur(radius = blurRadius)
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
@@ -924,7 +1003,6 @@ private fun SeamlessArtworkBlurLayer(
                             alpha = targetAlpha * (1f - swipeFraction)
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
-                        .blur(radius = blurRadius)
                 )
             }
 
@@ -932,7 +1010,7 @@ private fun SeamlessArtworkBlurLayer(
                 ImageRequest.Builder(context)
                     .data(secondaryArtworkUrl)
                     .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
-                    .allowHardware(false)
+                    .allowHardware(true)
                     .crossfade(false)
                     .build()
             }
@@ -943,6 +1021,7 @@ private fun SeamlessArtworkBlurLayer(
                 colorFilter = colorFilter,
                 modifier = Modifier
                     .fillMaxSize()
+                    .blur(radius = blurRadius)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
@@ -950,7 +1029,6 @@ private fun SeamlessArtworkBlurLayer(
                         alpha = targetAlpha * swipeFraction
                         if (rotationZ != 0f) this.rotationZ = rotationZ
                     }
-                    .blur(radius = blurRadius)
             )
         } else {
             // Stable Ping-Pong Dual-Layer: Slot 0 and Slot 1 persist seamlessly.
@@ -961,7 +1039,7 @@ private fun SeamlessArtworkBlurLayer(
                     ImageRequest.Builder(context)
                         .data(u0)
                         .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
-                        .allowHardware(false)
+                        .allowHardware(true)
                         .crossfade(false)
                         .build()
                 }
@@ -972,6 +1050,7 @@ private fun SeamlessArtworkBlurLayer(
                     colorFilter = colorFilter,
                     modifier = Modifier
                         .fillMaxSize()
+                        .blur(radius = blurRadius)
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
@@ -979,7 +1058,6 @@ private fun SeamlessArtworkBlurLayer(
                             alpha = targetAlpha
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
-                        .blur(radius = blurRadius)
                 )
             }
 
@@ -989,7 +1067,7 @@ private fun SeamlessArtworkBlurLayer(
                     ImageRequest.Builder(context)
                         .data(u1)
                         .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
-                        .allowHardware(false)
+                        .allowHardware(true)
                         .crossfade(false)
                         .build()
                 }
@@ -1000,6 +1078,7 @@ private fun SeamlessArtworkBlurLayer(
                     colorFilter = colorFilter,
                     modifier = Modifier
                         .fillMaxSize()
+                        .blur(radius = blurRadius)
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
@@ -1007,7 +1086,6 @@ private fun SeamlessArtworkBlurLayer(
                             alpha = targetAlpha * slot1Alpha.value
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
-                        .blur(radius = blurRadius)
                 )
             }
         }
@@ -1180,7 +1258,7 @@ private fun LiveMeshArtworkContent(
         ImageRequest.Builder(context)
             .data(url)
             .size(128, 128)
-            .allowHardware(false)
+            .allowHardware(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .crossfade(false)

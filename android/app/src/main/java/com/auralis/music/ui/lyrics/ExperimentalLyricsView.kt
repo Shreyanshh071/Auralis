@@ -87,6 +87,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
@@ -201,9 +202,125 @@ fun Modifier.fadingEdge(
 internal data class ExperimentalWordTimestamp(
     val text: String,
     val startTime: Double,
-    val endTime: Double,
+    val endTime: Double?,
     val hasTrailingSpace: Boolean = true
 )
+
+/**
+ * Adapts only genuine provider word timing for the Experimental renderer.
+ * A null list means line-level timing; a null [ExperimentalWordTimestamp.endTime]
+ * means the provider supplied a start but no measurable interval.
+ */
+internal fun resolveExperimentalWordTimestamps(
+    line: LyricLine,
+    syncType: SyncType
+): List<ExperimentalWordTimestamp>? {
+    val sourceWords = line.words
+    if (syncType != SyncType.RICHSYNC || sourceWords.isNullOrEmpty()) return null
+
+    return sourceWords.mapIndexed { index, word ->
+        ExperimentalWordTimestamp(
+            text = word.word,
+            startTime = word.time / 1000.0,
+            endTime = word.duration
+                ?.takeIf { it > 0L }
+                ?.let { (word.time + it) / 1000.0 },
+            hasTrailingSpace = index < sourceWords.lastIndex
+        )
+    }
+}
+
+/** Exact source-timed sweep, or an instantaneous step when the end is unknown. */
+internal fun experimentalWordProgress(
+    word: ExperimentalWordTimestamp,
+    currentPositionMs: Long
+): Float {
+    val startMs = word.startTime * 1000.0
+    val endMs = word.endTime?.times(1000.0)
+    if (endMs == null || endMs <= startMs) {
+        return if (currentPositionMs.toDouble() >= startMs) 1f else 0f
+    }
+    return ((currentPositionMs.toDouble() - startMs) / (endMs - startMs))
+        .coerceIn(0.0, 1.0)
+        .toFloat()
+}
+
+private fun experimentalWordIsComplete(
+    word: ExperimentalWordTimestamp,
+    currentPositionMs: Long
+): Boolean {
+    val boundaryMs = (word.endTime ?: word.startTime) * 1000.0
+    return currentPositionMs.toDouble() >= boundaryMs
+}
+
+private fun experimentalCharacterProgress(
+    word: ExperimentalWordTimestamp,
+    currentPositionMs: Long,
+    characterIndex: Int,
+    characterCount: Int
+): Float {
+    val wordProgress = experimentalWordProgress(word, currentPositionMs)
+    if (word.endTime == null) return wordProgress
+    val count = characterCount.coerceAtLeast(1).toDouble()
+    return ((wordProgress - characterIndex / count) * count)
+        .coerceIn(0.0, 1.0)
+        .toFloat()
+}
+
+/**
+ * Creates presentation-only token animation timing when genuine word-level
+ * timing is unavailable (e.g. line-synced lyrics).
+ *
+ * Contract:
+ * - Stagger: +30ms per token
+ * - Duration: 180ms per token
+ * - Presentation ONLY: never persisted or fed into LyricWord / domain data model.
+ */
+internal fun createFallbackPresentationTokens(
+    mainText: String,
+    lineTimeMs: Long
+): List<ExperimentalWordTimestamp> {
+    if (mainText.isBlank()) return emptyList()
+    val wordTokens = mainText.split(Regex("\\s+")).filter { it.isNotBlank() }
+    val wordDurationSec = 0.18
+    val wordStaggerSec = 0.03
+    val startTimeSec = lineTimeMs / 1000.0
+    return wordTokens.mapIndexed { idx, wordText ->
+        ExperimentalWordTimestamp(
+            text = wordText,
+            startTime = startTimeSec + (idx * wordStaggerSec),
+            endTime = startTimeSec + (idx * wordStaggerSec) + wordDurationSec,
+            hasTrailingSpace = idx < wordTokens.size - 1
+        )
+    }
+}
+
+/**
+ * Reference token pulse behavior:
+ * - Linear rise over 125ms
+ * - Decay over 625ms (750ms total)
+ * - Horizontal scale contribution: 0.025 * pulse
+ * - Vertical scale contribution: 0.015 * pulse
+ */
+internal fun experimentalTokenPulse(timeSinceStartMs: Float): Float {
+    return if (timeSinceStartMs in 0f..750f) {
+        if (timeSinceStartMs < 125f) timeSinceStartMs / 125f
+        else (1f - (timeSinceStartMs - 125f) / 625f).coerceAtLeast(0f)
+    } else 0f
+}
+
+/**
+ * Reference character nudge behavior:
+ * - N = 0.038 * sin(pi * c) * exp(-3 * c)
+ * - Horizontal contribution: 0.3 * N
+ * - Vertical contribution: N
+ * where c is the normalized character progress within the active token.
+ */
+internal fun experimentalCharacterNudge(c: Float): Float {
+    return if (c in 0f..1f) {
+        0.038f * sin(PI.toFloat() * c) * exp(-3f * c)
+    } else 0f
+}
 
 private data class HyphenGroupWord(
     val pos: Int,
@@ -516,10 +633,19 @@ fun ExperimentalLyricsView(
         pendingSeekTarget = null
     }
 
-    val activeListIndexState = remember(mergedLyricsList) {
+    LaunchedEffect(appearance.autoScrollLyrics) {
+        isAutoScrollEnabled = appearance.autoScrollLyrics
+    }
+
+    val activeListIndexState = remember(mergedLyricsList, hasWordTimings, isSynced) {
         derivedStateOf {
-            val curPos = currentPositionState
-            val curIdx = authoritativeTargetIndex
+            val isLineOnlyFallback = !hasWordTimings && isSynced
+            val curPos = if (isLineOnlyFallback) currentPositionState + 250L else currentPositionState
+            val curIdx = if (isLineOnlyFallback) {
+                LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState + 250L, offsetMs)
+            } else {
+                authoritativeTargetIndex
+            }
             val isSeeking = pendingSeekTarget != null
             val activeIndicatorIndex = if (!isSeeking) {
                 mergedLyricsList.indexOfFirst {
@@ -534,6 +660,32 @@ fun ExperimentalLyricsView(
                 mergedLyricsList.indexOfFirst {
                     it is ExperimentalLyricsListItem.Line && it.index == curIdx
                 }.coerceAtLeast(0)
+            }
+        }
+    }
+
+    val isCurrentLineCentered by remember(activeListIndexState, listState, isUserInteracting) {
+        derivedStateOf {
+            if (isUserInteracting || listState.isScrollInProgress) return@derivedStateOf false
+            val activeIdx = activeListIndexState.value
+            if (activeIdx !in mergedLyricsList.indices) return@derivedStateOf true
+            val layoutInfo = listState.layoutInfo
+            val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIdx } ?: return@derivedStateOf false
+            val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+            if (viewportHeight <= 0) return@derivedStateOf false
+            val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * LYRICS_ANCHOR_RATIO)
+            val itemCenterY = item.offset + (item.size / 2f)
+            kotlin.math.abs(itemCenterY - targetCenterY) < 100f
+        }
+    }
+
+    val shouldShowResyncButton by remember(isAutoScrollEnabled, isCurrentLineCentered, isSynced, isSelectionModeActive, appearance.autoScrollLyrics) {
+        derivedStateOf {
+            if (!isSynced || isSelectionModeActive) return@derivedStateOf false
+            if (appearance.autoScrollLyrics) {
+                !isAutoScrollEnabled
+            } else {
+                !isCurrentLineCentered
             }
         }
     }
@@ -585,10 +737,15 @@ fun ExperimentalLyricsView(
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
                                 if (animate) {
+                                    val distance = if (lastCenteredIndex >= 0) {
+                                        kotlin.math.abs(targetIndex - lastCenteredIndex)
+                                    } else 1
+                                    val delayMs = (distance * 20).coerceAtMost(200)
                                     listState.animateScrollBy(
                                         value = scrollDelta,
                                         animationSpec = tween(
-                                            durationMillis = 350,
+                                            durationMillis = 750,
+                                            delayMillis = delayMs,
                                             easing = FastOutSlowInEasing
                                         )
                                     )
@@ -608,7 +765,9 @@ fun ExperimentalLyricsView(
     }
 
     val resyncLyrics: () -> Unit = {
-        isAutoScrollEnabled = true
+        if (appearance.autoScrollLyrics) {
+            isAutoScrollEnabled = true
+        }
         lastPreviewTime = 0L
         isUserInteracting = false
         pendingSeekTarget = null
@@ -617,7 +776,13 @@ fun ExperimentalLyricsView(
             authoritativeTargetIndex = target
             deferredCurrentLineIndex = target
         }
-        val activeIndex = activeListIndexState.value
+        val activeIndex = if (target != -1) {
+            mergedLyricsList.indexOfFirst {
+                it is ExperimentalLyricsListItem.Line && it.index == target
+            }.takeIf { it >= 0 } ?: activeListIndexState.value
+        } else {
+            activeListIndexState.value
+        }
         if (activeIndex in mergedLyricsList.indices) {
             scope.launch {
                 centerActiveLine(activeIndex, true)
@@ -796,6 +961,7 @@ fun ExperimentalLyricsView(
                                     syncType = lyrics?.syncType ?: SyncType.PLAIN,
                                     isPlaying = isPlaying,
                                     isBuffering = isBuffering || (pendingSeekTarget != null),
+                                    standardBlur = appearance.standardLyricsBlur,
                                     onSizeChanged = { },
                                     onClick = {
                                         if (isSelectionModeActive) {
@@ -884,9 +1050,9 @@ fun ExperimentalLyricsView(
             }
         }
 
-        // Floating sync button when auto-scroll is disabled by manual scrolling
+        // Floating sync button when auto-scroll is disabled by manual scrolling or line is not centered
         AnimatedVisibility(
-            visible = !isAutoScrollEnabled && isSynced && !isSelectionModeActive,
+            visible = shouldShowResyncButton,
             enter = fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }),
             modifier = Modifier
@@ -1018,6 +1184,7 @@ internal fun ExperimentalLyricsLine(
     syncType: SyncType,
     isPlaying: Boolean,
     isBuffering: Boolean = false,
+    standardBlur: Boolean = false,
     onSizeChanged: (Int) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -1091,8 +1258,30 @@ internal fun ExperimentalLyricsLine(
     ) {
         @Composable
         fun LineContent() {
+            val distanceFromCurrent = if (isActiveLine) 0 else abs(index - displayedCurrentLineIndex)
+            val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine) {
+                0f
+            } else {
+                when (distanceFromCurrent) {
+                    0 -> 0f
+                    1 -> 2.5f
+                    2 -> 4.5f
+                    else -> 6f
+                }
+            }
+
+            val animatedBlur by animateFloatAsState(
+                targetValue = targetBlur,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                label = "expLineBlur"
+            )
+
+            val blurModifier = if (standardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier
+
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(blurModifier),
                 horizontalAlignment = agentAlignment
             ) {
                 val inactiveAlpha = if (line.isBackground) 0.08f else 0.20f
@@ -1177,36 +1366,21 @@ internal fun ExperimentalLyricsLine(
                     )
                 )
 
-                // Genuine RichSync word timestamps or synthetic word pacing for line sync
-                val effectiveWords = remember(line.words, syncType, mainText, line.time) {
-                    if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
-                        line.words.mapIndexed { idx, w ->
-                            val sSec = w.time / 1000.0
-                            val eSec = (w.endTime ?: (w.time + 300L)) / 1000.0
-                            ExperimentalWordTimestamp(
-                                text = w.word,
-                                startTime = sSec,
-                                endTime = eSec.coerceAtLeast(sSec + 0.05),
-                                hasTrailingSpace = idx < line.words.size - 1
-                            )
-                        }
+                // Source-faithful RichSync timing. When unavailable, renderer creates presentation-only fallback tokens.
+                val genuineWords = remember(line.words, syncType) {
+                    resolveExperimentalWordTimestamps(line, syncType)
+                }
+                val effectiveWords = remember(genuineWords, mainText, line.time, isSynced) {
+                    if (genuineWords != null) {
+                        genuineWords
                     } else if (isSynced && mainText.isNotBlank()) {
-                        val wordTokens = mainText.split(Regex("\\s+")).filter { it.isNotBlank() }
-                        val wordDurationSec = 0.18
-                        val wordStaggerSec = 0.03
-                        val startTimeSec = line.time / 1000.0
-                        wordTokens.mapIndexed { idx, wordText ->
-                            ExperimentalWordTimestamp(
-                                text = wordText,
-                                startTime = startTimeSec + (idx * wordStaggerSec),
-                                endTime = startTimeSec + (idx * wordStaggerSec) + wordDurationSec,
-                                hasTrailingSpace = idx < wordTokens.size - 1
-                            )
-                        }
-                    } else null
+                        createFallbackPresentationTokens(mainText, line.time)
+                    } else {
+                        emptyList()
+                    }
                 }
 
-                if (isSynced && effectiveWords != null && isActiveLine && mainText.isNotBlank()) {
+                if (isSynced && isActiveLine && mainText.isNotBlank()) {
                     ExperimentalWordLevelLyrics(
                         mainText = mainText,
                         words = effectiveWords,
@@ -1318,42 +1492,14 @@ private fun ExperimentalWordLevelLyrics(
         }
     }
 
-    val (effectiveWords, effectiveToOriginalIdx) = remember(words, isBackground) {
-        words.flatMapIndexed { originalIdx, word ->
-            val shouldSplit = word.text.contains('-') && word.text.length > 1 &&
-                (!word.hasTrailingSpace || words.size == 1)
-            if (shouldSplit) {
-                val segments = mutableListOf<String>()
-                var start = 0
-                for (i in word.text.indices) {
-                    if (word.text[i] == '-') {
-                        segments.add(word.text.substring(start, i + 1))
-                        start = i + 1
-                    }
-                }
-                if (start < word.text.length) {
-                    segments.add(word.text.substring(start))
-                }
-
-                if (segments.size > 1) {
-                    val totalDuration = word.endTime - word.startTime
-                    val segmentDuration = totalDuration / segments.size
-                    segments.mapIndexed { index, segmentText ->
-                        ExperimentalWordTimestamp(
-                            text = segmentText,
-                            startTime = word.startTime + index * segmentDuration,
-                            endTime = word.startTime + (index + 1) * segmentDuration,
-                            hasTrailingSpace = if (index == segments.size - 1) word.hasTrailingSpace else false
-                        ) to originalIdx
-                    }
-                } else listOf(word to originalIdx)
-            } else listOf(word to originalIdx)
-        }.let { data -> data.map { it.first } to data.map { it.second } }
+    val (effectiveWords, effectiveToOriginalIdx) = remember(words) {
+        words to words.indices.toList()
     }
 
     val graphemeClusters = remember(mainText) { mainText.toGraphemeClusters() }
     val clusterCount = graphemeClusters.size
-    val clusterCharOffsets = remember(mainText) {
+
+    val clusterCharOffsets = remember(mainText, graphemeClusters) {
         IntArray(clusterCount).also { offsets ->
             var charOffset = 0
             graphemeClusters.forEachIndexed { i, cluster ->
@@ -1422,9 +1568,11 @@ private fun ExperimentalWordLevelLyrics(
                 if (currentGroup.size > 1) {
                     val groupSize = currentGroup.size
                     val groupStartMs = (effectiveWords[currentGroup.first()].startTime * 1000).toLong()
-                    val groupEndMs = (word.endTime * 1000).toLong()
-                    currentGroup.forEachIndexed { pos, idx ->
-                        map[idx] = HyphenGroupWord(pos, groupSize, pos == groupSize - 1, groupStartMs, groupEndMs)
+                    val groupEndMs = word.endTime?.let { (it * 1000).toLong() }
+                    if (groupEndMs != null) {
+                        currentGroup.forEachIndexed { pos, idx ->
+                            map[idx] = HyphenGroupWord(pos, groupSize, pos == groupSize - 1, groupStartMs, groupEndMs)
+                        }
                     }
                 }
                 currentGroup = mutableListOf()
@@ -1463,12 +1611,10 @@ private fun ExperimentalWordLevelLyrics(
                     val (wordIdxMap, _, _) = charToWordData
                     val wordFactors = effectiveWords.map { word ->
                         val wStartMs = (word.startTime * 1000).toLong()
-                        val wEndMs = (word.endTime * 1000).toLong()
-                        val isWordSung = smoothPosition > wEndMs
-                        val isWordActive = smoothPosition in wStartMs..wEndMs
-                        val sungFactor = if (isWordSung) 1f
-                        else if (isWordActive) ((smoothPosition - wStartMs).toFloat() / (wEndMs - wStartMs).coerceAtLeast(1)).coerceIn(0f, 1f)
-                        else 0f
+                        val wEndMs = word.endTime?.let { (it * 1000).toLong() }
+                        val isWordSung = experimentalWordIsComplete(word, smoothPosition)
+                        val isWordActive = wEndMs != null && smoothPosition in wStartMs until wEndMs
+                        val sungFactor = experimentalWordProgress(word, smoothPosition)
                         Triple(sungFactor, isWordSung, isWordActive)
                     }
 
@@ -1511,13 +1657,8 @@ private fun ExperimentalWordLevelLyrics(
 
                 val (wordIdxMap, charInWordMap, wordLenMap) = charToWordData
                 val wordFactors = effectiveWords.map { word ->
-                    val wStartMs = (word.startTime * 1000).toLong()
-                    val wEndMs = (word.endTime * 1000).toLong()
-                    val isWordSung = smoothPosition > wEndMs
-                    val isWordActive = smoothPosition in wStartMs..wEndMs
-                    val sungFactor = if (isWordSung) 1f
-                    else if (isWordActive) ((smoothPosition - wStartMs).toFloat() / (wEndMs - wStartMs).coerceAtLeast(1)).coerceIn(0f, 1f)
-                    else 0f
+                    val isWordSung = experimentalWordIsComplete(word, smoothPosition)
+                    val sungFactor = experimentalWordProgress(word, smoothPosition)
                     Triple(sungFactor, word, isWordSung)
                 }
 
@@ -1525,11 +1666,7 @@ private fun ExperimentalWordLevelLyrics(
                 words.forEachIndexed { wordIdx, word ->
                     val startMs = (word.startTime * 1000).toLong()
                     val timeSinceStart = (smoothPosition - startMs).toFloat()
-                    val wobble = if (timeSinceStart in 0f..750f) {
-                        if (timeSinceStart < 125f) timeSinceStart / 125f
-                        else (1f - (timeSinceStart - 125f) / 625f).coerceAtLeast(0f)
-                    } else 0f
-                    wordWobbles[wordIdx] = wobble
+                    wordWobbles[wordIdx] = experimentalTokenPulse(timeSinceStart)
                 }
 
                 val lineCurrentPushes = FloatArray(layoutResult.lineCount)
@@ -1570,16 +1707,16 @@ private fun ExperimentalWordLevelLyrics(
                     }
 
                     val charLp = if (wordItem != null) {
-                        val sMs = wordItem.startTime * 1000
-                        val dur = (wordItem.endTime * 1000 - sMs).coerceAtLeast(100.0)
-                        val wProg = (smoothPosition.toDouble() - sMs) / dur
-                        val cInW = charInWordMap[i].toDouble()
-                        val wLen = wordLenMap[i].toDouble()
-                        ((wProg - cInW / wLen) * wLen).coerceIn(0.0, 1.0).toFloat()
+                        experimentalCharacterProgress(
+                            wordItem,
+                            smoothPosition,
+                            charInWordMap[i],
+                            wordLenMap[i]
+                        )
                     } else 0f
 
                     val nudgeScale = if (wordItem != null && !isWordSung && sungFactor > 0f) {
-                        0.038f * sin(charLp * PI.toFloat()) * exp(-3f * charLp)
+                        experimentalCharacterNudge(charLp)
                     } else 0f
 
                     val charScaleX = 1f + (wobble * 0.025f) + crescendoDeltaX + (nudgeScale * 0.3f)
@@ -1606,15 +1743,15 @@ private fun ExperimentalWordLevelLyrics(
                     val wobbleY = wobble * 0.015f
 
                     val charLp = if (wordItem != null) {
-                        val sMs = wordItem.startTime * 1000
-                        val dur = (wordItem.endTime * 1000 - sMs).coerceAtLeast(100.0)
-                        val wProg = (smoothPosition.toDouble() - sMs) / dur
-                        val cInW = charInWordMap[i].toDouble()
-                        val wLen = wordLenMap[i].toDouble()
-                        ((wProg - cInW / wLen) * wLen).coerceIn(0.0, 1.0).toFloat()
+                        experimentalCharacterProgress(
+                            wordItem,
+                            smoothPosition,
+                            charInWordMap[i],
+                            wordLenMap[i]
+                        )
                     } else 0f
 
-                    val shouldGlow = wordItem != null && !isWordSung && sungFactor > 0.001f
+                    val shouldGlow = wordItem?.endTime != null && !isWordSung && sungFactor > 0.001f
 
                     var crescendoDeltaX = 0f
                     var crescendoDeltaY = 0f
@@ -1647,9 +1784,8 @@ private fun ExperimentalWordLevelLyrics(
                         }
                     }
 
-                    val nudgeStrength = 0.038f
                     val nudgeScale = if (wordItem != null && !isWordSung && sungFactor > 0f) {
-                        nudgeStrength * sin(charLp * PI.toFloat()) * exp(-3f * charLp)
+                        experimentalCharacterNudge(charLp)
                     } else 0f
 
                     val charScaleX = 1f + wobbleX + crescendoDeltaX + nudgeScale * 0.3f
@@ -1669,17 +1805,6 @@ private fun ExperimentalWordLevelLyrics(
                                 val phaseOffset = i * 0.4f
                                 waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeight * waveFade
                             }
-                        } else if (wordItem != null && !isWordSung && sungFactor > 0f) {
-                            val wallTime = System.currentTimeMillis()
-                            val timeInWord = (smoothPosition - (wordItem.startTime * 1000)).toFloat()
-                            val timeToWordEnd = ((wordItem.endTime * 1000) - smoothPosition).toFloat()
-                            val waveFade = (timeInWord / 80f).coerceIn(0f, 1f) * (timeToWordEnd / 80f).coerceIn(0f, 1f)
-                            if (waveFade > 0.01f) {
-                                val waveSpeed = 0.006f
-                                val waveHeight = 2.8f
-                                val phaseOffset = i * 0.4f
-                                waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeight * waveFade
-                            }
                         }
 
                         translate(left = alignShift + lineCurrentPushes[lineIdx] + charBounds.left, top = charBounds.top + waveOffset)
@@ -1693,7 +1818,7 @@ private fun ExperimentalWordLevelLyrics(
                     }) {
                         if (shouldGlow) {
                             val sMs = wordItem.startTime * 1000
-                            val eMs = wordItem.endTime * 1000
+                            val eMs = wordItem.endTime!! * 1000
                             val dur = eMs - sMs
                             val wordLenText = wordItem.text.length.coerceAtLeast(1)
                             val impactRatio = dur.toFloat() / wordLenText
@@ -1716,8 +1841,8 @@ private fun ExperimentalWordLevelLyrics(
                                 }
                             }
                         }
-                        val allWordsSung = effectiveWords.all { smoothPosition > it.endTime * 1000 }
-                        val baseAlpha = if (isWordSung || charLp > 0.99f) 1f else (focusedAlpha + (1f - focusedAlpha) * sungFactor)
+                        val allWordsSung = effectiveWords.all { experimentalWordIsComplete(it, smoothPosition) }
+                        val baseAlpha = if (isWordSung || allWordsSung || charLp > 0.99f) 1f else (focusedAlpha + (1f - focusedAlpha) * sungFactor)
                         val charAlpha = if (wordIdx == -1) (if (allWordsSung) 1f else focusedAlpha) else baseAlpha
                         drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = charAlpha))
                         if (!isWordSung && charLp > 0f && charLp < 1f) {

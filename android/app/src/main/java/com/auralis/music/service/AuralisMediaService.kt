@@ -21,6 +21,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper
@@ -88,6 +89,16 @@ class AuralisMediaService : MediaSessionService() {
         super.onCreate()
         // 1. Create notification channel synchronously with low importance and public lockscreen visibility
         createNotificationChannel()
+
+        // 2. Configure DefaultMediaNotificationProvider with authentic Auralis notification icon
+        try {
+            val provider = DefaultMediaNotificationProvider(this).apply {
+                setSmallIcon(R.drawable.ic_notification_auralis)
+            }
+            setMediaNotificationProvider(provider)
+        } catch (e: Exception) {
+            Log.w("AuralisPlayback", "[AuralisMediaService] setMediaNotificationProvider notice: ${e.message}")
+        }
 
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         val player = audioPlayer.exoPlayer
@@ -306,9 +317,12 @@ class AuralisMediaService : MediaSessionService() {
                 if (active != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
                     return active
                 }
+                val isRedundant = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                val displayAlbum = if (isRedundant) null else track.album
                 return androidx.media3.common.MediaMetadata.Builder()
                     .setTitle(track.title)
                     .setArtist(track.artist)
+                    .setAlbumTitle(displayAlbum)
                     .build()
             }
 
@@ -413,10 +427,19 @@ class AuralisMediaService : MediaSessionService() {
         serviceScope.launch {
             audioPlayer.currentTrack.collectLatest { track ->
                 if (track != null) {
+                    val localArtFile = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
                     val rawUrl = getHighResArtworkUrl(track.thumbnail) ?: track.thumbnail
                     val cachedBitmap = if (!rawUrl.isNullOrBlank()) {
                         imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(rawUrl))?.bitmap
                             ?: imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(track.thumbnail ?: ""))?.bitmap
+                    } else null
+
+                    val effectiveBitmap = if (cachedBitmap != null) {
+                        cachedBitmap
+                    } else if (localArtFile != null && localArtFile.exists()) {
+                        try {
+                            android.graphics.BitmapFactory.decodeFile(localArtFile.absolutePath)
+                        } catch (_: Exception) { null }
                     } else null
 
                     // ── PERF FIX #2: Move CPU-heavy bitmap processing off Main thread ──
@@ -424,9 +447,9 @@ class AuralisMediaService : MediaSessionService() {
                     // and toByteArray (JPEG encode) previously ran synchronously on Dispatchers.Main.
                     var localArtworkUri: android.net.Uri? = null
                     var artworkBytes: ByteArray? = null
-                    if (cachedBitmap != null) {
+                    if (effectiveBitmap != null) {
                         val (processed, artUri, bytes) = withContext(Dispatchers.IO) {
-                            val p = ArtworkProcessor.processForMediaNotification(cachedBitmap, targetSize = 600)
+                            val p = ArtworkProcessor.processForMediaNotification(effectiveBitmap, targetSize = 600)
                             val uri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, p)
                             val b = ArtworkProcessor.toByteArray(p, quality = 92)
                             Triple(p, uri, b)
@@ -445,9 +468,12 @@ class AuralisMediaService : MediaSessionService() {
                              rawUrl.contains("ytimg.com") || rawUrl.contains("youtube.com"))
                     val initialArtworkUri = localArtworkUri ?: if (isOfficialCdn) android.net.Uri.parse(rawUrl) else null
 
+                    val isRedundant = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                    val displayAlbum = if (isRedundant) null else track.album
                     val initialMetaBuilder = androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(track.title)
                         .setArtist(track.artist)
+                        .setAlbumTitle(displayAlbum)
                         .setArtworkUri(initialArtworkUri)
 
                     if (artworkBytes != null) {
@@ -589,26 +615,28 @@ class AuralisMediaService : MediaSessionService() {
         isFav: Boolean,
         artwork: Bitmap?
     ): Notification {
+        val shouldShowPause = isPlaying || isBuffering
+
         val prevPending = createActionPendingIntent(ACTION_PREVIOUS, 1)
-        val playPausePending = createActionPendingIntent(if (isPlaying) ACTION_PAUSE else ACTION_PLAY, 2)
+        val playPausePending = createActionPendingIntent(if (shouldShowPause) ACTION_PAUSE else ACTION_PLAY, 2)
         val nextPending = createActionPendingIntent(ACTION_NEXT, 3)
         val favPending = createActionPendingIntent(ACTION_TOGGLE_FAVORITE, 4)
         val stopPending = createActionPendingIntent(ACTION_STOP, 5)
 
         val prevAction = NotificationCompat.Action.Builder(
-            android.R.drawable.ic_media_previous,
+            R.drawable.ic_media_skip_previous,
             "Previous",
             prevPending
         ).build()
 
         val playPauseAction = NotificationCompat.Action.Builder(
-            if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-            if (isPlaying) "Pause" else "Play",
+            if (shouldShowPause) R.drawable.ic_media_pause_circle else R.drawable.ic_media_play_circle,
+            if (shouldShowPause) "Pause" else "Play",
             playPausePending
         ).build()
 
         val nextAction = NotificationCompat.Action.Builder(
-            android.R.drawable.ic_media_next,
+            R.drawable.ic_media_skip_next,
             "Next",
             nextPending
         ).build()
@@ -633,7 +661,7 @@ class AuralisMediaService : MediaSessionService() {
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setStyle(mediaStyle)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_auralis)
             .setContentTitle(title)
             .setContentText(artist)
             .setSubText(if (isBuffering) "Buffering..." else null)
@@ -778,11 +806,16 @@ class AuralisMediaService : MediaSessionService() {
 
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    val localArtFile = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(targetTrackId)
+                    val localArtUri = if (localArtFile != null && localArtFile.exists()) android.net.Uri.fromFile(localArtFile).toString() else null
+                    val matchedYtId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(targetTrackId)
+                    val matchedYtUrl = if (!matchedYtId.isNullOrBlank() && matchedYtId.length in 8..15) "https://i.ytimg.com/vi/$matchedYtId/hq720.jpg" else null
+
                     val masterUrl = MasterArtworkResolver.resolveMasterArtworkUrl(targetTrackTitle, targetTrackArtist, thumbUrl)
-                    val candidates = (listOfNotNull(masterUrl) + ArtworkProcessor.getHighResArtworkCandidates(thumbUrl)).distinct()
+                    val candidates = (listOfNotNull(localArtUri, masterUrl, matchedYtUrl) + ArtworkProcessor.getHighResArtworkCandidates(thumbUrl)).distinct()
 
                     var loadedBitmap: Bitmap? = null
-                    var resolvedUrl = masterUrl ?: thumbUrl ?: ""
+                    var resolvedUrl = localArtUri ?: masterUrl ?: thumbUrl ?: ""
 
                     for (candidate in candidates) {
                         try {
@@ -816,9 +849,12 @@ class AuralisMediaService : MediaSessionService() {
                         val isHighResCdn = resolvedUrl.isNotBlank() && !resolvedUrl.contains("hqdefault.jpg") && !resolvedUrl.contains("mqdefault.jpg")
                         val finalUri = localContentUri ?: if (isHighResCdn) android.net.Uri.parse(resolvedUrl) else null
 
+                        val isRedundant = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(activeTrack.album, activeTrack.title)
+                        val displayAlbum = if (isRedundant) null else activeTrack.album
                         val updatedMeta = androidx.media3.common.MediaMetadata.Builder()
                             .setTitle(activeTrack.title)
                             .setArtist(activeTrack.artist)
+                            .setAlbumTitle(displayAlbum)
                             .setArtworkUri(finalUri)
                             .setArtworkData(artworkBytes, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                             .build()
@@ -931,7 +967,12 @@ class AuralisMediaService : MediaSessionService() {
             }
             when (customCommand.customAction) {
                 ACTION_TOGGLE_FAVORITE -> {
+                    val nextFav = !audioPlayer.isFavorite.value
                     audioPlayer.toggleFavorite()
+                    try {
+                        session.setCustomLayout(buildCustomLayout(nextFav))
+                        session.setCustomLayout(controller, buildCustomLayout(nextFav))
+                    } catch (_: Exception) {}
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 ACTION_TOGGLE_REPEAT -> {

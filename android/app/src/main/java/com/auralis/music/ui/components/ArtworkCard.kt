@@ -183,9 +183,27 @@ fun ArtworkCard(
 
     val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail, highRes) {
         val fallbackRaw = fallbackTrack?.thumbnail
+        val localArt = fallbackTrack?.id?.let {
+            com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(it)
+        }
+        val matchedYtId = fallbackTrack?.id?.let {
+            com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(it)
+        }
+        val resolvedArt = fallbackTrack?.let {
+            com.auralis.music.data.network.ArtworkResolver.getArtwork(it)
+        }
         when {
+            localArt != null && localArt.exists() && localArt.length() > 500 -> {
+                android.net.Uri.fromFile(localArt).toString()
+            }
             fallbackTrack != null && !fallbackRaw.isNullOrBlank() -> {
                 if (highRes) getHighResArtworkUrl(fallbackRaw) ?: fallbackRaw else getOptimizedThumbnailUrl(fallbackRaw) ?: fallbackRaw
+            }
+            !resolvedArt.isNullOrBlank() -> {
+                if (highRes) getHighResArtworkUrl(resolvedArt) ?: resolvedArt else getOptimizedThumbnailUrl(resolvedArt) ?: resolvedArt
+            }
+            !matchedYtId.isNullOrBlank() && matchedYtId.length in 8..15 -> {
+                if (highRes) "https://i.ytimg.com/vi/$matchedYtId/hq720.jpg" else "https://i.ytimg.com/vi/$matchedYtId/hqdefault.jpg"
             }
             fallbackTrack != null && fallbackTrack.id.length in 8..15 -> {
                 if (highRes) "https://i.ytimg.com/vi/${fallbackTrack.id}/hq720.jpg" else "https://i.ytimg.com/vi/${fallbackTrack.id}/hqdefault.jpg"
@@ -195,11 +213,23 @@ fun ArtworkCard(
     }
 
     var isPrimaryError by remember(resolvedUrl) { mutableStateOf(false) }
+    var asyncResolvedUrl by remember(fallbackTrack?.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(fallbackTrack?.id, resolvedUrl, fallbackUrl) {
+        if (resolvedUrl.isNullOrBlank() && fallbackUrl.isNullOrBlank() && fallbackTrack != null) {
+            val art = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(fallbackTrack)
+            if (!art.isNullOrBlank()) {
+                asyncResolvedUrl = art
+            }
+        }
+    }
 
     val activeUrl = if (!resolvedUrl.isNullOrBlank() && !isPrimaryError) {
         resolvedUrl
-    } else {
+    } else if (!fallbackUrl.isNullOrBlank()) {
         fallbackUrl
+    } else {
+        asyncResolvedUrl
     }
 
     var isError by remember(activeUrl) { mutableStateOf(false) }
@@ -212,10 +242,23 @@ fun ArtworkCard(
             } catch (_: Throwable) {
                 false
             }
+            val dataModel: Any = when {
+                activeUrl.startsWith("data:image/") -> {
+                    try {
+                        val base64 = activeUrl.substringAfter("base64,")
+                        android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                    } catch (_: Throwable) {
+                        activeUrl
+                    }
+                }
+                activeUrl.startsWith("file://") -> java.io.File(activeUrl.removePrefix("file://"))
+                activeUrl.startsWith("/") -> java.io.File(activeUrl)
+                else -> activeUrl
+            }
             ImageRequest.Builder(context)
-                .data(activeUrl)
+                .data(dataModel)
                 .apply {
-                    if (highRes) size(1200, 1200)
+                    if (highRes) size(600, 600)
                     else if (!sizeToConstraints) size(384, 384)
                     // Otherwise AsyncImage supplies its remembered ConstraintsSizeResolver.
                 }
@@ -243,7 +286,7 @@ fun ArtworkCard(
         modifier = modifier
             .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape) else Modifier)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(Color(0xFF141414)),
         contentAlignment = Alignment.Center
     ) {
         if (!activeUrl.isNullOrBlank() && !isError) {

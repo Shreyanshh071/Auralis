@@ -14,6 +14,7 @@ import com.auralis.music.domain.model.SearchTopResult
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.search.SearchQueryMatcher
+import com.auralis.music.data.network.AlbumMetadataResolver
 import com.auralis.music.data.network.NetworkClientProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -338,15 +339,16 @@ class SearchRepositoryImpl(
                 }
             }
 
-            // Resolve Primary Album (Metrolist / InnerTube get_queue specification)
+            // Resolve Primary Album (Metrolist / InnerTube get_queue / Apple Music specification)
             var primaryAlbum: PlaylistResult? = when {
                 resolvedTopResult is SearchTopResult.AlbumResult -> resolvedTopResult.album
                 resolvedTopResult is SearchTopResult.SongResult -> {
                     val track = resolvedTopResult.track
                     val targetArtist = primaryArtist?.name ?: track.artist
+                    val isRedundant = AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
 
-                    // 1. If the track already has verified album metadata from InnerTube
-                    if (!track.albumId.isNullOrBlank() && !track.album.isNullOrBlank()) {
+                    // 1. If the track already has verified authentic studio album metadata
+                    if (!isRedundant && !track.albumId.isNullOrBlank() && !track.album.isNullOrBlank()) {
                         PlaylistResult(
                             id = track.albumId,
                             title = track.album,
@@ -354,39 +356,65 @@ class SearchRepositoryImpl(
                             author = targetArtist
                         )
                     } else {
-                        // 2. Fetch authentic album metadata via getSongDetails (matching Metrolist YouTube.queue)
-                        val detailedTrack = try {
-                            innerTubeClient.getSongDetails(track.id)
+                        // 2. Resolve authentic studio album via AlbumMetadataResolver (Apple Music / iTunes + YTM)
+                        val resolved = try {
+                            AlbumMetadataResolver.resolveAlbum(track.title, targetArtist, innerTubeClient)
                         } catch (_: Exception) { null }
 
-                        if (detailedTrack != null && !detailedTrack.albumId.isNullOrBlank() && !detailedTrack.album.isNullOrBlank()) {
-                            // Update resolvedTopResult so the top song card reflects the authentic album
-                            resolvedTopResult = SearchTopResult.SongResult(
-                                track.copy(
-                                    album = detailedTrack.album,
-                                    albumId = detailedTrack.albumId
-                                )
+                        if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank()) {
+                            val updatedTrack = track.copy(
+                                album = resolved.albumTitle,
+                                albumId = resolved.albumId ?: track.albumId
                             )
+                            resolvedTopResult = SearchTopResult.SongResult(updatedTrack)
                             PlaylistResult(
-                                id = detailedTrack.albumId,
-                                title = detailedTrack.album,
-                                thumbnail = track.thumbnail.ifBlank { null },
+                                id = resolved.albumId ?: "pl:${resolved.albumTitle}",
+                                title = resolved.albumTitle,
+                                thumbnail = resolved.albumArt ?: track.thumbnail.ifBlank { null },
                                 author = targetArtist
                             )
                         } else {
-                            // 3. Match against rankedAlbums if an album by this artist matches the song title
-                            val matchingAlbum = rankedAlbums.firstOrNull { album ->
-                                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) &&
-                                (album.title.equals(track.title, ignoreCase = true) ||
-                                 track.title.contains(album.title, ignoreCase = true) ||
-                                 album.title.contains(track.title, ignoreCase = true))
+                            // 3. Fetch authentic album metadata via getSongDetails (matching Metrolist YouTube.queue)
+                            val detailedTrack = try {
+                                innerTubeClient.getSongDetails(track.id)
+                            } catch (_: Exception) { null }
+
+                            if (detailedTrack != null && !detailedTrack.albumId.isNullOrBlank() && !detailedTrack.album.isNullOrBlank() && !AlbumMetadataResolver.isRedundantOrSingle(detailedTrack.album, track.title)) {
+                                resolvedTopResult = SearchTopResult.SongResult(
+                                    track.copy(
+                                        album = detailedTrack.album,
+                                        albumId = detailedTrack.albumId
+                                    )
+                                )
+                                PlaylistResult(
+                                    id = detailedTrack.albumId,
+                                    title = detailedTrack.album,
+                                    thumbnail = track.thumbnail.ifBlank { null },
+                                    author = targetArtist
+                                )
+                            } else {
+                                // 4. Match against rankedAlbums if an album by this artist matches and is not redundant
+                                val matchingAlbum = rankedAlbums.firstOrNull { album ->
+                                    SearchQueryMatcher.isAuthorMatch(album.author, targetArtist) &&
+                                    !AlbumMetadataResolver.isRedundantOrSingle(album.title, track.title) &&
+                                    (album.title.contains(track.title, ignoreCase = true) ||
+                                     track.title.contains(album.title, ignoreCase = true))
+                                }
+                                matchingAlbum
                             }
-                            matchingAlbum
                         }
                     }
                 }
                 exactAlbumMatch != null -> exactAlbumMatch
                 else -> null
+            }
+
+            // Suppress redundant album card if it just mirrors the song title as a single
+            if (primaryAlbum != null) {
+                val topSongTitle = (resolvedTopResult as? SearchTopResult.SongResult)?.track?.title ?: ""
+                if (AlbumMetadataResolver.isRedundantOrSingle(primaryAlbum.title, topSongTitle)) {
+                    primaryAlbum = null
+                }
             }
 
             // Ensure prioritized ordering
@@ -402,10 +430,27 @@ class SearchRepositoryImpl(
                 rankedAlbums
             }
 
+            // Propagate resolved authentic album to matching songs
+            val resolvedTopTrack = (resolvedTopResult as? SearchTopResult.SongResult)?.track
+            val resolvedCleanTopTitle = resolvedTopTrack?.let { AlbumMetadataResolver.cleanTrackTitle(it.title).lowercase() }
+            val finalSongsWithAlbums = finalMatchedSongs.map { s ->
+                if (resolvedTopTrack != null && !resolvedTopTrack.album.isNullOrBlank()) {
+                    val sCleanTitle = AlbumMetadataResolver.cleanTrackTitle(s.title).lowercase()
+                    val isArtistMatch = SearchQueryMatcher.isAuthorMatch(s.artist, resolvedTopTrack.artist)
+                    if (s.id == resolvedTopTrack.id || (isArtistMatch && sCleanTitle == resolvedCleanTopTitle && AlbumMetadataResolver.isRedundantOrSingle(s.album, s.title))) {
+                        s.copy(album = resolvedTopTrack.album, albumId = resolvedTopTrack.albumId)
+                    } else {
+                        s
+                    }
+                } else {
+                    s
+                }
+            }
+
             SearchResults(
                 topResult = resolvedTopResult,
                 recommendations = finalRecommendations,
-                songs = finalMatchedSongs,
+                songs = finalSongsWithAlbums,
                 albums = finalAlbums,
                 artists = finalArtists,
                 playlists = generalResults.playlists,
@@ -546,6 +591,29 @@ class SearchRepositoryImpl(
 
     override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
         try {
+            // 0. If this is an artist Top Songs collection
+            if (album.id.startsWith("artist_top_songs:")) {
+                val artistName = album.author?.ifBlank { null }
+                    ?: album.title.substringBefore(" - Top songs").substringBefore(" - Top Songs").trim()
+                val searchHits = innerTubeClient.search(artistName, InnerTubeClient.FILTER_SONGS).songs
+                val targetName = artistName.lowercase().trim()
+                val filtered = searchHits.filter { trk ->
+                    val trkArtist = trk.artist.lowercase()
+                    (trkArtist.contains(targetName) || targetName.contains(trkArtist)) &&
+                    !trk.title.contains("cover", ignoreCase = true) &&
+                    !trk.title.contains("karaoke", ignoreCase = true) &&
+                    !trk.title.contains("remake", ignoreCase = true)
+                }.distinctBy { it.id }
+                val results = if (filtered.isNotEmpty()) filtered else searchHits
+                val albumCover = album.thumbnail
+                return@withContext results.map {
+                    it.copy(
+                        artist = if (it.artist.isBlank() || it.artist == "Artist") artistName else it.artist,
+                        thumbnail = if (it.thumbnail.isBlank() && !albumCover.isNullOrBlank()) albumCover else it.thumbnail
+                    )
+                }
+            }
+
             // 1. If album ID is already an official YouTube browse ID (MPRE, VL, PL, OLAK)
             if (album.id.startsWith("MPRE") || album.id.startsWith("VL") || album.id.startsWith("PL") || album.id.startsWith("OLAK")) {
                 val imported = youtubePlaylistImporter.importPlaylistById(album.id)

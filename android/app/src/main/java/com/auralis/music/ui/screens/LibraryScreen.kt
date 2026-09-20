@@ -23,7 +23,7 @@ fun LibraryScreen(
     onCreatePlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onPlaylistSelect: (Playlist?) -> Unit,
-    onTrackClick: (Track, List<Track>) -> Unit,
+    onTrackClick: (Track, List<Track>, String?) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit,
     onRemoveFromPlaylist: (String, String) -> Unit,
@@ -49,6 +49,9 @@ fun LibraryScreen(
     onReorderPlaylistTracks: ((String, Int, Int) -> Unit)? = null,
     isExternalCreateDialogOpen: Boolean = false,
     onCloseExternalCreateDialog: () -> Unit = {},
+    onCloseSmartCollection: () -> Unit = {},
+    onDeletePlaylistJob: (String) -> Unit = {},
+    onRetryPlaylistJob: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     PureLibraryScreen(
@@ -61,7 +64,7 @@ fun LibraryScreen(
         onCreatePlaylist = onCreatePlaylist,
         onDeletePlaylist = onDeletePlaylist,
         onPlaylistSelect = onPlaylistSelect,
-        onTrackClick = onTrackClick,
+        onTrackClick = { track, list -> onTrackClick(track, list, null) },
         onFavoriteToggle = onFavoriteToggle,
         onAddToPlaylist = onAddToPlaylist,
         onRemoveFromPlaylist = onRemoveFromPlaylist,
@@ -70,6 +73,9 @@ fun LibraryScreen(
         onExportBackup = onExportBackup,
         onImportBackup = onImportBackup,
         onSmartCollectionClick = onSmartCollectionClick,
+        onCloseSmartCollection = onCloseSmartCollection,
+        onDeletePlaylistJob = onDeletePlaylistJob,
+        onRetryPlaylistJob = onRetryPlaylistJob,
         onSortChange = onSortChange,
         onToggleGridView = onToggleGridView,
         onOpenProfile = onOpenProfile,

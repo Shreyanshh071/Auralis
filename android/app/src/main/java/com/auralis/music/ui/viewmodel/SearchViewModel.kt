@@ -27,8 +27,22 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 sealed interface ExploreDetail {
-    data class Artist(val artistPage: ArtistPage, val isLoading: Boolean = false) : ExploreDetail
-    data class Album(val album: com.auralis.music.domain.model.PlaylistResult, val tracks: List<Track> = emptyList(), val isLoading: Boolean = false) : ExploreDetail
+    val key: String
+    data class Artist(
+        val artistPage: ArtistPage,
+        val isLoading: Boolean = false,
+        val stableKey: String = "artist:${artistPage.artist.name.ifBlank { artistPage.artist.id }}"
+    ) : ExploreDetail {
+        override val key: String get() = stableKey
+    }
+    data class Album(
+        val album: com.auralis.music.domain.model.PlaylistResult,
+        val tracks: List<Track> = emptyList(),
+        val isLoading: Boolean = false,
+        val stableKey: String = "album:${album.id.ifBlank { album.title }}"
+    ) : ExploreDetail {
+        override val key: String get() = stableKey
+    }
 }
 
 data class SearchUiState(
@@ -294,24 +308,30 @@ class SearchViewModel(
     }
 
     fun openAlbum(album: com.auralis.music.domain.model.PlaylistResult) {
-        val newEntry = ExploreDetail.Album(album = album, tracks = emptyList(), isLoading = true)
+        val initialTracks = if (album.id.startsWith("artist_top_songs:")) {
+            _uiState.value.selectedArtistPage?.topSongs ?: emptyList()
+        } else {
+            emptyList()
+        }
+        val newEntry = ExploreDetail.Album(album = album, tracks = initialTracks, isLoading = true)
 
         _uiState.update { current ->
             val updatedStack = current.detailStack + newEntry
             current.copy(
                 detailStack = updatedStack,
                 selectedAlbum = album,
-                selectedAlbumTracks = emptyList(),
+                selectedAlbumTracks = initialTracks,
                 isLoadingAlbum = true
             )
         }
 
         viewModelScope.launch {
             val tracks = searchRepository.getAlbumTracks(album)
+            val finalTracks = if (tracks.isNotEmpty()) tracks else initialTracks
             _uiState.update { current ->
                 val updatedStack = current.detailStack.map { detail ->
                     if (detail is ExploreDetail.Album && (detail.album.id == album.id || detail.album.title.equals(album.title, ignoreCase = true))) {
-                        detail.copy(tracks = tracks, isLoading = false)
+                        detail.copy(tracks = finalTracks, isLoading = false)
                     } else {
                         detail
                     }
@@ -325,6 +345,10 @@ class SearchViewModel(
                 )
             }
         }
+    }
+
+    suspend fun getAlbumTracks(album: com.auralis.music.domain.model.PlaylistResult): List<Track> {
+        return searchRepository.getAlbumTracks(album)
     }
 
     fun popDetail(): Boolean {

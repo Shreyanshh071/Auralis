@@ -135,6 +135,23 @@ class PlayerViewModel(
 
         // Bind AudioPlayer reactive flows if available
         audioPlayer?.let { player ->
+            player.setNavigationCallbacks(
+                onNext = {
+                    val rId = currentPlaybackRequestId.incrementAndGet()
+                    if (isAutoRadioMode) {
+                        handleInfiniteRadioAdvance(rId)
+                    } else {
+                        val first = queueManager.state.queue.firstOrNull()
+                        if (first != null) {
+                            player.playTrack(first, queueManager.state.queue, 0)
+                        }
+                    }
+                },
+                onPrevious = {
+                    previous()
+                }
+            )
+
             val initialTrack = player.currentTrack.value
             val initialQState = player.queueState.value
             val currentPos = if (player.rawPositionMs() > 0L) player.rawPositionMs() else player.playbackPositionMs.value
@@ -169,7 +186,7 @@ class PlayerViewModel(
             }
 
             viewModelScope.launch {
-                player.currentTrack.collect { activeTrack ->
+                player.currentTrack.collectLatest { activeTrack ->
                     if (activeTrack != null) {
                         palettePreloadJob?.cancel()
                         context?.let { ctx ->
@@ -303,6 +320,25 @@ class PlayerViewModel(
                 }
                 loadLyrics(effectiveTrack, reqId)
 
+                viewModelScope.launch(Dispatchers.IO) {
+                    if (com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(effectiveTrack.album, effectiveTrack.title)) {
+                        try {
+                            val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(effectiveTrack.title, effectiveTrack.artist)
+                            if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() && reqId == currentPlaybackRequestId.get()) {
+                                val updatedTrack = (_uiState.value.currentTrack ?: effectiveTrack).copy(
+                                    album = resolved.albumTitle,
+                                    albumId = resolved.albumId ?: effectiveTrack.albumId
+                                )
+                                _uiState.update { state ->
+                                    if (state.currentTrack?.id == effectiveTrack.id) {
+                                        state.copy(currentTrack = updatedTrack)
+                                    } else state
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
                 // Pre-enqueue next song in queue for continuous gapless playback
                 val nextInQueue = qState.queue.getOrNull(qState.currentIndex + 1)
                 audioPlayer?.prefetchTrack(nextInQueue)
@@ -394,7 +430,29 @@ class PlayerViewModel(
                 try {
                     val resolvedThumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(track)
                     if (!resolvedThumb.isNullOrBlank() && requestId == currentPlaybackRequestId.get()) {
-                        val updatedTrack = track.copy(thumbnail = resolvedThumb)
+                        audioPlayer?.updateCurrentTrackArtwork(resolvedThumb)
+                        _uiState.update { state ->
+                            val updatedQueue = state.queue.map { q ->
+                                if (q.id == track.id) q.copy(thumbnail = resolvedThumb) else q
+                            }
+                            val updatedTrack = if (state.currentTrack?.id == track.id) {
+                                state.currentTrack.copy(thumbnail = resolvedThumb)
+                            } else state.currentTrack
+                            state.copy(currentTrack = updatedTrack, queue = updatedQueue)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // Asynchronously resolve authentic album if missing or redundant with title
+            if (com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)) {
+                try {
+                    val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(track.title, track.artist)
+                    if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() && requestId == currentPlaybackRequestId.get()) {
+                        val updatedTrack = (_uiState.value.currentTrack ?: track).copy(
+                            album = resolved.albumTitle,
+                            albumId = resolved.albumId ?: track.albumId
+                        )
                         _uiState.update { state ->
                             if (state.currentTrack?.id == track.id) {
                                 state.copy(currentTrack = updatedTrack)
@@ -408,8 +466,9 @@ class PlayerViewModel(
                 com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseListenHistory
             } ?: false
             if (!isPaused) {
-                historyRepository.addToHistory(track)
-                historyRepository.recordPlay(track)
+                val finalTrack = _uiState.value.currentTrack ?: track
+                historyRepository.addToHistory(finalTrack)
+                historyRepository.recordPlay(finalTrack)
             }
         }
 
@@ -524,7 +583,6 @@ class PlayerViewModel(
         radioJob?.cancel()
         radioJob = viewModelScope.launch {
             try {
-                delay(600)
                 val radioTracks = withContext(Dispatchers.IO) {
                     innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title)
                 }
@@ -611,6 +669,8 @@ class PlayerViewModel(
     fun next() {
         Log.d("AuralisPlayback", "[PlayerViewModel] next() triggered")
         palettePreloadJob?.cancel()
+        val reqId = currentPlaybackRequestId.incrementAndGet()
+
         context?.let { ctx ->
             val nextIdx = _uiState.value.currentIndex + 1
             _uiState.value.queue.getOrNull(nextIdx)?.let { nextTrack ->
@@ -619,12 +679,21 @@ class PlayerViewModel(
                 }
             }
         }
+
         if (audioPlayer != null) {
-            audioPlayer.next()
+            val advanced = audioPlayer.next()
+            if (advanced) {
+                val cur = audioPlayer.currentTrack.value
+                if (cur != null && isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
+                    fetchAndAppendRadioTracks(cur)
+                }
+                return
+            }
+            Log.d("AuralisPlayback", "[PlayerViewModel] audioPlayer.next() returned false (end of queue or single track). Handled by onNextCallback.")
             return
         }
-        val reqId = currentPlaybackRequestId.incrementAndGet()
-        val nextTrack = queueManager.advanceNext()
+
+        val nextTrack = queueManager.advanceNext(isUserSkip = true)
         if (nextTrack != null) {
             val qState = queueManager.state
             _uiState.update {
@@ -656,14 +725,17 @@ class PlayerViewModel(
     }
 
     private fun handleInfiniteRadioAdvance(reqId: Long) {
-        val curTrack = _uiState.value.currentTrack
+        val curTrack = _uiState.value.currentTrack ?: audioPlayer?.currentTrack?.value
+        Log.d("AuralisPlayback", "[AutoRadio] handleInfiniteRadioAdvance for '${curTrack?.title}' (reqId=$reqId)")
         viewModelScope.launch {
             var nextCandidate: Track? = null
 
-            // 1. Fetch radio tracks immediately for current track
+            // 1. Fetch radio tracks immediately for current track (3s timeout to prevent UI stall)
             if (curTrack != null) {
                 try {
-                    val fetched = innerTubeClient.getRadioTracks(curTrack.id, curTrack.artist, curTrack.title)
+                    val fetched = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                        innerTubeClient.getRadioTracks(curTrack.id, curTrack.artist, curTrack.title)
+                    } ?: emptyList()
                     val existingIds = queueManager.state.queue.map { it.id }.toSet()
                     nextCandidate = fetched.firstOrNull { it.id !in existingIds && it.id != curTrack.id }
                         ?: fetched.firstOrNull { it.id != curTrack.id }
@@ -672,10 +744,13 @@ class PlayerViewModel(
                         if (audioPlayer != null) {
                             audioPlayer.appendTracks(fetched)
                         } else {
-                            queueManager.appendTracks(fetched)
+                            val qState = queueManager.appendTracks(fetched)
+                            _uiState.update { it.copy(queue = qState.queue) }
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w("AuralisPlayback", "[AutoRadio] Error in InnerTube radio fetch: ${e.message}")
+                }
             }
 
             // 2. Fallback to history / local recommendations
@@ -688,41 +763,82 @@ class PlayerViewModel(
                     val existingIds = queueManager.state.queue.map { it.id }.toSet()
                     nextCandidate = allCandidates.filter { it.id !in existingIds && it.id != curTrack?.id }.shuffled().firstOrNull()
                         ?: allCandidates.filter { it.id != curTrack?.id }.shuffled().firstOrNull()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w("AuralisPlayback", "[AutoRadio] Error in local recommendations fallback: ${e.message}")
+                }
             }
 
-            // 3. Play found candidate seamlessly
+            // 3. Fallback to searching songs by the same artist
+            if (nextCandidate == null && curTrack != null && curTrack.artist.isNotBlank()) {
+                try {
+                    val artistSongs = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                        innerTubeClient.search("${curTrack.artist} songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS).songs
+                    } ?: emptyList()
+                    val existingIds = queueManager.state.queue.map { it.id }.toSet()
+                    nextCandidate = artistSongs.firstOrNull { it.id !in existingIds && it.id != curTrack.id }
+                        ?: artistSongs.firstOrNull { it.id != curTrack.id }
+                    if (artistSongs.isNotEmpty()) {
+                        if (audioPlayer != null) {
+                            audioPlayer.appendTracks(artistSongs)
+                        } else {
+                            val qState = queueManager.appendTracks(artistSongs)
+                            _uiState.update { it.copy(queue = qState.queue) }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("AuralisPlayback", "[AutoRadio] Error in artist search fallback: ${e.message}")
+                }
+            }
+
+            // 4. Play found candidate seamlessly
             if (nextCandidate != null) {
+                Log.d("AuralisPlayback", "[AutoRadio] Advancing to: '${nextCandidate.title}' by ${nextCandidate.artist}")
                 if (audioPlayer != null) {
                     audioPlayer.appendTracks(listOf(nextCandidate))
+                    val advanced = queueManager.advanceNext() ?: nextCandidate
+                    _uiState.update {
+                        it.copy(
+                            currentTrack = advanced,
+                            queue = queueManager.state.queue,
+                            currentIndex = queueManager.state.currentIndex,
+                            isPlaying = true,
+                            playbackPositionMs = 0,
+                            durationMs = advanced.duration * 1000,
+                            errorMessage = null
+                        )
+                    }
+                    audioPlayer.play(advanced, initialSeekMs = 0L)
+                    audioPlayer.syncUpcomingGaplessTrack()
+                    audioPlayer.persistQueue()
                 } else {
                     queueManager.appendTracks(listOf(nextCandidate))
-                }
-                val advanced = queueManager.advanceNext() ?: nextCandidate
-                _uiState.update {
-                    it.copy(
-                        currentTrack = advanced,
-                        queue = queueManager.state.queue,
-                        currentIndex = queueManager.state.currentIndex,
-                        isPlaying = true,
-                        playbackPositionMs = 0,
-                        durationMs = advanced.duration * 1000,
-                        errorMessage = null
-                    )
-                }
-                if (audioPlayer != null) {
-                    audioPlayer.play(advanced, initialSeekMs = 0L)
-                } else {
+                    val advanced = queueManager.advanceNext() ?: nextCandidate
+                    _uiState.update {
+                        it.copy(
+                            currentTrack = advanced,
+                            queue = queueManager.state.queue,
+                            currentIndex = queueManager.state.currentIndex,
+                            isPlaying = true,
+                            playbackPositionMs = 0,
+                            durationMs = advanced.duration * 1000,
+                            errorMessage = null
+                        )
+                    }
                     triggerPlayback(advanced, debounceMs = 0L, requestId = reqId)
                 }
-                fetchAndAppendRadioTracks(advanced)
+                loadLyrics(nextCandidate, reqId)
+
+                if (isAutoRadioMode && queueManager.isNearEnd(threshold = 4)) {
+                    fetchAndAppendRadioTracks(nextCandidate)
+                }
             } else {
-                // Keep playing current if available, or stop if nothing exists
-                if (curTrack != null) {
+                Log.w("AuralisPlayback", "[AutoRadio] No candidate found, looping back to first track or replaying")
+                val fallbackTrack = queueManager.state.queue.firstOrNull() ?: curTrack
+                if (fallbackTrack != null) {
                     if (audioPlayer != null) {
-                        audioPlayer.play(curTrack, initialSeekMs = 0L)
+                        audioPlayer.playTrack(fallbackTrack, queueManager.state.queue, 0)
                     } else {
-                        triggerPlayback(curTrack, debounceMs = 0L, requestId = reqId)
+                        triggerPlayback(fallbackTrack, debounceMs = 0L, requestId = reqId)
                     }
                 } else {
                     audioPlayer?.pause()
@@ -732,10 +848,16 @@ class PlayerViewModel(
         }
     }
 
+    private var lastPreviousTapMs = 0L
+
     fun previous() {
         Log.d("AuralisPlayback", "[PlayerViewModel] previous() triggered")
         palettePreloadJob?.cancel()
-        if (_playbackPositionMs.value <= 3000) {
+        val now = System.currentTimeMillis()
+        val isDoubleTap = (now - lastPreviousTapMs) <= 2000L
+        lastPreviousTapMs = now
+
+        if (_playbackPositionMs.value <= 3000 || isDoubleTap) {
             context?.let { ctx ->
                 val prevIdx = _uiState.value.currentIndex - 1
                 _uiState.value.queue.getOrNull(prevIdx)?.let { prevTrack ->
@@ -748,12 +870,12 @@ class PlayerViewModel(
         if (audioPlayer != null) {
             audioPlayer.previous()
         } else {
-            if (_playbackPositionMs.value > 3000) {
+            if (_playbackPositionMs.value > 3000 && !isDoubleTap) {
                 seekTo(0)
                 return
             }
             val reqId = currentPlaybackRequestId.incrementAndGet()
-            val prevTrack = queueManager.advancePrevious()
+            val prevTrack = queueManager.advancePrevious(isUserSkip = true)
             if (prevTrack != null) {
                 val qState = queueManager.state
                 _uiState.update {
@@ -838,14 +960,19 @@ class PlayerViewModel(
     }
 
     fun playNext(track: Track) {
+        playNext(listOf(track))
+    }
+
+    fun playNext(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
         if (audioPlayer != null) {
-            audioPlayer.playNext(track)
+            audioPlayer.playNext(tracks)
         } else {
             if (_uiState.value.currentTrack == null) {
-                playTrack(track, listOf(track), 0, isUserQueue = true)
+                playTrack(tracks.first(), tracks, 0, isUserQueue = true)
                 return
             }
-            val qState = queueManager.playNext(track)
+            val qState = queueManager.playNext(tracks)
             _uiState.update { it.copy(queue = qState.queue) }
         }
     }

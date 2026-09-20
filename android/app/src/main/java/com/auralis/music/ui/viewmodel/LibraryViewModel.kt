@@ -40,6 +40,7 @@ data class LibraryUiState(
     val playlists: List<Playlist> = emptyList(),
     val favorites: List<Track> = emptyList(),
     val downloadedTracks: List<Track> = emptyList(),
+    val downloadedJobs: List<com.auralis.music.data.download.PlaylistDownloadJobEntity> = emptyList(),
     val savedArtists: List<SavedArtist> = emptyList(),
     val savedAlbums: List<SavedAlbum> = emptyList(),
     val top50Tracks: List<Track> = emptyList(),
@@ -68,7 +69,14 @@ class LibraryViewModel(
         // Collect playlists
         viewModelScope.launch {
             libraryRepository.getPlaylists().collect { playlists ->
-                _uiState.update { it.copy(playlists = playlists) }
+                _uiState.update { state ->
+                    val updatedSelected = if (state.selectedPlaylist != null && !state.selectedPlaylist.id.startsWith("smart_")) {
+                        playlists.find { it.id == state.selectedPlaylist.id } ?: state.selectedPlaylist
+                    } else {
+                        state.selectedPlaylist
+                    }
+                    state.copy(playlists = playlists, selectedPlaylist = updatedSelected)
+                }
             }
         }
 
@@ -85,14 +93,40 @@ class LibraryViewModel(
                 _uiState.update { state ->
                     val updated = state.copy(downloadedTracks = downloaded)
                     if (state.selectedSmartCollection == SmartCollectionType.DOWNLOADED) {
-                        updated.copy(
-                            selectedPlaylist = Playlist(
-                                id = "smart_downloaded",
-                                title = "Downloaded",
-                                description = "${downloaded.size} offline songs",
-                                tracks = downloaded
+                        val current = state.selectedPlaylist
+                        if (current != null && current.id == "smart_downloaded_all") {
+                            updated.copy(
+                                selectedPlaylist = current.copy(
+                                    description = "${downloaded.size} offline songs",
+                                    tracks = downloaded
+                                )
                             )
-                        )
+                        } else updated
+                    } else updated
+                }
+            }
+        }
+
+        // Collect playlist download jobs for folder-based downloads
+        viewModelScope.launch {
+            com.auralis.music.data.download.PlaylistDownloadCoordinator.jobs.collect { jobsMap ->
+                _uiState.update { state ->
+                    val jobsList = jobsMap.values.toList()
+                    val updated = state.copy(downloadedJobs = jobsList)
+                    val current = state.selectedPlaylist
+                    if (state.selectedSmartCollection == SmartCollectionType.DOWNLOADED && current != null && current.id.startsWith("smart_downloaded_folder_")) {
+                        val folderJobId = current.id.removePrefix("smart_downloaded_folder_")
+                        val job = jobsMap.values.firstOrNull { it.jobId == folderJobId || it.playlistId == folderJobId }
+                        if (job != null) {
+                            val allTracks = com.auralis.music.data.download.PlaylistDownloadCoordinator.tracks(job)
+                            val downloadedForJob = allTracks.filter { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+                            updated.copy(
+                                selectedPlaylist = current.copy(
+                                    description = "${downloadedForJob.size} of ${allTracks.size} offline songs",
+                                    tracks = downloadedForJob
+                                )
+                            )
+                        } else updated
                     } else updated
                 }
             }
@@ -120,6 +154,17 @@ class LibraryViewModel(
                 libraryRepository.removeArtist(artist.id)
             } else {
                 libraryRepository.saveArtist(artist)
+            }
+        }
+    }
+
+    fun toggleSaveAlbum(album: SavedAlbum) {
+        viewModelScope.launch {
+            val isSaved = _uiState.value.savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
+            if (isSaved) {
+                libraryRepository.removeAlbum(album.id)
+            } else {
+                libraryRepository.saveAlbum(album)
             }
         }
     }
@@ -198,12 +243,7 @@ class LibraryViewModel(
                 description = "Auto-saved tracks",
                 tracks = _uiState.value.favorites
             )
-            SmartCollectionType.DOWNLOADED -> Playlist(
-                id = "smart_downloaded",
-                title = "Downloaded",
-                description = "${_uiState.value.downloadedTracks.size} offline songs",
-                tracks = _uiState.value.downloadedTracks
-            )
+            SmartCollectionType.DOWNLOADED -> null
             SmartCollectionType.CACHED -> Playlist(
                 id = "smart_cached",
                 title = "Cached Stream Cache",
@@ -238,6 +278,45 @@ class LibraryViewModel(
         viewModelScope.launch {
             val playlist = libraryRepository.createPlaylist(title.trim(), description?.trim())
             libraryRepository.addTrackToPlaylist(playlist.id, track)
+        }
+    }
+
+    fun createPlaylistAndAddTracks(
+        title: String,
+        tracks: List<Track>,
+        description: String? = null,
+        coverUrl: String? = null,
+        onCreated: ((Playlist) -> Unit)? = null
+    ) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val cleanTitle = title.trim()
+                val existing = _uiState.value.playlists.firstOrNull { it.title.equals(cleanTitle, ignoreCase = true) }
+                val targetPlaylist = existing ?: libraryRepository.createPlaylist(
+                    title = cleanTitle,
+                    description = description?.trim(),
+                    coverUrl = coverUrl
+                )
+                if (tracks.isNotEmpty()) {
+                    libraryRepository.replacePlaylistTracks(targetPlaylist.id, tracks)
+                }
+                val populated = targetPlaylist.copy(
+                    tracks = tracks,
+                    coverUrl = coverUrl ?: targetPlaylist.coverUrl
+                )
+                _uiState.update { state ->
+                    val updated = if (existing != null) {
+                        state.playlists.map { if (it.id == targetPlaylist.id) populated else it }
+                    } else {
+                        listOf(populated) + state.playlists
+                    }
+                    state.copy(playlists = updated)
+                }
+                onCreated?.invoke(populated)
+            } catch (e: Exception) {
+                android.util.Log.e("LibraryViewModel", "createPlaylistAndAddTracks failed: ${e.message}", e)
+            }
         }
     }
 
@@ -370,7 +449,17 @@ class LibraryViewModel(
     fun selectPlaylist(playlistId: String?, initialPlaylist: Playlist? = null) {
         selectPlaylistJob?.cancel()
         if (playlistId == null) {
-            _uiState.update { it.copy(selectedPlaylist = null, selectedSmartCollection = null) }
+            val wasInDownloaded = _uiState.value.selectedSmartCollection == SmartCollectionType.DOWNLOADED && _uiState.value.selectedPlaylist != null
+            _uiState.update {
+                it.copy(
+                    selectedPlaylist = null,
+                    selectedSmartCollection = if (wasInDownloaded) SmartCollectionType.DOWNLOADED else null
+                )
+            }
+            return
+        }
+        if (initialPlaylist != null && initialPlaylist.id.startsWith("smart_downloaded_")) {
+            _uiState.update { it.copy(selectedPlaylist = initialPlaylist, selectedSmartCollection = SmartCollectionType.DOWNLOADED) }
             return
         }
         val cached = initialPlaylist ?: _uiState.value.playlists.find { it.id == playlistId }
@@ -406,15 +495,67 @@ class LibraryViewModel(
         }
     }
 
+    fun closeSmartCollection() {
+        selectPlaylistJob?.cancel()
+        _uiState.update { it.copy(selectedPlaylist = null, selectedSmartCollection = null) }
+    }
+
+    fun removePlaylistDownloads(context: android.content.Context, jobId: String) {
+        com.auralis.music.data.download.PlaylistDownloadCoordinator.removePlaylistDownloads(context, jobId)
+        if (_uiState.value.selectedPlaylist?.id?.contains(jobId) == true) {
+            selectPlaylist(null)
+        }
+    }
+
+    fun retryPlaylistDownload(context: android.content.Context, jobId: String) {
+        com.auralis.music.data.download.PlaylistDownloadCoordinator.retry(context, jobId)
+    }
+
     fun addTrackToPlaylist(playlistId: String, track: Track) {
         viewModelScope.launch {
             libraryRepository.addTrackToPlaylist(playlistId, track)
         }
     }
 
-    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+    fun addTracksToPlaylist(playlistId: String, tracks: List<Track>) {
         viewModelScope.launch {
-            libraryRepository.removeTrackFromPlaylist(playlistId, trackId)
+            tracks.forEach { track ->
+                libraryRepository.addTrackToPlaylist(playlistId, track)
+            }
+        }
+    }
+
+    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        _uiState.update { state ->
+            val updatedSelected = if (state.selectedPlaylist?.id == playlistId) {
+                state.selectedPlaylist.copy(tracks = state.selectedPlaylist.tracks.filter { it.id != trackId })
+            } else state.selectedPlaylist
+            val updatedPlaylists = state.playlists.map { pl ->
+                if (pl.id == playlistId) {
+                    pl.copy(tracks = pl.tracks.filter { it.id != trackId })
+                } else pl
+            }
+            val updatedFavorites = if (playlistId == "smart_favorites") {
+                state.favorites.filter { it.id != trackId }
+            } else state.favorites
+            state.copy(
+                selectedPlaylist = updatedSelected,
+                playlists = updatedPlaylists,
+                favorites = updatedFavorites
+            )
+        }
+        viewModelScope.launch {
+            if (playlistId == "smart_downloaded" || playlistId == "smart_downloaded_all" || playlistId.startsWith("smart_downloaded_folder_")) {
+                com.auralis.music.data.download.AuralisDownloadManager.removeDownload(trackId)
+            } else if (playlistId == "smart_favorites") {
+                val track = _uiState.value.favorites.find { it.id == trackId }
+                    ?: libraryRepository.getFavoriteTracks().firstOrNull()?.find { it.id == trackId }
+                if (track != null) {
+                    libraryRepository.setFavorite(track, false)
+                }
+            } else {
+                libraryRepository.removeTrackFromPlaylist(playlistId, trackId)
+            }
         }
     }
 

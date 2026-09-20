@@ -6,6 +6,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
+import com.auralis.music.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -256,7 +257,7 @@ object UpdateChecker {
             )
 
             val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setSmallIcon(R.drawable.ic_notification_auralis)
                 .setContentTitle("New Update Available: v${updateInfo.latestVersion}")
                 .setContentText("Auralis v${updateInfo.latestVersion} is ready to download.")
                 .setStyle(NotificationCompat.BigTextStyle().bigText("Auralis v${updateInfo.latestVersion} is now available!\n${updateInfo.releaseTitle ?: ""}\nTap to download and install."))

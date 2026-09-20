@@ -482,18 +482,32 @@ object ArtworkProcessor {
         }
         return try {
             val uri = Uri.parse(uriString)
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return uriString
-            val original = android.graphics.BitmapFactory.decodeStream(inputStream)
-            inputStream.close()
-            if (original == null) return uriString
+            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream, null, options)
+            }
+            val originalWidth = options.outWidth
+            val originalHeight = options.outHeight
+            if (originalWidth <= 0 || originalHeight <= 0) return uriString
 
-            val maxDim = 400
-            val width = original.width
-            val height = original.height
-            val scale = (maxDim.toFloat() / Math.max(width, height)).coerceAtMost(1f)
-            val scaledWidth = (width * scale).toInt().coerceAtLeast(1)
-            val scaledHeight = (height * scale).toInt().coerceAtLeast(1)
-            val scaled = Bitmap.createScaledBitmap(original, scaledWidth, scaledHeight, true)
+            val targetSize = 400
+            var sampleSize = 1
+            while (originalWidth / (sampleSize * 2) >= targetSize && originalHeight / (sampleSize * 2) >= targetSize) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val sampled = context.contentResolver.openInputStream(uri)?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream, null, decodeOptions)
+            } ?: return uriString
+
+            val scale = (targetSize.toFloat() / Math.max(sampled.width, sampled.height)).coerceAtMost(1f)
+            val scaledWidth = (sampled.width * scale).toInt().coerceAtLeast(1)
+            val scaledHeight = (sampled.height * scale).toInt().coerceAtLeast(1)
+            val scaled = if (scale < 1f) Bitmap.createScaledBitmap(sampled, scaledWidth, scaledHeight, true) else sampled
 
             val outStream = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, 85, outStream)
@@ -502,6 +516,163 @@ object ArtworkProcessor {
             "data:image/jpeg;base64,$base64"
         } catch (_: Exception) {
             uriString
+        }
+    }
+
+    /**
+     * Saves a user-selected playlist cover to the app's persistent internal storage
+     * with memory-safe downsampling (supports high-res, HEIC, Ultra HDR, and standard formats).
+     * Returns the absolute file path (e.g. /data/user/0/com.auralis.music/files/playlist_covers/cover_xyz_12345.jpg).
+     */
+    fun savePlaylistCoverToInternalStorage(context: Context, playlistId: String, uri: Uri): String? {
+        val coversDir = File(context.filesDir, "playlist_covers")
+        if (!coversDir.exists()) coversDir.mkdirs()
+
+        val cleanId = playlistId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val destFile = File(coversDir, "cover_${cleanId}_${System.currentTimeMillis()}.jpg")
+        val tempFile = File(context.cacheDir, "temp_picker_${System.currentTimeMillis()}.tmp")
+
+        return try {
+            // First copy uri stream to a local temp file to ensure seekability and avoid content resolver stream exhaustion
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("ArtworkProcessor", "Failed to copy URI stream to tempFile: ${e.message}", e)
+            }
+
+            var bitmap: Bitmap? = null
+
+            // 1. Try ImageDecoder on Android P+ (API 28+) using tempFile (or uri if tempFile is empty)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                try {
+                    val source = if (tempFile.exists() && tempFile.length() > 0) {
+                        android.graphics.ImageDecoder.createSource(tempFile)
+                    } else {
+                        android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+                    }
+                    bitmap = android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                        decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                        val maxDim = Math.max(info.size.width, info.size.height)
+                        if (maxDim > 1000) {
+                            val sampleSize = (maxDim / 800).coerceAtLeast(1)
+                            decoder.setTargetSampleSize(sampleSize)
+                        }
+                    }
+                } catch (e: Throwable) {
+                    android.util.Log.w("ArtworkProcessor", "ImageDecoder failed: ${e.message}")
+                }
+            }
+
+            // 2. If ImageDecoder didn't produce a bitmap, try BitmapFactory from tempFile
+            if (bitmap == null && tempFile.exists() && tempFile.length() > 0) {
+                bitmap = decodeBitmapFromFile(tempFile)
+            }
+
+            // 3. If still null, try BitmapFactory directly from a fresh content stream
+            if (bitmap == null) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val options = android.graphics.BitmapFactory.Options().apply {
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                        }
+                        bitmap = android.graphics.BitmapFactory.decodeStream(stream, null, options)
+                    }
+                } catch (e: Throwable) {
+                    android.util.Log.e("ArtworkProcessor", "BitmapFactory direct stream failed: ${e.message}")
+                }
+            }
+
+            val nonNullBitmap = bitmap ?: run {
+                android.util.Log.e("ArtworkProcessor", "All decode attempts failed for $uri")
+                return null
+            }
+
+            // 4. Handle EXIF rotation (especially common with camera photos)
+            val rotatedBitmap = if (tempFile.exists() && tempFile.length() > 0) {
+                try {
+                    val exif = android.media.ExifInterface(tempFile.absolutePath)
+                    val orientation = exif.getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL
+                    )
+                    val rotMatrix = when (orientation) {
+                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> android.graphics.Matrix().apply { postRotate(90f) }
+                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> android.graphics.Matrix().apply { postRotate(180f) }
+                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> android.graphics.Matrix().apply { postRotate(270f) }
+                        else -> null
+                    }
+                    if (rotMatrix != null) {
+                        Bitmap.createBitmap(nonNullBitmap, 0, 0, nonNullBitmap.width, nonNullBitmap.height, rotMatrix, true)
+                    } else {
+                        nonNullBitmap
+                    }
+                } catch (_: Throwable) {
+                    nonNullBitmap
+                }
+            } else nonNullBitmap
+
+            // 5. Downscale to max 800x800 maintaining aspect ratio
+            val maxDim = 800
+            val scale = (maxDim.toFloat() / Math.max(rotatedBitmap.width, rotatedBitmap.height)).coerceAtMost(1f)
+            val finalBitmap = if (scale < 1f) {
+                Bitmap.createScaledBitmap(
+                    rotatedBitmap,
+                    (rotatedBitmap.width * scale).toInt().coerceAtLeast(1),
+                    (rotatedBitmap.height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else rotatedBitmap
+
+            // 6. Save as high-quality JPEG
+            FileOutputStream(destFile).use { outStream ->
+                finalBitmap.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
+                outStream.flush()
+            }
+
+            // 7. Clean up older cover files for this playlist
+            coversDir.listFiles()?.forEach { file ->
+                if (file.name.startsWith("cover_${cleanId}_") && file.name != destFile.name) {
+                    file.delete()
+                }
+            }
+
+            destFile.absolutePath
+        } catch (e: Throwable) {
+            android.util.Log.e("ArtworkProcessor", "Error saving playlist cover: ${e.message}", e)
+            null
+        } finally {
+            try {
+                if (tempFile.exists()) tempFile.delete()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun decodeBitmapFromFile(file: File): Bitmap? {
+        return try {
+            val options = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+            val maxDim = Math.max(options.outWidth, options.outHeight)
+            if (maxDim <= 0) return null
+
+            var sampleSize = 1
+            while (maxDim / (sampleSize * 2) >= 800) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+        } catch (e: Throwable) {
+            android.util.Log.e("ArtworkProcessor", "decodeBitmapFromFile failed: ${e.message}")
+            null
         }
     }
 }

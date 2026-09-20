@@ -11,6 +11,7 @@ import android.graphics.Color as AndroidColor
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,7 +45,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.pager.HorizontalPager
@@ -276,6 +276,7 @@ fun NowPlayingModal(
     onDismiss: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    renderBackground: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var lastValidTrack by remember { mutableStateOf(uiState.currentTrack) }
@@ -326,6 +327,7 @@ fun NowPlayingModal(
 
     var pendingTargetIndex by remember { mutableStateOf<Int?>(null) }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
+    var skipPagerAnimation by remember { mutableStateOf(false) }
 
     // Active track authoritative synchronization:
     // During an incomplete/partial swipe, the currently playing track remains strictly authoritative
@@ -338,29 +340,66 @@ fun NowPlayingModal(
     }
 
     val handleNext = {
-        pendingTargetIndex = null
+        if (queue.isNotEmpty() && pageCount > 1) {
+            val fromIndex = pendingTargetIndex ?: pagerState.currentPage
+            val targetIndex = (fromIndex + 1).coerceAtMost(pageCount - 1)
+            if (targetIndex != pagerState.currentPage) {
+                pendingTargetIndex = targetIndex
+                coroutineScope.launch {
+                    try {
+                        pagerState.animateScrollToPage(
+                            page = targetIndex,
+                            animationSpec = androidx.compose.animation.core.tween(
+                                durationMillis = 240,
+                                easing = androidx.compose.animation.core.FastOutSlowInEasing
+                            )
+                        )
+                    } catch (_: Exception) {}
+                }
+            }
+        }
         onNextClick()
     }
 
     val handlePrevious = {
-        pendingTargetIndex = null
-        if (playbackPositionState.value > 3000L) {
-            onSeekTo(0L)
-        } else {
-            onPreviousClick()
+        if (queue.isNotEmpty() && pageCount > 1) {
+            val fromIndex = pendingTargetIndex ?: pagerState.currentPage
+            val targetIndex = (fromIndex - 1).coerceAtLeast(0)
+            if (targetIndex != pagerState.currentPage) {
+                pendingTargetIndex = targetIndex
+                coroutineScope.launch {
+                    try {
+                        pagerState.animateScrollToPage(
+                            page = targetIndex,
+                            animationSpec = androidx.compose.animation.core.tween(
+                                durationMillis = 240,
+                                easing = androidx.compose.animation.core.FastOutSlowInEasing
+                            )
+                        )
+                    } catch (_: Exception) {}
+                }
+            }
         }
+        onPreviousClick()
     }
 
     // 1. Programmatically sync pager when the active track changes externally (Next/Prev buttons, song end, playlist tap, etc.)
     LaunchedEffect(currentTrackIndex, track.id, currentTab) {
         if (pendingTargetIndex != null) {
-            pendingTargetIndex = null
+            if (currentTrackIndex == pendingTargetIndex) {
+                // Authoritative playback caught up to our optimistic target!
+                pendingTargetIndex = null
+            } else {
+                // Playback is still catching up to a newer rapid tap/swipe target.
+                // Do NOT force-scroll backwards or clear the optimistic target!
+                return@LaunchedEffect
+            }
         }
 
         if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
             isProgrammaticScroll = true
             try {
-                if (currentTab == NowPlayingTab.PLAYER) {
+                if (currentTab == NowPlayingTab.PLAYER && !skipPagerAnimation) {
                     val distance = kotlin.math.abs(pagerState.currentPage - currentTrackIndex)
                     if (distance == 1 && !pagerState.isScrollInProgress) {
                         pagerState.animateScrollToPage(
@@ -374,12 +413,13 @@ fun NowPlayingModal(
                         pagerState.scrollToPage(currentTrackIndex)
                     }
                 } else {
-                    // Pager is uncomposed on Lyrics or Queue tabs; snap directly without layout frames
+                    // Pager is uncomposed on Lyrics or Queue tabs, or skipping animation from queue tap: snap directly without layout frames
                     pagerState.scrollToPage(currentTrackIndex)
                 }
             } catch (_: Exception) {
                 // Safe ignore if animation gets cancelled or interrupted
             } finally {
+                skipPagerAnimation = false
                 isProgrammaticScroll = false
             }
         }
@@ -404,6 +444,10 @@ fun NowPlayingModal(
 
     var userSwipedPager by remember { mutableStateOf(false) }
 
+    val currentTrackIndexState = rememberUpdatedState(currentTrackIndex)
+    val currentQueueState = rememberUpdatedState(queue)
+    val currentOnSelectQueueTrackState = rememberUpdatedState(onSelectQueueTrack)
+
     LaunchedEffect(pagerState) {
         pagerState.interactionSource.interactions.collect { interaction ->
             when (interaction) {
@@ -419,20 +463,22 @@ fun NowPlayingModal(
         snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
             .collect { (isScrolling, settledPage) ->
+                val curIndex = currentTrackIndexState.value
+                val curQueue = currentQueueState.value
                 if (currentTab == NowPlayingTab.PLAYER && !isScrolling) {
                     if (userSwipedPager && !isProgrammaticScroll) {
                         userSwipedPager = false
-                        if (queue.isNotEmpty() && settledPage in queue.indices && settledPage != currentTrackIndex) {
+                        if (curQueue.isNotEmpty() && settledPage in curQueue.indices && settledPage != curIndex) {
                             pendingTargetIndex = settledPage
-                            val targetTrack = queue[settledPage]
+                            val targetTrack = curQueue[settledPage]
                             com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
-                            onSelectQueueTrack(settledPage)
-                        } else if (settledPage == currentTrackIndex) {
+                            currentOnSelectQueueTrackState.value(settledPage)
+                        } else if (settledPage == curIndex) {
                             pendingTargetIndex = null
                         }
                     } else {
                         userSwipedPager = false
-                        if (settledPage == currentTrackIndex) {
+                        if (settledPage == curIndex) {
                             pendingTargetIndex = null
                         }
                     }
@@ -591,7 +637,23 @@ fun NowPlayingModal(
     LaunchedEffect(currentTrackIndex, pagerState.currentPage, currentTab, queue, isDynamicAccent) {
         if (queue.isNotEmpty() && isDynamicAccent) {
             val cur = if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex
-            val targets = (-2..4).mapNotNull { offset -> queue.getOrNull(cur + offset) }.distinctBy { it.id }
+            val nextTrack = queue.getOrNull(cur + 1)
+            if (nextTrack != null) {
+                val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(nextTrack.id)
+                if (cached == null || cached.isPlaceholder) {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                            context = context,
+                            key = nextTrack.id,
+                            artworkUrl = nextTrack.thumbnail
+                        )
+                    }
+                }
+            }
+            // Delay remaining neighbor track extractions until after the background transition settles
+            // to keep CPU and IO completely free during the transition animation
+            kotlinx.coroutines.delay(350)
+            val targets = listOf(-1, 2, 3).mapNotNull { offset -> queue.getOrNull(cur + offset) }.distinctBy { it.id }
             kotlinx.coroutines.coroutineScope {
                 targets.forEach { targetTrack ->
                     launch(Dispatchers.IO) {
@@ -612,11 +674,6 @@ fun NowPlayingModal(
     // Smooth continuous color interpolation executed on song/palette change, completely static while playing
     val colorSpec = tween<Color>(durationMillis = 320, easing = FastOutSlowInEasing)
     val animatedPrimaryColor by androidx.compose.animation.animateColorAsState(extractedColors.primary, colorSpec, label = "animPrimary")
-
-    val dragOffsetY = remember { Animatable(0f) }
-    LaunchedEffect(activeTrack.id) {
-        dragOffsetY.snapTo(0f)
-    }
 
     // Hoisted: transitionSpec is not a composable scope, so reduced-motion-aware
     // specs have to be built out here and captured.
@@ -671,17 +728,18 @@ fun NowPlayingModal(
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer {
-                translationY = dragOffsetY.value
-                val dragFraction = (dragOffsetY.value / 600f).coerceIn(0f, 1f)
-                scaleX = 1f - (dragFraction * 0.08f)
-                scaleY = 1f - (dragFraction * 0.08f)
-                alpha = 1f - (dragFraction * 0.35f)
                 clip = true
             }
-            .background(
-                when (playerBgStyle) {
-                    PlayerBackgroundStyle.FOLLOW_THEME -> MaterialTheme.dynamicBackground
-                    else -> Color(0xFF050505)
+            .then(
+                if (renderBackground) {
+                    Modifier.background(
+                        when (playerBgStyle) {
+                            PlayerBackgroundStyle.FOLLOW_THEME -> MaterialTheme.dynamicBackground
+                            else -> Color(0xFF050505)
+                        }
+                    )
+                } else {
+                    Modifier
                 }
             )
             .clickable(
@@ -693,16 +751,18 @@ fun NowPlayingModal(
         // ====================================================================
         // 1. DYNAMIC BACKGROUND RENDERING (Follow theme, Gradient, Blur, Glow Motion, Apple Music, Live Mesh)
         // ====================================================================
-        PlayerBackground(
-            style = playerBgStyle,
-            artworkUrl = dynamicBgData.primaryArtworkUrl,
-            extractedColors = dynamicBgData.palette,
-            secondaryArtworkUrl = dynamicBgData.secondaryArtworkUrl,
-            swipeFraction = dynamicBgData.swipeFraction,
-            modifier = Modifier.fillMaxSize(),
-            isMiniPlayer = false,
-            isPlaying = uiState.isPlaying
-        )
+        if (renderBackground) {
+            PlayerBackground(
+                style = playerBgStyle,
+                artworkUrl = dynamicBgData.primaryArtworkUrl,
+                extractedColors = dynamicBgData.palette,
+                secondaryArtworkUrl = dynamicBgData.secondaryArtworkUrl,
+                swipeFraction = dynamicBgData.swipeFraction,
+                modifier = Modifier.fillMaxSize(),
+                isMiniPlayer = false,
+                isPlaying = uiState.isPlaying
+            )
+        }
 
         // ====================================================================
         // 2. FOREGROUND CONTENT (MODERN VS CLASSIC DESIGN)
@@ -721,41 +781,7 @@ fun NowPlayingModal(
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer { alpha = controlsAlpha }
-                    .padding(top = 6.dp, bottom = 6.dp)
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onVerticalDrag = { change, dragAmount ->
-                                change.consume()
-                                coroutineScope.launch {
-                                    val nextVal = (dragOffsetY.value + dragAmount).coerceAtLeast(0f)
-                                    dragOffsetY.snapTo(nextVal)
-                                }
-                            },
-                            onDragEnd = {
-                                if (dragOffsetY.value > 140f) {
-                                    coroutineScope.launch {
-                                        dragOffsetY.snapTo(0f)
-                                    }
-                                    onDismiss()
-                                } else {
-                                    coroutineScope.launch {
-                                        dragOffsetY.animateTo(
-                                            0f,
-                                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
-                                        )
-                                    }
-                                }
-                            },
-                            onDragCancel = {
-                                coroutineScope.launch {
-                                    dragOffsetY.animateTo(
-                                        0f,
-                                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
-                                    )
-                                }
-                            }
-                        )
-                    },
+                    .padding(top = 6.dp, bottom = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -998,6 +1024,31 @@ fun NowPlayingModal(
                         syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
                     }
 
+                    // Pre-cache palettes for visible tracks in the Queue so selecting any song hits cache instantly
+                    LaunchedEffect(queueListState, localQueue.size, isDynamicAccent) {
+                        if (isDynamicAccent) {
+                            snapshotFlow {
+                                val info = queueListState.layoutInfo
+                                val start = info.visibleItemsInfo.firstOrNull()?.index ?: 0
+                                val end = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                                (start..end).mapNotNull { localQueue.getOrNull(it)?.track }
+                            }.distinctUntilChanged()
+                                .collect { visibleTracks ->
+                                    withContext(Dispatchers.IO) {
+                                        visibleTracks.forEach { trk ->
+                                            if (com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.id) == null) {
+                                                com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                                                    context = context,
+                                                    key = trk.id,
+                                                    artworkUrl = trk.thumbnail
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1061,6 +1112,8 @@ fun NowPlayingModal(
                                                         if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
                                                         val actualIndex = queueSnapshot.indexOfFirst { it.id == item.track.id }.takeIf { it >= 0 } ?: localQueue.indexOfFirst { it.instanceId == item.instanceId }
                                                         if (actualIndex >= 0) {
+                                                            skipPagerAnimation = true
+                                                            com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, item.track)
                                                             onSelectQueueTrack(actualIndex)
                                                             currentTab = NowPlayingTab.PLAYER
                                                         }
@@ -1227,8 +1280,8 @@ fun NowPlayingModal(
                                             contentDescription = pageTrack.title,
                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                             highRes = true,
-                                            // Pager motion owns the transition; cached artwork is ready immediately.
-                                            crossfade = false
+                                            // Smooth crossfade if artwork is loading asynchronously
+                                            crossfade = true
                                         )
                                     }
                                 }
@@ -1256,10 +1309,24 @@ fun NowPlayingModal(
                                             )
                                         ),
                                     transitionSpec = {
-                                        (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(180)) +
-                                                androidx.compose.animation.slideInVertically(animationSpec = androidx.compose.animation.core.tween(180)) { it / 3 }) togetherWith
-                                                (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(120)) +
-                                                        androidx.compose.animation.slideOutVertically(animationSpec = androidx.compose.animation.core.tween(120)) { -it / 3 })
+                                        val targetIdx = queue.indexOfFirst { it.id == targetState.id }
+                                        val initialIdx = queue.indexOfFirst { it.id == initialState.id }
+                                        val isForward = if (targetIdx >= 0 && initialIdx >= 0) targetIdx >= initialIdx else true
+                                        if (isForward) {
+                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) +
+                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 })
+                                                .togetherWith(
+                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) +
+                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 }
+                                                )
+                                        } else {
+                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) +
+                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 })
+                                                .togetherWith(
+                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) +
+                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 }
+                                                )
+                                        }
                                     },
                                     label = "TrackInfoAnim"
                                 ) { curTrack ->

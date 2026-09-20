@@ -17,6 +17,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.auralis.music.data.local.AuralisDatabase
+import com.auralis.music.data.local.mapper.toEntity
 import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.domain.model.Track
 import com.auralis.music.service.AuralisMediaService
@@ -40,6 +42,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val spatialAudioController = SpatialAudioController()
     private val queueDataStore = com.auralis.music.data.datastore.QueueDataStore(appContext)
+    private val database by lazy { AuralisDatabase.getInstance(appContext) }
+    private val trackDao by lazy { database.trackDao() }
 
     val queueManager = com.auralis.music.domain.model.AudioQueueManager()
     private val _queueState = MutableStateFlow(queueManager.state)
@@ -117,6 +121,19 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 com.auralis.music.data.network.discord.DiscordGatewayManager.getInstance(appContext)
                     .onPlaybackStateChanged(track, isPlaying, pos, duration)
             }.collect()
+        }
+
+        // Observe favorite state directly from Room database for currently playing track
+        scope.launch {
+            _currentTrack.map { it?.id }.distinctUntilChanged().collectLatest { trackId ->
+                if (trackId != null) {
+                    trackDao.isFavoriteFlow(trackId).collect { fav ->
+                        _isFavorite.value = (fav == true)
+                    }
+                } else {
+                    _isFavorite.value = false
+                }
+            }
         }
     }
 
@@ -233,8 +250,6 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 }
                             }
                             Player.STATE_ENDED -> {
-                                _isPlaying.value = false
-                                _isBuffering.value = false
                                 if (isUsingExoPlayer) {
                                     val curPos = try { exoPlayer.currentPosition } catch (_: Exception) { _playbackPositionMs.value }
                                     val dur = try { exoPlayer.duration } catch (_: Exception) { _durationMs.value }
@@ -245,17 +260,25 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                     // Prevents premature stream drop / socket close from skipping the song or resetting to 0.
                                     val reachedNaturalEnd = effectiveDur <= 3000L || curPos >= (effectiveDur - 4000L)
                                     if (reachedNaturalEnd) {
+                                        _isPlaying.value = false
+                                        _isBuffering.value = false
                                         try {
                                             exoPlayer.stop()
                                             exoPlayer.clearMediaItems()
                                         } catch (_: Exception) {}
                                         dispatchTrackCompleted()
                                     } else {
+                                        // Premature stream EOF / socket close: reconnect without falsely publishing not-playing.
+                                        // Mark as buffering so the UI shows the rebuffering state rather than a paused flash.
+                                        _isBuffering.value = true
                                         Log.w("AuralisPlayback", "[Premature Stream EOF] pos=${curPos}ms vs dur=${effectiveDur}ms. Reconnecting from ${curPos}ms instead of skipping track!")
                                         _currentTrack.value?.let { cur ->
                                             play(cur, initialSeekMs = curPos)
                                         }
                                     }
+                                } else {
+                                    _isPlaying.value = false
+                                    _isBuffering.value = false
                                 }
                             }
                             Player.STATE_IDLE -> _isBuffering.value = false
@@ -562,6 +585,14 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
+    fun updateCurrentTrackArtwork(artworkUrl: String) {
+        if (artworkUrl.isBlank()) return
+        val current = _currentTrack.value ?: return
+        if (current.thumbnail.isBlank() || current.thumbnail != artworkUrl) {
+            _currentTrack.value = current.copy(thumbnail = artworkUrl)
+        }
+    }
+
     fun play(
         track: Track,
         initialSeekMs: Long = 0L,
@@ -586,7 +617,14 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         audioLeadingSilenceProcessor.resetDetection()
         _audioLeadingSilenceMs.value = null
 
-        _currentTrack.value = track
+        val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
+        val initialTrack = if (track.thumbnail.isBlank() && localArt != null && localArt.exists()) {
+            track.copy(thumbnail = Uri.fromFile(localArt).toString())
+        } else {
+            track
+        }
+
+        _currentTrack.value = initialTrack
         _playbackError.value = null
         _durationMs.value = track.duration * 1000L
         _playbackPositionMs.value = initialSeekMs
@@ -636,14 +674,23 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     isUsingExoPlayer = true
                     tracker.streamEngine = "Native ExoPlayer"
 
-                    val effectiveThumb = if (!track.thumbnail.isNullOrBlank()) {
-                        track.thumbnail
-                    } else {
-                        com.auralis.music.data.network.ArtworkResolver.getArtwork(track) ?: track.thumbnail
+                    val localArtFile = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
+                    val effectiveThumb = when {
+                        localArtFile != null && localArtFile.exists() && localArtFile.length() > 500 -> {
+                            Uri.fromFile(localArtFile).toString()
+                        }
+                        !track.thumbnail.isNullOrBlank() -> {
+                            track.thumbnail
+                        }
+                        else -> {
+                            com.auralis.music.data.network.ArtworkResolver.getArtwork(track) ?: track.thumbnail
+                        }
                     }
                     val highResThumb = getHighResArtworkUrl(effectiveThumb) ?: effectiveThumb
                     val artworkUri = if (!highResThumb.isNullOrBlank()) Uri.parse(highResThumb) else null
                     val effectiveMediaId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+                    val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                    val displayAlbum = if (isRedundantAlbum) null else track.album
 
                     val mediaItem = MediaItem.Builder()
                         .setUri(directUrl)
@@ -652,6 +699,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             MediaMetadata.Builder()
                                 .setTitle(track.title)
                                 .setArtist(track.artist)
+                                .setAlbumTitle(displayAlbum)
                                 .setArtworkUri(artworkUri)
                                 .build()
                         )
@@ -735,6 +783,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             val artworkUri = if (!highResThumb.isNullOrBlank()) Uri.parse(highResThumb) else null
                             val effectiveMediaId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
 
+                            val isRedundantNext = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                            val displayNextAlbum = if (isRedundantNext) null else track.album
+
                             val nextMediaItem = MediaItem.Builder()
                                 .setUri(streamUrl)
                                 .setMediaId(effectiveMediaId)
@@ -742,6 +793,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                     MediaMetadata.Builder()
                                         .setTitle(track.title)
                                         .setArtist(track.artist)
+                                        .setAlbumTitle(displayNextAlbum)
                                         .setArtworkUri(artworkUri)
                                         .build()
                                 )
@@ -1154,21 +1206,27 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         this.onToggleRepeatCallback = onToggleRepeat
     }
 
-    fun next() {
+    private var lastPreviousTapMs = 0L
+
+    fun next(): Boolean {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() blocked - user is listener in Listen Together room")
-            return
+            return false
         }
-        Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() triggered")
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() triggered (queueSize=${queueManager.state.queue.size}, currentIndex=${queueManager.state.currentIndex})")
         if (queueManager.state.queue.isNotEmpty()) {
-            val nextTrack = queueManager.advanceNext()
+            val nextTrack = queueManager.advanceNext(isUserSkip = true)
             if (nextTrack != null) {
                 _queueState.value = queueManager.state
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
+                return true
             }
         }
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() cannot advance queue (end of queue or single track). Notifying onNextCallback.")
+        onNextCallback?.invoke()
+        return false
     }
 
     fun previous() {
@@ -1176,13 +1234,17 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] previous() blocked - user is listener in Listen Together room")
             return
         }
-        Log.d("AuralisPlayback", "[AuralisAudioPlayer] previous() triggered (pos=${_playbackPositionMs.value}ms)")
-        if (_playbackPositionMs.value > 3000L) {
+        val now = System.currentTimeMillis()
+        val isDoubleTap = (now - lastPreviousTapMs) <= 2000L
+        lastPreviousTapMs = now
+
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] previous() triggered (pos=${_playbackPositionMs.value}ms, isDoubleTap=$isDoubleTap)")
+        if (_playbackPositionMs.value > 3000L && !isDoubleTap) {
             seekTo(0L)
             return
         }
         if (queueManager.state.queue.isNotEmpty()) {
-            val prevTrack = queueManager.advancePrevious()
+            val prevTrack = queueManager.advancePrevious(isUserSkip = true)
             if (prevTrack != null) {
                 _queueState.value = queueManager.state
                 play(prevTrack, initialSeekMs = 0L)
@@ -1256,12 +1318,17 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun playNext(track: Track) {
-        val qState = queueManager.playNext(track)
+        playNext(listOf(track))
+    }
+
+    fun playNext(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        val qState = queueManager.playNext(tracks)
         _queueState.value = qState
         syncUpcomingGaplessTrack()
         persistQueue()
         if (_currentTrack.value == null) {
-            playTrack(track, listOf(track), 0, isUserQueue = true)
+            playTrack(tracks.first(), tracks, 0, isUserQueue = true)
         }
     }
 
@@ -1284,8 +1351,27 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         _durationMs.value = 0L
     }
 
-    fun toggleFavorite() {
-        onToggleFavoriteCallback?.invoke()
+    fun toggleFavorite(targetTrack: Track? = _currentTrack.value) {
+        val track = targetTrack ?: return
+        if (track.id == _currentTrack.value?.id) {
+            _isFavorite.value = !_isFavorite.value
+        }
+        scope.launch(Dispatchers.IO) {
+            val existing = trackDao.getTrackById(track.id)
+            val nextFav = !(existing?.isFavorite ?: false)
+            trackDao.upsertTrack(
+                track.toEntity(
+                    isFavorite = nextFav,
+                    favoriteAddedAt = if (nextFav) System.currentTimeMillis() else null
+                )
+            )
+            withContext(Dispatchers.Main) {
+                if (track.id == _currentTrack.value?.id) {
+                    _isFavorite.value = nextFav
+                }
+                onToggleFavoriteCallback?.invoke()
+            }
+        }
     }
 
     fun seekForward(deltaMs: Long = 10000L) {

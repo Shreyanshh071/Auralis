@@ -81,7 +81,7 @@ class LyricsAnimationModesTest {
         assertFalse("experimentalLyrics defaults to false", defaultSettings.experimentalLyrics)
         assertEquals(LyricsAnimationMode.AURALIS.displayName, defaultSettings.lyricsAnimation)
         assertFalse("enableGlowingLyricsEffect defaults to false", defaultSettings.enableGlowingLyricsEffect)
-        assertFalse("standardLyricsBlur defaults to false", defaultSettings.standardLyricsBlur)
+        assertTrue("standardLyricsBlur defaults to true", defaultSettings.standardLyricsBlur)
         assertEquals(22f, defaultSettings.lyricsTextSize, 0.001f)
         assertEquals(1.3f, defaultSettings.lyricsLineSpacing, 0.001f)
     }

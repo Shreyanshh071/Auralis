@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -75,6 +76,7 @@ import com.auralis.music.ui.theme.auralisSheetEnter
 import com.auralis.music.ui.theme.auralisSheetExit
 import com.auralis.music.ui.theme.motionTween
 import com.auralis.music.ui.viewmodel.*
+import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.launch
 
 
@@ -162,6 +164,10 @@ fun AuralisApp(
             }
         }
     }
+    // Ground-truth track from the playback singleton — used as a fallback presence check
+    // when the ViewModel mirror transiently becomes null during lifecycle gaps or rapid transitions.
+    val audioPlayerTrack by viewModelProvider.audioPlayer.currentTrack.collectAsState()
+    val audioPlayerIsPlaying by viewModelProvider.audioPlayer.isPlaying.collectAsState()
     val playerUiState = playerViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.PlayerUiState()
     val playerSettings = playerViewModelState?.playerSettings?.collectAsState()?.value ?: com.auralis.music.domain.model.PlayerSettings()
 
@@ -301,13 +307,20 @@ fun AuralisApp(
         sheetAnimationJob?.cancel()
         dismissAnimationJob?.cancel()
         sheetAnimationJob = coroutineScope.launch {
-            playerSheetProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = if (reducedMotion) snap() else spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow
+            try {
+                playerSheetProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = if (reducedMotion) snap() else spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
                 )
-            )
+            } finally {
+                isNowPlayingOpen = true
+                if (playerSheetProgress.value > 0.95f) {
+                    playerSheetProgress.snapTo(1f)
+                }
+            }
         }
     }
 
@@ -315,14 +328,20 @@ fun AuralisApp(
         sheetAnimationJob?.cancel()
         dismissAnimationJob?.cancel()
         sheetAnimationJob = coroutineScope.launch {
-            playerSheetProgress.animateTo(
-                targetValue = 0f,
-                animationSpec = if (reducedMotion) snap() else spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow
+            try {
+                playerSheetProgress.animateTo(
+                    targetValue = 0f,
+                    animationSpec = if (reducedMotion) snap() else spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
                 )
-            )
-            isNowPlayingOpen = false
+            } finally {
+                isNowPlayingOpen = false
+                if (playerSheetProgress.value < 0.05f) {
+                    playerSheetProgress.snapTo(0f)
+                }
+            }
         }
     }
 
@@ -1213,7 +1232,7 @@ fun AuralisApp(
                 },
                 historyRepository = viewModelProvider.historyRepository,
                 searchRepository = viewModelProvider.searchRepository,
-                hasActiveTrack = playerUiState.currentTrack != null
+                hasActiveTrack = (playerUiState.currentTrack ?: audioPlayerTrack) != null
             )
         }
 
@@ -1282,17 +1301,19 @@ fun AuralisApp(
                     obtainPlayerViewModel().addToQueue(listOf(track))
                     android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
                 },
-                hasActiveMiniPlayer = playerUiState.currentTrack != null
+                hasActiveMiniPlayer = (playerUiState.currentTrack ?: audioPlayerTrack) != null
             )
         }
 
         // ── Unified BottomSheet Container (MiniPlayer <-> Full Player Parity with VIVI) ──
         val activePV = playerViewModelState
-        if (playerUiState.currentTrack != null && activePV != null) {
+        // Use audioPlayer ground-truth as fallback when ViewModel mirror transiently has null currentTrack
+        val effectiveTrack = playerUiState.currentTrack ?: audioPlayerTrack
+        if (effectiveTrack != null && activePV != null) {
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
 
             // Atmospheric background layer behind sheet (VIVI parity: static fullscreen blurred artwork / gradient)
-            val currentTrack = playerUiState.currentTrack
+            val currentTrack = effectiveTrack
             val resolvedPlayerBgStyle = remember(appearanceSettings.playerBackgroundStyle) {
                 val style = PlayerBackgroundStyle.fromKey(appearanceSettings.playerBackgroundStyle)
                 if (style == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else style
@@ -1314,6 +1335,7 @@ fun AuralisApp(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
+                            enabled = isPlayerSheetActive && playerSheetProgress.value > 0.10f,
                             onClick = { collapsePlayer() }
                         )
                 ) {
@@ -1341,7 +1363,7 @@ fun AuralisApp(
                     if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp
                 }
                 val bottomInset = with(density) { WindowInsets.systemBars.getBottom(density).toDp() }
-                val collapsedBoundDp = 68.dp + targetBottomPadding + bottomInset
+                val collapsedBoundDp = MiniPlayerHeight + targetBottomPadding + bottomInset
                 val collapsedBoundPx = with(density) { collapsedBoundDp.toPx() }
                 val travelDistance = (fullHeightPx - collapsedBoundPx).coerceAtLeast(0f)
 
@@ -1372,11 +1394,36 @@ fun AuralisApp(
                             .pointerInput(Unit) {
                                 awaitEachGesture {
                                     awaitFirstDown(requireUnconsumed = false)
-                                    if (sheetAnimationJob?.isActive == true) {
+                                    val wasAnimating = sheetAnimationJob?.isActive == true
+                                    if (wasAnimating) {
                                         sheetAnimationJob?.cancel()
                                     }
                                     if (dismissAnimationJob?.isActive == true) {
                                         dismissAnimationJob?.cancel()
+                                    }
+                                    if (wasAnimating) {
+                                        val up = waitForUpOrCancellation()
+                                        if (up != null && sheetAnimationJob?.isActive != true) {
+                                            val target = if (playerSheetProgress.value < 0.5f) 0f else 1f
+                                            sheetAnimationJob = coroutineScope.launch {
+                                                try {
+                                                    playerSheetProgress.animateTo(
+                                                        targetValue = target,
+                                                        animationSpec = if (reducedMotion) snap() else spring(
+                                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                                            stiffness = Spring.StiffnessLow
+                                                        )
+                                                    )
+                                                } finally {
+                                                    isNowPlayingOpen = (target == 1f)
+                                                    if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                        playerSheetProgress.snapTo(0f)
+                                                    } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                        playerSheetProgress.snapTo(1f)
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1408,14 +1455,22 @@ fun AuralisApp(
                                         velocityTracker.resetTracking()
                                         val target = if (currentProgress < 0.5f) 0f else 1f
                                         sheetAnimationJob = coroutineScope.launch {
-                                            playerSheetProgress.animateTo(
-                                                targetValue = target,
-                                                animationSpec = if (reducedMotion) snap() else spring(
-                                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                                    stiffness = Spring.StiffnessLow
+                                            try {
+                                                playerSheetProgress.animateTo(
+                                                    targetValue = target,
+                                                    animationSpec = if (reducedMotion) snap() else spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessLow
+                                                    )
                                                 )
-                                            )
-                                            isNowPlayingOpen = (target == 1f)
+                                            } finally {
+                                                isNowPlayingOpen = (target == 1f)
+                                                if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                    playerSheetProgress.snapTo(0f)
+                                                } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                    playerSheetProgress.snapTo(1f)
+                                                }
+                                            }
                                         }
                                     },
                                     onDragEnd = {
@@ -1430,14 +1485,22 @@ fun AuralisApp(
                                             else -> 1f
                                         }
                                         sheetAnimationJob = coroutineScope.launch {
-                                            playerSheetProgress.animateTo(
-                                                targetValue = target,
-                                                animationSpec = if (reducedMotion) snap() else spring(
-                                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                                    stiffness = Spring.StiffnessLow
+                                            try {
+                                                playerSheetProgress.animateTo(
+                                                    targetValue = target,
+                                                    animationSpec = if (reducedMotion) snap() else spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessLow
+                                                    )
                                                 )
-                                            )
-                                            isNowPlayingOpen = (target == 1f)
+                                            } finally {
+                                                isNowPlayingOpen = (target == 1f)
+                                                if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                    playerSheetProgress.snapTo(0f)
+                                                } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                    playerSheetProgress.snapTo(1f)
+                                                }
+                                            }
                                         }
                                     }
                                 )
@@ -1550,13 +1613,14 @@ fun AuralisApp(
                     }
                 }
 
-                // 2. Mini Player (Anchored strictly to bottom, touches only hit within its collapsedBoundDp)
+                // 2. Mini Player (Anchored strictly to bottom, touches only hit within its MiniPlayerHeight)
                 if (isMiniPlayerVisible) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(collapsedBoundDp)
                             .align(Alignment.BottomCenter)
+                            .padding(bottom = targetBottomPadding + bottomInset)
+                            .height(MiniPlayerHeight)
                             .graphicsLayer {
                                 val p = playerSheetProgress.value
                                 val dismissY = dismissOffsetY.value
@@ -1612,14 +1676,22 @@ fun AuralisApp(
                                         if (isDraggingUp) {
                                             val target = if (currentProgress < 0.5f) 0f else 1f
                                             sheetAnimationJob = coroutineScope.launch {
-                                                playerSheetProgress.animateTo(
-                                                    targetValue = target,
-                                                    animationSpec = if (reducedMotion) snap() else spring(
-                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                        stiffness = Spring.StiffnessLow
+                                                try {
+                                                    playerSheetProgress.animateTo(
+                                                        targetValue = target,
+                                                        animationSpec = if (reducedMotion) snap() else spring(
+                                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                                            stiffness = Spring.StiffnessLow
+                                                        )
                                                     )
-                                                )
-                                                isNowPlayingOpen = (target == 1f)
+                                                } finally {
+                                                    isNowPlayingOpen = (target == 1f)
+                                                    if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                        playerSheetProgress.snapTo(0f)
+                                                    } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                        playerSheetProgress.snapTo(1f)
+                                                    }
+                                                }
                                             }
                                         } else {
                                             dismissAnimationJob = coroutineScope.launch {
@@ -1640,14 +1712,22 @@ fun AuralisApp(
                                                 else -> 1f
                                             }
                                             sheetAnimationJob = coroutineScope.launch {
-                                                playerSheetProgress.animateTo(
-                                                    targetValue = target,
-                                                    animationSpec = if (reducedMotion) snap() else spring(
-                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                        stiffness = Spring.StiffnessLow
+                                                try {
+                                                    playerSheetProgress.animateTo(
+                                                        targetValue = target,
+                                                        animationSpec = if (reducedMotion) snap() else spring(
+                                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                                            stiffness = Spring.StiffnessLow
+                                                        )
                                                     )
-                                                )
-                                                isNowPlayingOpen = (target == 1f)
+                                                } finally {
+                                                    isNowPlayingOpen = (target == 1f)
+                                                    if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                        playerSheetProgress.snapTo(0f)
+                                                    } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                        playerSheetProgress.snapTo(1f)
+                                                    }
+                                                }
                                             }
                                         } else {
                                             val currentY = dismissOffsetY.value
@@ -1665,20 +1745,21 @@ fun AuralisApp(
                                         }
                                     }
                                 )
-                            }
-                            .padding(bottom = targetBottomPadding + bottomInset),
+                            },
                         contentAlignment = Alignment.BottomCenter
                     ) {
                         MiniPlayerHost(
                             playerViewModel = activePV,
                             playerUiState = playerUiState,
+                            audioPlayerFallbackTrack = audioPlayerTrack,
+                            audioPlayerIsPlaying = audioPlayerIsPlaying,
                             isGuestInRoom = isGuestInRoom,
                             isFullyCollapsed = isFullyCollapsed,
                             appearanceSettings = appearanceSettings,
                             hazeState = hazeState,
                             onOpenNowPlaying = { expandPlayer() },
                             onOpenArtist = {
-                                val track = playerUiState.currentTrack
+                                val track = playerUiState.currentTrack ?: audioPlayerTrack
                                 if (track != null) {
                                     obtainSearchViewModel().openArtist(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
                                     navigateToDestination(AppDestination.EXPLORE)
@@ -1695,8 +1776,8 @@ fun AuralisApp(
         }
 
         // MiniPlayer Direct Add to Playlist Bottom Sheet
-        if (showMiniPlayerTrackOptions && playerUiState.currentTrack != null) {
-            val curTrack = playerUiState.currentTrack!!
+        if (showMiniPlayerTrackOptions && (playerUiState.currentTrack ?: audioPlayerTrack) != null) {
+            val curTrack = (playerUiState.currentTrack ?: audioPlayerTrack)!!
             val libVM = obtainLibraryViewModel()
             com.auralis.music.ui.components.PlaylistPickerBottomSheet(
                 track = curTrack,
@@ -2099,6 +2180,8 @@ fun AuralisApp(
 private fun MiniPlayerHost(
     playerViewModel: PlayerViewModel,
     playerUiState: PlayerUiState,
+    audioPlayerFallbackTrack: Track? = null,
+    audioPlayerIsPlaying: Boolean = false,
     isGuestInRoom: Boolean,
     isFullyCollapsed: Boolean,
     appearanceSettings: com.auralis.music.domain.model.AppearanceSettings,
@@ -2109,7 +2192,7 @@ private fun MiniPlayerHost(
     notifyGuestControlBlocked: () -> Unit
 ) {
     val miniPositionState: State<Long> = playerViewModel.playbackPositionMs.collectAsState()
-    val currentTrack = playerUiState.currentTrack ?: return
+    val currentTrack = playerUiState.currentTrack ?: audioPlayerFallbackTrack ?: return
     val miniDurationState: State<Long> = remember(playerUiState.durationMs, currentTrack.duration) {
         derivedStateOf {
             val d = playerUiState.durationMs
@@ -2129,7 +2212,7 @@ private fun MiniPlayerHost(
     key(appearanceSettings.miniPlayerDesign) {
         MiniPlayer(
             track = currentTrack,
-            isPlaying = playerUiState.isPlaying,
+            isPlaying = if (playerUiState.currentTrack != null) playerUiState.isPlaying else audioPlayerIsPlaying,
             progressState = miniProgressState,
             progressProvider = miniProgressProvider,
             queue = playerUiState.queue,

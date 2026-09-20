@@ -135,9 +135,11 @@ fun TrackOptionsMenu(
                         "%d:%02d".format(mins, secs)
                     } else null
 
+                    val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                    val displayAlbum = if (isRedundantAlbum) null else track.album
                     val subtitle = listOfNotNull(
                         track.artist.takeIf { it.isNotBlank() },
-                        track.album.takeIf { !it.isNullOrBlank() },
+                        displayAlbum,
                         durationText
                     ).joinToString(" • ")
 

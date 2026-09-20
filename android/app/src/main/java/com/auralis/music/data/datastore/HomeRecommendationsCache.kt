@@ -77,6 +77,61 @@ object HomeRecommendationsCache {
         }
     }
 
+    private fun getPinnedSpeedDialFile(context: Context): File {
+        return File(context.filesDir, "pinned_speed_dial.json")
+    }
+
+    @Volatile
+    private var inMemoryPinnedSpeedDial: List<SpeedDialItem>? = null
+
+    suspend fun getPinnedSpeedDialItems(context: Context): List<SpeedDialItem> {
+        inMemoryPinnedSpeedDial?.let { return it }
+        return withContext(Dispatchers.IO) {
+            try {
+                val file = getPinnedSpeedDialFile(context)
+                if (file.exists()) {
+                    val content = file.readText()
+                    if (content.isNotBlank()) {
+                        val parsed = json.decodeFromString<List<SpeedDialItem>>(content)
+                        inMemoryPinnedSpeedDial = parsed
+                        return@withContext parsed
+                    }
+                }
+            } catch (_: Exception) {}
+            emptyList()
+        }
+    }
+
+    suspend fun savePinnedSpeedDialItems(context: Context, items: List<SpeedDialItem>) {
+        inMemoryPinnedSpeedDial = items
+        withContext(Dispatchers.IO) {
+            try {
+                val file = getPinnedSpeedDialFile(context)
+                val content = json.encodeToString(items)
+                file.writeText(content)
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun pinSpeedDialItem(context: Context, item: SpeedDialItem) {
+        val current = getPinnedSpeedDialItems(context).toMutableList()
+        current.removeAll { it.id == item.id }
+        current.add(0, item.copy(isPinned = true))
+        savePinnedSpeedDialItems(context, current)
+    }
+
+    suspend fun unpinSpeedDialItem(context: Context, itemId: String) {
+        val cleanId = itemId.removePrefix("album-")
+        val current = getPinnedSpeedDialItems(context).toMutableList()
+        current.removeAll { it.id == itemId || it.id == "album-$itemId" || it.id.removePrefix("album-") == cleanId }
+        savePinnedSpeedDialItems(context, current)
+    }
+
+    suspend fun isItemPinned(context: Context, itemId: String): Boolean {
+        val cleanId = itemId.removePrefix("album-")
+        return getPinnedSpeedDialItems(context).any { it.id == itemId || it.id == "album-$itemId" || it.id.removePrefix("album-") == cleanId }
+    }
+
 
     suspend fun getCachedSimilarRecommendations(context: Context): List<SimilarRecommendation> {
         inMemorySimilarRecs?.let { if (it.isNotEmpty()) return it }

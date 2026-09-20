@@ -304,7 +304,7 @@ object AudioStreamResolver {
         }
     }
 
-    private suspend fun resolveNonRestrictedAlternative(
+    suspend fun resolveNonRestrictedAlternative(
         title: String,
         artist: String,
         originalVideoId: String,
@@ -315,7 +315,14 @@ object AudioStreamResolver {
         if (title.isBlank()) return null
         return try {
             val cleanedTitle = TitleCleaner.cleanTitle(title)
-            val cleanCoreTitle = cleanedTitle.replace(Regex("\\(.*\\)|\\[.*\\]|(?i)- (from|original|remix|audio).*"), "").trim()
+            val cleanCoreTitle = cleanedTitle
+                .replace(Regex("""(?i)\s*-\s*\d{4}\s*remaster(ed)?.*"""), "")
+                .replace(Regex("""(?i)\s*-\s*remaster(ed)?.*"""), "")
+                .replace(Regex("""(?i)\s*-\s*deluxe\s*(edition|version)?.*"""), "")
+                .replace(Regex("""(?i)\s*\([^)]*remaster(ed)?[^)]*\)"""), "")
+                .replace(Regex("""(?i)\s*\([^)]*deluxe[^)]*\)"""), "")
+                .replace(Regex("""\(.*\)|\[.*\]|(?i)- (from|original|remix|audio).*"""), "")
+                .trim()
             val cleanedArtist = TitleCleaner.cleanArtist(artist)
             val primaryArtist = if (cleanedArtist.isNotBlank() && !cleanedArtist.equals("Spotify Artist", ignoreCase = true)) {
                 cleanedArtist.split(Regex("[,&/]|\\b(feat|ft|with)\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanedArtist

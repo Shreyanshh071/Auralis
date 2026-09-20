@@ -7,4 +7,4 @@
     This file itself is consumed only by the build toolchain and is NOT included in the APK.
 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@mipmap/ic_launcher,@mipmap/ic_launcher_round,@mipmap/ic_launcher_foreground,@drawable/ic_launcher_foreground,@drawable/ic_launcher_background,@color/ic_launcher_background" />
+    tools:keep="@mipmap/ic_launcher,@mipmap/ic_launcher_round,@mipmap/ic_launcher_foreground,@drawable/ic_launcher_foreground,@drawable/ic_launcher_background,@color/ic_launcher_background,@drawable/ic_notification_auralis,@drawable/ic_media_play_circle,@drawable/ic_media_pause_circle,@drawable/ic_media_skip_previous,@drawable/ic_media_skip_next,@drawable/ic_auralis_header_logo" />

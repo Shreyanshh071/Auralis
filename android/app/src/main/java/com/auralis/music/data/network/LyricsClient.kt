@@ -539,11 +539,15 @@ class LyricsClient(
                     val tier = tierOf(candidate.lyricsData)
                     if (tier == TIER_NONE) continue
 
-                    // Label from the data, not from the provider's claim: a
-                    // candidate with no per-word durations is line-sync no matter
-                    // what it called itself.
+                    // Label from the data, not from the provider's claim: candidates
+                    // with genuine word timing (durations or starts) retain RICHSYNC,
+                    // while line-level text remains LINE_SYNC.
                     val resolvedSyncType =
-                        if (tier == TIER_WORD) SyncType.RICHSYNC else SyncType.LINE_SYNC
+                        if (tier == TIER_WORD || com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(candidate.lyricsData.lines)) {
+                            SyncType.RICHSYNC
+                        } else {
+                            SyncType.LINE_SYNC
+                        }
                     val correctedCand = candidate.copy(
                         syncType = resolvedSyncType,
                         lyricsData = candidate.lyricsData.copy(syncType = resolvedSyncType)
@@ -736,7 +740,12 @@ class LyricsClient(
 
                     if (isAcceptable || isSafeMatch) {
                         Log.d(TAG, "[RAW TITLE WINNER] LRCLIB in ${System.currentTimeMillis() - t0}ms (acceptable=$isAcceptable, safeMatch=$isSafeMatch)")
-                        return@withContext lrcFallback.lyricsData.copy(syncType = SyncType.LINE_SYNC)
+                        val fallbackSyncType = if (com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(lrcFallback.lyricsData.lines)) {
+                            SyncType.RICHSYNC
+                        } else {
+                            SyncType.LINE_SYNC
+                        }
+                        return@withContext lrcFallback.lyricsData.copy(syncType = fallbackSyncType)
                     } else {
                         Log.w(TAG, "[RAW TITLE REJECTED] LRCLIB master mismatch for '$title' (playback=${queryDurationMs}ms, lyric=${lrcFallback.lyricsData.durationMs}ms)")
                     }

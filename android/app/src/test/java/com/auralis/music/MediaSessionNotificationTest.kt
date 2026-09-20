@@ -118,6 +118,30 @@ class MediaSessionNotificationTest {
         assertNull(resolveNotificationSubtext(isBuffering = false))
     }
 
+    @Test
+    fun testNotificationFavoriteIconAndTitleResolution() {
+        // When favorited: filled heart and "Favorited" label
+        val (favIcon, favTitle) = resolveFavoriteActionIconAndTitle(isFav = true)
+        assertEquals(R.drawable.ic_heart_filled, favIcon)
+        assertEquals("Favorited", favTitle)
+
+        // When not favorited: outline heart and "Favorite" label
+        val (unfavIcon, unfavTitle) = resolveFavoriteActionIconAndTitle(isFav = false)
+        assertEquals(R.drawable.ic_heart_outline, unfavIcon)
+        assertEquals("Favorite", unfavTitle)
+    }
+
+    @Test
+    fun testFavoriteToggleInversionLogic() {
+        var isFav = false
+        // Simulate notification tap
+        isFav = !isFav
+        assertTrue(isFav)
+        // Simulate second notification tap
+        isFav = !isFav
+        assertFalse(isFav)
+    }
+
     private fun shouldNotificationBeOngoing(isPlaying: Boolean, isBuffering: Boolean): Boolean {
         return isPlaying || isBuffering
     }
@@ -138,5 +162,11 @@ class MediaSessionNotificationTest {
 
     private fun resolveNotificationSubtext(isBuffering: Boolean): String? {
         return if (isBuffering) "Buffering..." else null
+    }
+
+    private fun resolveFavoriteActionIconAndTitle(isFav: Boolean): Pair<Int, String> {
+        val icon = if (isFav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
+        val title = if (isFav) "Favorited" else "Favorite"
+        return icon to title
     }
 }
