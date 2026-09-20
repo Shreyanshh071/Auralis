@@ -78,6 +78,7 @@ data class HomeUiState(
     val recentTracks: List<HistoryEntry> = emptyList(),
     val topPlayedTracks: List<PlayCountEntry> = emptyList(),
     val speedDialPages: List<List<SpeedDialItem>> = buildInitialSeedSpeedDial(),
+    val pinnedSpeedDialIds: Set<String> = emptySet(),
     val forgottenFavorites: List<Track> = emptyList(),
     val keepListening: List<Track> = emptyList(),
     val quickPicks: List<Track> = emptyList(),
@@ -119,9 +120,12 @@ class HomeViewModel(
                 val cachedSpeedDial = HomeRecommendationsCache.getCachedSpeedDial(ctx)
                 val cachedRecs = HomeRecommendationsCache.getCachedSimilarRecommendations(ctx)
                 val cachedDiscover = HomeRecommendationsCache.getCachedDailyDiscover(ctx)
-                if (cachedSpeedDial.isNotEmpty() || cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty()) {
+                val cachedPinned = HomeRecommendationsCache.getPinnedSpeedDialItems(ctx)
+                val pinnedIds = cachedPinned.map { it.id }.toSet()
+                if (cachedSpeedDial.isNotEmpty() || cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty() || cachedPinned.isNotEmpty()) {
                     _uiState.update {
                         it.copy(
+                            pinnedSpeedDialIds = pinnedIds,
                             speedDialPages = if (cachedSpeedDial.isNotEmpty()) cachedSpeedDial else it.speedDialPages,
                             similarRecommendations = if (it.similarRecommendations.isEmpty()) cachedRecs else it.similarRecommendations,
                             dailyDiscover = if (it.dailyDiscover.isEmpty()) cachedDiscover else it.dailyDiscover
@@ -148,29 +152,33 @@ class HomeViewModel(
 
                 val topTracks = topPlayed.map { it.track }
                 val historyTracks = historyList.map { it.track }
+                val pinnedList = context?.let { HomeRecommendationsCache.getPinnedSpeedDialItems(it) } ?: emptyList()
+                val pinnedIds = pinnedList.map { it.id }.toSet()
 
                 if (isNewUser) {
                     val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
-                    val speedDial = buildSpeedDialPages(emptyList(), emptyList(), seedTracks)
+                    val speedDial = buildSpeedDialPages(emptyList(), emptyList(), seedTracks, pinnedList)
                     _uiState.update {
                         it.copy(
                             recentTracks = emptyList(),
                             topPlayedTracks = emptyList(),
                             tasteProfile = profile,
                             speedDialPages = speedDial,
+                            pinnedSpeedDialIds = pinnedIds,
                             isLoading = false
                         )
                     }
                 } else {
                     val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
                     val heavy = historyRepository.getRecentHeavyRotation()
-                    val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+                    val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy, pinnedList)
                     _uiState.update {
                         it.copy(
                             recentTracks = historyList,
                             topPlayedTracks = topPlayed,
                             tasteProfile = profile,
                             speedDialPages = speedDial,
+                            pinnedSpeedDialIds = pinnedIds,
                             isLoading = false
                         )
                     }
@@ -218,11 +226,12 @@ class HomeViewModel(
                 val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
                 val heavy = historyRepository.getRecentHeavyRotation()
                 val forgotten = historyRepository.getForgottenFavorites().shuffled().take(15)
-
+                val pinnedList = context?.let { HomeRecommendationsCache.getPinnedSpeedDialItems(it) } ?: emptyList()
+                val pinnedIds = pinnedList.map { it.id }.toSet()
                 val speedDial = if (isNewUser) {
-                    buildSpeedDialPages(emptyList(), emptyList(), NewUserSeedProvider.getInitialSeedTracks())
+                    buildSpeedDialPages(emptyList(), emptyList(), NewUserSeedProvider.getInitialSeedTracks(), pinnedList)
                 } else {
-                    buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy)
+                    buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy, pinnedList)
                 }
 
                 _uiState.update {
@@ -230,6 +239,7 @@ class HomeViewModel(
                         recentTracks = history,
                         topPlayedTracks = topPlayed,
                         speedDialPages = speedDial,
+                        pinnedSpeedDialIds = pinnedIds,
                         forgottenFavorites = forgotten,
                         keepListening = heavy.distinctBy { trk -> trk.id }.take(15),
                         tasteProfile = profile,
@@ -833,25 +843,41 @@ class HomeViewModel(
 
     /**
      * Builds 3x3 Speed Dial Pages (27 items total = 3 pages of 9).
-     * Strictly deduplicates songs so identical tracks (even with different YouTube IDs,
-     * bracket noise, or artist variations) are never recommended multiple times on Speed Dial.
-     * Only page 0 displays the 5-dot "Surprise Me" tile in the 9th slot; pages 1 and 2 display 9 full tracks.
+     * Pinned items (albums, artists, tracks) appear first on Page 0.
+     * Strictly deduplicates songs so identical tracks are never recommended multiple times.
+     * Only page 0 displays the 5-dot "Surprise Me" tile in the 9th slot; pages 1 and 2 display 9 full items.
      */
     fun buildSpeedDialPages(
         topTracks: List<Track>,
         historyTracks: List<Track>,
-        fallbackCandidates: List<Track> = emptyList()
+        fallbackCandidates: List<Track> = emptyList(),
+        pinnedItems: List<SpeedDialItem>? = null
     ): List<List<SpeedDialItem>> {
-        val candidateTracks = topTracks + historyTracks + fallbackCandidates
-        val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
-        if (uniqueTracks.isEmpty()) return emptyList()
+        val effectivePinned = pinnedItems ?: run {
+            context?.let { ctx ->
+                kotlinx.coroutines.runBlocking {
+                    HomeRecommendationsCache.getPinnedSpeedDialItems(ctx)
+                }
+            } ?: emptyList()
+        }
+        val pinnedIds = effectivePinned.map { it.id }.toSet()
 
         val allItems = mutableListOf<SpeedDialItem>()
-        for ((idx, t) in uniqueTracks.take(26).withIndex()) {
+        // 1. Add all pinned items first
+        allItems.addAll(effectivePinned)
+
+        // 2. Add unpinned tracks up to limit (always backed by seed tracks so 26 slots are filled)
+        val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+        val candidateTracks = topTracks + historyTracks + fallbackCandidates + seedTracks
+        val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
+        for ((idx, t) in uniqueTracks.withIndex()) {
+            if (allItems.size >= 26) break
+            val trackItemId = "track-${t.id}-$idx"
+            if (pinnedIds.contains(trackItemId) || pinnedIds.contains("track-${t.id}")) continue
             val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
             allItems.add(
                 SpeedDialItem(
-                    id = "track-${t.id}-$idx",
+                    id = trackItemId,
                     name = displayName,
                     type = SpeedDialType.TRACK,
                     track = t.copy(title = displayName),
@@ -860,31 +886,31 @@ class HomeViewModel(
             )
         }
 
+        if (allItems.isEmpty()) return emptyList()
+
         val pages = mutableListOf<List<SpeedDialItem>>()
 
-        // Page 0: 8 tracks + 1 Surprise Me dice tile in the 9th slot
+        // Page 0: 8 items + 1 Surprise Me dice tile in the 9th slot
         val page0Items = allItems.take(8).toMutableList()
-        if (page0Items.isNotEmpty()) {
+        while (page0Items.size < 8) {
             page0Items.add(
                 SpeedDialItem(
-                    id = "surprise-0",
-                    name = "Surprise Me",
-                    type = SpeedDialType.SURPRISE
+                    id = "placeholder-0-${page0Items.size}",
+                    name = "",
+                    type = SpeedDialType.PLACEHOLDER
                 )
             )
-            while (page0Items.size < 9) {
-                page0Items.add(
-                    SpeedDialItem(
-                        id = "placeholder-0-${page0Items.size}",
-                        name = "",
-                        type = SpeedDialType.PLACEHOLDER
-                    )
-                )
-            }
-            pages.add(page0Items)
         }
+        page0Items.add(
+            SpeedDialItem(
+                id = "surprise-0",
+                name = "Surprise Me",
+                type = SpeedDialType.SURPRISE
+            )
+        )
+        pages.add(page0Items)
 
-        // Page 1: 9 tracks (items 8..16) without surprise button
+        // Page 1: 9 items (items 8..16) without surprise button
         val page1Items = allItems.drop(8).take(9).toMutableList()
         if (page1Items.isNotEmpty()) {
             while (page1Items.size < 9) {
@@ -899,7 +925,7 @@ class HomeViewModel(
             pages.add(page1Items)
         }
 
-        // Page 2: 9 tracks (items 17..25) without surprise button
+        // Page 2: 9 items (items 17..25) without surprise button
         val page2Items = allItems.drop(17).take(9).toMutableList()
         if (page2Items.isNotEmpty()) {
             while (page2Items.size < 9) {
@@ -915,5 +941,89 @@ class HomeViewModel(
         }
 
         return pages
+    }
+
+    fun togglePinAlbum(album: PlaylistResult): Boolean {
+        val ctx = context ?: return false
+        val cleanId = album.id.removePrefix("album-").removePrefix("VL")
+        val albumItemId = "album-$cleanId"
+        val isAlreadyPinned = isAlbumPinned(cleanId)
+        val newPinnedState = !isAlreadyPinned
+
+        // 1. Immediately update pinnedSpeedDialIds in UI state (0ms latency, instant UI response)
+        val updatedPinnedIds = if (isAlreadyPinned) {
+            _uiState.value.pinnedSpeedDialIds.filterNot {
+                val id = it.removePrefix("album-").removePrefix("VL")
+                id == cleanId
+            }.toSet()
+        } else {
+            _uiState.value.pinnedSpeedDialIds + albumItemId
+        }
+
+        _uiState.update { current ->
+            current.copy(pinnedSpeedDialIds = updatedPinnedIds)
+        }
+
+        // 2. Persist to cache and rebuild speed dial pages asynchronously on IO without blocking UI
+        viewModelScope.launch(Dispatchers.IO) {
+            if (isAlreadyPinned) {
+                HomeRecommendationsCache.unpinSpeedDialItem(ctx, cleanId)
+                HomeRecommendationsCache.unpinSpeedDialItem(ctx, album.id)
+            } else {
+                val item = SpeedDialItem(
+                    id = albumItemId,
+                    name = album.title,
+                    type = SpeedDialType.ALBUM,
+                    image = album.thumbnail,
+                    album = album,
+                    isPinned = true
+                )
+                HomeRecommendationsCache.pinSpeedDialItem(ctx, item)
+            }
+            val pinnedList = HomeRecommendationsCache.getPinnedSpeedDialItems(ctx)
+            val topTracks = _uiState.value.topPlayedTracks.map { it.track }
+            val historyTracks = _uiState.value.recentTracks.map { it.track }
+            val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+            val heavy = historyRepository.getRecentHeavyRotation()
+            val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy, pinnedList)
+            _uiState.update { it.copy(speedDialPages = speedDial) }
+            HomeRecommendationsCache.saveSpeedDial(ctx, speedDial)
+        }
+        return newPinnedState
+    }
+
+    fun isAlbumPinned(albumId: String): Boolean {
+        val cleanId = albumId.removePrefix("album-").removePrefix("VL")
+        return _uiState.value.pinnedSpeedDialIds.any {
+            val id = it.removePrefix("album-").removePrefix("VL")
+            id == cleanId
+        }
+    }
+
+    fun unpinFromSpeedDial(itemId: String) {
+        val ctx = context ?: return
+        val cleanId = itemId.removePrefix("album-").removePrefix("VL")
+
+        val updatedPinnedIds = _uiState.value.pinnedSpeedDialIds.filterNot {
+            val id = it.removePrefix("album-").removePrefix("VL")
+            id == cleanId || it == itemId
+        }.toSet()
+
+        _uiState.update {
+            it.copy(pinnedSpeedDialIds = updatedPinnedIds)
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            HomeRecommendationsCache.unpinSpeedDialItem(ctx, cleanId)
+            HomeRecommendationsCache.unpinSpeedDialItem(ctx, itemId)
+            val pinnedList = HomeRecommendationsCache.getPinnedSpeedDialItems(ctx)
+            val topTracks = _uiState.value.topPlayedTracks.map { it.track }
+            val historyTracks = _uiState.value.recentTracks.map { it.track }
+            val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+            val heavy = historyRepository.getRecentHeavyRotation()
+            val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy, pinnedList)
+            _uiState.update { it.copy(speedDialPages = speedDial) }
+            HomeRecommendationsCache.saveSpeedDial(ctx, speedDial)
+        }
     }
 }

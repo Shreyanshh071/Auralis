@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
+import com.auralis.music.domain.model.PlaylistResult
+import com.auralis.music.domain.model.SavedAlbum
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.home.HomeScreen as PureHomeScreen
 import com.auralis.music.ui.viewmodel.HomeUiState
@@ -35,7 +37,18 @@ fun HomeScreen(
     onOpenHistory: () -> Unit = {},
     onOpenStats: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
-    onAlbumClick: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {},
+    onAlbumClick: (PlaylistResult) -> Unit = {},
+    onUnpinSpeedDial: ((String) -> Unit)? = null,
+    savedAlbums: List<SavedAlbum> = emptyList(),
+    isAlbumPinned: ((String) -> Boolean)? = null,
+    onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
+    onToggleSaveAlbum: ((SavedAlbum) -> Unit)? = null,
+    onShuffleAlbum: ((PlaylistResult) -> Unit)? = null,
+    onPlayNextAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddToQueueAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddAlbumToPlaylist: ((String, PlaylistResult) -> Unit)? = null,
+    onCreatePlaylistAndAddAlbum: ((String, PlaylistResult) -> Unit)? = null,
+    onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -64,6 +77,17 @@ fun HomeScreen(
         onOpenStats = onOpenStats,
         onArtistClick = onArtistClick,
         onAlbumClick = onAlbumClick,
+        onUnpinSpeedDial = onUnpinSpeedDial,
+        savedAlbums = savedAlbums,
+        isAlbumPinned = isAlbumPinned,
+        onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+        onToggleSaveAlbum = onToggleSaveAlbum,
+        onShuffleAlbum = onShuffleAlbum,
+        onPlayNextAlbum = onPlayNextAlbum,
+        onAddToQueueAlbum = onAddToQueueAlbum,
+        onAddAlbumToPlaylist = onAddAlbumToPlaylist,
+        onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
+        onDownloadAlbum = onDownloadAlbum,
         isInListenTogetherRoom = isInListenTogetherRoom,
         onRecommendToRoom = onRecommendToRoom,
         modifier = modifier

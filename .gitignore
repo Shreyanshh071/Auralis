@@ -45,3 +45,8 @@ scratch_yt_res.json
 *.pb
 
 
+.empryo
+.codex-remote-attachments/
+*.xml.dump
+window_dump.xml
+test_queue.py

@@ -12,19 +12,7 @@ object LrcParser {
     private val WORD_TIMESTAMP_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>([^<]*)""")
     private val AGENT_REGEX = Regex("""\{agent:([^}]+)\}""")
     private val BACKGROUND_REGEX = Regex("""^\{bg\}""")
-    private val METADATA_PREFIX_REGEX = Regex(
-        """^(作词|作曲|编曲|制作人|制作|监制|混音|母带|吉他|贝斯|鼓|键盘|录音|和音|合音|企划|统筹|出品|发行|封面|弦乐|长笛|萨克斯|演唱|原唱|词|曲|OP|SP|Written\s+by|Composed\s+by|Produced\s+by|Lyrics\s+by|Music\s+by|Arranged\s+by|Mixed\s+by|Mastered\s+by|Recorded\s+by|Vocals\s+by|Vocal\s+by|Performed\s+by|Credits|Publisher|Release|Source|Transcribed\s+by|Translated\s+by)\s*[:：]""",
-        RegexOption.IGNORE_CASE
-    )
-
-    fun isMetadataOrCreditLine(text: String): Boolean {
-        val trimmed = text.trim()
-        if (trimmed.isBlank()) return true
-        if (trimmed.matches(Regex("""^[\s\-=_~*#\/\\|♪♫♩♬….]+$"""))) return true
-        if (METADATA_PREFIX_REGEX.containsMatchIn(trimmed)) return true
-        if (trimmed.startsWith("by:", ignoreCase = true) || trimmed.startsWith("by :", ignoreCase = true)) return true
-        return false
-    }
+    fun isMetadataOrCreditLine(text: String): Boolean = LyricsContentFilter.isNonLyricLine(text)
 
     /**
      * Parses LRC text (standard line sync or enhanced rich sync) into [LyricsData].

@@ -6,7 +6,10 @@ object LyricsValidator {
 
     private val CORRUPT_QUESTION_MARK_REGEX = Regex("""\?{2,}|\?\s+\?""")
     private val PLACEHOLDER_REGEX = Regex(
-        """(?i)\b(lyrics\s*(not\s*available|coming\s*soon|to\s*be\s*added)|add\s*lyrics|lorem\s*ipsum|text\s*not\s*found|lyrics\s*uploaded\s*by|synced\s*by|transcribed\s*by)\b"""
+        """(?i)\b(lyrics\s*(not\s*available|coming\s*soon|to\s*be\s*added)|add\s*lyrics|lorem\s*ipsum|text\s*not\s*found)\b"""
+    )
+    private val CONTRIBUTOR_STUB_REGEX = Regex(
+        """(?i)\b(lyrics\s*uploaded\s*by|synced\s*by|transcribed\s*by)\b"""
     )
 
     /**
@@ -38,6 +41,11 @@ object LyricsValidator {
 
         // 3. Known placeholder / spam lines
         if (PLACEHOLDER_REGEX.containsMatchIn(fullText)) {
+            return true
+        }
+
+        // Entire payload consists only of contributor attribution stubs without actual lyrics
+        if (nonInstLines.all { CONTRIBUTOR_STUB_REGEX.containsMatchIn(it.text) || it.text.trim().length < 5 }) {
             return true
         }
 

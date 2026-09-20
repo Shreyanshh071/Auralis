@@ -20,8 +20,18 @@ object ArtworkResolver {
 
     fun getArtwork(track: Track): String? {
         if (!track.thumbnail.isNullOrBlank()) return track.thumbnail
+        val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
+        if (localArt != null && localArt.exists() && localArt.length() > 500) {
+            return android.net.Uri.fromFile(localArt).toString()
+        }
         val key = getCacheKey(track)
-        return resolvedArtworkCache[key]
+        val cached = resolvedArtworkCache[key] ?: resolvedArtworkCache[track.id]
+        if (!cached.isNullOrBlank()) return cached
+        val matchedYtId = AudioStreamResolver.getMatchedVideoId(track.id)
+        if (!matchedYtId.isNullOrBlank() && matchedYtId.length in 8..15) {
+            return "https://i.ytimg.com/vi/$matchedYtId/hqdefault.jpg"
+        }
+        return null
     }
 
     fun cacheArtwork(track: Track, url: String) {
@@ -33,11 +43,18 @@ object ArtworkResolver {
     }
 
     suspend fun resolveArtwork(track: Track): String? = withContext(Dispatchers.IO) {
-        if (!track.thumbnail.isNullOrBlank()) return@withContext track.thumbnail
+        val existing = getArtwork(track)
+        if (!existing.isNullOrBlank()) return@withContext existing
 
         val key = getCacheKey(track)
-        val cached = resolvedArtworkCache[key] ?: resolvedArtworkCache[track.id]
-        if (!cached.isNullOrBlank()) return@withContext cached
+        try {
+            val master = com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(track.title, track.artist, null)
+            if (!master.isNullOrBlank()) {
+                resolvedArtworkCache[key] = master
+                resolvedArtworkCache[track.id] = master
+                return@withContext master
+            }
+        } catch (_: Exception) {}
 
         try {
             val query = if (track.artist.isNotBlank() && !track.artist.equals("Spotify Artist", ignoreCase = true) && !track.title.contains(track.artist, ignoreCase = true)) {

@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.auralis.music.ui.components.SwipeableTrackContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,7 @@ import com.auralis.music.domain.model.HistoryEntry
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.EqualizerBars
+import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
@@ -81,6 +83,8 @@ fun HistorySheet(
     onRemoveFromHistory: (String) -> Unit,
     onClearHistory: () -> Unit,
     onDismiss: () -> Unit,
+    onPlayNext: ((Track) -> Unit)? = null,
+    onAddToQueue: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
@@ -199,77 +203,82 @@ fun HistorySheet(
                         val track = entry.track
                         val isCurrent = track.id == currentTrackId
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (isCurrent) HISTORY_LIME.copy(alpha = 0.12f) else HISTORY_CARD_BG)
-                                .border(
-                                    1.dp,
-                                    if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
-                                    RoundedCornerShape(14.dp)
-                                )
-                                .clickable { onTrackClick(track, trackList) }
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        SwipeableTrackContainer(
+                            onPlayNext = onPlayNext?.let { { it(track) } },
+                            onAddToQueue = onAddToQueue?.let { { it(track) } }
                         ) {
-                            ArtworkCard(
-                                sizeToConstraints = true,
-                                url = track.thumbnail,
-                                modifier = Modifier.size(52.dp),
-                                cornerRadius = 10.dp,
-                                contentDescription = track.title
-                            )
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                    color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isCurrent) HISTORY_LIME.copy(alpha = 0.12f) else HISTORY_CARD_BG)
+                                    .border(
+                                        1.dp,
+                                        if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
+                                        RoundedCornerShape(14.dp)
                                     )
+                                    .clickable { onTrackClick(track, trackList) }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ArtworkCard(
+                                    sizeToConstraints = true,
+                                    url = track.thumbnail,
+                                    modifier = Modifier.size(52.dp),
+                                    cornerRadius = 10.dp,
+                                    contentDescription = track.title
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = " • ${timeFormat.format(Date(entry.playedAt))}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.sp
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                                        color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = track.artist,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        Text(
+                                            text = " • ${timeFormat.format(Date(entry.playedAt))}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                if (isCurrent) {
+                                    EqualizerBars(
+                                        isPlaying = isPlaying,
+                                        modifier = Modifier.size(18.dp),
+                                        color = HISTORY_LIME
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+
+                                IconButton(
+                                    onClick = { onRemoveFromHistory(track.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                            }
-
-                            if (isCurrent) {
-                                EqualizerBars(
-                                    isPlaying = isPlaying,
-                                    modifier = Modifier.size(18.dp),
-                                    color = HISTORY_LIME
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                            }
-
-                            IconButton(
-                                onClick = { onRemoveFromHistory(track.id) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Remove",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
                             }
                         }
                     }

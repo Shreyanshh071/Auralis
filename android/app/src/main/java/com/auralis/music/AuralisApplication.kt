@@ -20,6 +20,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
             try {
                 com.auralis.music.data.network.AudioStreamResolver.init(this@AuralisApplication)
                 com.auralis.music.data.download.AuralisDownloadManager.init(this@AuralisApplication)
+                com.auralis.music.data.download.PlaylistDownloadCoordinator.init(this@AuralisApplication)
                 com.auralis.music.service.AuralisFirebaseMessagingService.subscribeToUpdateTopics()
                 com.auralis.music.service.AppUpdateWorker.schedulePeriodicCheck(this@AuralisApplication)
             } catch (e: Exception) {

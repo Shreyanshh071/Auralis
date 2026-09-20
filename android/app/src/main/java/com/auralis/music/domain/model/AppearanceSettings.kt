@@ -35,15 +35,15 @@ data class AppearanceSettings(
     val hideStatusBarOnFullscreen: Boolean = false,
     val lyricsAnimation: String = LyricsAnimationMode.AURALIS.displayName,
     val enableGlowingLyricsEffect: Boolean = false,
-    val standardLyricsBlur: Boolean = false,
+    val standardLyricsBlur: Boolean = true,
     val lyricsTextSize: Float = 22f,
     val lyricsLineSpacing: Float = 1.3f,
 
     // ── Misc ──
     val defaultOpenTab: String = "Home",
     val defaultLibraryChip: String = "Library",
-    val swipeLeftQueueRightPlayNext: Boolean = false,
-    val swipeToRemoveSongFromPlaylist: Boolean = false,
+    val swipeLeftQueueRightPlayNext: Boolean = true,
+    val swipeToRemoveSongFromPlaylist: Boolean = true,
     val slimBottomNavigationBar: Boolean = false,
     val listenTogetherInTopBar: Boolean = true,
     val gridCellSize: String = "Small",

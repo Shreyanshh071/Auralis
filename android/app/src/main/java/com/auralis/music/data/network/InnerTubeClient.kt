@@ -214,10 +214,20 @@ open class InnerTubeClient(
     }
 
     /**
-     * Resolves authentic album and artist details for a single video ID via get_queue.
+     * Resolves authentic album and artist details for a single video ID via get_queue and AlbumMetadataResolver.
      */
     open suspend fun getSongDetails(videoId: String): Track? = withContext(Dispatchers.IO) {
-        getQueue(listOf(videoId)).firstOrNull()
+        val qTrack = getQueue(listOf(videoId)).firstOrNull() ?: return@withContext null
+        if (AlbumMetadataResolver.isRedundantOrSingle(qTrack.album, qTrack.title)) {
+            val resolved = AlbumMetadataResolver.resolveAlbum(qTrack.title, qTrack.artist)
+            if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank()) {
+                return@withContext qTrack.copy(
+                    album = resolved.albumTitle,
+                    albumId = resolved.albumId ?: qTrack.albumId
+                )
+            }
+        }
+        qTrack
     }
 
     /**
@@ -1499,7 +1509,13 @@ open class InnerTubeClient(
             } else "YouTube Artist"
         } else artistName
 
-        val cleanAlbum = if (albumName?.contains("play", ignoreCase = true) == true || albumName?.contains("view", ignoreCase = true) == true) null else albumName
+        val cleanAlbum = if (
+            albumName?.contains("play", ignoreCase = true) == true ||
+            albumName?.contains("view", ignoreCase = true) == true ||
+            albumName?.contains("listener", ignoreCase = true) == true ||
+            albumName?.contains("subscriber", ignoreCase = true) == true ||
+            albumName?.matches(Regex("""\d+:\d+(:\d+)?""")) == true
+        ) null else albumName
 
         if (itemPageType == "MUSIC_PAGE_TYPE_ARTIST" || itemType.contains("artist") || (browseId != null && browseId.startsWith("UC") && videoId.isNullOrBlank())) {
             if (artists.none { it.id == browseId || it.name.equals(title, ignoreCase = true) }) {

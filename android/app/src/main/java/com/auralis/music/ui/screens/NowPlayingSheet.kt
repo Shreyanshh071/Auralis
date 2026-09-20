@@ -42,6 +42,7 @@ fun NowPlayingSheet(
     onDismiss: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    renderBackground: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
@@ -67,6 +68,7 @@ fun NowPlayingSheet(
         onDismiss = onDismiss,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
+        renderBackground = renderBackground,
         modifier = modifier
     )
 }

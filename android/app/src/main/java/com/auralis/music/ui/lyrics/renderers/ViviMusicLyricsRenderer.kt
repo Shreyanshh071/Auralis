@@ -82,20 +82,20 @@ fun ViviMusicLyricsLine(
     }
 
     // ── Distance Blur ──
-    val targetBlur = if (!enableStandardBlur || !isAutoScrollActive || isActive) {
+    val targetBlur = if (!enableStandardBlur || isActive) {
         0f
     } else {
         when (distanceFromCurrent) {
-            1, 2 -> 0f
-            3 -> 2f
-            4 -> 4f
+            0 -> 0f
+            1 -> 2.5f
+            2 -> 4.5f
             else -> 6f
         }
     }
 
     val animatedBlur by animateFloatAsState(
         targetValue = targetBlur,
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
         label = "viviBlur"
     )
 

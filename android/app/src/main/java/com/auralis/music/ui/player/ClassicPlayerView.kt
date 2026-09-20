@@ -31,7 +31,6 @@ import com.auralis.music.ui.components.QueueTrackItem
 import com.auralis.music.ui.components.createQueueTrackItem
 import com.auralis.music.ui.components.syncLocalQueueWithSnapshot
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -174,53 +173,24 @@ fun ClassicPlayerView(
     onArtistClick: ((Artist) -> Unit)? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val dragOffsetY = remember { Animatable(0f) }
     val displayedTrack = track
     val artworkContext = LocalContext.current
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .graphicsLayer {
-                translationY = dragOffsetY.value
-            }
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        coroutineScope.launch {
-                            val nextVal = (dragOffsetY.value + dragAmount).coerceAtLeast(0f)
-                            dragOffsetY.snapTo(nextVal)
-                        }
-                    },
-                    onDragEnd = {
-                        if (dragOffsetY.value > 130f) {
-                            onDismiss()
-                        } else {
-                            coroutineScope.launch {
-                                dragOffsetY.animateTo(
-                                    0f,
-                                    spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
-                                )
-                            }
-                        }
-                    },
-                    onDragCancel = {
-                        coroutineScope.launch {
-                            dragOffsetY.animateTo(
-                                0f,
-                                spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
-                            )
-                        }
-                    }
-                )
-            },
+            .statusBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // ── 1. TOP HEADER: "Now Playing" + Album Name ──
+        val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(displayedTrack.album, displayedTrack.title)
+        val albumHeader = if (!isRedundantAlbum && !displayedTrack.album.isNullOrBlank()) {
+            displayedTrack.album
+        } else {
+            displayedTrack.artist
+        }
         ClassicTopBar(
-            albumTitle = displayedTrack.album?.takeIf { it.isNotBlank() } ?: displayedTrack.artist,
+            albumTitle = albumHeader,
             controlsAlpha = controlsAlpha,
             modifier = Modifier
                 .fillMaxWidth()
@@ -264,9 +234,9 @@ fun ClassicPlayerView(
                             val artworkRequest = remember(artworkContext, pageTrack.thumbnail) {
                                 coil.request.ImageRequest.Builder(artworkContext)
                                     .data(getHighResArtworkUrl(pageTrack.thumbnail))
-                                    .size(1200, 1200)
+                                    .size(600, 600)
                                     .allowHardware(true)
-                                    .crossfade(false)
+                                    .crossfade(true)
                                     .build()
                             }
                             Box(
@@ -1274,6 +1244,7 @@ private fun ClassicQueueContent(
             val queueArtworkCorner = remember { 8.dp }
             val inactiveRowBg = remember { Color.White.copy(alpha = 0.08f) }
             val subtitleColor = remember { Color.White.copy(alpha = 0.6f) }
+            val context = androidx.compose.ui.platform.LocalContext.current
             val density = LocalDensity.current
             val haptic = LocalHapticFeedback.current
             val localQueue = remember {
@@ -1305,6 +1276,28 @@ private fun ClassicQueueContent(
 
             LaunchedEffect(queueSnapshot) {
                 syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
+            }
+
+            // Pre-cache palettes for visible tracks in the Queue so selecting any song hits cache instantly
+            LaunchedEffect(queueListState, localQueue.size) {
+                snapshotFlow {
+                    val info = queueListState.layoutInfo
+                    val start = info.visibleItemsInfo.firstOrNull()?.index ?: 0
+                    val end = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                    (start..end).mapNotNull { localQueue.getOrNull(it)?.track }
+                }.collect { visibleTracks ->
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        visibleTracks.forEach { trk ->
+                            if (com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.id) == null) {
+                                com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+                                    context = context,
+                                    key = trk.id,
+                                    artworkUrl = trk.thumbnail
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             LazyColumn(
@@ -1356,6 +1349,7 @@ private fun ClassicQueueContent(
                                     if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
                                     val targetIndex = queueSnapshot.indexOfFirst { it.id == item.id }.takeIf { it >= 0 } ?: localQueue.indexOfFirst { it.instanceId == queueItem.instanceId }
                                     if (targetIndex >= 0) {
+                                        com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, item)
                                         onSelectQueueTrack(targetIndex)
                                     }
                                 }

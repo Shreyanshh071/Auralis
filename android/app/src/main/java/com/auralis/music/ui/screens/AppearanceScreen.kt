@@ -442,23 +442,6 @@ fun AppearanceScreen(
                         onClick = { activeDialog = AppearanceDialogType.LYRICS_ANIMATION }
                     )
                 }
-                item(key = "item_glowing_lyrics") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.ColorLens,
-                        title = "Enable glowing lyrics effect",
-                        subtitle = "Apply glowing animation and bounce effects to lyrics",
-                        isChecked = settings.enableGlowingLyricsEffect,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(enableGlowingLyricsEffect = it) } }
-                    )
-                }
                 item(key = "item_lyrics_blur") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.HideImage,

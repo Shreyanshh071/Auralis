@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         liveNavDestination.value = extractNavDestination(intent)
+        handleRetryIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -272,9 +273,29 @@ class MainActivity : ComponentActivity() {
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == com.auralis.music.data.download.PlaylistDownloadCoordinator.LEGACY_STORAGE_PERMISSION_REQUEST) {
+            com.auralis.music.data.download.PlaylistDownloadCoordinator.onLegacyStoragePermissionResult(
+                this,
+                grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
+            )
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         android.util.Log.d("AuralisPlayback", "[MainActivity] onResume")
+        intent?.let { handleRetryIntent(it) }
+    }
+
+    private fun handleRetryIntent(intent: android.content.Intent) {
+        val retryJobId = intent.takeIf { it.getBooleanExtra("RETRY_PLAYLIST_DOWNLOAD", false) }
+            ?.getStringExtra("PLAYLIST_DOWNLOAD_JOB_ID")
+        if (!retryJobId.isNullOrBlank()) {
+            intent.removeExtra("RETRY_PLAYLIST_DOWNLOAD")
+            com.auralis.music.data.download.PlaylistDownloadCoordinator.retry(this, retryJobId)
+        }
     }
 
     override fun onPause() {

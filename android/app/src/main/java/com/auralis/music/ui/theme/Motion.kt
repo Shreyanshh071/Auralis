@@ -274,21 +274,30 @@ fun <T> motionSpring(
 // Overlays and pushed pages pull their transitions from here so that every
 // surface in the app enters and leaves the same way.
 
-/** Full-height surface rising from the bottom (Now Playing). */
+/** Full-height surface rising from the bottom (Now Playing) matching VIVI low-stiffness spring. */
 @Composable
 fun auralisSheetEnter(): EnterTransition {
     if (LocalReducedMotion.current) return EnterTransition.None
     return slideInVertically(
-        animationSpec = tween(PlayerMotion.EnterDuration, easing = PlayerMotion.EnterEasing),
-        initialOffsetY = { fullHeight -> fullHeight / 4 }
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        initialOffsetY = { fullHeight -> fullHeight }
     ) + fadeIn(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard))
 }
 
-/** Counterpart to [auralisSheetEnter] — seamless fade-out while shared elements travel cleanly. */
+/** Counterpart to [auralisSheetEnter] — full-height slide-out to the bottom matching VIVI low-stiffness spring. */
 @Composable
 fun auralisSheetExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
-    return fadeOut(
+    return slideOutVertically(
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        targetOffsetY = { fullHeight -> fullHeight }
+    ) + fadeOut(
         animationSpec = tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)
     )
 }
@@ -333,29 +342,57 @@ fun auralisPushEnter(): EnterTransition = auralisNavigationEnter()
 fun auralisPushExit(): ExitTransition = auralisNavigationExit()
 
 /**
- * Forward entrance for full-screen detail views (Playlist Detail, Artist Page).
- * Unified with Home -> Library navigation: 160ms alpha fade-in + 0.988f -> 1.0f subtle scale lift.
+ * Forward entrance for full-screen detail views (Artist → Album push).
+ * Slides in from the trailing edge (right) with a fade, giving a clear
+ * directional "drill-in" cue distinct from tab switching.
  */
 @Composable
-fun auralisDetailForwardEnter(): EnterTransition = auralisNavigationEnter()
+fun auralisDetailForwardEnter(): EnterTransition {
+    if (LocalReducedMotion.current) return EnterTransition.None
+    return slideInHorizontally(
+        animationSpec = tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        initialOffsetX = { it / 8 }
+    ) + fadeIn(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+}
 
 /**
- * Forward exit for the parent background grid when a detail screen is opening over it.
+ * Forward exit for the parent screen when a detail is opening over it.
+ * Slides slightly to the left and fades, matching VIVI.
  */
 @Composable
-fun auralisDetailForwardExit(): ExitTransition = auralisNavigationExit()
+fun auralisDetailForwardExit(): ExitTransition {
+    if (LocalReducedMotion.current) return ExitTransition.None
+    return slideOutHorizontally(
+        animationSpec = tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        targetOffsetX = { -it / 8 }
+    ) + fadeOut(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+}
 
 /**
- * Backward entrance for the parent background grid when closing a detail screen.
+ * Backward entrance for the parent screen when closing a detail (Album → Artist pop).
+ * Slides back from the left, matching VIVI.
  */
 @Composable
-fun auralisDetailBackwardEnter(): EnterTransition = auralisNavigationEnter()
+fun auralisDetailBackwardEnter(): EnterTransition {
+    if (LocalReducedMotion.current) return EnterTransition.None
+    return slideInHorizontally(
+        animationSpec = tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        initialOffsetX = { -it / 8 }
+    ) + fadeIn(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+}
 
 /**
- * Backward exit for a detail screen when closing back to the grid.
+ * Backward exit for the detail screen being closed.
+ * Slides out to the right, matching VIVI.
  */
 @Composable
-fun auralisDetailBackwardExit(): ExitTransition = auralisNavigationExit()
+fun auralisDetailBackwardExit(): ExitTransition {
+    if (LocalReducedMotion.current) return ExitTransition.None
+    return slideOutHorizontally(
+        animationSpec = tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        targetOffsetX = { it / 8 }
+    ) + fadeOut(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+}
 
 /**
  * In-place content swap: loading -> results -> empty, tab bodies, inline state.

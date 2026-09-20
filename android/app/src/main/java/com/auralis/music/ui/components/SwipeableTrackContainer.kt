@@ -5,11 +5,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -53,8 +51,11 @@ fun SwipeableTrackContainer(
     val isSwipeQueueNextEnabled = appearance.swipeLeftQueueRightPlayNext
     val isSwipeRemoveEnabled = appearance.swipeToRemoveSongFromPlaylist && isPlaylistContext && onRemoveFromPlaylist != null
 
-    // Fast path: no swipe features enabled — render content directly with zero overhead
-    if (!isSwipeQueueNextEnabled && !isSwipeRemoveEnabled) {
+    val canSwipeRight = isSwipeQueueNextEnabled && onPlayNext != null
+    val canSwipeLeft = isSwipeRemoveEnabled || (isSwipeQueueNextEnabled && onAddToQueue != null)
+
+    // Fast path: no swipe features enabled or capable — render content directly with zero overhead
+    if (!canSwipeRight && !canSwipeLeft) {
         if (modifier == Modifier) {
             content()
         } else {
@@ -71,57 +72,50 @@ fun SwipeableTrackContainer(
     val thresholdPx = remember(density) { with(density) { 72.dp.toPx() } }
     val maxDragPx = remember(density) { with(density) { 140.dp.toPx() } }
 
-    val isSwipingRight = offsetX.value > 8f
-    val isSwipingLeft = offsetX.value < -8f
+    val isSwipingRight = canSwipeRight && offsetX.value > 8f
+    val isSwipingLeft = canSwipeLeft && offsetX.value < -8f
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .pointerInput(isSwipeQueueNextEnabled, isSwipeRemoveEnabled) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        coroutineScope.launch {
-                            val current = offsetX.value
-                            val target = (current + dragAmount).coerceIn(-maxDragPx, maxDragPx)
-                            offsetX.snapTo(target)
-                        }
-                    },
-                    onDragEnd = {
-                        val current = offsetX.value
-                        if (current < -thresholdPx) {
-                            // Swiped Left
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (isSwipeRemoveEnabled) {
-                                onRemoveFromPlaylist?.invoke()
-                            } else if (isSwipeQueueNextEnabled) {
-                                onAddToQueue?.invoke()
-                            }
-                        } else if (current > thresholdPx) {
-                            // Swiped Right
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (isSwipeQueueNextEnabled) {
-                                onPlayNext?.invoke()
-                            }
-                        }
-                        coroutineScope.launch {
-                            offsetX.animateTo(
-                                targetValue = 0f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
-                                )
-                            )
-                        }
-                    },
-                    onDragCancel = {
-                        coroutineScope.launch {
-                            offsetX.animateTo(0f)
-                        }
+            .draggable(
+                state = rememberDraggableState { delta ->
+                    val current = offsetX.value
+                    val minAllowed = if (canSwipeLeft) -maxDragPx else 0f
+                    val maxAllowed = if (canSwipeRight) maxDragPx else 0f
+                    val target = (current + delta).coerceIn(minAllowed, maxAllowed)
+                    coroutineScope.launch {
+                        offsetX.snapTo(target)
                     }
-                )
-            }
+                },
+                orientation = Orientation.Horizontal,
+                onDragStopped = {
+                    val current = offsetX.value
+                    if (current < -thresholdPx && canSwipeLeft) {
+                        // Swiped Left
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (isSwipeRemoveEnabled) {
+                            onRemoveFromPlaylist?.invoke()
+                        } else {
+                            onAddToQueue?.invoke()
+                        }
+                    } else if (current > thresholdPx && canSwipeRight) {
+                        // Swiped Right
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPlayNext?.invoke()
+                    }
+                    coroutineScope.launch {
+                        offsetX.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        )
+                    }
+                }
+            )
     ) {
         // Background action indicators (only composed when swiping — zero overhead during idle scroll)
         if (isSwipingRight) {

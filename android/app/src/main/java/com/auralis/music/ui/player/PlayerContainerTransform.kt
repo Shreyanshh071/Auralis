@@ -5,7 +5,9 @@ import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -68,23 +70,13 @@ fun playerSharedArtwork(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     enabled: Boolean
 ): Modifier {
-    if (!enabled || sharedTransitionScope == null || animatedVisibilityScope == null) return Modifier
-    if (LocalReducedMotion.current) return Modifier
-    val boundsTransform = rememberPlayerBoundsTransform()
-    return with(sharedTransitionScope) {
-        Modifier.sharedElement(
-            rememberSharedContentState(key = ArtworkKey),
-            animatedVisibilityScope,
-            boundsTransform = boundsTransform
-        )
-    }
+    // MiniPlayer <-> Full Player uses unified sheet translation and opacity crossfade (matching VIVI).
+    // SharedElement overlay flight across this boundary causes double-displacement and trajectory jumping.
+    return Modifier
 }
 
 /**
- * Tags the title/artist block. Uses `sharedBounds` rather than `sharedElement`
- * because the two sides are not the same content (14/12.sp in the pill vs
- * 20/14.sp in the sheet); the default scale-to-bounds resize keeps this to a
- * graphics-layer transform instead of re-measuring text on every frame.
+ * Tags the title/artist block.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -93,18 +85,8 @@ fun playerSharedTrackInfo(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     enabled: Boolean
 ): Modifier {
-    if (!enabled || sharedTransitionScope == null || animatedVisibilityScope == null) return Modifier
-    if (LocalReducedMotion.current) return Modifier
-    val boundsTransform = rememberPlayerBoundsTransform()
-    return with(sharedTransitionScope) {
-        Modifier.sharedBounds(
-            rememberSharedContentState(key = TrackInfoKey),
-            animatedVisibilityScope,
-            enter = fadeIn(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard)),
-            exit = fadeOut(tween(PlayerMotion.ExitDuration, easing = AuralisEasing.Standard)),
-            boundsTransform = boundsTransform
-        )
-    }
+    // Title/artist uses unified sheet translation and opacity crossfade (matching VIVI).
+    return Modifier
 }
 
 /**
@@ -126,10 +108,10 @@ fun playerArtworkCorner(
 
     val radius by animatedVisibilityScope.transition.animateDp(
         transitionSpec = {
-            val isOpening = if (expanded) targetState == EnterExitState.Visible else targetState != EnterExitState.Visible
-            val duration = if (isOpening) PlayerMotion.EnterDuration else PlayerMotion.ExitDuration
-            val easing = if (isOpening) PlayerMotion.EnterEasing else PlayerMotion.ExitEasing
-            tween(duration, easing = easing)
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessLow
+            )
         },
         label = "playerArtworkCorner"
     ) { state ->
@@ -147,10 +129,10 @@ fun playerArtworkCorner(
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun rememberPlayerBoundsTransform(): BoundsTransform = remember {
-    BoundsTransform { initialBounds, targetBounds ->
-        val isExpanding = targetBounds.width > initialBounds.width
-        val duration = if (isExpanding) PlayerMotion.EnterDuration else PlayerMotion.ExitDuration
-        val easing = if (isExpanding) PlayerMotion.EnterEasing else PlayerMotion.ExitEasing
-        tween(duration, easing = easing)
+    BoundsTransform { _, _ ->
+        spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        )
     }
 }

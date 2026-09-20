@@ -112,9 +112,18 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         return state.currentIndex >= (state.queue.size - threshold)
     }
 
-    fun nextIndex(): Int? {
+    fun nextIndex(isUserSkip: Boolean = false): Int? {
         val q = state.queue
         if (q.isEmpty()) return null
+
+        if (isUserSkip) {
+            // Explicit user skip: advance past current track regardless of RepeatMode.ONE
+            return if (q.size > 1) {
+                (state.currentIndex + 1) % q.size
+            } else {
+                null
+            }
+        }
 
         return when (state.repeatMode) {
             RepeatMode.ONE -> state.currentIndex
@@ -125,9 +134,18 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         }
     }
 
-    fun previousIndex(): Int? {
+    fun previousIndex(isUserSkip: Boolean = false): Int? {
         val q = state.queue
         if (q.isEmpty()) return null
+
+        if (isUserSkip) {
+            // Explicit user skip: go to previous track regardless of RepeatMode.ONE
+            return if (q.size > 1) {
+                if (state.currentIndex - 1 < 0) q.size - 1 else state.currentIndex - 1
+            } else {
+                null
+            }
+        }
 
         return when (state.repeatMode) {
             RepeatMode.ONE -> state.currentIndex
@@ -138,8 +156,8 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         }
     }
 
-    fun advanceNext(): Track? {
-        val next = nextIndex() ?: return null
+    fun advanceNext(isUserSkip: Boolean = false): Track? {
+        val next = nextIndex(isUserSkip) ?: return null
         val nextTrack = state.queue.getOrNull(next)
         if (nextTrack != null) {
             if (playNextQueue.isNotEmpty() && playNextQueue.first().id == nextTrack.id) {
@@ -153,8 +171,8 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         return state.currentTrack
     }
 
-    fun advancePrevious(): Track? {
-        val prev = previousIndex() ?: return null
+    fun advancePrevious(isUserSkip: Boolean = false): Track? {
+        val prev = previousIndex(isUserSkip) ?: return null
         state = state.copy(currentIndex = prev)
         syncUserQueuesWithUpcoming()
         return state.currentTrack
@@ -259,10 +277,17 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
     }
 
     fun playNext(track: Track): QueueState {
+        return playNext(listOf(track))
+    }
+
+    fun playNext(tracks: List<Track>): QueueState {
+        if (tracks.isEmpty()) return state
         val q = state.queue.toMutableList()
         val insertIndex = (state.currentIndex + 1).coerceIn(0, q.size)
-        q.add(insertIndex, track)
-        playNextQueue.addFirst(track)
+        q.addAll(insertIndex, tracks)
+        for (track in tracks.reversed()) {
+            playNextQueue.addFirst(track)
+        }
         val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
         state = state.copy(queue = q, currentIndex = nextIndex, isUserQueue = true)
         return state

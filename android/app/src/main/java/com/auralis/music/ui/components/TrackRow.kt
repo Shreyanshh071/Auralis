@@ -100,8 +100,10 @@ fun TrackRow(
                             .padding(end = 4.dp)
                     )
                 }
+                val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                val displayAlbum = if (isRedundantAlbum) null else track.album
                 Text(
-                    text = listOfNotNull(track.artist, track.album).joinToString(" • "),
+                    text = listOfNotNull(track.artist, displayAlbum).joinToString(" • "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

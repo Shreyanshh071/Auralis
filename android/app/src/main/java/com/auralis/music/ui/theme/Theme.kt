@@ -34,6 +34,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -542,10 +543,11 @@ private fun paletteStyleFor(chroma: Double): PaletteStyle {
  * Matches ViVi Music and standard Material 3 architecture:
  * - Uses MaterialKolor's dynamicColorScheme with HCT tonal palette generation.
  * - Primary accent carries the genuine artwork hue and chroma (Tone 80 in dark mode).
- * - Secondary accent is softly muted (chroma / 3, capped at 16) for non-intrusive UI roles.
+ * - Secondary accent reflects extracted distinct secondary harmonic artwork tones.
  * - Tertiary accent provides harmonic balance without overpowering the UI.
- * - Neutral foundation: background and surface are strictly constrained to Chroma <= 6 (near-neutral dark slate/charcoal #121214),
+ * - Neutral foundation: background and surface are strictly constrained to Chroma <= 4.0 (near-neutral dark slate/charcoal),
  *   preventing the entire UI from becoming saturated or flooded by bright artwork.
+ * - Text (onBackground, onSurface) remains crisp, legible near-white without harsh color skews.
  * - Pure AMOLED black support when AMOLED mode is active.
  * NOTE: This function is CPU-intensive (HCT conversion + MaterialKolor tonal palette). Call it off
  * the composition thread (e.g. via produceState / Dispatchers.Default) to prevent frame jank.
@@ -571,10 +573,44 @@ fun dynamicColorSchemeFromSeed(
         seedColor = effectiveSeed,
         isDark = isDark,
         isAmoled = isAmoled && isDark,
+        secondary = secondaryColor?.takeIf { !isMonochrome && it != Color.Unspecified && it != Color.Transparent },
+        tertiary = tertiaryColor?.takeIf { !isMonochrome && it != Color.Unspecified && it != Color.Transparent },
         style = style
     )
     if (!isDark) {
-        return scheme
+        // Enforce high-contrast light mode guarantees:
+        // Text (onBackground, onSurface) must ALWAYS be crisp, legible dark charcoal/black (Tone <= 15, Chroma <= 2.5).
+        // Background and surface must ALWAYS be light (Tone >= 95).
+        val onBgHct = scheme.onBackground.toHct()
+        val cleanOnBg = if (onBgHct.tone > 18.0 || onBgHct.chroma > 2.5) {
+            Color(com.materialkolor.hct.Hct.from(onBgHct.hue, 1.5, minOf(onBgHct.tone, 10.0)).toInt())
+        } else {
+            scheme.onBackground
+        }
+        val onSurfHct = scheme.onSurface.toHct()
+        val cleanOnSurf = if (onSurfHct.tone > 18.0 || onSurfHct.chroma > 2.5) {
+            Color(com.materialkolor.hct.Hct.from(onSurfHct.hue, 1.5, minOf(onSurfHct.tone, 10.0)).toInt())
+        } else {
+            scheme.onSurface
+        }
+        val bgHct = scheme.background.toHct()
+        val cleanBg = if (bgHct.tone < 92.0) {
+            Color(com.materialkolor.hct.Hct.from(bgHct.hue, minOf(bgHct.chroma, 3.0), 98.0).toInt())
+        } else {
+            scheme.background
+        }
+        val surfHct = scheme.surface.toHct()
+        val cleanSurf = if (surfHct.tone < 92.0) {
+            Color(com.materialkolor.hct.Hct.from(surfHct.hue, minOf(surfHct.chroma, 3.0), 98.0).toInt())
+        } else {
+            scheme.surface
+        }
+        return scheme.copy(
+            background = cleanBg,
+            surface = cleanSurf,
+            onBackground = cleanOnBg,
+            onSurface = cleanOnSurf
+        )
     }
 
     return when {
@@ -598,7 +634,42 @@ fun dynamicColorSchemeFromSeed(
             onSurface = Color(0xFFF3F4F6),
             onSurfaceVariant = Color(0xFF9CA3AF)
         )
-        else -> scheme
+        else -> {
+            // Refined, non-aggressive dark foundation:
+            // Ensure background and surface retain an elegant, subtle ambient tint from the artwork (chroma <= 4.0)
+            // without becoming an overwhelming, aggressive color wash.
+            // Ensure text (onBackground, onSurface) remains crisp, readable near-white without harsh color skews.
+            val bgHct = scheme.background.toHct()
+            val cappedBg = if (bgHct.chroma > 3.8) {
+                Color(com.materialkolor.hct.Hct.from(bgHct.hue, 3.2, bgHct.tone).toInt())
+            } else {
+                scheme.background
+            }
+            val surfHct = scheme.surface.toHct()
+            val cappedSurf = if (surfHct.chroma > 3.8) {
+                Color(com.materialkolor.hct.Hct.from(surfHct.hue, 3.2, surfHct.tone).toInt())
+            } else {
+                scheme.surface
+            }
+            val onBgHct = scheme.onBackground.toHct()
+            val cleanOnBg = if (onBgHct.chroma > 2.5) {
+                Color(com.materialkolor.hct.Hct.from(onBgHct.hue, 1.5, onBgHct.tone).toInt())
+            } else {
+                scheme.onBackground
+            }
+            val onSurfHct = scheme.onSurface.toHct()
+            val cleanOnSurf = if (onSurfHct.chroma > 2.5) {
+                Color(com.materialkolor.hct.Hct.from(onSurfHct.hue, 1.5, onSurfHct.tone).toInt())
+            } else {
+                scheme.onSurface
+            }
+            scheme.copy(
+                background = cappedBg,
+                surface = cappedSurf,
+                onBackground = cleanOnBg,
+                onSurface = cleanOnSurf
+            )
+        }
     }
 }
 
@@ -682,25 +753,41 @@ fun animateColorScheme(targetColorScheme: ColorScheme): ColorScheme {
     var previousTargetScheme by remember { mutableStateOf(targetColorScheme) }
     val animProgress = remember { Animatable(1f) }
 
+    val isTargetDark = targetColorScheme.background.luminance() < 0.5f
+    val isCurrentDark = currentVisibleScheme.background.luminance() < 0.5f
+
     LaunchedEffect(targetColorScheme) {
         if (targetColorScheme != previousTargetScheme) {
-            // Snapshot whatever colors are CURRENTLY VISIBLE on screen at interruption moment
-            currentVisibleScheme = lerpColorScheme(currentVisibleScheme, previousTargetScheme, animProgress.value)
-            previousTargetScheme = targetColorScheme
-            animProgress.snapTo(0f)
-            animProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
-            )
+            val targetIsDark = targetColorScheme.background.luminance() < 0.5f
+            val previousIsDark = previousTargetScheme.background.luminance() < 0.5f
+            if (targetIsDark != previousIsDark) {
+                // Instant snap on Light <-> Dark theme mode change!
+                // Never interpolate across polar opposite light/dark modes (which causes mid-gray zero-contrast mud / inverted text).
+                currentVisibleScheme = targetColorScheme
+                previousTargetScheme = targetColorScheme
+                animProgress.snapTo(1f)
+            } else {
+                currentVisibleScheme = lerpColorScheme(currentVisibleScheme, previousTargetScheme, animProgress.value)
+                previousTargetScheme = targetColorScheme
+                animProgress.snapTo(0f)
+                animProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing)
+                )
+            }
         }
     }
 
-    return lerpColorScheme(currentVisibleScheme, previousTargetScheme, animProgress.value)
+    return if (isTargetDark != isCurrentDark) {
+        targetColorScheme
+    } else {
+        lerpColorScheme(currentVisibleScheme, previousTargetScheme, animProgress.value)
+    }
 }
 
 /**
  * Smoothly interpolates AuralisDynamicPalette during dynamic track changes synchronously
- * with animateColorScheme over the identical 280ms FastOutSlowIn curve.
+ * with animateColorScheme over the identical 450ms FastOutSlowIn curve.
  */
 @Composable
 fun animateDynamicPalette(targetPalette: AuralisDynamicPalette): AuralisDynamicPalette {
@@ -710,17 +797,28 @@ fun animateDynamicPalette(targetPalette: AuralisDynamicPalette): AuralisDynamicP
 
     LaunchedEffect(targetPalette) {
         if (targetPalette != previousTargetPalette) {
-            currentVisiblePalette = lerpDynamicPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
-            previousTargetPalette = targetPalette
-            animProgress.snapTo(0f)
-            animProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
-            )
+            if (targetPalette.isDark != previousTargetPalette.isDark) {
+                // Instant snap on Light <-> Dark mode switch
+                currentVisiblePalette = targetPalette
+                previousTargetPalette = targetPalette
+                animProgress.snapTo(1f)
+            } else {
+                currentVisiblePalette = lerpDynamicPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+                previousTargetPalette = targetPalette
+                animProgress.snapTo(0f)
+                animProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing)
+                )
+            }
         }
     }
 
-    return lerpDynamicPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+    return if (targetPalette.isDark != currentVisiblePalette.isDark) {
+        targetPalette
+    } else {
+        lerpDynamicPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+    }
 }
 
 /**
@@ -805,12 +903,12 @@ fun AuralisTheme(
         appTheme = appearanceSettings.appTheme,
         colorPalette = appearanceSettings.colorPalette
     )
-    val rawTargetScheme: ColorScheme by produceState(
-        initialValue = baseScheme,
-        key1 = schemeKey,
-        key2 = context
-    ) {
-        value = withContext(Dispatchers.Default) {
+    var rawTargetScheme by remember(isDark, isAmoled, appearanceSettings.appTheme) {
+        mutableStateOf(baseScheme)
+    }
+
+    LaunchedEffect(schemeKey, context) {
+        val computed = withContext(Dispatchers.Default) {
             if (isDynamic) {
                 if (hasSongArtwork) {
                     // Song artwork-driven dynamic palette
@@ -898,6 +996,7 @@ fun AuralisTheme(
                 }
             }
         }
+        rawTargetScheme = computed
     }
 
     // Honour the system "remove animations" accessibility preference app-wide

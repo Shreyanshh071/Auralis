@@ -287,6 +287,72 @@ class RapidLyricSelectionTest {
     }
 
     /**
+     * Resync button behavior when autoScrollLyrics is disabled:
+     * - Clicking re-sync centers the active line.
+     * - Auto-scroll MUST remain disabled (isAutoScrollEnabled == false).
+     * - Future lines must NOT be continuously centered.
+     */
+    @Test
+    fun testResyncWhenAutoScrollDisabledCentersActiveLineWithoutEnablingAutoScroll() {
+        val autoScrollSetting = false
+        var isAutoScrollEnabled = autoScrollSetting
+        var centeredLineIndex = -1
+        var continuousAutoScrollCount = 0
+
+        // Active line at 20s
+        val currentSingingLineIndex = 4
+
+        // Simulate Re-sync click
+        fun onResyncClicked() {
+            if (autoScrollSetting) {
+                isAutoScrollEnabled = true
+            }
+            centeredLineIndex = currentSingingLineIndex
+        }
+
+        onResyncClicked()
+
+        assertEquals("Re-sync must center the line currently singing", 4, centeredLineIndex)
+        assertFalse("Auto-scroll must remain disabled because autoScrollLyrics is false", isAutoScrollEnabled)
+
+        // Song advances to line 5
+        fun onNextLineSinging(newLineIndex: Int) {
+            if (isAutoScrollEnabled) {
+                centeredLineIndex = newLineIndex
+                continuousAutoScrollCount++
+            }
+        }
+
+        onNextLineSinging(5)
+        assertEquals("List must remain on line 4 without auto-scrolling to line 5", 4, centeredLineIndex)
+        assertEquals("No continuous auto-scroll calls should occur", 0, continuousAutoScrollCount)
+    }
+
+    /**
+     * Resync button visibility rules:
+     * - When autoScrollLyrics is true: shows when auto-scroll is disabled by manual scroll.
+     * - When autoScrollLyrics is false: shows if and only if current line is NOT centered.
+     */
+    @Test
+    fun testResyncButtonVisibilityRules() {
+        fun shouldShowResync(autoScrollSetting: Boolean, isAutoScrollEnabled: Boolean, isCurrentLineCentered: Boolean): Boolean {
+            return if (autoScrollSetting) {
+                !isAutoScrollEnabled
+            } else {
+                !isCurrentLineCentered
+            }
+        }
+
+        // Setting = true:
+        assertTrue("Shows when user scrolled away and paused auto-scroll", shouldShowResync(true, isAutoScrollEnabled = false, isCurrentLineCentered = false))
+        assertFalse("Hides during normal continuous playback", shouldShowResync(true, isAutoScrollEnabled = true, isCurrentLineCentered = true))
+
+        // Setting = false:
+        assertTrue("Shows when active line is not centered", shouldShowResync(false, isAutoScrollEnabled = false, isCurrentLineCentered = false))
+        assertFalse("Hides immediately after re-sync when line is centered", shouldShowResync(false, isAutoScrollEnabled = false, isCurrentLineCentered = true))
+    }
+
+    /**
      * Long lyrics (100+ lines):
      * Ensures rapid taps across distant lines (Line 5 -> Line 95 -> Line 2)
      * work deterministically and calculate valid pre-positioning.

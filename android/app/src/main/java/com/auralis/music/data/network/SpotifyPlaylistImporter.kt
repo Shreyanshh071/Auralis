@@ -1399,13 +1399,17 @@ class SpotifyPlaylistImporter(
                     trackArtwork = itemArt
                 }
 
+                val effectiveThumb = if (!trackArtwork.isNullOrBlank()) trackArtwork
+                    else if (!coverUrl.isNullOrBlank()) coverUrl
+                    else ""
+
                 tracks.add(
                     Track(
                         id = "sp_$trackId",
                         title = trackTitle.trim(),
                         artist = if (trackSubtitle.isBlank() || trackSubtitle == "Artist") "Spotify Artist" else trackSubtitle,
                         album = title,
-                        thumbnail = trackArtwork ?: "",
+                        thumbnail = effectiveThumb,
                         duration = durationSec,
                         source = TrackSource.YOUTUBE
                     )
@@ -1453,7 +1457,7 @@ class SpotifyPlaylistImporter(
                             title = trackTitle.trim(),
                             artist = trackArtist,
                             album = title,
-                            thumbnail = "",
+                            thumbnail = coverUrl.ifBlank { "" },
                             duration = durationMs / 1000L,
                             source = TrackSource.YOUTUBE
                         )

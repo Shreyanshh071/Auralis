@@ -521,17 +521,6 @@ private fun MetroWordLevelCanvas(
                             val phaseOffset = i * 0.4f
                             waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeight * waveFade
                         }
-                    } else if (wordItem != null && !isWordSung && sungFactor > 0f) {
-                        val wallTime = System.currentTimeMillis()
-                        val timeInWord = (smoothPosition - (wordItem.startTime * 1000)).toFloat()
-                        val timeToWordEnd = ((wordItem.endTime * 1000) - smoothPosition).toFloat()
-                        val waveFade = (timeInWord / 80f).coerceIn(0f, 1f) * (timeToWordEnd / 80f).coerceIn(0f, 1f)
-                        if (waveFade > 0.01f) {
-                            val waveSpeed = 0.006f
-                            val waveHeight = 2.8f
-                            val phaseOffset = i * 0.4f
-                            waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeight * waveFade
-                        }
                     }
 
                     withTransform({

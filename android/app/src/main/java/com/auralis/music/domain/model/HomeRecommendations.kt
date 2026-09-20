@@ -13,11 +13,12 @@ data class SpeedDialItem(
     val image: String? = null,
     val track: Track? = null,
     val artistQuery: String? = null,
+    val album: PlaylistResult? = null,
     val isPinned: Boolean = false
 )
 
 @Serializable
-enum class SpeedDialType { TRACK, ARTIST, SURPRISE, MORE, PLACEHOLDER }
+enum class SpeedDialType { TRACK, ARTIST, ALBUM, SURPRISE, MORE, PLACEHOLDER }
 
 @Serializable
 data class DailyDiscoverItem(
