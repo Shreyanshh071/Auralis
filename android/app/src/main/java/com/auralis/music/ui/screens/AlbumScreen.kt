@@ -63,6 +63,17 @@ fun AlbumScreen(
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
     favoriteTracks: List<Track> = emptyList(),
+    savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
+    onToggleSaveAlbum: ((com.auralis.music.domain.model.SavedAlbum) -> Unit)? = null,
+    onPlayNextAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddToQueueAlbum: ((PlaylistResult) -> Unit)? = null,
+    onShuffleAlbum: ((PlaylistResult) -> Unit)? = null,
+    onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddAlbumToPlaylist: ((String, PlaylistResult) -> Unit)? = null,
+    onCreatePlaylistAndAddAlbum: ((String, PlaylistResult) -> Unit)? = null,
+    isAlbumPinned: ((String) -> Boolean)? = null,
+    pinnedSpeedDialIds: Set<String> = emptySet(),
+    onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
@@ -78,6 +89,7 @@ fun AlbumScreen(
 ) {
     val context = LocalContext.current
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    var showAlbumOptionsMenu by remember { mutableStateOf(false) }
 
     BackHandler {
         onBack()
@@ -96,7 +108,7 @@ fun AlbumScreen(
             .fillMaxSize()
             .background(DARK_BG)
     ) {
-        val bottomPadding = if (currentTrackId != null) 180.dp else 100.dp
+        val bottomPadding = if (currentTrackId != null) 240.dp else 140.dp
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -128,26 +140,45 @@ fun AlbumScreen(
                         )
                     }
 
-                    IconButton(
-                        onClick = {
-                            val shareText = "Listen to ${album.title} by ${album.author ?: "Various Artists"} on Auralis Music\n\nDownload Auralis: https://auralis-self-nu.vercel.app/"
-                            val sendIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, shareText)
-                                type = "text/plain"
-                            }
-                            context.startActivity(Intent.createChooser(sendIntent, "Share Album"))
-                        },
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.40f))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = Color.White
-                        )
+                        IconButton(
+                            onClick = {
+                                val shareText = "Listen to ${album.title} by ${album.author ?: "Various Artists"} on Auralis Music\n\nDownload Auralis: https://auralis-self-nu.vercel.app/"
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share Album"))
+                            },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.40f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = Color.White
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showAlbumOptionsMenu = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.40f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Album Options",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
@@ -477,6 +508,56 @@ fun AlbumScreen(
                     selectedTrackForMenu = null
                 },
                 onDismiss = { selectedTrackForMenu = null }
+            )
+        }
+
+        // ================================================================
+        // 5. ALBUM OPTIONS MENU SHEET
+        // ================================================================
+        if (showAlbumOptionsMenu) {
+            val isSaved = savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
+            val cleanAlbumId = album.id.removePrefix("album-").removePrefix("VL")
+            val isPinned = pinnedSpeedDialIds.any {
+                val id = it.removePrefix("album-").removePrefix("VL")
+                id == cleanAlbumId
+            } || (isAlbumPinned?.invoke(album.id) == true)
+            com.auralis.music.ui.components.AlbumOptionsMenu(
+                album = album,
+                isSingleOrEp = false,
+                isFavorite = isSaved,
+                userPlaylists = userPlaylists,
+                isPinned = isPinned,
+                onToggleFavorite = {
+                    val savedAlbum = com.auralis.music.domain.model.SavedAlbum(
+                        id = album.id,
+                        title = album.title,
+                        artist = album.author ?: "Various Artists",
+                        thumbnail = album.thumbnail
+                    )
+                    onToggleSaveAlbum?.invoke(savedAlbum)
+                },
+                onShuffle = { onShuffleAlbum?.invoke(album) },
+                onShare = {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, album.title)
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "Check out the album '${album.title}' by ${album.author ?: "Various Artists"} on Auralis Music!\nhttps://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                        )
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Share Album"))
+                },
+                onPlayNext = { onPlayNextAlbum?.invoke(album) },
+                onAddToQueue = { onAddToQueueAlbum?.invoke(album) },
+                onAddToPlaylist = { playlist -> onAddAlbumToPlaylist?.invoke(playlist.id, album) },
+                onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAddAlbum?.invoke(title, album) },
+                onPinToSpeedDial = { onPinAlbumToSpeedDial?.invoke(album) },
+                onDownload = { onDownloadAlbum?.invoke(album) },
+                onViewArtist = {
+                    album.author?.let { onOpenArtist(Artist(id = "", name = it)) }
+                },
+                onDismiss = { showAlbumOptionsMenu = false }
             )
         }
     }

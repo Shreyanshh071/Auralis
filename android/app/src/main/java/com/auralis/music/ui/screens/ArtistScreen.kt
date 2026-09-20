@@ -43,6 +43,7 @@ import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
@@ -74,16 +75,27 @@ fun ArtistScreen(
     userPlaylists: List<Playlist> = emptyList(),
     favoriteTracks: List<Track> = emptyList(),
     savedArtists: List<com.auralis.music.domain.model.SavedArtist> = emptyList(),
+    savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
     onToggleSubscribe: (com.auralis.music.domain.model.SavedArtist) -> Unit = {},
+    onToggleSaveAlbum: (com.auralis.music.domain.model.SavedAlbum) -> Unit = {},
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onPlayNext: (Track) -> Unit = {},
     onAddToQueue: (Track) -> Unit = {},
+    onPlayNextAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onAddToQueueAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onShuffleAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onDownloadAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onAddAlbumToPlaylist: ((String, com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onCreatePlaylistAndAddAlbum: ((String, com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
     onStartRadio: (Track) -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
     onAlbumClick: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {},
+    isAlbumPinned: ((String) -> Boolean)? = null,
+    pinnedSpeedDialIds: Set<String> = emptySet(),
+    onPinAlbumToSpeedDial: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
     onBack: () -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
@@ -93,6 +105,7 @@ fun ArtistScreen(
     val isSubscribed = savedArtists.any { it.id == artistPage.artist.id || it.name.equals(artistPage.artist.name, ignoreCase = true) }
     var isBioExpanded by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    var selectedAlbumForMenu by remember { mutableStateOf<Pair<com.auralis.music.domain.model.PlaylistResult, Boolean>?>(null) }
 
     BackHandler {
         onBack()
@@ -103,7 +116,7 @@ fun ArtistScreen(
             .fillMaxSize()
             .background(DARK_BG)
     ) {
-        val artistBottomPad = if (currentTrackId != null) 180.dp else 100.dp
+        val artistBottomPad = if (currentTrackId != null) 240.dp else 140.dp
         val stableTopSongKeys = remember(artistPage.topSongs) {
             val counts = HashMap<String, Int>()
             artistPage.topSongs.map { track ->
@@ -370,9 +383,22 @@ fun ArtistScreen(
             // 4. TOP SONGS SECTION (Ranked Track List)
             // ================================================================
             item {
+                val onOpenTopSongs = {
+                    onAlbumClick(
+                        com.auralis.music.domain.model.PlaylistResult(
+                            id = "artist_top_songs:${artistPage.artist.id.ifBlank { artistPage.artist.name }}",
+                            title = "${artistPage.artist.name} - Top songs",
+                            author = artistPage.artist.name,
+                            thumbnail = artistPage.artist.thumbnail ?: artistPage.bannerUrl
+                        )
+                    )
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onOpenTopSongs() }
                         .padding(horizontal = 18.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -385,12 +411,17 @@ fun ArtistScreen(
                         fontSize = 20.sp
                     )
 
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    IconButton(
+                        onClick = { onOpenTopSongs() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "View all top songs",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 
@@ -432,60 +463,65 @@ fun ArtistScreen(
                 ) { index, track ->
                     val isCurrent = track.id == currentTrackId
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = { onTrackClick(track, artistPage.topSongs) },
-                                onLongClick = { selectedTrackForMenu = track }
-                            )
-                            .padding(horizontal = 18.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    SwipeableTrackContainer(
+                        onPlayNext = { onPlayNext(track) },
+                        onAddToQueue = { onAddToQueue(track) }
                     ) {
-                        ArtworkCard(
-                            sizeToConstraints = true,
-                            url = track.thumbnail,
-                            modifier = Modifier.size(48.dp),
-                            cornerRadius = 8.dp,
-                            contentDescription = track.title
-                        )
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = track.title,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isCurrent) LIME_ACCENT else MaterialTheme.colorScheme.onBackground,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = { onTrackClick(track, artistPage.topSongs) },
+                                    onLongClick = { selectedTrackForMenu = track }
+                                )
+                                .padding(horizontal = 18.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ArtworkCard(
+                                sizeToConstraints = true,
+                                url = track.thumbnail,
+                                modifier = Modifier.size(48.dp),
+                                cornerRadius = 8.dp,
+                                contentDescription = track.title
                             )
 
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
 
-                            val durationStr = if (track.duration > 0) {
-                                val mins = track.duration / 60
-                                val secs = track.duration % 60
-                                " • %d:%02d".format(mins, secs)
-                            } else ""
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCurrent) LIME_ACCENT else MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
 
-                            Text(
-                                text = "${track.artist}$durationStr",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                                Spacer(modifier = Modifier.height(2.dp))
 
-                        IconButton(onClick = { selectedTrackForMenu = track }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Options",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
+                                val durationStr = if (track.duration > 0) {
+                                    val mins = track.duration / 60
+                                    val secs = track.duration % 60
+                                    " • %d:%02d".format(mins, secs)
+                                } else ""
+
+                                Text(
+                                    text = "${track.artist}$durationStr",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            IconButton(onClick = { selectedTrackForMenu = track }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Options",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -522,7 +558,10 @@ fun ArtistScreen(
                                 modifier = Modifier
                                     .width(135.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .clickable { onAlbumClick(album) }
+                                    .combinedClickable(
+                                        onClick = { onAlbumClick(album) },
+                                        onLongClick = { selectedAlbumForMenu = album to false }
+                                    )
                                     .padding(4.dp)
                             ) {
                                 ArtworkCard(
@@ -578,7 +617,10 @@ fun ArtistScreen(
                                 modifier = Modifier
                                     .width(135.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .clickable { onAlbumClick(single) }
+                                    .combinedClickable(
+                                        onClick = { onAlbumClick(single) },
+                                        onLongClick = { selectedAlbumForMenu = single to true }
+                                    )
                                     .padding(4.dp)
                             ) {
                                 ArtworkCard(
@@ -683,6 +725,68 @@ fun ArtistScreen(
             isInListenTogetherRoom = isInListenTogetherRoom,
             onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
+        )
+    }
+
+    // Album / Single Options Menu Bottom Sheet
+    selectedAlbumForMenu?.let { (album, isSingle) ->
+        val isSaved = savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
+        val cleanAlbumId = album.id.removePrefix("album-").removePrefix("VL")
+        val isPinned = pinnedSpeedDialIds.any {
+            val id = it.removePrefix("album-").removePrefix("VL")
+            id == cleanAlbumId
+        } || (isAlbumPinned?.invoke(album.id) == true)
+        com.auralis.music.ui.components.AlbumOptionsMenu(
+            album = album,
+            isSingleOrEp = isSingle,
+            isFavorite = isSaved,
+            userPlaylists = userPlaylists,
+            isPinned = isPinned,
+            onToggleFavorite = {
+                val savedAlbum = com.auralis.music.domain.model.SavedAlbum(
+                    id = album.id,
+                    title = album.title,
+                    artist = album.author ?: artistPage.artist.name,
+                    thumbnail = album.thumbnail
+                )
+                onToggleSaveAlbum(savedAlbum)
+            },
+            onShuffle = {
+                onShuffleAlbum?.invoke(album)
+            },
+            onShare = {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, album.title)
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        "Check out the album '${album.title}' by ${album.author ?: artistPage.artist.name} on Auralis Music!\nhttps://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                    )
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share Album"))
+            },
+            onPlayNext = {
+                onPlayNextAlbum?.invoke(album)
+            },
+            onAddToQueue = {
+                onAddToQueueAlbum?.invoke(album)
+            },
+            onAddToPlaylist = { playlist ->
+                onAddAlbumToPlaylist?.invoke(playlist.id, album)
+            },
+            onCreatePlaylistAndAdd = { title ->
+                onCreatePlaylistAndAddAlbum?.invoke(title, album)
+            },
+            onPinToSpeedDial = {
+                onPinAlbumToSpeedDial?.invoke(album)
+            },
+            onDownload = {
+                onDownloadAlbum?.invoke(album)
+            },
+            onViewArtist = {
+                onOpenArtist(com.auralis.music.domain.model.Artist(id = "", name = album.author ?: artistPage.artist.name))
+            },
+            onDismiss = { selectedAlbumForMenu = null }
         )
     }
 }

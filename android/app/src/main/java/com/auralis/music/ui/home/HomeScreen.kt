@@ -3,12 +3,16 @@ package com.auralis.music.ui.home
 import com.auralis.music.ui.theme.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import com.auralis.music.R
 import com.auralis.music.ui.components.rememberShimmerBrush
 import com.auralis.music.ui.components.tactileBounce
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,16 +34,21 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SystemUpdate
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.HomeUiState
@@ -111,82 +121,111 @@ fun HomeScreen(
     onOpenStats: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
+    onUnpinSpeedDial: ((String) -> Unit)? = null,
+    savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
+    isAlbumPinned: ((String) -> Boolean)? = null,
+    onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
+    onToggleSaveAlbum: ((com.auralis.music.domain.model.SavedAlbum) -> Unit)? = null,
+    onShuffleAlbum: ((PlaylistResult) -> Unit)? = null,
+    onPlayNextAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddToQueueAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddAlbumToPlaylist: ((String, PlaylistResult) -> Unit)? = null,
+    onCreatePlaylistAndAddAlbum: ((String, PlaylistResult) -> Unit)? = null,
+    onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    var selectedAlbumForMenu by remember { mutableStateOf<PlaylistResult?>(null) }
     var activeMood by remember { mutableStateOf<String?>(null) }
     // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
     // immediately recompose the screen and visible elements without requiring scroll.
     val themePrimary = MaterialTheme.dynamicPrimary
     val themeBackground = MaterialTheme.dynamicBackground
+    val themeOnBackground = MaterialTheme.dynamicOnBackground
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(themeBackground)
     ) {
-        val bottomPad = if (currentTrack != null) 180.dp else 100.dp
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentPadding = PaddingValues(top = 0.dp, bottom = bottomPad)
+        CompositionLocalProvider(
+            LocalContentColor provides themeOnBackground
         ) {
-            // ================================================================
-            // 1. TOP APP BAR: "Home" Title + Action Icons
-            // ================================================================
-            item(key = "home_top_bar", contentType = "header") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Home",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 26.sp
-                    )
-
+            val bottomPad = if (currentTrack != null) 240.dp else 140.dp
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize(),
+                contentPadding = PaddingValues(top = 0.dp, bottom = bottomPad)
+            ) {
+                // ================================================================
+                // 1. TOP APP BAR: "Home" Title + Action Icons
+                // ================================================================
+                item(key = "home_top_bar", contentType = "header") {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(start = 16.dp, end = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onOpenStats,
-                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(
-                                Icons.Default.Equalizer,
-                                contentDescription = "Stats",
-                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                            Image(
+                                painter = painterResource(R.drawable.ic_auralis_header_logo),
+                                contentDescription = "Auralis Logo",
+                                colorFilter = ColorFilter.tint(themeOnBackground),
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Text(
+                                text = "Home",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = themeOnBackground,
+                                fontSize = 26.sp
                             )
                         }
-                        IconButton(
-                            onClick = onOpenHistory,
-                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.History, contentDescription = "History", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
-                        }
-                        IconButton(
-                            onClick = onOpenListenTogether,
-                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                        ) {
-                            Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
-                        }
-                        IconButton(
-                            onClick = onOpenProfile,
-                            modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                        ) {
-                            Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
+                            IconButton(
+                                onClick = onOpenStats,
+                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                            ) {
+                                Icon(
+                                    Icons.Default.Equalizer,
+                                    contentDescription = "Stats",
+                                    tint = themeOnBackground.copy(alpha = 0.85f)
+                                )
+                            }
+                            IconButton(
+                                onClick = onOpenHistory,
+                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                            ) {
+                                Icon(Icons.Default.History, contentDescription = "History", tint = themeOnBackground.copy(alpha = 0.85f))
+                            }
+                            IconButton(
+                                onClick = onOpenListenTogether,
+                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                            ) {
+                                Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = themeOnBackground.copy(alpha = 0.85f))
+                            }
+                            IconButton(
+                                onClick = onOpenProfile,
+                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                            ) {
+                                Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = themeOnBackground.copy(alpha = 0.85f))
+                            }
                         }
                     }
                 }
-            }
 
             // ── SKELETON GHOST TILES ON INITIAL LOAD ──
             if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
@@ -253,6 +292,11 @@ fun HomeScreen(
                                                                         onTrackClick(trk, queueToPlay)
                                                                     }
                                                                 }
+                                                                SpeedDialType.ALBUM -> {
+                                                                    item.album?.let { alb ->
+                                                                        onAlbumClick(alb)
+                                                                    }
+                                                                }
                                                                 SpeedDialType.ARTIST -> {
                                                                     onArtistClick(
                                                                         Artist(
@@ -272,8 +316,26 @@ fun HomeScreen(
                                                             }
                                                         },
                                                         onLongClick = {
-                                                            if (item.type == SpeedDialType.TRACK && item.track != null) {
-                                                                selectedTrackForMenu = item.track
+                                                            when (item.type) {
+                                                                SpeedDialType.ALBUM -> {
+                                                                    selectedAlbumForMenu = item.album ?: PlaylistResult(
+                                                                        id = item.id.removePrefix("album-"),
+                                                                        title = item.name,
+                                                                        author = null,
+                                                                        thumbnail = item.image ?: ""
+                                                                    )
+                                                                }
+                                                                SpeedDialType.TRACK -> {
+                                                                    item.track?.let { trk ->
+                                                                        selectedTrackForMenu = trk
+                                                                    }
+                                                                }
+                                                                else -> {
+                                                                    if (item.isPinned) {
+                                                                        onUnpinSpeedDial?.invoke(item.id)
+                                                                        Toast.makeText(context, "Unpinned \"${item.name}\"", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     )
@@ -300,7 +362,7 @@ fun HomeScreen(
                                         .padding(horizontal = 4.dp)
                                         .size(if (isCurrent) 7.dp else 5.dp)
                                         .clip(CircleShape)
-                                        .background(if (isCurrent) themePrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
+                                        .background(if (isCurrent) themePrimary else themeOnBackground.copy(alpha = 0.25f))
                                 )
                             }
                         }
@@ -332,7 +394,7 @@ fun HomeScreen(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
+                                .border(1.dp, themeOnBackground.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                                 .clickable {
                                     if (uiState.quickPicks.isNotEmpty()) {
                                         onTrackClick(uiState.quickPicks.first(), uiState.quickPicks)
@@ -344,7 +406,7 @@ fun HomeScreen(
                                 text = "Play all",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                                color = themeOnBackground
                             )
                         }
                     }
@@ -370,50 +432,55 @@ fun HomeScreen(
                         ) {
                             pageTracks.forEach { track ->
                                 val isCurrent = track.id == currentTrackId
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .combinedClickable(
-                                            onClick = { onTrackClick(track, uiState.quickPicks) },
-                                            onLongClick = { selectedTrackForMenu = track }
-                                        )
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                SwipeableTrackContainer(
+                                    onPlayNext = { onPlayNext(track) },
+                                    onAddToQueue = { onAddToQueue(track) }
                                 ) {
-                                    ArtworkCard(
-                                        sizeToConstraints = true,
-                                        url = track.thumbnail,
-                                        modifier = Modifier.size(48.dp),
-                                        cornerRadius = 8.dp,
-                                        contentDescription = track.title
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = track.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isCurrent) themePrimary else MaterialTheme.colorScheme.onBackground,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .combinedClickable(
+                                                onClick = { onTrackClick(track, uiState.quickPicks) },
+                                                onLongClick = { selectedTrackForMenu = track }
+                                            )
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        ArtworkCard(
+                                            sizeToConstraints = true,
+                                            url = track.thumbnail,
+                                            modifier = Modifier.size(48.dp),
+                                            cornerRadius = 8.dp,
+                                            contentDescription = track.title
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = track.artist,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    IconButton(onClick = { selectedTrackForMenu = track }) {
-                                        Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "Options",
-                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = track.title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isCurrent) themePrimary else themeOnBackground,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = track.artist,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = themeOnBackground.copy(alpha = 0.65f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        IconButton(onClick = { selectedTrackForMenu = track }) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Options",
+                                                tint = themeOnBackground.copy(alpha = 0.65f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -470,14 +537,14 @@ fun HomeScreen(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
+                                    color = themeOnBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = track.artist,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                    color = themeOnBackground.copy(alpha = 0.65f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -526,7 +593,7 @@ fun HomeScreen(
                                     Text(
                                         text = "Similar to",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                        color = themeOnBackground.copy(alpha = 0.6f)
                                     )
                                     Text(
                                         text = simRec.seedTitle,
@@ -539,7 +606,7 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "View Artist Profile",
-                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                tint = themeOnBackground.copy(alpha = 0.6f),
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -571,14 +638,14 @@ fun HomeScreen(
                                         text = track.title,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onBackground,
+                                        color = themeOnBackground,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = track.artist,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                        color = themeOnBackground.copy(alpha = 0.65f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -609,7 +676,7 @@ fun HomeScreen(
                                 Text(
                                     text = it,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                    color = themeOnBackground.copy(alpha = 0.65f),
                                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
                                 )
                             }
@@ -645,14 +712,14 @@ fun HomeScreen(
                                                 text = track.title,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onBackground,
+                                                color = themeOnBackground,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Text(
                                                 text = track.artist,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                                color = themeOnBackground.copy(alpha = 0.65f),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -689,14 +756,14 @@ fun HomeScreen(
                                                 text = album.title,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onBackground,
+                                                color = themeOnBackground,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Text(
                                                 text = album.author ?: "Album",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                                color = themeOnBackground.copy(alpha = 0.65f),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -707,13 +774,12 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(14.dp))
                         }
                     }
+                    }
                 }
             }
-            }
         }
-
-
     }
+}
 
     // Options Menu Bottom Sheet
     selectedTrackForMenu?.let { track ->
@@ -734,6 +800,54 @@ fun HomeScreen(
             isInListenTogetherRoom = isInListenTogetherRoom,
             onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
+        )
+    }
+
+    // Album Options Menu Bottom Sheet
+    selectedAlbumForMenu?.let { album ->
+        val isSaved = savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
+        val cleanAlbumId = album.id.removePrefix("album-").removePrefix("VL")
+        val isPinned = uiState.pinnedSpeedDialIds.any {
+            val id = it.removePrefix("album-").removePrefix("VL")
+            id == cleanAlbumId
+        } || (isAlbumPinned?.invoke(album.id) == true)
+        com.auralis.music.ui.components.AlbumOptionsMenu(
+            album = album,
+            isSingleOrEp = false,
+            isFavorite = isSaved,
+            userPlaylists = userPlaylists,
+            isPinned = isPinned,
+            onToggleFavorite = {
+                val savedAlbum = com.auralis.music.domain.model.SavedAlbum(
+                    id = album.id,
+                    title = album.title,
+                    artist = album.author ?: "Various Artists",
+                    thumbnail = album.thumbnail
+                )
+                onToggleSaveAlbum?.invoke(savedAlbum)
+            },
+            onShuffle = { onShuffleAlbum?.invoke(album) },
+            onShare = {
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, album.title)
+                    putExtra(
+                        android.content.Intent.EXTRA_TEXT,
+                        "Check out the album '${album.title}' by ${album.author ?: "Various Artists"} on Auralis Music!\nhttps://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                    )
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Album"))
+            },
+            onPlayNext = { onPlayNextAlbum?.invoke(album) },
+            onAddToQueue = { onAddToQueueAlbum?.invoke(album) },
+            onAddToPlaylist = { playlist -> onAddAlbumToPlaylist?.invoke(playlist.id, album) },
+            onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAddAlbum?.invoke(title, album) },
+            onPinToSpeedDial = { onPinAlbumToSpeedDial?.invoke(album) },
+            onDownload = { onDownloadAlbum?.invoke(album) },
+            onViewArtist = {
+                album.author?.let { onArtistClick(Artist(id = "", name = it)) }
+            },
+            onDismiss = { selectedAlbumForMenu = null }
         )
     }
 }
@@ -905,6 +1019,25 @@ private fun SpeedDialTile(
                 .align(Alignment.BottomStart)
                 .padding(horizontal = 8.dp, vertical = 6.dp)
         )
+
+        if (item.isPinned) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(5.dp)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PushPin,
+                    contentDescription = "Pinned",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(11.dp)
+                )
+            }
+        }
     }
 }
 

@@ -2,7 +2,12 @@ package com.auralis.music.ui.library
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import com.auralis.music.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +25,7 @@ import com.auralis.music.ui.theme.auralisDetailForwardEnter
 import com.auralis.music.ui.theme.auralisDetailForwardExit
 import com.auralis.music.ui.theme.auralisNavigationEnter
 import com.auralis.music.ui.theme.auralisNavigationExit
+import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.motionTween
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -212,6 +218,9 @@ fun LibraryScreen(
     onReorderPlaylistTracks: ((String, Int, Int) -> Unit)? = null,
     isExternalCreateDialogOpen: Boolean = false,
     onCloseExternalCreateDialog: () -> Unit = {},
+    onCloseSmartCollection: () -> Unit = {},
+    onDeletePlaylistJob: (String) -> Unit = {},
+    onRetryPlaylistJob: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val themePrimary = MaterialTheme.colorScheme.primary
@@ -228,6 +237,7 @@ fun LibraryScreen(
     }
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
 
     val displayedPlaylists = if (searchQuery.isBlank()) {
         uiState.playlists
@@ -235,16 +245,52 @@ fun LibraryScreen(
         uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) }
     }
 
+    val likedPlaylist = remember(uiState.favorites) {
+        Playlist(
+            id = "smart_liked",
+            title = "Liked",
+            description = "Auto-saved tracks",
+            tracks = uiState.favorites
+        )
+    }
+    val downloadedPlaylist = remember(uiState.downloadedTracks) {
+        Playlist(
+            id = "smart_downloaded",
+            title = "Downloaded",
+            description = "${uiState.downloadedTracks.size} offline songs",
+            tracks = uiState.downloadedTracks
+        )
+    }
+    val top50Playlist = remember(uiState.top50Tracks) {
+        Playlist(
+            id = "smart_top_50",
+            title = "Top Most Played",
+            description = "Your most played tracks",
+            tracks = uiState.top50Tracks
+        )
+    }
+    val cachedPlaylist = remember(uiState.cachedTracks) {
+        Playlist(
+            id = "smart_cached",
+            title = "Cached Streamed",
+            description = "Locally buffered tracks",
+            tracks = uiState.cachedTracks
+        )
+    }
+
     androidx.activity.compose.BackHandler(
-        enabled = uiState.selectedPlaylist != null || isSearchActive || showSortMenu || showCreateDialog
+        enabled = uiState.selectedPlaylist != null || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
     ) {
-        if (showCreateDialog) showCreateDialog = false
+        if (selectedPlaylistForMenu != null) selectedPlaylistForMenu = null
+        else if (showCreateDialog) showCreateDialog = false
         else if (showSortMenu) showSortMenu = false
         else if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
         } else if (uiState.selectedPlaylist != null) {
             onPlaylistSelect(null)
+        } else if (uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED) {
+            onCloseSmartCollection()
         }
     }
 
@@ -253,95 +299,116 @@ fun LibraryScreen(
     val detailBackwardEnter = auralisDetailBackwardEnter()
     val detailBackwardExit = auralisDetailBackwardExit()
 
+    // ── STATE PRESERVATION: SaveableStateHolder keeps playlist detail scroll
+    // state alive when navigating back to the library list. ──
+    val librarySaveableStateHolder = rememberSaveableStateHolder()
+
     AnimatedContent(
-        targetState = uiState.selectedPlaylist?.id,
+        targetState = when {
+            uiState.selectedPlaylist != null -> "playlist_${uiState.selectedPlaylist.id}"
+            uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED -> "downloaded_hub"
+            else -> null
+        },
         transitionSpec = {
             if (targetState != null && initialState == null) {
-                fadeIn(animationSpec = tween(140, easing = LinearOutSlowInEasing)) togetherWith
-                        fadeOut(animationSpec = tween(100, easing = FastOutLinearInEasing))
+                detailForwardEnter togetherWith detailForwardExit
             } else if (targetState == null && initialState != null) {
-                fadeIn(animationSpec = tween(120, easing = LinearOutSlowInEasing)) togetherWith
-                        fadeOut(animationSpec = tween(100, easing = FastOutLinearInEasing))
+                detailBackwardEnter togetherWith detailBackwardExit
             } else {
-                androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                detailForwardEnter togetherWith detailForwardExit
             }
         },
         label = "PlaylistDetailTransition"
-    ) { targetPlaylistId ->
-        // ── PERF FIX #1: Resolve the playlist from the transition slot's identity ──
-        // so outgoing content stays outgoing and incoming stays incoming.
-        val selectedPl = if (targetPlaylistId != null) {
-            uiState.selectedPlaylist?.takeIf { it.id == targetPlaylistId }
+    ) { screenKey ->
+        librarySaveableStateHolder.SaveableStateProvider(screenKey ?: "library_root") {
+        if (screenKey != null && screenKey.startsWith("playlist_")) {
+            val targetPlaylistId = screenKey.removePrefix("playlist_")
+            val selectedPl = uiState.selectedPlaylist?.takeIf { it.id == targetPlaylistId }
                 ?: uiState.playlists.firstOrNull { it.id == targetPlaylistId }
-        } else null
-        if (selectedPl != null) {
-            PlaylistDetailView(
-                playlist = selectedPl,
+            if (selectedPl != null) {
+                PlaylistDetailView(
+                    playlist = selectedPl,
+                    currentTrackId = currentTrackId,
+                    isPlaying = isPlaying,
+                    userName = userName,
+                    userAvatarUrl = userAvatarUrl,
+                    onBack = { onPlaylistSelect(null) },
+                    onPlayTrack = { track, list -> onTrackClick(track, list) },
+                    onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
+                    onDeletePlaylist = {
+                        onDeletePlaylist(selectedPl.id)
+                        onPlaylistSelect(null)
+                    },
+                    onSyncPlaylist = onSyncPlaylist,
+                    onEditPlaylist = onEditPlaylist,
+                    onAddToQueue = onAddToQueue,
+                    onPlayNextTrack = onPlayNext,
+                    onAddToQueueTrack = onAddToQueueTrack,
+                    onReorderTracks = { from, to ->
+                        onReorderPlaylistTracks?.invoke(selectedPl.id, from, to)
+                    },
+                    onMenuClick = { track -> selectedTrackForMenu = track }
+                )
+
+                // Render Track Options Menu for playlist tracks
+                selectedTrackForMenu?.let { track ->
+                    val isFav = uiState.favorites.any { it.id == track.id }
+                    val isCustomPl = !selectedPl.id.startsWith("smart_")
+
+                    TrackOptionsMenu(
+                        track = track,
+                        isFavorite = isFav,
+                        userPlaylists = uiState.playlists,
+                        onToggleFavorite = { onFavoriteToggle(track) },
+                        onPlayNext = {
+                            onPlayNext(track)
+                            selectedTrackForMenu = null
+                        },
+                        onAddToQueue = {
+                            onAddToQueueTrack(track)
+                            selectedTrackForMenu = null
+                        },
+                        onStartRadio = {
+                            onStartRadio(track)
+                            selectedTrackForMenu = null
+                        },
+                        onGoToArtist = {
+                            onOpenArtist(Artist(id = "", name = track.artist))
+                            selectedTrackForMenu = null
+                        },
+                        onAddToPlaylist = { playlist ->
+                            onAddToPlaylist(playlist.id, track)
+                            selectedTrackForMenu = null
+                        },
+                        onCreatePlaylistAndAdd = { title ->
+                            onCreatePlaylist(title)
+                            selectedTrackForMenu = null
+                        },
+                        isInListenTogetherRoom = isInListenTogetherRoom,
+                        onRecommendToRoom = { trk ->
+                            onRecommendToRoom?.invoke(trk)
+                            selectedTrackForMenu = null
+                        },
+                        onDismiss = { selectedTrackForMenu = null }
+                    )
+                }
+            }
+        } else if (screenKey == "downloaded_hub" || (uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED && uiState.selectedPlaylist == null)) {
+            DownloadedHubView(
+                downloadedTracks = uiState.downloadedTracks,
+                downloadedJobs = uiState.downloadedJobs,
+                userPlaylists = uiState.playlists,
                 currentTrackId = currentTrackId,
                 isPlaying = isPlaying,
-                userName = userName,
-                userAvatarUrl = userAvatarUrl,
-                onBack = { onPlaylistSelect(null) },
-                onPlayTrack = { track, list -> onTrackClick(track, list) },
-                onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
-                onDeletePlaylist = {
-                    onDeletePlaylist(selectedPl.id)
-                    onPlaylistSelect(null)
-                },
-                onSyncPlaylist = onSyncPlaylist,
-                onEditPlaylist = onEditPlaylist,
-                onAddToQueue = onAddToQueue,
-                onPlayNextTrack = onPlayNext,
-                onAddToQueueTrack = onAddToQueueTrack,
-                onReorderTracks = { from, to ->
-                    onReorderPlaylistTracks?.invoke(selectedPl.id, from, to)
-                },
-                onMenuClick = { track -> selectedTrackForMenu = track }
+                onBack = onCloseSmartCollection,
+                onOpenFolder = { folderPl -> onPlaylistSelect(folderPl) },
+                onPlayTracks = { track, list -> onTrackClick(track, list) },
+                onDeleteJob = onDeletePlaylistJob,
+                onRetryJob = onRetryPlaylistJob,
+                onClearAllDownloads = {
+                    com.auralis.music.data.download.AuralisDownloadManager.clearAllDownloads()
+                }
             )
-
-            // Render Track Options Menu for playlist tracks
-            selectedTrackForMenu?.let { track ->
-                val isFav = uiState.favorites.any { it.id == track.id }
-                val trackIdx = selectedPl.tracks.indexOfFirst { it.id == track.id }
-                val isCustomPl = !selectedPl.id.startsWith("smart_")
-
-                TrackOptionsMenu(
-                    track = track,
-                    isFavorite = isFav,
-                    userPlaylists = uiState.playlists,
-                    onToggleFavorite = { onFavoriteToggle(track) },
-                    onPlayNext = {
-                        onPlayNext(track)
-                        selectedTrackForMenu = null
-                    },
-                    onAddToQueue = {
-                        onAddToQueueTrack(track)
-                        selectedTrackForMenu = null
-                    },
-                    onStartRadio = {
-                        onStartRadio(track)
-                        selectedTrackForMenu = null
-                    },
-                    onGoToArtist = {
-                        onOpenArtist(Artist(id = "", name = track.artist))
-                        selectedTrackForMenu = null
-                    },
-                    onAddToPlaylist = { playlist ->
-                        onAddToPlaylist(playlist.id, track)
-                        selectedTrackForMenu = null
-                    },
-                    onCreatePlaylistAndAdd = { title ->
-                        onCreatePlaylist(title)
-                        selectedTrackForMenu = null
-                    },
-                    isInListenTogetherRoom = isInListenTogetherRoom,
-                    onRecommendToRoom = { trk ->
-                        onRecommendToRoom?.invoke(trk)
-                        selectedTrackForMenu = null
-                    },
-                    onDismiss = { selectedTrackForMenu = null }
-                )
-            }
         } else {
 
     Box(
@@ -356,20 +423,33 @@ fun LibraryScreen(
             // ================================================================
             // 1. TOP APP BAR: "Library" Title + 3 Action Icons
             // ================================================================
+            val themeOnBackground = MaterialTheme.dynamicOnBackground
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    .height(64.dp)
+                    .padding(start = 16.dp, end = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Library",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 24.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_auralis_header_logo),
+                        contentDescription = "Auralis Logo",
+                        colorFilter = ColorFilter.tint(themeOnBackground),
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = "Library",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = themeOnBackground,
+                        fontSize = 26.sp
+                    )
+                }
 
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -379,19 +459,19 @@ fun LibraryScreen(
                         onClick = onOpenHistory,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.History, contentDescription = "History", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
+                        Icon(Icons.Default.History, contentDescription = "History", tint = themeOnBackground.copy(alpha = 0.85f))
                     }
                     IconButton(
                         onClick = onOpenListenTogether,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
+                        Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = themeOnBackground.copy(alpha = 0.85f))
                     }
                     IconButton(
                         onClick = onOpenProfile,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f))
+                        Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = themeOnBackground.copy(alpha = 0.85f))
                     }
                 }
             }
@@ -529,7 +609,7 @@ fun LibraryScreen(
                 else -> 160.dp
             }
 
-            val libraryBottomPad = if (currentTrackId != null) 180.dp else 100.dp
+            val libraryBottomPad = if (currentTrackId != null) 240.dp else 140.dp
 
             AnimatedContent(
                 targetState = isGridView,
@@ -556,20 +636,24 @@ fun LibraryScreen(
                                         subtitle = "${uiState.favorites.size} songs",
                                         icon = Icons.Default.FavoriteBorder,
                                         tracks = uiState.favorites,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) },
+                                        onLongClick = { selectedPlaylistForMenu = likedPlaylist }
                                     )
                                 }
                             }
 
                             // 2. Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
-                            if (appearance.showDownloadedPlaylist && uiState.downloadedTracks.isNotEmpty()) {
+                            val hasDownloads = uiState.downloadedTracks.isNotEmpty() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" || it.completedCount > 0 }
+                            if (appearance.showDownloadedPlaylist && hasDownloads) {
+                                val isJobDownloading = uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
                                 item(key = "smart_downloaded", contentType = "smart_card") {
                                     SmartLibraryCard(
                                         title = "Downloaded",
-                                        subtitle = "${uiState.downloadedTracks.size} songs",
-                                        icon = Icons.Default.DownloadDone,
+                                        subtitle = if (isJobDownloading) "Downloading..." else "${uiState.downloadedTracks.size} songs",
+                                        icon = if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone,
                                         tracks = uiState.downloadedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) },
+                                        onLongClick = { selectedPlaylistForMenu = downloadedPlaylist }
                                     )
                                 }
                             }
@@ -582,7 +666,8 @@ fun LibraryScreen(
                                         subtitle = "${uiState.top50Tracks.size} songs",
                                         icon = Icons.Default.Leaderboard,
                                         tracks = uiState.top50Tracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) },
+                                        onLongClick = { selectedPlaylistForMenu = top50Playlist }
                                     )
                                 }
                             }
@@ -595,7 +680,8 @@ fun LibraryScreen(
                                         subtitle = "${uiState.cachedTracks.size} songs",
                                         icon = Icons.Default.CloudDownload,
                                         tracks = uiState.cachedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) },
+                                        onLongClick = { selectedPlaylistForMenu = cachedPlaylist }
                                     )
                                 }
                             }
@@ -606,7 +692,8 @@ fun LibraryScreen(
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                 UserPlaylistGridCard(
                                     playlist = playlist,
-                                    onClick = { onPlaylistSelect(playlist) }
+                                    onClick = { onPlaylistSelect(playlist) },
+                                    onLongClick = { selectedPlaylistForMenu = playlist }
                                 )
                             }
                         }
@@ -628,20 +715,24 @@ fun LibraryScreen(
                                         subtitle = "${uiState.favorites.size} songs",
                                         icon = Icons.Default.FavoriteBorder,
                                         tracks = uiState.favorites,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) },
+                                        onLongClick = { selectedPlaylistForMenu = likedPlaylist }
                                     )
                                 }
                             }
 
                             // Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
-                            if (appearance.showDownloadedPlaylist && uiState.downloadedTracks.isNotEmpty()) {
+                            val hasDownloadsList = uiState.downloadedTracks.isNotEmpty() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" || it.completedCount > 0 }
+                            if (appearance.showDownloadedPlaylist && hasDownloadsList) {
+                                val isJobDownloading = uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
                                 item(key = "list_smart_downloaded", contentType = "smart_row") {
                                     SmartLibraryListRow(
                                         title = "Downloaded",
-                                        subtitle = "${uiState.downloadedTracks.size} songs",
-                                        icon = Icons.Default.DownloadDone,
+                                        subtitle = if (isJobDownloading) "Downloading..." else "${uiState.downloadedTracks.size} songs",
+                                        icon = if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone,
                                         tracks = uiState.downloadedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) },
+                                        onLongClick = { selectedPlaylistForMenu = downloadedPlaylist }
                                     )
                                 }
                             }
@@ -653,7 +744,8 @@ fun LibraryScreen(
                                         subtitle = "${uiState.top50Tracks.size} songs",
                                         icon = Icons.Default.Leaderboard,
                                         tracks = uiState.top50Tracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) },
+                                        onLongClick = { selectedPlaylistForMenu = top50Playlist }
                                     )
                                 }
                             }
@@ -665,7 +757,8 @@ fun LibraryScreen(
                                         subtitle = "${uiState.cachedTracks.size} songs",
                                         icon = Icons.Default.CloudDownload,
                                         tracks = uiState.cachedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) }
+                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) },
+                                        onLongClick = { selectedPlaylistForMenu = cachedPlaylist }
                                     )
                                 }
                             }
@@ -679,7 +772,8 @@ fun LibraryScreen(
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                 UserPlaylistListRow(
                                     playlist = playlist,
-                                    onClick = { onPlaylistSelect(playlist) }
+                                    onClick = { onPlaylistSelect(playlist) },
+                                    onLongClick = { selectedPlaylistForMenu = playlist }
                                 )
                             }
                         }
@@ -797,21 +891,42 @@ fun LibraryScreen(
             }
         )
     }
+
+    // Playlist Options Bottom Sheet (when holding a playlist in Library)
+    selectedPlaylistForMenu?.let { pl ->
+        PlaylistOptionsBottomSheet(
+            playlist = pl,
+            onDismiss = { selectedPlaylistForMenu = null },
+            onEditPlaylist = onEditPlaylist,
+            onAddToQueue = onAddToQueue,
+            onDeletePlaylist = {
+                onDeletePlaylist(pl.id)
+                selectedPlaylistForMenu = null
+            },
+            onClearAllDownloads = {
+                com.auralis.music.data.download.AuralisDownloadManager.clearAllDownloads()
+                selectedPlaylistForMenu = null
+            }
+        )
     }
-}
-}
+    }
+} // SaveableStateProvider
+} // AnimatedContent lambda
+} // AnimatedContent call
 
 // ============================================================================
 // 🔲 SMART LIBRARY CARD (Liked, Downloaded, Cached, My Top 50, Uploaded)
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SmartLibraryCard(
     title: String,
     icon: ImageVector,
     subtitle: String? = null,
     tracks: List<Track> = emptyList(),
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val validTracks = remember(tracks) {
         tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
@@ -820,7 +935,10 @@ private fun SmartLibraryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Box(
             modifier = Modifier
@@ -947,10 +1065,12 @@ private fun SmartLibraryCard(
 // 🎨 USER PLAYLIST GRID CARD (With 4-Cover Collage or Single Artwork)
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserPlaylistGridCard(
     playlist: Playlist,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val validTracks = remember(playlist.tracks) {
         playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
@@ -959,7 +1079,10 @@ private fun UserPlaylistGridCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Box(
             modifier = Modifier
@@ -1050,20 +1173,25 @@ private fun UserPlaylistGridCard(
 // 📋 SMART LIBRARY LIST ROW (For List View Mode)
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SmartLibraryListRow(
     title: String,
     subtitle: String,
     icon: ImageVector,
     tracks: List<Track> = emptyList(),
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1123,10 +1251,12 @@ private fun SmartLibraryListRow(
 // 🎨 USER PLAYLIST LIST ROW (For List View Mode)
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserPlaylistListRow(
     playlist: Playlist,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val firstValid = remember(playlist.tracks) {
         playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() } ?: playlist.tracks.firstOrNull()
@@ -1137,7 +1267,10 @@ private fun UserPlaylistListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1210,26 +1343,7 @@ private fun PlaylistDetailView(
     val haptic = LocalHapticFeedback.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     var showOptionsMenu by remember { mutableStateOf(false) }
-    var showExportDialog by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showEditDialog by remember { mutableStateOf(false) }
-    var editTitle by remember(playlist.title) { mutableStateOf(playlist.title) }
-    var editDesc by remember(playlist.description) { mutableStateOf(playlist.description ?: "") }
-    var editCoverUrl by remember(playlist.coverUrl) { mutableStateOf(playlist.coverUrl ?: "") }
-    val coroutineScope = rememberCoroutineScope()
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            coroutineScope.launch(Dispatchers.IO) {
-                val encoded = com.auralis.music.util.ArtworkProcessor.encodeImageUriToDataUri(context, uri.toString())
-                withContext(Dispatchers.Main) {
-                    editCoverUrl = encoded ?: uri.toString()
-                }
-            }
-        }
-    }
-    var selectedExportFormat by remember { mutableStateOf("CSV") }
+    var initialMenuDialog by remember { mutableStateOf<PlaylistDialogType?>(null) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortOption by remember { mutableStateOf(PlaylistSortOption.CUSTOM) }
@@ -1404,14 +1518,8 @@ private fun PlaylistDetailView(
     }
 
     androidx.activity.compose.BackHandler(enabled = true) {
-        if (showEditDialog) {
-            showEditDialog = false
-        } else if (showExportDialog) {
-            showExportDialog = false
-        } else if (showOptionsMenu) {
+        if (showOptionsMenu) {
             showOptionsMenu = false
-        } else if (showDeleteConfirm) {
-            showDeleteConfirm = false
         } else if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
@@ -1529,7 +1637,7 @@ private fun PlaylistDetailView(
         // ================================================================
         // 2. MAIN SCROLLABLE BODY
         // ================================================================
-        val playlistBottomPad = if (currentTrackId != null) 180.dp else 100.dp
+        val playlistBottomPad = if (currentTrackId != null) 240.dp else 140.dp
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 state = playlistListState,
@@ -1695,7 +1803,10 @@ private fun PlaylistDetailView(
                                     .clip(CircleShape)
                                     .background(Color.Black.copy(alpha = 0.75f))
                                     .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                                    .clickable { showEditDialog = true },
+                                     .clickable {
+                                         initialMenuDialog = PlaylistDialogType.EDIT
+                                         showOptionsMenu = true
+                                     },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1972,7 +2083,10 @@ private fun PlaylistDetailView(
                         onMenuClick = onMenuClick,
                         onPlayNext = onPlayNextTrack,
                         onAddToQueue = onAddToQueueTrack,
-                        onRemoveFromPlaylist = onRemoveTrack
+                        onRemoveFromPlaylist = { trackId ->
+                            localItems.removeAll { it.track.id == trackId }
+                            onRemoveTrack(trackId)
+                        }
                     )
                 }
             }
@@ -2075,12 +2189,74 @@ private fun PlaylistDetailView(
         }
     }
 
-    // ========================================================================
-    // 5. PLAYLIST OPTIONS BOTTOM SHEET (Matching Photo 3)
-    // ========================================================================
     if (showOptionsMenu) {
+        PlaylistOptionsBottomSheet(
+            playlist = playlist,
+            initialDialog = initialMenuDialog,
+            onDismiss = {
+                showOptionsMenu = false
+                initialMenuDialog = null
+            },
+            onEditPlaylist = onEditPlaylist,
+            onAddToQueue = onAddToQueue,
+            onDeletePlaylist = {
+                showOptionsMenu = false
+                initialMenuDialog = null
+                onDeletePlaylist()
+            },
+            onClearAllDownloads = {
+                showOptionsMenu = false
+                initialMenuDialog = null
+                com.auralis.music.data.download.AuralisDownloadManager.clearAllDownloads()
+            }
+        )
+    }
+}
+
+// ============================================================================
+// 📑 PLAYLIST OPTIONS BOTTOM SHEET & DIALOGS
+// ============================================================================
+
+private enum class PlaylistDialogType {
+    EDIT, EXPORT, DELETE, DELETE_ALL_DOWNLOADS
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaylistOptionsBottomSheet(
+    playlist: Playlist,
+    initialDialog: PlaylistDialogType? = null,
+    onDismiss: () -> Unit,
+    onEditPlaylist: ((String, String, String?, String?) -> Unit)? = null,
+    onAddToQueue: ((List<Track>) -> Unit)? = null,
+    onDeletePlaylist: (() -> Unit)? = null,
+    onClearAllDownloads: (() -> Unit)? = null
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var activeDialog by remember { mutableStateOf(initialDialog) }
+
+    var editTitle by remember(playlist.title) { mutableStateOf(playlist.title) }
+    var editDesc by remember(playlist.description) { mutableStateOf(playlist.description ?: "") }
+    var editCoverUrl by remember(playlist.coverUrl) { mutableStateOf(playlist.coverUrl ?: "") }
+    var selectedExportFormat by remember { mutableStateOf("CSV") }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                val encoded = com.auralis.music.util.ArtworkProcessor.encodeImageUriToDataUri(context, uri.toString())
+                withContext(Dispatchers.Main) {
+                    editCoverUrl = encoded ?: uri.toString()
+                }
+            }
+        }
+    }
+
+    if (activeDialog == null) {
         ModalBottomSheet(
-            onDismissRequest = { showOptionsMenu = false },
+            onDismissRequest = onDismiss,
             containerColor = CARD_DARK_BG,
             dragHandle = {
                 Box(
@@ -2102,17 +2278,17 @@ private fun PlaylistDetailView(
             ) {
                 val isSmartPlaylist = playlist.id.startsWith("smart_")
 
-                // Option 1: Edit (Only for user playlists)
+                // Option 1: Edit
                 if (!isSmartPlaylist) {
                     PlaylistActionRow(
                         icon = Icons.Default.Edit,
                         title = "Edit",
                         subtitle = "Edit playlist",
                         onClick = {
-                            showOptionsMenu = false
                             editTitle = playlist.title
                             editDesc = playlist.description ?: ""
-                            showEditDialog = true
+                            editCoverUrl = playlist.coverUrl ?: ""
+                            activeDialog = PlaylistDialogType.EDIT
                         }
                     )
                 }
@@ -2123,13 +2299,13 @@ private fun PlaylistDetailView(
                     title = "Add to queue",
                     subtitle = "Add to the end of the queue",
                     onClick = {
-                        showOptionsMenu = false
+                        onDismiss()
                         onAddToQueue?.invoke(playlist.tracks)
                         Toast.makeText(context, "Added ${playlist.tracks.size} tracks to queue", Toast.LENGTH_SHORT).show()
                     }
                 )
 
-                // Option 4: Download (Only for non-downloaded playlists)
+                // Option 3: Download (Only for non-downloaded playlists)
                 if (playlist.id != "smart_downloaded") {
                     val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
                     PlaylistActionRow(
@@ -2137,31 +2313,24 @@ private fun PlaylistDetailView(
                         title = if (isAllDownloaded) "Downloaded" else "Download playlist",
                         subtitle = if (isAllDownloaded) "All ${playlist.tracks.size} songs are available offline" else "Download all songs for offline playback",
                         onClick = {
-                            showOptionsMenu = false
-                            com.auralis.music.data.download.AuralisDownloadManager.downloadPlaylist(playlist.tracks, playlist.title)
+                            onDismiss()
+                            com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
+                                context = context,
+                                playlistId = playlist.id,
+                                playlistName = playlist.title,
+                                tracks = playlist.tracks
+                            )
                         }
                     )
                 }
 
-                // Option 4.5: Sync / Match Tracks
-                PlaylistActionRow(
-                    icon = Icons.Default.Sync,
-                    title = "Sync / Match Songs",
-                    subtitle = "Match songs to verified YouTube tracks",
-                    onClick = {
-                        showOptionsMenu = false
-                        onSyncPlaylist?.invoke(playlist)
-                        android.widget.Toast.makeText(context, "Matching tracks to official audio...", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                )
-
-                // Option 5: Share
+                // Option 4: Share
                 PlaylistActionRow(
                     icon = Icons.Default.Share,
                     title = "Share",
                     subtitle = "Share this playlist with others",
                     onClick = {
-                        showOptionsMenu = false
+                        onDismiss()
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, playlist.title)
@@ -2174,26 +2343,33 @@ private fun PlaylistDetailView(
                     }
                 )
 
-                // Option 6: Export playlist
+                // Option 5: Export playlist
                 PlaylistActionRow(
                     icon = Icons.Default.Share,
                     title = "Export playlist",
                     subtitle = null,
                     onClick = {
-                        showOptionsMenu = false
-                        showExportDialog = true
+                        activeDialog = PlaylistDialogType.EXPORT
                     }
                 )
 
-                // Option 7: Delete (NEVER show for smart playlists or downloaded playlist)
-                if (!isSmartPlaylist) {
+                // Option 6: Delete
+                if (playlist.id == "smart_downloaded") {
+                    PlaylistActionRow(
+                        icon = Icons.Default.Delete,
+                        title = "Delete all downloads",
+                        subtitle = "Remove all ${playlist.tracks.size} downloaded songs from device",
+                        onClick = {
+                            activeDialog = PlaylistDialogType.DELETE_ALL_DOWNLOADS
+                        }
+                    )
+                } else if (!isSmartPlaylist) {
                     PlaylistActionRow(
                         icon = Icons.Default.Delete,
                         title = "Delete",
                         subtitle = "Remove this playlist permanently",
                         onClick = {
-                            showOptionsMenu = false
-                            showDeleteConfirm = true
+                            activeDialog = PlaylistDialogType.DELETE
                         }
                     )
                 }
@@ -2201,360 +2377,430 @@ private fun PlaylistDetailView(
         }
     }
 
-    // ========================================================================
-    // 5. EDIT PLAYLIST DIALOG (Photo, Name, Description)
-    // ========================================================================
-    if (showEditDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditDialog = false },
-            containerColor = CARD_DARK_BG,
-            shape = RoundedCornerShape(24.dp),
-            title = {
-                Text(
-                    text = "Edit Playlist",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 20.sp
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // Cover Photo Preview with Tap-to-Change badge
-                    Box(
+    when (activeDialog) {
+        PlaylistDialogType.EDIT -> {
+            AlertDialog(
+                onDismissRequest = {
+                    activeDialog = null
+                    onDismiss()
+                },
+                containerColor = CARD_DARK_BG,
+                shape = RoundedCornerShape(24.dp),
+                title = {
+                    Text(
+                        text = "Edit Playlist",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 20.sp
+                    )
+                },
+                text = {
+                    Column(
                         modifier = Modifier
-                            .size(120.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .border(1.5.dp, if (editCoverUrl.isNotBlank()) LIME_TEXT else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
-                            .clickable { photoPickerLauncher.launch("image/*") },
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        val previewUrl = editCoverUrl.ifBlank { playlist.tracks.firstOrNull()?.thumbnail }
-                        ArtworkCard(
-                            url = previewUrl,
-                            modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 16.dp,
-                            contentDescription = "Playlist Cover Preview"
-                        )
-
-                        // Camera overlay badge
+                        // Cover Photo Preview with Tap-to-Change badge
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.40f)),
+                                .size(120.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(1.5.dp, if (editCoverUrl.isNotBlank()) LIME_TEXT else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                                .clickable { photoPickerLauncher.launch("image/*") },
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
+                            val previewUrl = editCoverUrl.ifBlank { playlist.tracks.firstOrNull()?.thumbnail }
+                            ArtworkCard(
+                                url = previewUrl,
+                                modifier = Modifier.fillMaxSize(),
+                                cornerRadius = 16.dp,
+                                contentDescription = "Playlist Cover Preview"
+                            )
+
+                            // Camera overlay badge
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.40f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PhotoCamera,
-                                    contentDescription = "Change photo",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Change Photo",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoCamera,
+                                        contentDescription = "Change photo",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Change Photo",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
-                    }
 
-                    // Action buttons for Photo: Choose Photo or Reset
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(
-                            onClick = { photoPickerLauncher.launch("image/*") }
+                        // Action buttons for Photo: Choose Photo or Reset
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp), tint = LIME_TEXT)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Choose Photo", color = LIME_TEXT, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-
-                        if (editCoverUrl.isNotBlank()) {
                             TextButton(
-                                onClick = { editCoverUrl = "" }
+                                onClick = { photoPickerLauncher.launch("image/*") }
                             ) {
-                                Text("Reset Photo", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp), tint = LIME_TEXT)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Choose Photo", color = LIME_TEXT, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            if (editCoverUrl.isNotBlank()) {
+                                TextButton(
+                                    onClick = { editCoverUrl = "" }
+                                ) {
+                                    Text("Reset Photo", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                }
                             }
                         }
+
+                        // Playlist Name TextField
+                        OutlinedTextField(
+                            value = editTitle,
+                            onValueChange = { editTitle = it },
+                            label = { Text("Playlist Name", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                                focusedIndicatorColor = LIME_TEXT,
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Playlist Description TextField
+                        OutlinedTextField(
+                            value = editDesc,
+                            onValueChange = { editDesc = it },
+                            label = { Text("Description (optional)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                                focusedIndicatorColor = LIME_TEXT,
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-
-                    // Playlist Name TextField
-                    OutlinedTextField(
-                        value = editTitle,
-                        onValueChange = { editTitle = it },
-                        label = { Text("Playlist Name", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                            focusedIndicatorColor = LIME_TEXT,
-                            unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Playlist Description TextField
-                    OutlinedTextField(
-                        value = editDesc,
-                        onValueChange = { editDesc = it },
-                        label = { Text("Description (optional)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                            focusedIndicatorColor = LIME_TEXT,
-                            unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (editTitle.isNotBlank()) {
+                                onEditPlaylist?.invoke(playlist.id, editTitle, editDesc, editCoverUrl.ifBlank { null })
+                                Toast.makeText(context, "Playlist updated", Toast.LENGTH_SHORT).show()
+                            }
+                            activeDialog = null
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = LIME_TEXT),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        activeDialog = null
+                        onDismiss()
+                    }) {
+                        Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showEditDialog = false
-                        if (editTitle.isNotBlank()) {
-                            onEditPlaylist?.invoke(playlist.id, editTitle, editDesc, editCoverUrl.ifBlank { null })
-                            Toast.makeText(context, "Playlist updated", Toast.LENGTH_SHORT).show()
+            )
+        }
+        PlaylistDialogType.EXPORT -> {
+            AlertDialog(
+                onDismissRequest = {
+                    activeDialog = null
+                    onDismiss()
+                },
+                containerColor = CARD_DARK_BG,
+                shape = RoundedCornerShape(24.dp),
+                title = {
+                    Text(
+                        text = "Export playlist",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 20.sp
+                    )
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        // Radio Button 1: Export as CSV
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedExportFormat = "CSV" }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (selectedExportFormat == "CSV") Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = if (selectedExportFormat == "CSV") LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = "Export as CSV",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = LIME_TEXT),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
 
-    // ========================================================================
-    // 6. EXPORT PLAYLIST DIALOG (Matching Photo 4)
-    // ========================================================================
-    if (showExportDialog) {
-        AlertDialog(
-            onDismissRequest = { showExportDialog = false },
-            containerColor = CARD_DARK_BG,
-            shape = RoundedCornerShape(24.dp),
-            title = {
-                Text(
-                    text = "Export playlist",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 20.sp
-                )
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    // Radio Button 1: Export as CSV
+                        // Radio Button 2: Export as M3U
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedExportFormat = "M3U" }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (selectedExportFormat == "M3U") Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = if (selectedExportFormat == "M3U") LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = "Export as M3U",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { selectedExportFormat = "CSV" }
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = if (selectedExportFormat == "CSV") Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-                            contentDescription = null,
-                            tint = if (selectedExportFormat == "CSV") LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Text(
-                            text = "Export as CSV",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
+                        TextButton(onClick = {
+                            activeDialog = null
+                            onDismiss()
+                        }) {
+                            Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        TextButton(onClick = {
+                            val cleanTitle = playlist.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                            val fileName = if (selectedExportFormat == "CSV") "$cleanTitle.csv" else "$cleanTitle.m3u"
+                            val content = if (selectedExportFormat == "CSV") {
+                                buildString {
+                                    appendLine("Title,Artist,Album,Duration")
+                                    playlist.tracks.forEach { t ->
+                                        val albumStr = (t.album ?: "").replace("\"", "\"\"")
+                                        appendLine("\"${t.title.replace("\"", "\"\"")}\",\"${t.artist.replace("\"", "\"\"")}\",\"$albumStr\",${t.duration}")
+                                    }
+                                }
+                            } else {
+                                buildString {
+                                    appendLine("#EXTM3U")
+                                    appendLine("#PLAYLIST:${playlist.title}")
+                                    playlist.tracks.forEach { t ->
+                                        appendLine("#EXTINF:${t.duration},${t.artist} - ${t.title}")
+                                        appendLine("https://music.youtube.com/watch?v=${t.id}")
+                                    }
+                                }
+                            }
 
-                    // Radio Button 2: Export as M3U
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { selectedExportFormat = "M3U" }
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (selectedExportFormat == "M3U") Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-                            contentDescription = null,
-                            tint = if (selectedExportFormat == "M3U") LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Text(
-                            text = "Export as M3U",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
+                            try {
+                                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                                val file = java.io.File(downloadsDir, fileName)
+                                file.writeText(content)
+                                Toast.makeText(context, "Saved to Downloads: $fileName", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                try {
+                                    val file = java.io.File(context.getExternalFilesDir(null), fileName)
+                                    file.writeText(content)
+                                    Toast.makeText(context, "Saved: ${file.absolutePath}", Toast.LENGTH_LONG).show()
+                                } catch (e2: Exception) {
+                                    Toast.makeText(context, "Error saving: ${e2.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            activeDialog = null
+                            onDismiss()
+                        }) {
+                            Text("Save to Documents", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        TextButton(onClick = {
+                            val content = if (selectedExportFormat == "CSV") {
+                                buildString {
+                                    appendLine("Title,Artist,Album,Duration")
+                                    playlist.tracks.forEach { t ->
+                                        val albumStr = (t.album ?: "").replace("\"", "\"\"")
+                                        appendLine("\"${t.title.replace("\"", "\"\"")}\",\"${t.artist.replace("\"", "\"\"")}\",\"$albumStr\",${t.duration}")
+                                    }
+                                }
+                            } else {
+                                buildString {
+                                    appendLine("#EXTM3U")
+                                    appendLine("#PLAYLIST:${playlist.title}")
+                                    playlist.tracks.forEach { t ->
+                                        appendLine("#EXTINF:${t.duration},${t.artist} - ${t.title}")
+                                        appendLine("https://music.youtube.com/watch?v=${t.id}")
+                                    }
+                                }
+                            }
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, "Playlist Export: ${playlist.title}")
+                                putExtra(Intent.EXTRA_TEXT, content)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Playlist Export"))
+                            activeDialog = null
+                            onDismiss()
+                        }) {
+                            Text("Share", color = LIME_TEXT, fontWeight = FontWeight.Bold)
+                        }
                     }
-                }
-            },
-            confirmButton = {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = { showExportDialog = false }) {
+                },
+                dismissButton = {}
+            )
+        }
+        PlaylistDialogType.DELETE -> {
+            AlertDialog(
+                onDismissRequest = {
+                    activeDialog = null
+                    onDismiss()
+                },
+                containerColor = CARD_DARK_BG,
+                shape = RoundedCornerShape(24.dp),
+                title = {
+                    Text(
+                        text = "Delete Playlist",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 20.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to delete '${playlist.title}'?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 15.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            activeDialog = null
+                            onDismiss()
+                            onDeletePlaylist?.invoke()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Delete", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            activeDialog = null
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
                         Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    TextButton(onClick = {
-                        showExportDialog = false
-                        val cleanTitle = playlist.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-                        val fileName = if (selectedExportFormat == "CSV") "$cleanTitle.csv" else "$cleanTitle.m3u"
-                        val content = if (selectedExportFormat == "CSV") {
-                            buildString {
-                                appendLine("Title,Artist,Album,Duration")
-                                playlist.tracks.forEach { t ->
-                                    val albumStr = (t.album ?: "").replace("\"", "\"\"")
-                                    appendLine("\"${t.title.replace("\"", "\"\"")}\",\"${t.artist.replace("\"", "\"\"")}\",\"$albumStr\",${t.duration}")
-                                }
-                            }
-                        } else {
-                            buildString {
-                                appendLine("#EXTM3U")
-                                appendLine("#PLAYLIST:${playlist.title}")
-                                playlist.tracks.forEach { t ->
-                                    appendLine("#EXTINF:${t.duration},${t.artist} - ${t.title}")
-                                    appendLine("https://music.youtube.com/watch?v=${t.id}")
-                                }
-                            }
-                        }
-
-                        try {
-                            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                            val file = java.io.File(downloadsDir, fileName)
-                            file.writeText(content)
-                            Toast.makeText(context, "Saved to Downloads: $fileName", Toast.LENGTH_LONG).show()
-                        } catch (e: Exception) {
-                            try {
-                                val file = java.io.File(context.getExternalFilesDir(null), fileName)
-                                file.writeText(content)
-                                Toast.makeText(context, "Saved: ${file.absolutePath}", Toast.LENGTH_LONG).show()
-                            } catch (e2: Exception) {
-                                Toast.makeText(context, "Error saving: ${e2.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }) {
-                        Text("Save to Documents", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                }
+            )
+        }
+        PlaylistDialogType.DELETE_ALL_DOWNLOADS -> {
+            AlertDialog(
+                onDismissRequest = {
+                    activeDialog = null
+                    onDismiss()
+                },
+                containerColor = CARD_DARK_BG,
+                shape = RoundedCornerShape(24.dp),
+                title = {
+                    Text(
+                        text = "Delete all downloads?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 20.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to delete all ${playlist.tracks.size} downloaded songs? This will permanently remove all offline audio files from your device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 15.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            activeDialog = null
+                            onDismiss()
+                            onClearAllDownloads?.invoke()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Delete All", fontWeight = FontWeight.Bold)
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    TextButton(onClick = {
-                        showExportDialog = false
-                        val content = if (selectedExportFormat == "CSV") {
-                            buildString {
-                                appendLine("Title,Artist,Album,Duration")
-                                playlist.tracks.forEach { t ->
-                                    val albumStr = (t.album ?: "").replace("\"", "\"\"")
-                                    appendLine("\"${t.title.replace("\"", "\"\"")}\",\"${t.artist.replace("\"", "\"\"")}\",\"$albumStr\",${t.duration}")
-                                }
-                            }
-                        } else {
-                            buildString {
-                                appendLine("#EXTM3U")
-                                appendLine("#PLAYLIST:${playlist.title}")
-                                playlist.tracks.forEach { t ->
-                                    appendLine("#EXTINF:${t.duration},${t.artist} - ${t.title}")
-                                    appendLine("https://music.youtube.com/watch?v=${t.id}")
-                                }
-                            }
-                        }
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Playlist Export: ${playlist.title}")
-                            putExtra(Intent.EXTRA_TEXT, content)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Playlist Export"))
-                    }) {
-                        Text("Share", color = LIME_TEXT, fontWeight = FontWeight.Bold)
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            activeDialog = null
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
                     }
                 }
-            },
-            dismissButton = {}
-        )
-    }
-
-    // Delete Confirmation Dialog
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            containerColor = CARD_DARK_BG,
-            shape = RoundedCornerShape(24.dp),
-            title = {
-                Text(
-                    text = "Delete Playlist",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 20.sp
-                )
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to delete '${playlist.title}'?",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 15.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDeleteConfirm = false
-                        onDeletePlaylist()
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFEF4444),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Delete", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showDeleteConfirm = false },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        )
+            )
+        }
+        null -> {}
     }
 }
 
