@@ -24,17 +24,25 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Job
 import androidx.media3.common.util.UnstableApi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -46,10 +54,13 @@ import com.auralis.music.ui.components.MiniPlayer
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.profile.ProfileSheet
 import com.auralis.music.ui.player.MiniPlayerHeight
+import com.auralis.music.ui.player.PlayerBackground
+import com.auralis.music.ui.player.PlayerBackgroundStyle
 import com.auralis.music.ui.screens.*
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.AuralisSpring
 import com.auralis.music.ui.theme.LocalReducedMotion
@@ -119,7 +130,6 @@ fun AuralisApp(
         }
     }
     var currentDestination by remember { mutableStateOf(initialDestination) }
-    val destinationBackStack = remember { androidx.compose.runtime.mutableStateListOf<AppDestination>() }
     val visitedDestinations = remember { androidx.compose.runtime.mutableStateListOf(initialDestination) }
     LaunchedEffect(currentDestination) {
         if (!visitedDestinations.contains(currentDestination)) {
@@ -258,17 +268,73 @@ fun AuralisApp(
             "Library" -> AppDestination.LIBRARY
             else -> AppDestination.HOME
         }
-        if (!hasAppliedDefaultTab || destinationBackStack.isEmpty()) {
+        if (!hasAppliedDefaultTab) {
             currentDestination = target
             hasAppliedDefaultTab = true
         }
     }
 
+    val playerSheetProgress = remember { Animatable(0f) }
     var isNowPlayingOpen by remember { mutableStateOf(false) }
+    val isPlayerSheetActive by remember {
+        derivedStateOf { playerSheetProgress.value > 0f || isNowPlayingOpen }
+    }
+    val isMiniPlayerVisible by remember {
+        derivedStateOf { playerSheetProgress.value < 1f || !isNowPlayingOpen }
+    }
+    val isFullyCollapsed by remember {
+        derivedStateOf { playerSheetProgress.value == 0f }
+    }
+    val dismissOffsetY = remember { Animatable(0f) }
     var isStatsOpen by rememberSaveable { mutableStateOf(false) }
+    var sheetAnimationJob by remember { mutableStateOf<Job?>(null) }
+    var dismissAnimationJob by remember { mutableStateOf<Job?>(null) }
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val reducedMotion = LocalReducedMotion.current
+
+    val expandPlayer: () -> Unit = {
+        isNowPlayingOpen = true
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+        sheetAnimationJob?.cancel()
+        dismissAnimationJob?.cancel()
+        sheetAnimationJob = coroutineScope.launch {
+            playerSheetProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = if (reducedMotion) snap() else spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        }
+    }
+
+    val collapsePlayer: () -> Unit = {
+        sheetAnimationJob?.cancel()
+        dismissAnimationJob?.cancel()
+        sheetAnimationJob = coroutineScope.launch {
+            playerSheetProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = if (reducedMotion) snap() else spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+            isNowPlayingOpen = false
+        }
+    }
+
+    LaunchedEffect(playerUiState.currentTrack) {
+        if (playerUiState.currentTrack == null) {
+            sheetAnimationJob?.cancel()
+            dismissAnimationJob?.cancel()
+            playerSheetProgress.snapTo(0f)
+            dismissOffsetY.snapTo(0f)
+            isNowPlayingOpen = false
+        }
+    }
 
     LaunchedEffect(isNowPlayingOpen) {
         if (isNowPlayingOpen) {
@@ -290,8 +356,19 @@ fun AuralisApp(
     var isHomeMenuOpen by remember { mutableStateOf(false) }
 
     fun navigateToDestination(dest: AppDestination) {
-        if (currentDestination != dest) {
-            destinationBackStack.add(currentDestination)
+        if (currentDestination == dest) {
+            // Re-tapping current tab: pop any nested detail to root
+            if (dest == AppDestination.EXPLORE) {
+                if (searchUiState.detailStack.isNotEmpty() || searchUiState.selectedArtistPage != null || searchUiState.selectedAlbum != null) {
+                    searchViewModelState?.clearSearch()
+                }
+            } else if (dest == AppDestination.LIBRARY) {
+                if (libraryUiState.selectedPlaylist != null || libraryUiState.selectedSmartCollection != null) {
+                    libraryViewModelState?.selectPlaylist(null)
+                    libraryViewModelState?.closeSmartCollection()
+                }
+            }
+        } else {
             currentDestination = dest
         }
         isHomeMenuOpen = false
@@ -365,30 +442,24 @@ fun AuralisApp(
 
     androidx.activity.compose.BackHandler(
         enabled = isHomeMenuOpen ||
-                searchUiState.detailStack.isNotEmpty() ||
-                searchUiState.selectedArtistPage != null ||
-                searchUiState.selectedAlbum != null ||
-                isNowPlayingOpen ||
+                (currentDestination == AppDestination.EXPLORE && (searchUiState.detailStack.isNotEmpty() || searchUiState.selectedArtistPage != null || searchUiState.selectedAlbum != null)) ||
+                isPlayerSheetActive ||
                 isHistoryOpen ||
                 isStatsOpen ||
                 isProfileOpen ||
                 isListenTogetherOpen ||
-                destinationBackStack.isNotEmpty() ||
                 currentDestination != AppDestination.HOME
     ) {
         if (isHomeMenuOpen) isHomeMenuOpen = false
-        else if (searchUiState.detailStack.isNotEmpty()) searchViewModelState?.popDetail()
-        else if (searchUiState.selectedArtistPage != null) searchViewModelState?.closeArtist()
-        else if (searchUiState.selectedAlbum != null) searchViewModelState?.closeAlbum()
-        else if (isNowPlayingOpen) isNowPlayingOpen = false
+        else if (isPlayerSheetActive) collapsePlayer()
         else if (isStatsOpen) isStatsOpen = false
         else if (isHistoryOpen) isHistoryOpen = false
         else if (isProfileOpen) isProfileOpen = false
         else if (isListenTogetherOpen) isListenTogetherOpen = false
-        else if (destinationBackStack.isNotEmpty()) {
-            val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)
-            currentDestination = prevDest
-        } else if (currentDestination != AppDestination.HOME) {
+        else if (currentDestination == AppDestination.EXPLORE && searchUiState.detailStack.isNotEmpty()) searchViewModelState?.popDetail()
+        else if (currentDestination == AppDestination.EXPLORE && searchUiState.selectedArtistPage != null) searchViewModelState?.closeArtist()
+        else if (currentDestination == AppDestination.EXPLORE && searchUiState.selectedAlbum != null) searchViewModelState?.closeAlbum()
+        else if (currentDestination != AppDestination.HOME) {
             currentDestination = AppDestination.HOME
         }
     }
@@ -498,14 +569,23 @@ fun AuralisApp(
                             .fillMaxWidth()
                             .navigationBarsPadding()
                             .graphicsLayer {
-                                alpha = if (isNowPlayingOpen) 0f else 1f
+                                val dockProgress = playerSheetProgress.value
+                                val dockAlpha = if (reducedMotion) {
+                                    if (isNowPlayingOpen || dockProgress > 0f) 0f else 1f
+                                } else {
+                                    (1f - dockProgress * 2f).coerceIn(0f, 1f)
+                                }
+                                alpha = dockAlpha
+                                if (!reducedMotion) {
+                                    translationY = 64.dp.toPx() * dockProgress
+                                }
                             }
                     ) {
                         com.auralis.music.ui.components.AuralisFloatingDock(
                             currentDestination = currentDestination,
                             hazeState = hazeState,
                             artworkUrl = playerUiState.currentTrack?.thumbnail,
-                            isPlaylistDetailOpen = libraryUiState.selectedPlaylist != null,
+                            isPlaylistDetailOpen = libraryUiState.selectedPlaylist != null || libraryUiState.selectedSmartCollection != null,
                             onDestinationClick = { destination ->
                                 isHomeMenuOpen = false
                                 navigateToDestination(destination)
@@ -570,28 +650,65 @@ fun AuralisApp(
                         }
                     }
 
-                    // Main Navigation Screen Container: Instant 0ms response with hardware-accelerated in-place transitions
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // Main Navigation Screen Container: Instant response with hardware-accelerated VIVI slide+fade transitions
+                    BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         val reducedMotion = LocalReducedMotion.current
+                        val slideOffsetPx = constraints.maxWidth.toFloat() / 8f
+
+                        var previousDestination by remember { mutableStateOf(currentDestination) }
+                        var activeDestination by remember { mutableStateOf(currentDestination) }
+                        var transitionDirection by remember { mutableIntStateOf(1) } // +1 forward (from right), -1 backward (from left)
+                        val transitionProgress = remember { Animatable(1f) }
+
+                        LaunchedEffect(currentDestination) {
+                            if (currentDestination != activeDestination) {
+                                val prevIdx = AppDestinations.indexOfFirst { it == activeDestination }
+                                val newIdx = AppDestinations.indexOfFirst { it == currentDestination }
+                                transitionDirection = if (newIdx >= prevIdx) 1 else -1
+                                previousDestination = activeDestination
+                                activeDestination = currentDestination
+                                if (!reducedMotion) {
+                                    transitionProgress.snapTo(0f)
+                                    transitionProgress.animateTo(
+                                        targetValue = 1f,
+                                        animationSpec = tween(
+                                            durationMillis = 200,
+                                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                        )
+                                    )
+                                } else {
+                                    transitionProgress.snapTo(1f)
+                                }
+                            }
+                        }
+
+                        val currentProgress = transitionProgress.value
+
                         AppDestinations.forEach { destination ->
                             if (visitedDestinations.contains(destination)) {
-                                val isSelected = currentDestination == destination
-                                val animAlpha by animateFloatAsState(
-                                    targetValue = if (isSelected) 1f else 0f,
-                                    animationSpec = if (reducedMotion) snap() else tween(
-                                        durationMillis = if (isSelected) 160 else 120,
-                                        easing = AuralisEasing.Standard
-                                    ),
-                                    label = "${destination.name}TabAlpha"
-                                )
-                                val animScale by animateFloatAsState(
-                                    targetValue = if (isSelected) 1f else 0.988f,
-                                    animationSpec = if (reducedMotion) snap() else tween(
-                                        durationMillis = 160,
-                                        easing = AuralisEasing.Decelerate
-                                    ),
-                                    label = "${destination.name}TabScale"
-                                )
+                                val isCurrentlyActive = destination == activeDestination
+                                val wasPrevious = destination == previousDestination
+
+                                val (alphaVal, transX) = when {
+                                    reducedMotion -> {
+                                        if (isCurrentlyActive) 1f to 0f else 0f to 0f
+                                    }
+                                    isCurrentlyActive -> {
+                                        // Entering screen: slides in from (direction * slideOffsetPx) to 0f
+                                        val a = currentProgress
+                                        val tx = (1f - currentProgress) * (transitionDirection * slideOffsetPx)
+                                        a to tx
+                                    }
+                                    wasPrevious && currentProgress < 1f -> {
+                                        // Exiting screen: slides out from 0f to (-direction * slideOffsetPx)
+                                        val a = 1f - currentProgress
+                                        val tx = -currentProgress * (transitionDirection * slideOffsetPx)
+                                        a to tx
+                                    }
+                                    else -> {
+                                        0f to 0f
+                                    }
+                                }
 
                                 // Keep all 3 primary destinations continuously composed in memory to preserve scroll
                                 // positions, carousel state, and search queries without rebuild or image reload overhead.
@@ -599,15 +716,14 @@ fun AuralisApp(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .zIndex(if (isSelected) 10f else 0f)
+                                        .zIndex(if (isCurrentlyActive) 10f else 0f)
                                         .graphicsLayer {
-                                            alpha = animAlpha
-                                            scaleX = animScale
-                                            scaleY = animScale
+                                            alpha = alphaVal
+                                            translationX = transX
                                             clip = true
                                         }
                                         .then(
-                                            if (!isSelected) {
+                                            if (!isCurrentlyActive) {
                                                 Modifier.pointerInput(destination) {
                                                     awaitPointerEventScope {
                                                         while (true) {
@@ -684,6 +800,82 @@ fun AuralisApp(
                                                     obtainSearchViewModel().openAlbum(album)
                                                     navigateToDestination(AppDestination.EXPLORE)
                                                 },
+                                                onUnpinSpeedDial = { homeViewModel.unpinFromSpeedDial(it) },
+                                                savedAlbums = libraryUiState.savedAlbums,
+                                                isAlbumPinned = { albumId -> homeViewModel.isAlbumPinned(albumId) },
+                                                onPinAlbumToSpeedDial = { album ->
+                                                    val isNowPinned = homeViewModel.togglePinAlbum(album)
+                                                    val msg = if (isNowPinned) "Pinned \"${album.title}\" to Speed dial" else "Unpinned \"${album.title}\" from Speed dial"
+                                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onToggleSaveAlbum = { obtainLibraryViewModel().toggleSaveAlbum(it) },
+                                                onShuffleAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = obtainSearchViewModel().getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            val shuffled = tracks.shuffled()
+                                                            obtainPlayerViewModel().playTrack(shuffled.first(), shuffled, 0)
+                                                            android.widget.Toast.makeText(context, "Shuffling: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onPlayNextAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = obtainSearchViewModel().getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            obtainPlayerViewModel().playNext(tracks)
+                                                            android.widget.Toast.makeText(context, "Playing next: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onAddToQueueAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = obtainSearchViewModel().getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            obtainPlayerViewModel().addToQueue(tracks)
+                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to queue", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onAddAlbumToPlaylist = { plId, album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = obtainSearchViewModel().getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            obtainLibraryViewModel().addTracksToPlaylist(plId, tracks)
+                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onCreatePlaylistAndAddAlbum = { title, album ->
+                                                    val albumTitle = title.ifBlank { album.title }
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Adding \"$albumTitle\" to Library...",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                    coroutineScope.launch {
+                                                        val tracks = obtainSearchViewModel().getAlbumTracks(album)
+                                                        obtainLibraryViewModel().createPlaylistAndAddTracks(
+                                                            title = albumTitle,
+                                                            tracks = tracks,
+                                                            description = "Album by ${album.author ?: "Various Artists"}"
+                                                        )
+                                                    }
+                                                },
+                                                onDownloadAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = obtainSearchViewModel().getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
+                                                                context,
+                                                                album.id,
+                                                                album.title,
+                                                                tracks
+                                                            )
+                                                            android.widget.Toast.makeText(context, "Downloading ${album.title} (${tracks.size} songs)...", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
                                                 isInListenTogetherRoom = isGuestInRoom,
                                                 onRecommendToRoom = { trk ->
                                                     obtainListenTogetherViewModel().recommendSong(trk)
@@ -703,7 +895,91 @@ fun AuralisApp(
                                                 userPlaylists = libraryUiState.playlists,
                                                 favoriteTracks = libraryUiState.favorites,
                                                 savedArtists = libraryUiState.savedArtists,
+                                                savedAlbums = libraryUiState.savedAlbums,
+                                                pinnedSpeedDialIds = homeUiState.pinnedSpeedDialIds,
                                                 onToggleSubscribe = { libVM.toggleSaveArtist(it) },
+                                                onToggleSaveAlbum = { libVM.toggleSaveAlbum(it) },
+                                                onPlayNextAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = searchVM.getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            obtainPlayerViewModel().playNext(tracks)
+                                                            android.widget.Toast.makeText(context, "Playing next: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onAddToQueueAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = searchVM.getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            obtainPlayerViewModel().addToQueue(tracks)
+                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to queue", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onShuffleAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = searchVM.getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            val shuffled = tracks.shuffled()
+                                                            obtainPlayerViewModel().playTrack(shuffled.first(), shuffled, 0)
+                                                            android.widget.Toast.makeText(context, "Shuffling: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onDownloadAlbum = { album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = searchVM.getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
+                                                                context,
+                                                                album.id,
+                                                                album.title,
+                                                                tracks
+                                                            )
+                                                            android.widget.Toast.makeText(context, "Downloading ${album.title} (${tracks.size} songs)...", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                isAlbumPinned = { albumId -> homeViewModel.isAlbumPinned(albumId) },
+                                                onPinAlbumToSpeedDial = { album ->
+                                                    val isNowPinned = homeViewModel.togglePinAlbum(album)
+                                                    val msg = if (isNowPinned) "Pinned \"${album.title}\" to Speed dial" else "Unpinned \"${album.title}\" from Speed dial"
+                                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                onAddAlbumToPlaylist = { plId, album ->
+                                                    coroutineScope.launch {
+                                                        val tracks = searchVM.getAlbumTracks(album)
+                                                        if (tracks.isNotEmpty()) {
+                                                            libVM.addTracksToPlaylist(plId, tracks)
+                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                onCreatePlaylistAndAddAlbum = { title, album ->
+                                                    val albumTitle = title.ifBlank { album.title }
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Adding \"$albumTitle\" to Library...",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                    coroutineScope.launch {
+                                                        val tracks = searchVM.getAlbumTracks(album)
+                                                        libVM.createPlaylistAndAddTracks(
+                                                            title = albumTitle,
+                                                            tracks = tracks,
+                                                            description = "Album • ${album.author ?: "Unknown Artist"}",
+                                                            coverUrl = album.thumbnail,
+                                                            onCreated = {
+                                                                android.widget.Toast.makeText(
+                                                                    context,
+                                                                    "Added album playlist \"$albumTitle\" to Library (${tracks.size} songs)",
+                                                                    android.widget.Toast.LENGTH_SHORT
+                                                                ).show()
+                                                            }
+                                                        )
+                                                    }
+                                                },
                                                 onQueryChange = { searchVM.onQueryChange(it) },
                                                 onSearch = { searchVM.performSearch(it) },
                                                 onClearSearch = { searchVM.clearSearch() },
@@ -746,12 +1022,7 @@ fun AuralisApp(
                                                     searchVM.openAlbum(album)
                                                 },
                                                 onBack = {
-                                                    if (destinationBackStack.isNotEmpty()) {
-                                                        val prevDest = destinationBackStack.removeAt(destinationBackStack.lastIndex)
-                                                        currentDestination = prevDest
-                                                    } else {
-                                                        currentDestination = AppDestination.HOME
-                                                    }
+                                                    currentDestination = AppDestination.HOME
                                                 },
                                                 isInListenTogetherRoom = isGuestInRoom,
                                                 onRecommendToRoom = { trk ->
@@ -773,18 +1044,24 @@ fun AuralisApp(
                                                 onCreatePlaylist = { libVM.createPlaylist(it) },
                                                 onDeletePlaylist = { libVM.deletePlaylist(it) },
                                                 onPlaylistSelect = { libVM.selectPlaylist(it?.id, it) },
-                                                onTrackClick = { track, queue ->
+                                                onTrackClick = { track, queue, _ ->
                                                     if (isGuestInRoom) notifyGuestControlBlocked()
                                                     else obtainPlayerViewModel().playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
                                                 },
                                                 onFavoriteToggle = { track -> obtainPlayerViewModel().toggleFavorite(track) },
                                                 onAddToPlaylist = { plId, track -> libVM.addTrackToPlaylist(plId, track) },
-                                                onRemoveFromPlaylist = { plId, trackId -> libVM.removeTrackFromPlaylist(plId, trackId) },
+                                                onRemoveFromPlaylist = { plId, trackId ->
+                                                    libVM.removeTrackFromPlaylist(plId, trackId)
+                                                    android.widget.Toast.makeText(context, "Removed from playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
                                                 onImportYouTubePlaylist = { libVM.importYouTubePlaylist(it) },
                                                 onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
                                                 onExportBackup = suspend { libVM.exportLibraryJson() },
                                                 onImportBackup = { libVM.importLibraryJson(it) },
                                                 onSmartCollectionClick = { libVM.openSmartCollection(it) },
+                                                onCloseSmartCollection = { libVM.closeSmartCollection() },
+                                                onDeletePlaylistJob = { jobId -> libVM.removePlaylistDownloads(context, jobId) },
+                                                onRetryPlaylistJob = { jobId -> libVM.retryPlaylistDownload(context, jobId) },
                                                 onSortChange = { libVM.setSortOrder(it) },
                                                 onToggleGridView = { libVM.toggleGridView() },
                                                 onOpenHistory = { isHistoryOpen = true },
@@ -844,7 +1121,8 @@ fun AuralisApp(
         AnimatedVisibility(
             visible = isListenTogetherOpen,
             enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit()
+            exit = auralisNavigationExit(),
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val ltVM = obtainListenTogetherViewModel()
             ListenTogetherSheet(
@@ -892,7 +1170,8 @@ fun AuralisApp(
         AnimatedVisibility(
             visible = isProfileOpen,
             enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit()
+            exit = auralisNavigationExit(),
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val authVM = obtainAuthViewModel()
             val libVM = obtainLibraryViewModel()
@@ -942,7 +1221,8 @@ fun AuralisApp(
         AnimatedVisibility(
             visible = isHistoryOpen,
             enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit()
+            exit = auralisNavigationExit(),
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             com.auralis.music.ui.history.HistorySheet(
                 history = homeUiState.recentTracks,
@@ -954,6 +1234,14 @@ fun AuralisApp(
                 },
                 onRemoveFromHistory = { homeViewModel.removeFromHistory(it) },
                 onClearHistory = { homeViewModel.clearHistory() },
+                onPlayNext = { track ->
+                    obtainPlayerViewModel().playNext(track)
+                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                onAddToQueue = { track ->
+                    obtainPlayerViewModel().addToQueue(listOf(track))
+                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                },
                 onDismiss = { isHistoryOpen = false }
             )
         }
@@ -962,7 +1250,8 @@ fun AuralisApp(
         AnimatedVisibility(
             visible = isStatsOpen,
             enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit()
+            exit = auralisNavigationExit(),
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val statsVM = obtainStatsViewModel()
             val libVM = obtainLibraryViewModel()
@@ -997,135 +1286,412 @@ fun AuralisApp(
             )
         }
 
-        // Fullscreen Expandable Now Playing Modal Sheet (Root Overlay, takes 100% of the screen above all sheets)
-        AnimatedVisibility(
-            visible = isNowPlayingOpen,
-            enter = auralisSheetEnter(),
-            exit = auralisSheetExit()
-        ) {
-            val currentPV = obtainPlayerViewModel()
-            val currentLibVM = obtainLibraryViewModel()
-            // Kept as State, not unwrapped with `by`: the modal takes the
-            // position as State so the playback clock cannot drag this whole
-            // overlay — or the modal — through a recomposition every tick.
-            val modalPositionState = currentPV.playbackPositionMs.collectAsState()
-            NowPlayingSheet(
-                uiState = playerUiState,
-                playbackPositionState = modalPositionState,
-                lyricsClockSource = currentPV.playbackClockSource,
-                userPlaylists = libraryUiState.playlists,
-                onPlayPauseClick = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else currentPV.togglePlayPause()
-                },
-                onSeekTo = { posMs ->
-                    if (isGuestInRoom) {
-                        notifyGuestControlBlocked()
-                    } else {
-                        currentPV.seekTo(posMs)
-                        if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
-                            playerUiState.currentTrack?.let { trk ->
-                                obtainListenTogetherViewModel().broadcastHostPlayback(
-                                    currentTrack = trk,
-                                    isPlaying = playerUiState.isPlaying,
-                                    playbackPositionMs = posMs,
-                                    queue = playerUiState.queue
-                                )
-                            }
-                        }
-                    }
-                },
-                onNextClick = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else {
-                        currentPV.next()
-                    }
-                },
-                onPreviousClick = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else {
-                        currentPV.previous()
-                    }
-                },
-                onToggleShuffle = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else currentPV.toggleShuffle()
-                },
-                onToggleRepeat = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else currentPV.toggleRepeat()
-                },
-                onToggleFavorite = { currentPV.toggleFavorite() },
-                onToggleLyricsView = { currentPV.toggleLyricsView() },
-                onLyricsOffsetChange = { currentPV.setLyricsOffset(it) },
-                onSearchLyricsManually = { title, artist -> currentPV.searchLyricsManually(title, artist) },
-                onSleepTimerSelect = { currentPV.setSleepTimer(it) },
-                onSelectQueueTrack = { index ->
-                    if (isGuestInRoom) {
-                        notifyGuestControlBlocked()
-                    } else {
-                        val q = playerUiState.queue
-                        val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
-                        if (t != null && !(index == playerUiState.currentIndex && t.id == playerUiState.currentTrack?.id)) {
-                            currentPV.playTrack(t, if (q.isNotEmpty()) q else listOf(t), index)
-                        }
-                    }
-                },
-                onReorderQueue = { fromIndex, toIndex ->
-                    if (isGuestInRoom) {
-                        notifyGuestControlBlocked()
-                    } else {
-                        currentPV.moveQueueItem(fromIndex, toIndex)
-                        if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
-                            playerUiState.currentTrack?.let { trk ->
-                                obtainListenTogetherViewModel().broadcastHostPlayback(
-                                    currentTrack = trk,
-                                    isPlaying = playerUiState.isPlaying,
-                                    playbackPositionMs = currentPV.playbackPositionMs.value,
-                                    queue = playerUiState.queue
-                                )
-                            }
-                        }
-                    }
-                },
-                onAddToPlaylist = { plId, track -> currentLibVM.addTrackToPlaylist(plId, track) },
-                onCreatePlaylistAndAdd = { title, track -> currentLibVM.createPlaylistAndAddTrack(title, track) },
-                onArtistClick = { artist ->
-                    isNowPlayingOpen = false
-                    obtainSearchViewModel().openArtist(artist)
-                    navigateToDestination(AppDestination.EXPLORE)
-                },
-                onDismiss = { isNowPlayingOpen = false },
-                sharedTransitionScope = playerSharedScope,
-                animatedVisibilityScope = this@AnimatedVisibility
-            )
-        }
-
-        // Truly Floating Mini Player shown EVERYWHERE across all screens (Home, Explore, Library, Profile, Settings, Appearance, History, Listen Together)
+        // ── Unified BottomSheet Container (MiniPlayer <-> Full Player Parity with VIVI) ──
         val activePV = playerViewModelState
         if (playerUiState.currentTrack != null && activePV != null) {
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
-            MiniPlayerHost(
-                playerViewModel = activePV,
-                playerUiState = playerUiState,
-                isGuestInRoom = isGuestInRoom,
-                isNowPlayingOpen = isNowPlayingOpen,
-                appearanceSettings = appearanceSettings,
-                isSubScreenOpen = isSubScreenOpen,
-                playerSharedScope = playerSharedScope,
-                onOpenNowPlaying = { isNowPlayingOpen = true },
-                onOpenArtist = {
-                    val track = playerUiState.currentTrack
-                    if (track != null) {
-                        obtainSearchViewModel().openArtist(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
-                        navigateToDestination(AppDestination.EXPLORE)
+
+            // Atmospheric background layer behind sheet (VIVI parity: static fullscreen blurred artwork / gradient)
+            val currentTrack = playerUiState.currentTrack
+            val resolvedPlayerBgStyle = remember(appearanceSettings.playerBackgroundStyle) {
+                val style = PlayerBackgroundStyle.fromKey(appearanceSettings.playerBackgroundStyle)
+                if (style == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else style
+            }
+            val sharedPalette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
+
+            if (isPlayerSheetActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val p = playerSheetProgress.value
+                            alpha = if (reducedMotion) {
+                                if (isNowPlayingOpen || p > 0f) 1f else 0f
+                            } else {
+                                (1.4f * kotlin.math.sqrt((p.coerceAtLeast(0.1f) - 0.1f))).coerceIn(0f, 1f)
+                            }
+                        }
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { collapsePlayer() }
+                        )
+                ) {
+                    if (currentTrack != null) {
+                        PlayerBackground(
+                            style = resolvedPlayerBgStyle,
+                            artworkUrl = currentTrack.thumbnail,
+                            extractedColors = sharedPalette,
+                            modifier = Modifier.fillMaxSize(),
+                            isMiniPlayer = false,
+                            isPlaying = playerUiState.isPlaying
+                        )
                     }
-                },
-                onAddToPlaylist = {
-                    showMiniPlayerTrackOptions = true
-                },
-                notifyGuestControlBlocked = { notifyGuestControlBlocked() }
-            )
+                }
+            }
+
+            // Single translating container hosting Full Player and MiniPlayer
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val fullHeightPx = constraints.maxHeight.toFloat()
+                val density = LocalDensity.current
+                val isClassicMini = appearanceSettings.miniPlayerDesign == "Classic mini player"
+                val targetBottomPadding = if (isSubScreenOpen) {
+                    if (isClassicMini) 0.dp else 10.dp
+                } else {
+                    if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp
+                }
+                val bottomInset = with(density) { WindowInsets.systemBars.getBottom(density).toDp() }
+                val collapsedBoundDp = 68.dp + targetBottomPadding + bottomInset
+                val collapsedBoundPx = with(density) { collapsedBoundDp.toPx() }
+                val travelDistance = (fullHeightPx - collapsedBoundPx).coerceAtLeast(0f)
+
+                val sensitivityRatio = (appearanceSettings.miniPlayerSwipeSensitivity / 100f).coerceIn(0.10f, 1.0f)
+                val dismissThresholdPx = with(density) { (90.dp * (1.15f - sensitivityRatio * 0.40f)).toPx() }
+                val dismissVelocityThreshold = 1800f * (1.15f - sensitivityRatio * 0.40f)
+
+                // 1. Full Player Sheet (Only active and taking touches when expanding/open)
+                if (isPlayerSheetActive) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val p = playerSheetProgress.value
+                                translationY = if (reducedMotion) {
+                                    if (isNowPlayingOpen) 0f else travelDistance
+                                } else {
+                                    (1f - p) * travelDistance
+                                }
+                                val radius = if (reducedMotion) {
+                                    if (isNowPlayingOpen) 0f else 16.dp.toPx()
+                                } else {
+                                    if (p < 1f) 16.dp.toPx() else 0f
+                                }
+                                shape = RoundedCornerShape(topStart = radius, topEnd = radius)
+                                clip = true
+                            }
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    if (sheetAnimationJob?.isActive == true) {
+                                        sheetAnimationJob?.cancel()
+                                    }
+                                    if (dismissAnimationJob?.isActive == true) {
+                                        dismissAnimationJob?.cancel()
+                                    }
+                                }
+                            }
+                            .pointerInput(travelDistance) {
+                                if (travelDistance <= 0f) return@pointerInput
+                                val velocityTracker = VelocityTracker()
+                                var currentProgress = 0f
+
+                                detectVerticalDragGestures(
+                                    onDragStart = {
+                                        focusManager.clearFocus(force = true)
+                                        keyboardController?.hide()
+                                        sheetAnimationJob?.cancel()
+                                        dismissAnimationJob?.cancel()
+                                        currentProgress = playerSheetProgress.value
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        velocityTracker.addPointerInputChange(change)
+
+                                        val deltaProgress = -dragAmount / travelDistance
+                                        currentProgress = (currentProgress + deltaProgress).coerceIn(0f, 1f)
+                                        sheetAnimationJob?.cancel()
+                                        sheetAnimationJob = coroutineScope.launch {
+                                            playerSheetProgress.snapTo(currentProgress)
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        velocityTracker.resetTracking()
+                                        val target = if (currentProgress < 0.5f) 0f else 1f
+                                        sheetAnimationJob = coroutineScope.launch {
+                                            playerSheetProgress.animateTo(
+                                                targetValue = target,
+                                                animationSpec = if (reducedMotion) snap() else spring(
+                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                    stiffness = Spring.StiffnessLow
+                                                )
+                                            )
+                                            isNowPlayingOpen = (target == 1f)
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        val rawVelocityY = velocityTracker.calculateVelocity().y
+                                        val velocity = -rawVelocityY
+                                        velocityTracker.resetTracking()
+
+                                        val target = when {
+                                            velocity < -300f -> 0f
+                                            velocity > 300f -> 1f
+                                            currentProgress < 0.5f -> 0f
+                                            else -> 1f
+                                        }
+                                        sheetAnimationJob = coroutineScope.launch {
+                                            playerSheetProgress.animateTo(
+                                                targetValue = target,
+                                                animationSpec = if (reducedMotion) snap() else spring(
+                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                    stiffness = Spring.StiffnessLow
+                                                )
+                                            )
+                                            isNowPlayingOpen = (target == 1f)
+                                        }
+                                    }
+                                )
+                            }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = playerSheetProgress.value
+                                    alpha = if (reducedMotion) {
+                                        if (isNowPlayingOpen) 1f else 0f
+                                    } else {
+                                        ((p - 0.15f) * 4f).coerceIn(0f, 1f)
+                                    }
+                                }
+                        ) {
+                            val currentPV = obtainPlayerViewModel()
+                            val currentLibVM = obtainLibraryViewModel()
+                            val modalPositionState = currentPV.playbackPositionMs.collectAsState()
+                            NowPlayingSheet(
+                                uiState = playerUiState,
+                                playbackPositionState = modalPositionState,
+                                lyricsClockSource = currentPV.playbackClockSource,
+                                userPlaylists = libraryUiState.playlists,
+                                renderBackground = false,
+                                onPlayPauseClick = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else currentPV.togglePlayPause()
+                                },
+                                onSeekTo = { posMs ->
+                                    if (isGuestInRoom) {
+                                        notifyGuestControlBlocked()
+                                    } else {
+                                        currentPV.seekTo(posMs)
+                                        if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
+                                            playerUiState.currentTrack?.let { trk ->
+                                                obtainListenTogetherViewModel().broadcastHostPlayback(
+                                                    currentTrack = trk,
+                                                    isPlaying = playerUiState.isPlaying,
+                                                    playbackPositionMs = posMs,
+                                                    queue = playerUiState.queue
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
+                                onNextClick = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else currentPV.next()
+                                },
+                                onPreviousClick = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else currentPV.previous()
+                                },
+                                onToggleShuffle = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else currentPV.toggleShuffle()
+                                },
+                                onToggleRepeat = {
+                                    if (isGuestInRoom) notifyGuestControlBlocked()
+                                    else currentPV.toggleRepeat()
+                                },
+                                onToggleFavorite = { currentPV.toggleFavorite() },
+                                onToggleLyricsView = { currentPV.toggleLyricsView() },
+                                onLyricsOffsetChange = { currentPV.setLyricsOffset(it) },
+                                onSearchLyricsManually = { title, artist -> currentPV.searchLyricsManually(title, artist) },
+                                onSleepTimerSelect = { currentPV.setSleepTimer(it) },
+                                onSelectQueueTrack = { index ->
+                                    if (isGuestInRoom) {
+                                        notifyGuestControlBlocked()
+                                    } else {
+                                        val q = playerUiState.queue
+                                        val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
+                                        val activeTrack = currentPV.getAudioPlayer()?.currentTrack?.value ?: playerUiState.currentTrack
+                                        if (t != null && t.id != activeTrack?.id) {
+                                            currentPV.playTrack(t, if (q.isNotEmpty()) q else listOf(t), index)
+                                        }
+                                    }
+                                },
+                                onReorderQueue = { fromIndex, toIndex ->
+                                    if (isGuestInRoom) {
+                                        notifyGuestControlBlocked()
+                                    } else {
+                                        currentPV.moveQueueItem(fromIndex, toIndex)
+                                        if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
+                                            playerUiState.currentTrack?.let { trk ->
+                                                obtainListenTogetherViewModel().broadcastHostPlayback(
+                                                    currentTrack = trk,
+                                                    isPlaying = playerUiState.isPlaying,
+                                                    playbackPositionMs = currentPV.playbackPositionMs.value,
+                                                    queue = playerUiState.queue
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
+                                onAddToPlaylist = { plId, track -> currentLibVM.addTrackToPlaylist(plId, track) },
+                                onCreatePlaylistAndAdd = { title, track -> currentLibVM.createPlaylistAndAddTrack(title, track) },
+                                onArtistClick = { artist ->
+                                    collapsePlayer()
+                                    obtainSearchViewModel().openArtist(artist)
+                                    navigateToDestination(AppDestination.EXPLORE)
+                                },
+                                onDismiss = { collapsePlayer() },
+                                sharedTransitionScope = null,
+                                animatedVisibilityScope = null
+                            )
+                        }
+                    }
+                }
+
+                // 2. Mini Player (Anchored strictly to bottom, touches only hit within its collapsedBoundDp)
+                if (isMiniPlayerVisible) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(collapsedBoundDp)
+                            .align(Alignment.BottomCenter)
+                            .graphicsLayer {
+                                val p = playerSheetProgress.value
+                                val dismissY = dismissOffsetY.value
+                                val progressFrac = (dismissY / (dismissThresholdPx * 2.2f)).coerceIn(0f, 1f)
+                                translationY = dismissY
+                                alpha = if (reducedMotion) {
+                                    if (isNowPlayingOpen) 0f else (1f - progressFrac)
+                                } else {
+                                    ((1f - p * 4f) * (1f - progressFrac)).coerceIn(0f, 1f)
+                                }
+                                scaleX = 1f - (progressFrac * 0.12f)
+                                scaleY = 1f - (progressFrac * 0.12f)
+                            }
+                            .pointerInput(travelDistance) {
+                                if (travelDistance <= 0f) return@pointerInput
+                                val velocityTracker = VelocityTracker()
+                                var currentProgress = 0f
+                                var isDraggingUp = false
+
+                                detectVerticalDragGestures(
+                                    onDragStart = {
+                                        focusManager.clearFocus(force = true)
+                                        keyboardController?.hide()
+                                        sheetAnimationJob?.cancel()
+                                        dismissAnimationJob?.cancel()
+                                        currentProgress = playerSheetProgress.value
+                                        isDraggingUp = false
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        velocityTracker.addPointerInputChange(change)
+
+                                        if (dragAmount < 0 || playerSheetProgress.value > 0f) {
+                                            isDraggingUp = true
+                                            val deltaProgress = -dragAmount / travelDistance
+                                            currentProgress = (currentProgress + deltaProgress).coerceIn(0f, 1f)
+                                            sheetAnimationJob?.cancel()
+                                            sheetAnimationJob = coroutineScope.launch {
+                                                playerSheetProgress.snapTo(currentProgress)
+                                            }
+                                        } else {
+                                            isDraggingUp = false
+                                            val currentY = dismissOffsetY.value
+                                            val newY = (currentY + dragAmount).coerceAtLeast(0f)
+                                            dismissAnimationJob?.cancel()
+                                            dismissAnimationJob = coroutineScope.launch {
+                                                dismissOffsetY.snapTo(newY)
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        velocityTracker.resetTracking()
+                                        if (isDraggingUp) {
+                                            val target = if (currentProgress < 0.5f) 0f else 1f
+                                            sheetAnimationJob = coroutineScope.launch {
+                                                playerSheetProgress.animateTo(
+                                                    targetValue = target,
+                                                    animationSpec = if (reducedMotion) snap() else spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessLow
+                                                    )
+                                                )
+                                                isNowPlayingOpen = (target == 1f)
+                                            }
+                                        } else {
+                                            dismissAnimationJob = coroutineScope.launch {
+                                                dismissOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        val rawVelocityY = velocityTracker.calculateVelocity().y
+                                        val velocity = -rawVelocityY
+                                        velocityTracker.resetTracking()
+
+                                        if (isDraggingUp) {
+                                            val target = when {
+                                                velocity < -300f -> 0f
+                                                velocity > 300f -> 1f
+                                                currentProgress < 0.5f -> 0f
+                                                else -> 1f
+                                            }
+                                            sheetAnimationJob = coroutineScope.launch {
+                                                playerSheetProgress.animateTo(
+                                                    targetValue = target,
+                                                    animationSpec = if (reducedMotion) snap() else spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessLow
+                                                    )
+                                                )
+                                                isNowPlayingOpen = (target == 1f)
+                                            }
+                                        } else {
+                                            val currentY = dismissOffsetY.value
+                                            if (currentY > dismissThresholdPx || rawVelocityY > dismissVelocityThreshold) {
+                                                dismissAnimationJob = coroutineScope.launch {
+                                                    dismissOffsetY.animateTo(fullHeightPx, tween(180))
+                                                    activePV.closePlayer()
+                                                    dismissOffsetY.snapTo(0f)
+                                                }
+                                            } else {
+                                                dismissAnimationJob = coroutineScope.launch {
+                                                    dismissOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .padding(bottom = targetBottomPadding + bottomInset),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        MiniPlayerHost(
+                            playerViewModel = activePV,
+                            playerUiState = playerUiState,
+                            isGuestInRoom = isGuestInRoom,
+                            isFullyCollapsed = isFullyCollapsed,
+                            appearanceSettings = appearanceSettings,
+                            hazeState = hazeState,
+                            onOpenNowPlaying = { expandPlayer() },
+                            onOpenArtist = {
+                                val track = playerUiState.currentTrack
+                                if (track != null) {
+                                    obtainSearchViewModel().openArtist(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
+                                    navigateToDestination(AppDestination.EXPLORE)
+                                }
+                            },
+                            onAddToPlaylist = {
+                                showMiniPlayerTrackOptions = true
+                            },
+                            notifyGuestControlBlocked = { notifyGuestControlBlocked() }
+                        )
+                    }
+                }
+            }
         }
 
         // MiniPlayer Direct Add to Playlist Bottom Sheet
@@ -1355,20 +1921,47 @@ fun AuralisApp(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    Surface(
-                        onClick = { obtainListenTogetherViewModel().dismissPill() },
-                        shape = RoundedCornerShape(32.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            pillTint.copy(alpha = 0.45f)
-                        ),
-                        shadowElevation = 12.dp,
-                        modifier = Modifier.wrapContentSize()
+                    val topPillShape = RoundedCornerShape(32.dp)
+                    val surfaceColor = MaterialTheme.dynamicSurface
+                    val isDark = surfaceColor.luminance() < 0.5f
+                    Box(
+                        modifier = Modifier
+                            .wrapContentSize()
+                            .shadow(
+                                elevation = 10.dp,
+                                shape = topPillShape,
+                                ambientColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.12f),
+                                spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
+                            )
+                            .clip(topPillShape)
+                            .hazeEffect(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Color.Transparent,
+                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.38f else 0.48f)),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.02f
+                                )
+                            )
+                            .border(
+                                width = 1.dp,
+                                brush = Brush.verticalGradient(
+                                    listOf(
+                                        pillTint.copy(alpha = 0.50f),
+                                        pillTint.copy(alpha = 0.20f),
+                                        pillTint.copy(alpha = 0.08f)
+                                    )
+                                ),
+                                shape = topPillShape
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { obtainListenTogetherViewModel().dismissPill() }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
@@ -1397,6 +1990,97 @@ fun AuralisApp(
             }
         }
 
+        // ── SLEEK COMPACT IN-APP TOAST PILL ──
+        val appPill by com.auralis.music.ui.components.AppPillManager.pillState.collectAsState()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(1200f),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            AnimatedVisibility(
+                visible = appPill != null,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeIn(tween(160)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(180, easing = FastOutLinearInEasing)
+                ) + fadeOut(tween(160)),
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(
+                        bottom = if (playerUiState.currentTrack != null && !isNowPlayingOpen) 125.dp else 70.dp,
+                        start = 24.dp,
+                        end = 24.dp
+                    )
+            ) {
+                val pill = appPill
+                if (pill != null) {
+                    val pillShape = RoundedCornerShape(24.dp)
+                    val surfaceColor = MaterialTheme.dynamicSurface
+                    val isDark = surfaceColor.luminance() < 0.5f
+                    val pillContentColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+                    Box(
+                        modifier = Modifier
+                            .wrapContentSize()
+                            .shadow(
+                                elevation = 10.dp,
+                                shape = pillShape,
+                                ambientColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.12f),
+                                spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
+                            )
+                            .clip(pillShape)
+                            .hazeEffect(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Color.Transparent,
+                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.35f else 0.45f)),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.02f
+                                )
+                            )
+                            .border(
+                                width = 0.75.dp,
+                                color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
+                                shape = pillShape
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { com.auralis.music.ui.components.AppPillManager.dismiss() }
+                            .padding(horizontal = 14.dp, vertical = 7.5.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (pill.iconRes != null) {
+                                Icon(
+                                    painter = androidx.compose.ui.res.painterResource(id = pill.iconRes),
+                                    contentDescription = null,
+                                    tint = pillContentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = pill.message,
+                                color = pillContentColor,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         if (showUpdaterFromNav) {
             com.auralis.music.ui.screens.UpdaterScreen(
                 onDismiss = { showUpdaterFromNav = false }
@@ -1416,16 +2100,14 @@ private fun MiniPlayerHost(
     playerViewModel: PlayerViewModel,
     playerUiState: PlayerUiState,
     isGuestInRoom: Boolean,
-    isNowPlayingOpen: Boolean,
+    isFullyCollapsed: Boolean,
     appearanceSettings: com.auralis.music.domain.model.AppearanceSettings,
-    isSubScreenOpen: Boolean,
-    playerSharedScope: SharedTransitionScope,
+    hazeState: dev.chrisbanes.haze.HazeState? = null,
     onOpenNowPlaying: () -> Unit,
     onOpenArtist: () -> Unit,
     onAddToPlaylist: () -> Unit,
     notifyGuestControlBlocked: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val miniPositionState: State<Long> = playerViewModel.playbackPositionMs.collectAsState()
     val currentTrack = playerUiState.currentTrack ?: return
     val miniDurationState: State<Long> = remember(playerUiState.durationMs, currentTrack.duration) {
@@ -1443,84 +2125,66 @@ private fun MiniPlayerHost(
     val miniProgressProvider: () -> Float = remember(miniProgressState) {
         { miniProgressState.progress }
     }
-    val isClassicMini = appearanceSettings.miniPlayerDesign == "Classic mini player"
-    val targetBottomPadding = if (isSubScreenOpen) {
-        if (isClassicMini) 0.dp else 10.dp
-    } else {
-        if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp
-    }
-    val reducedMotion = LocalReducedMotion.current
-    val miniPlayerBottomPadding by animateDpAsState(
-        targetValue = targetBottomPadding,
-        animationSpec = if (reducedMotion) snap() else tween(durationMillis = 200, easing = FastOutSlowInEasing),
-        label = "miniPlayerBottomPadding"
-    )
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .navigationBarsPadding()
-            .padding(bottom = miniPlayerBottomPadding),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        AnimatedVisibility(
-            visible = !isNowPlayingOpen,
-            enter = fadeIn(tween(180)),
-            exit = fadeOut(tween(140))
-        ) {
-            MiniPlayer(
-                track = currentTrack,
-                isPlaying = playerUiState.isPlaying,
-                progressState = miniProgressState,
-                progressProvider = miniProgressProvider,
-                queue = playerUiState.queue,
-                currentIndex = playerUiState.currentIndex,
-                isFavorite = playerUiState.isFavorite,
-                userScrollEnabled = !isGuestInRoom && !isNowPlayingOpen,
-                onPlayPauseClick = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else playerViewModel.togglePlayPause()
-                },
-                onNextClick = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else {
-                        playerViewModel.next()
-                    }
-                },
-                onPreviousClick = {
-                    if (isGuestInRoom) notifyGuestControlBlocked()
-                    else {
-                        playerViewModel.previous()
-                    }
-                },
-                onSelectQueueTrack = { index ->
-                    if (isGuestInRoom) {
-                        notifyGuestControlBlocked()
-                    } else {
-                        val q = playerUiState.queue
-                        val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
-                        if (t != null && !(index == playerUiState.currentIndex && t.id == currentTrack.id)) {
-                            playerViewModel.playTrack(t, if (q.isNotEmpty()) q else listOf(t), index)
-                        } else if (t == null) {
-                            if (index > playerUiState.currentIndex) {
-                                playerViewModel.next()
-                            } else if (index < playerUiState.currentIndex) {
-                                playerViewModel.previous()
-                            }
+    key(appearanceSettings.miniPlayerDesign) {
+        MiniPlayer(
+            track = currentTrack,
+            isPlaying = playerUiState.isPlaying,
+            progressState = miniProgressState,
+            progressProvider = miniProgressProvider,
+            queue = playerUiState.queue,
+            currentIndex = playerUiState.currentIndex,
+            isFavorite = playerUiState.isFavorite,
+            userScrollEnabled = !isGuestInRoom && isFullyCollapsed,
+            hazeState = hazeState,
+            onPlayPauseClick = {
+                if (isGuestInRoom) notifyGuestControlBlocked()
+                else playerViewModel.togglePlayPause()
+            },
+            onNextClick = {
+                if (isGuestInRoom) notifyGuestControlBlocked()
+                else {
+                    android.util.Log.d("AuralisPlayback", "[MiniPlayerHost] onNextClick -> playerViewModel.next()")
+                    playerViewModel.next()
+                }
+            },
+            onPreviousClick = {
+                if (isGuestInRoom) notifyGuestControlBlocked()
+                else {
+                    android.util.Log.d("AuralisPlayback", "[MiniPlayerHost] onPreviousClick -> playerViewModel.previous()")
+                    playerViewModel.previous()
+                }
+            },
+            onSelectQueueTrack = { index ->
+                if (isGuestInRoom) {
+                    notifyGuestControlBlocked()
+                } else {
+                    val q = playerUiState.queue
+                    val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
+                    val activeTrack = playerViewModel.getAudioPlayer()?.currentTrack?.value ?: currentTrack
+                    if (t != null && t.id != activeTrack?.id) {
+                        playerViewModel.playTrack(t, if (q.isNotEmpty()) q else listOf(t), index)
+                    } else if (t == null) {
+                        if (index > playerUiState.currentIndex) {
+                            playerViewModel.next()
+                        } else if (index < playerUiState.currentIndex) {
+                            playerViewModel.previous()
                         }
                     }
-                },
-                onFavoriteToggle = { playerViewModel.toggleFavorite() },
-                onAddToPlaylist = onAddToPlaylist,
-                onArtistClick = onOpenArtist,
-                onClose = {
-                    playerViewModel.closePlayer()
-                },
-                onClick = onOpenNowPlaying,
-                sharedTransitionScope = playerSharedScope,
-                animatedVisibilityScope = this@AnimatedVisibility
-            )
-        }
+                }
+            },
+            onFavoriteToggle = { playerViewModel.toggleFavorite() },
+            onAddToPlaylist = onAddToPlaylist,
+            onArtistClick = onOpenArtist,
+            onClose = null,
+            onClick = {
+                if (isFullyCollapsed) {
+                    onOpenNowPlaying()
+                }
+            },
+            sharedTransitionScope = null,
+            animatedVisibilityScope = null
+        )
     }
 }
 

@@ -2,6 +2,7 @@ package com.auralis.music.ui.explore
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.auralis.music.ui.theme.LocalReducedMotion
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.auralisDetailBackwardEnter
@@ -139,7 +140,18 @@ fun ExploreScreen(
     onCloseRecognition: () -> Unit = {},
     onModeSelect: (RecognitionMode) -> Unit = {},
     savedArtists: List<com.auralis.music.domain.model.SavedArtist> = emptyList(),
+    savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
     onToggleSubscribe: (com.auralis.music.domain.model.SavedArtist) -> Unit = {},
+    onToggleSaveAlbum: (com.auralis.music.domain.model.SavedAlbum) -> Unit = {},
+    onPlayNextAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddToQueueAlbum: ((PlaylistResult) -> Unit)? = null,
+    onShuffleAlbum: ((PlaylistResult) -> Unit)? = null,
+    onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddAlbumToPlaylist: ((String, PlaylistResult) -> Unit)? = null,
+    onCreatePlaylistAndAddAlbum: ((String, PlaylistResult) -> Unit)? = null,
+    isAlbumPinned: ((String) -> Boolean)? = null,
+    pinnedSpeedDialIds: Set<String> = emptySet(),
+    onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
     onStartListening: () -> Unit = {},
     onStopListening: () -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
@@ -197,13 +209,7 @@ fun ExploreScreen(
     }
 
     // ── PERF FIX #1: Extract stable navigation identity from ExploreDetail ──
-    // Using the full data class as identity causes loading/content updates to restart
-    // the navigation animation. Instead, key on type + unique ID only.
-    val detailKey: String? = when (currentDetail) {
-        is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> "artist:${currentDetail.artistPage.artist.id.ifBlank { currentDetail.artistPage.artist.name }}"
-        is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> "album:${currentDetail.album.id.ifBlank { currentDetail.album.title }}"
-        null -> null
-    }
+    val detailKey: String? = currentDetail?.key
 
     LaunchedEffect(detailKey) {
         if (detailKey != null) {
@@ -212,74 +218,124 @@ fun ExploreScreen(
         }
     }
 
+    // ── STATE PRESERVATION: SaveableStateHolder keeps each screen's saveable
+    // state (scroll position, expanded sections, etc.) alive even when
+    // AnimatedContent removes the composable from the tree. ──
+    val saveableStateHolder = rememberSaveableStateHolder()
+
+    // Cache of recent details by key so exiting composables render their genuine content
+    val detailMap = remember { mutableMapOf<String, com.auralis.music.ui.viewmodel.ExploreDetail>() }
+    val depthMap = remember { mutableMapOf<String?, Int>() }
+    depthMap[null] = 0
+
+    uiState.detailStack.forEachIndexed { index, detail ->
+        detailMap[detail.key] = detail
+        depthMap[detail.key] = index + 1
+    }
+    if (uiState.selectedArtistPage != null) {
+        val d = com.auralis.music.ui.viewmodel.ExploreDetail.Artist(uiState.selectedArtistPage, uiState.isLoadingArtist)
+        detailMap[d.key] = d
+        if (!depthMap.containsKey(d.key)) depthMap[d.key] = 1
+    }
+    if (uiState.selectedAlbum != null) {
+        val d = com.auralis.music.ui.viewmodel.ExploreDetail.Album(uiState.selectedAlbum, uiState.selectedAlbumTracks, uiState.isLoadingAlbum)
+        detailMap[d.key] = d
+        if (!depthMap.containsKey(d.key)) depthMap[d.key] = 2
+    }
+
     AnimatedContent(
         targetState = detailKey,
         transitionSpec = {
-            if (targetState != null && initialState == null) {
-                detailForwardEnter togetherWith detailForwardExit
-            } else if (targetState == null && initialState != null) {
+            val initialDepth = depthMap[initialState] ?: 0
+            val targetDepth = depthMap[targetState] ?: 0
+            val isNavigatingBack = targetDepth < initialDepth || (targetState == null && initialState != null)
+
+            if (isNavigatingBack) {
                 detailBackwardEnter togetherWith detailBackwardExit
-            } else if (targetState != null && initialState != null && targetState != initialState) {
-                detailForwardEnter togetherWith detailForwardExit
             } else {
-                androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                detailForwardEnter togetherWith detailForwardExit
             }
         },
         label = "SearchDetailTransition"
     ) { targetKey ->
-        // Read current detail for actual rendering (content may update without triggering transition)
-        when {
-            targetKey != null && currentDetail is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
-                val artistDetail = currentDetail as com.auralis.music.ui.viewmodel.ExploreDetail.Artist
-                ArtistScreen(
-                    artistPage = artistDetail.artistPage,
-                    isLoading = artistDetail.isLoading,
-                    currentTrackId = currentTrackId,
-                    isPlaying = isPlaying,
-                    userPlaylists = userPlaylists,
-                    favoriteTracks = favoriteTracks,
-                    savedArtists = savedArtists,
-                    onToggleSubscribe = onToggleSubscribe,
-                    onTrackClick = handleTrackClick,
-                    onFavoriteToggle = onFavoriteToggle,
-                    onAddToPlaylist = onAddToPlaylist,
-                    onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
-                    onPlayNext = onPlayNext,
-                    onAddToQueue = onAddToQueue,
-                    onStartRadio = onStartRadio,
-                    onOpenArtist = handleOpenArtist,
-                    onAlbumClick = handleOpenAlbum,
-                    onBack = onCloseArtist,
-                    isInListenTogetherRoom = isInListenTogetherRoom,
-                    onRecommendToRoom = onRecommendToRoom,
-                    modifier = modifier
-                )
-            }
-            targetKey != null && currentDetail is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
-                val albumDetail = currentDetail as com.auralis.music.ui.viewmodel.ExploreDetail.Album
-                com.auralis.music.ui.screens.AlbumScreen(
-                    album = albumDetail.album,
-                    tracks = albumDetail.tracks,
-                    isLoading = albumDetail.isLoading,
-                    currentTrackId = currentTrackId,
-                    isPlaying = isPlaying,
-                    userPlaylists = userPlaylists,
-                    favoriteTracks = favoriteTracks,
-                    onTrackClick = handleTrackClick,
-                    onFavoriteToggle = onFavoriteToggle,
-                    onAddToPlaylist = onAddToPlaylist,
-                    onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
-                    onPlayNext = onPlayNext,
-                    onAddToQueue = onAddToQueue,
-                    onStartRadio = onStartRadio,
-                    onOpenArtist = handleOpenArtist,
-                    onBack = onCloseAlbum,
-                    isInListenTogetherRoom = isInListenTogetherRoom,
-                    onRecommendToRoom = onRecommendToRoom,
-                    modifier = modifier
-                )
-            }
-            else -> {
+        val renderedDetail = if (targetKey != null) {
+            uiState.detailStack.lastOrNull { it.key == targetKey } ?: detailMap[targetKey]
+        } else null
+
+        // Wrap each branch in SaveableStateProvider so scroll state survives navigation
+        saveableStateHolder.SaveableStateProvider(targetKey ?: "explore_root") {
+            when (renderedDetail) {
+                is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
+                    ArtistScreen(
+                        artistPage = renderedDetail.artistPage,
+                        isLoading = renderedDetail.isLoading,
+                        currentTrackId = currentTrackId,
+                        isPlaying = isPlaying,
+                        userPlaylists = userPlaylists,
+                        favoriteTracks = favoriteTracks,
+                        savedArtists = savedArtists,
+                        savedAlbums = savedAlbums,
+                        onToggleSubscribe = onToggleSubscribe,
+                        onToggleSaveAlbum = onToggleSaveAlbum,
+                        onTrackClick = handleTrackClick,
+                        onFavoriteToggle = onFavoriteToggle,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onPlayNextAlbum = onPlayNextAlbum,
+                        onAddToQueueAlbum = onAddToQueueAlbum,
+                        onShuffleAlbum = onShuffleAlbum,
+                        onDownloadAlbum = onDownloadAlbum,
+                        onAddAlbumToPlaylist = onAddAlbumToPlaylist,
+                        onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
+                        isAlbumPinned = isAlbumPinned,
+                        pinnedSpeedDialIds = pinnedSpeedDialIds,
+                        onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+                        onStartRadio = onStartRadio,
+                        onOpenArtist = handleOpenArtist,
+                        onAlbumClick = handleOpenAlbum,
+                        onBack = onCloseArtist,
+                        isInListenTogetherRoom = isInListenTogetherRoom,
+                        onRecommendToRoom = onRecommendToRoom,
+                        modifier = modifier
+                    )
+                }
+                is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
+                    com.auralis.music.ui.screens.AlbumScreen(
+                        album = renderedDetail.album,
+                        tracks = renderedDetail.tracks,
+                        isLoading = renderedDetail.isLoading,
+                        currentTrackId = currentTrackId,
+                        isPlaying = isPlaying,
+                        userPlaylists = userPlaylists,
+                        favoriteTracks = favoriteTracks,
+                        savedAlbums = savedAlbums,
+                        onToggleSaveAlbum = onToggleSaveAlbum,
+                        onPlayNextAlbum = onPlayNextAlbum,
+                        onAddToQueueAlbum = onAddToQueueAlbum,
+                        onShuffleAlbum = onShuffleAlbum,
+                        onDownloadAlbum = onDownloadAlbum,
+                        onAddAlbumToPlaylist = onAddAlbumToPlaylist,
+                        onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
+                        isAlbumPinned = isAlbumPinned,
+                        pinnedSpeedDialIds = pinnedSpeedDialIds,
+                        onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+                        onTrackClick = handleTrackClick,
+                        onFavoriteToggle = onFavoriteToggle,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onStartRadio = onStartRadio,
+                        onOpenArtist = handleOpenArtist,
+                        onBack = onCloseAlbum,
+                        isInListenTogetherRoom = isInListenTogetherRoom,
+                        onRecommendToRoom = onRecommendToRoom,
+                        modifier = modifier
+                    )
+                }
+                else -> {
             val hasResults = uiState.query.isNotBlank() && (
                 uiState.searchResults.songs.isNotEmpty() ||
                 uiState.searchResults.artists.isNotEmpty() ||
@@ -649,12 +705,13 @@ fun ExploreScreen(
                     }
                 }
             }
-        }
-    }
 }
 }
 }
 }
+}
+} // SaveableStateProvider
+} // AnimatedContent
 
     // Options Menu
     selectedTrackForMenu?.let { track ->
@@ -745,7 +802,7 @@ private fun SearchResultsView(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 160.dp, start = 16.dp, end = 16.dp, top = 8.dp),
+        contentPadding = PaddingValues(bottom = if (currentTrackId != null) 240.dp else 140.dp, start = 16.dp, end = 16.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ====================================================================
@@ -1323,18 +1380,17 @@ private fun TrackRowItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val subtitleText = remember(track.artist, track.album, track.views) {
+                val subtitleText = remember(track.artist, track.album, track.views, track.title) {
                     buildString {
                         if (track.artist.isNotBlank()) {
                             append(track.artist)
                         }
-                        if (!track.album.isNullOrBlank()) {
+                        val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                        if (!isRedundantAlbum && !track.album.isNullOrBlank()) {
                             append(" • ${track.album}")
                         }
                         if (!track.views.isNullOrBlank()) {
                             append(" • ${track.views}")
-                        } else if (track.album.isNullOrBlank()) {
-                            append(" • Single")
                         }
                     }
                 }
