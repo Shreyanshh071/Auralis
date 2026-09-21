@@ -134,6 +134,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -161,7 +162,9 @@ import kotlinx.coroutines.Job
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
+import com.auralis.music.domain.model.AudioQuality
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.AudioOutputIcon
 import com.auralis.music.ui.components.AuralisPlayerSlider
 import com.auralis.music.ui.components.PlaylistPickerBottomSheet
 import com.auralis.music.ui.components.TrackOptionsMenu
@@ -277,6 +280,10 @@ fun NowPlayingModal(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     renderBackground: Boolean = true,
+    currentQuality: AudioQuality = AudioQuality.AUTO,
+    onAudioQualityChange: (AudioQuality) -> Unit = {},
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var lastValidTrack by remember { mutableStateOf(uiState.currentTrack) }
@@ -343,14 +350,14 @@ fun NowPlayingModal(
         if (queue.isNotEmpty() && pageCount > 1) {
             val fromIndex = pendingTargetIndex ?: pagerState.currentPage
             val targetIndex = (fromIndex + 1).coerceAtMost(pageCount - 1)
-            if (targetIndex != pagerState.currentPage) {
+            if (targetIndex != fromIndex) {
                 pendingTargetIndex = targetIndex
                 coroutineScope.launch {
                     try {
                         pagerState.animateScrollToPage(
                             page = targetIndex,
                             animationSpec = androidx.compose.animation.core.tween(
-                                durationMillis = 240,
+                                durationMillis = 500,
                                 easing = androidx.compose.animation.core.FastOutSlowInEasing
                             )
                         )
@@ -365,14 +372,14 @@ fun NowPlayingModal(
         if (queue.isNotEmpty() && pageCount > 1) {
             val fromIndex = pendingTargetIndex ?: pagerState.currentPage
             val targetIndex = (fromIndex - 1).coerceAtLeast(0)
-            if (targetIndex != pagerState.currentPage) {
+            if (targetIndex != fromIndex) {
                 pendingTargetIndex = targetIndex
                 coroutineScope.launch {
                     try {
                         pagerState.animateScrollToPage(
                             page = targetIndex,
                             animationSpec = androidx.compose.animation.core.tween(
-                                durationMillis = 240,
+                                durationMillis = 500,
                                 easing = androidx.compose.animation.core.FastOutSlowInEasing
                             )
                         )
@@ -385,15 +392,31 @@ fun NowPlayingModal(
 
     // 1. Programmatically sync pager when the active track changes externally (Next/Prev buttons, song end, playlist tap, etc.)
     LaunchedEffect(currentTrackIndex, track.id, currentTab) {
-        if (pendingTargetIndex != null) {
-            if (currentTrackIndex == pendingTargetIndex) {
+        val target = pendingTargetIndex
+        if (target != null) {
+            if (currentTrackIndex == target) {
                 // Authoritative playback caught up to our optimistic target!
-                pendingTargetIndex = null
+                // If the pager has already settled on the target and is not scrolling, clear pendingTargetIndex.
+                // Otherwise, do NOT interrupt or cancel the smooth animation; snapshotFlow will clear it on settle.
+                if (!pagerState.isScrollInProgress && pagerState.settledPage == target) {
+                    pendingTargetIndex = null
+                }
+                return@LaunchedEffect
             } else {
                 // Playback is still catching up to a newer rapid tap/swipe target.
                 // Do NOT force-scroll backwards or clear the optimistic target!
                 return@LaunchedEffect
             }
+        }
+
+        // If the pager is already at or animating towards currentTrackIndex, do not interrupt it!
+        if (pagerState.currentPage == currentTrackIndex || (currentTab == NowPlayingTab.PLAYER && pagerState.targetPage == currentTrackIndex)) {
+            return@LaunchedEffect
+        }
+
+        // If the user is actively swiping / scrolling on the Player tab, do not forcibly interrupt
+        if (currentTab == NowPlayingTab.PLAYER && pagerState.isScrollInProgress) {
+            return@LaunchedEffect
         }
 
         if (currentTrackIndex in 0 until pageCount && pagerState.currentPage != currentTrackIndex) {
@@ -405,7 +428,7 @@ fun NowPlayingModal(
                         pagerState.animateScrollToPage(
                             page = currentTrackIndex,
                             animationSpec = androidx.compose.animation.core.tween(
-                                durationMillis = 200,
+                                durationMillis = 500,
                                 easing = androidx.compose.animation.core.FastOutSlowInEasing
                             )
                         )
@@ -524,6 +547,7 @@ fun NowPlayingModal(
 
     var showSleepDialog by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
+    var showAudioOutputSheet by remember { mutableStateOf(false) }
     var showTrackOptions by remember { mutableStateOf(false) }
     var showOffsetControls by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(true) }
@@ -1229,20 +1253,42 @@ fun NowPlayingModal(
                                         spotShadowColor = animatedPrimaryColor
                                     }
                             ) { page ->
-                                val isCurrentPage = page == pagerState.currentPage
                                 val pageTrack = if (queue.isNotEmpty() && page in queue.indices) {
                                     val qTrack = queue[page]
                                     if (qTrack.id == activeTrack.id) activeTrack else qTrack
                                 } else {
                                     activeTrack
                                 }
+                                val pageDepthModifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        val pageOffset = kotlin.math.abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                                            .coerceIn(0f, 1f)
+                                        val scale = 1f - (pageOffset * 0.15f)
+                                        scaleX = scale
+                                        scaleY = scale
+                                    }
+                                    .drawWithContent {
+                                        drawContent()
+                                        val pageOffset = kotlin.math.abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                                            .coerceIn(0f, 1f)
+                                        if (pageOffset > 0.001f) {
+                                            // Draw-time scrim overlay: dims the outgoing card as it recedes,
+                                            // preserving the VIVI depth visual language without forcing an offscreen FBO.
+                                            drawRoundRect(
+                                                color = Color.Black,
+                                                alpha = (pageOffset * 0.75f).coerceIn(0f, 0.75f),
+                                                cornerRadius = CornerRadius(28.dp.toPx(), 28.dp.toPx())
+                                            )
+                                        }
+                                    }
+
                                 // Only the playing page claims the shared key — the pager
                                 // keeps neighbours composed off-screen and two live layouts
                                 // holding one key at once is undefined.
                                 if (appearance.hidePlayerThumbnail) {
                                     Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
+                                        modifier = pageDepthModifier
                                             .background(
                                                 Brush.radialGradient(
                                                     listOf(
@@ -1264,25 +1310,30 @@ fun NowPlayingModal(
                                 } else {
                                     val isSharedArtworkActive = (page == (pendingTargetIndex ?: currentTrackIndex) && pageTrack.id == activeTrack.id)
                                     key(pageTrack.id) {
-                                        ArtworkCard(
-                                            url = pageTrack.thumbnail,
-                                            fallbackTrack = pageTrack,
-                                            modifier = playerSharedArtwork(
-                                                sharedTransitionScope = if (isSharedArtworkActive) sharedTransitionScope else null,
-                                                animatedVisibilityScope = if (isSharedArtworkActive) animatedVisibilityScope else null,
-                                                enabled = isSharedArtworkActive
-                                            ).fillMaxSize(),
-                                            cornerRadius = playerArtworkCorner(
-                                                animatedVisibilityScope = if (isCurrentPage) animatedVisibilityScope else null,
-                                                expanded = true
-                                            ),
-                                            elevation = 0.dp,
-                                            contentDescription = pageTrack.title,
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                            highRes = true,
-                                            // Smooth crossfade if artwork is loading asynchronously
-                                            crossfade = true
-                                        )
+                                        Box(
+                                            modifier = pageDepthModifier,
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            ArtworkCard(
+                                                url = pageTrack.thumbnail,
+                                                fallbackTrack = pageTrack,
+                                                modifier = playerSharedArtwork(
+                                                    sharedTransitionScope = if (isSharedArtworkActive) sharedTransitionScope else null,
+                                                    animatedVisibilityScope = if (isSharedArtworkActive) animatedVisibilityScope else null,
+                                                    enabled = isSharedArtworkActive
+                                                ).fillMaxSize(),
+                                                cornerRadius = playerArtworkCorner(
+                                                    animatedVisibilityScope = if (isSharedArtworkActive) animatedVisibilityScope else null,
+                                                    expanded = true
+                                                ),
+                                                elevation = 0.dp,
+                                                contentDescription = pageTrack.title,
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                highRes = true,
+                                                // Smooth crossfade if artwork is loading asynchronously
+                                                crossfade = true
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1313,18 +1364,18 @@ fun NowPlayingModal(
                                         val initialIdx = queue.indexOfFirst { it.id == initialState.id }
                                         val isForward = if (targetIdx >= 0 && initialIdx >= 0) targetIdx >= initialIdx else true
                                         if (isForward) {
-                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) +
-                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 })
+                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(500)) +
+                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 })
                                                 .togetherWith(
-                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) +
-                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 }
+                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(400)) +
+                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 }
                                                 )
                                         } else {
-                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) +
-                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 })
+                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(500)) +
+                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 })
                                                 .togetherWith(
-                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) +
-                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 }
+                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(400)) +
+                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 }
                                                 )
                                         }
                                     },
@@ -1511,7 +1562,7 @@ fun NowPlayingModal(
                                      .clip(CircleShape)
                                      .background(Color.White.copy(alpha = 0.12f))
                                      .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                     .tactileBounce(scaleDown = 0.84f, onClick = handlePrevious),
+                                     .tactileBounce(scaleDown = 0.94f, onClick = handlePrevious),
                                  contentAlignment = Alignment.Center
                              ) {
                                  Icon(
@@ -1575,7 +1626,7 @@ fun NowPlayingModal(
                                      .clip(CircleShape)
                                      .background(Color.White.copy(alpha = 0.12f))
                                      .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                                     .tactileBounce(scaleDown = 0.84f, onClick = handleNext),
+                                     .tactileBounce(scaleDown = 0.94f, onClick = handleNext),
                                  contentAlignment = Alignment.Center
                              ) {
                                  Icon(
@@ -1589,7 +1640,7 @@ fun NowPlayingModal(
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // ── BOTTOM UTILITY BAR (LEFT CAPSULE PILL: SLEEP/SHUFFLE/REPEAT & RIGHT QUEUE BUTTON) ──
+                        // ── BOTTOM UTILITY BAR (LEFT CAPSULE PILL: SLEEP/SHUFFLE/REPEAT/AUDIO OUTPUT & RIGHT QUEUE BUTTON) ──
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1598,14 +1649,14 @@ fun NowPlayingModal(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Left Glass Capsule with 3 Icons (Sleep, Shuffle, Repeat)
+                            // Left Glass Capsule with 4 Icons (Sleep, Shuffle, Repeat, Audio Output)
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(Color(0xFF222028).copy(alpha = 0.85f))
                                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(22.dp),
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(18.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 // 1. Sleep Timer (Crescent Moon)
@@ -1633,6 +1684,14 @@ fun NowPlayingModal(
                                     contentDescription = "Repeat",
                                     active = uiState.repeatMode != RepeatMode.OFF,
                                     onClick = { onToggleRepeat() }
+                                )
+
+                                // 4. Audio Output & Device Switcher
+                                PlayerUtilityIcon(
+                                    imageVector = AudioOutputIcon,
+                                    contentDescription = "Audio Output & Quality",
+                                    active = false,
+                                    onClick = { showAudioOutputSheet = true }
                                 )
                             }
 
@@ -1703,6 +1762,7 @@ fun NowPlayingModal(
 
     // Direct Track Options Bottom Sheet
     if (showTrackOptions) {
+        val isPinned = isTrackPinned?.invoke(track.id) == true
         TrackOptionsMenu(
             track = track,
             isFavorite = uiState.isFavorite,
@@ -1710,6 +1770,8 @@ fun NowPlayingModal(
             onToggleFavorite = onToggleFavorite,
             onPlayNext = onPlayNext,
             onAddToQueue = onAddToQueue,
+            isPinned = isPinned,
+            onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
             onAddToPlaylist = { playlist ->
                 onAddToPlaylist(playlist.id, track)
                 Toast.makeText(context, "Added to ${playlist.title}", Toast.LENGTH_SHORT).show()
@@ -1738,6 +1800,15 @@ fun NowPlayingModal(
                 showPlaylistPicker = false
             },
             onDismiss = { showPlaylistPicker = false }
+        )
+    }
+
+    // Direct Audio Output & Device Switcher Bottom Sheet
+    if (showAudioOutputSheet) {
+        AudioOutputBottomSheet(
+            currentQuality = currentQuality,
+            onAudioQualityChange = onAudioQualityChange,
+            onDismiss = { showAudioOutputSheet = false }
         )
     }
 

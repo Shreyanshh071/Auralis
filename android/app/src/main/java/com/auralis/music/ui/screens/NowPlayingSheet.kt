@@ -43,6 +43,10 @@ fun NowPlayingSheet(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     renderBackground: Boolean = true,
+    currentQuality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO,
+    onAudioQualityChange: (com.auralis.music.domain.model.AudioQuality) -> Unit = {},
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
@@ -69,6 +73,10 @@ fun NowPlayingSheet(
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
         renderBackground = renderBackground,
+        currentQuality = currentQuality,
+        onAudioQualityChange = onAudioQualityChange,
+        isTrackPinned = isTrackPinned,
+        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
         modifier = modifier
     )
 }

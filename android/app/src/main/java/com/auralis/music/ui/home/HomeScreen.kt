@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.*
+import com.auralis.music.domain.recommendations.SpeedDialIdHelper
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
@@ -125,6 +127,8 @@ fun HomeScreen(
     savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
     isAlbumPinned: ((String) -> Boolean)? = null,
     onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onToggleSaveAlbum: ((com.auralis.music.domain.model.SavedAlbum) -> Unit)? = null,
     onShuffleAlbum: ((PlaylistResult) -> Unit)? = null,
     onPlayNextAlbum: ((PlaylistResult) -> Unit)? = null,
@@ -254,18 +258,24 @@ fun HomeScreen(
                         Column(modifier = Modifier.fillMaxWidth()) {
                             HorizontalPager(
                                 state = pagerState,
-                                key = { pageIndex -> pageIndex },
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            pageSpacing = 16.dp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .wrapContentHeight()
-                        ) { pageIndex ->
-                            val items = uiState.speedDialPages[pageIndex]
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
+                                key = { pageIndex ->
+                                    SpeedDialIdHelper.computePageContentKey(
+                                        pageIndex,
+                                        uiState.speedDialPages.getOrNull(pageIndex)
+                                    )
+                                },
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                pageSpacing = 16.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .wrapContentHeight()
+                            ) { pageIndex ->
+                                val items = uiState.speedDialPages.getOrNull(pageIndex) ?: emptyList()
+                                key(SpeedDialIdHelper.computePageContentKey(pageIndex, items)) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
                                 for (row in 0 until 3) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -346,6 +356,7 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -784,6 +795,7 @@ fun HomeScreen(
     // Options Menu Bottom Sheet
     selectedTrackForMenu?.let { track ->
         val isFav = favoriteTracks.any { it.id == track.id }
+        val isPinned = isTrackPinned?.invoke(track.id) ?: uiState.pinnedSpeedDialIds.contains(track.id)
         TrackOptionsMenu(
             track = track,
             isFavorite = isFav,
@@ -792,8 +804,20 @@ fun HomeScreen(
             onPlayNext = { onPlayNext(track) },
             onAddToQueue = { onAddToQueue(track) },
             onStartRadio = { onStartRadio(track) },
+            isPinned = isPinned,
+            onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
             onGoToArtist = {
                 onArtistClick(Artist(id = "", name = track.artist))
+            },
+            onGoToAlbum = { albumId, albumTitle ->
+                onAlbumClick(
+                    PlaylistResult(
+                        id = albumId ?: "album-${track.id}",
+                        title = albumTitle,
+                        author = track.artist,
+                        thumbnail = track.thumbnail
+                    )
+                )
             },
             onAddToPlaylist = { playlist -> onAddToPlaylist(playlist.id, track) },
             onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAdd(title, track) },

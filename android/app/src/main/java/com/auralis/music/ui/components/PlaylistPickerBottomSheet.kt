@@ -48,46 +48,66 @@ fun PlaylistPickerBottomSheet(
     var newPlaylistName by remember { mutableStateOf("") }
     var recentlyAddedId by remember { mutableStateOf<String?>(null) }
 
+    val dynamicSurface = MaterialTheme.colorScheme.surface
+    val dynamicPrimary = MaterialTheme.colorScheme.primary
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 8.dp)
-                    .size(width = 38.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
-            )
-        }
+        containerColor = dynamicSurface,
+        dragHandle = null,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
         ) {
+            // ── DRAG HANDLE ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.35f))
+                )
+            }
+
             // ── HEADER: TRACK INFO + CLOSE BUTTON ──
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ArtworkCard(
                     url = track.thumbnail,
-                    modifier = Modifier.size(48.dp),
-                    cornerRadius = 10.dp
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                    cornerRadius = 10.dp,
+                    contentDescription = track.title
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Add to playlist",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = Color.White
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "${track.title} • ${track.artist}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White.copy(alpha = 0.65f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -99,53 +119,47 @@ fun PlaylistPickerBottomSheet(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = Color.White.copy(alpha = 0.75f)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(
+                color = Color.White.copy(alpha = 0.08f),
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+            )
 
-            // ── NEW PLAYLIST BUTTON ──
-            Surface(
+            // ── NEW PLAYLIST PILL ──
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(48.dp)
                     .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF262021))
                     .clickable { showCreateDialog = true },
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(16.dp)
+                contentAlignment = Alignment.Center
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "New Playlist",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "New Playlist",
+                        tint = dynamicPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "New Playlist",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = dynamicPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // ── PLAYLISTS LIST ──
             if (userPlaylists.isEmpty()) {
@@ -159,19 +173,20 @@ fun PlaylistPickerBottomSheet(
                         Icon(
                             imageVector = Icons.Default.PlaylistAdd,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            tint = Color.White.copy(alpha = 0.5f),
                             modifier = Modifier.size(40.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "No custom playlists yet",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = Color.White.copy(alpha = 0.7f)
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Tap 'New Playlist' above to create your first!",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = Color.White.copy(alpha = 0.5f)
                         )
                     }
                 }
@@ -179,82 +194,80 @@ fun PlaylistPickerBottomSheet(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 340.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                        .heightIn(max = 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(userPlaylists, key = { it.id }) { playlist ->
                         val isAdded = recentlyAddedId == playlist.id
                         val alreadyInPlaylist = playlist.tracks.any { it.id == track.id }
 
-                        Surface(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (alreadyInPlaylist || isAdded) dynamicPrimary.copy(alpha = 0.15f)
+                                    else Color(0xFF262021)
+                                )
                                 .clickable {
                                     recentlyAddedId = playlist.id
                                     onAddToPlaylist(playlist)
-                                },
-                            color = if (alreadyInPlaylist || isAdded) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(14.dp)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Playlist Artwork / Icon
-                                val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
-                                if (!coverUrl.isNullOrBlank()) {
-                                    ArtworkCard(
-                                        url = coverUrl,
-                                        modifier = Modifier.size(44.dp),
-                                        cornerRadius = 8.dp
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.surface),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.QueueMusic,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.width(14.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = playlist.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "${playlist.tracks.size} tracks",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                if (isAdded || alreadyInPlaylist) {
+                            // Playlist Artwork / Icon
+                            val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
+                            if (!coverUrl.isNullOrBlank()) {
+                                ArtworkCard(
+                                    url = coverUrl,
+                                    modifier = Modifier.size(44.dp),
+                                    cornerRadius = 8.dp,
+                                    contentDescription = playlist.title
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(dynamicSurface),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Added",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(22.dp)
+                                        imageVector = Icons.Default.QueueMusic,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(24.dp)
                                     )
                                 }
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = playlist.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${playlist.tracks.size} tracks",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.6f)
+                                )
+                            }
+
+                            if (isAdded || alreadyInPlaylist) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Added",
+                                    tint = dynamicPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
                         }
                     }

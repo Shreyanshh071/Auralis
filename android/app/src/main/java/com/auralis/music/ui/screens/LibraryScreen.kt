@@ -52,6 +52,8 @@ fun LibraryScreen(
     onCloseSmartCollection: () -> Unit = {},
     onDeletePlaylistJob: (String) -> Unit = {},
     onRetryPlaylistJob: (String) -> Unit = {},
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     PureLibraryScreen(
@@ -93,6 +95,8 @@ fun LibraryScreen(
         onReorderPlaylistTracks = onReorderPlaylistTracks,
         isExternalCreateDialogOpen = isExternalCreateDialogOpen,
         onCloseExternalCreateDialog = onCloseExternalCreateDialog,
+        isTrackPinned = isTrackPinned,
+        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
         modifier = modifier
     )
 }

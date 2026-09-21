@@ -74,6 +74,8 @@ fun AlbumScreen(
     isAlbumPinned: ((String) -> Boolean)? = null,
     pinnedSpeedDialIds: Set<String> = emptySet(),
     onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onTrackClick: (Track, List<Track>) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
@@ -473,11 +475,14 @@ fun AlbumScreen(
         // ================================================================
         selectedTrackForMenu?.let { track ->
             val isFav = favoriteTracks.any { it.id == track.id }
+            val isPinned = isTrackPinned?.invoke(track.id) ?: pinnedSpeedDialIds.contains(track.id)
             TrackOptionsMenu(
                 track = track,
                 isFavorite = isFav,
                 userPlaylists = userPlaylists,
                 onToggleFavorite = { onFavoriteToggle(track) },
+                isPinned = isPinned,
+                onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
                 onPlayNext = {
                     onPlayNext(track)
                     selectedTrackForMenu = null

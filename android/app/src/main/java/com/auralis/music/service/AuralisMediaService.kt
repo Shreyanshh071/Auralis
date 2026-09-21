@@ -15,7 +15,6 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -59,7 +58,6 @@ class AuralisMediaService : MediaSessionService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var lastArtworkUrl: String? = null
     private var currentArtworkBitmap: Bitmap? = null
-    private val sessionListeners = java.util.concurrent.CopyOnWriteArrayList<Player.Listener>()
     private var currentActiveMediaItem: androidx.media3.common.MediaItem? = null
     private var currentActiveMetadata: androidx.media3.common.MediaMetadata? = null
 
@@ -114,83 +112,8 @@ class AuralisMediaService : MediaSessionService() {
         )
 
         // Wrap player in ForwardingPlayer so Android 13/14 system UI always exposes Previous/Next/Seek commands
+        // and cleanly delegates to ExoPlayer without filtering or dropping Player.Listener callbacks.
         val forwardingPlayer = object : ForwardingPlayer(player) {
-            private val wrappedListeners = java.util.concurrent.ConcurrentHashMap<Player.Listener, Player.Listener>()
-
-            override fun addListener(listener: Player.Listener) {
-                sessionListeners.add(listener)
-                val wrapped = object : Player.Listener {
-                    override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
-                        val active = currentActiveMetadata
-                        val track = audioPlayer.currentTrack.value
-                        val metaToDispatch = if (active != null && track != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
-                            if (mediaMetadata.artworkData == null && mediaMetadata.artworkUri == null) {
-                                active
-                            } else {
-                                mediaMetadata
-                            }
-                        } else {
-                            mediaMetadata
-                        }
-                        listener.onMediaMetadataChanged(metaToDispatch)
-                    }
-
-                    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                        val activeItem = currentActiveMediaItem
-                        val track = audioPlayer.currentTrack.value
-                        val itemToDispatch = if (activeItem != null && track != null && activeItem.mediaId == track.id) {
-                            activeItem
-                        } else {
-                            mediaItem
-                        }
-                        listener.onMediaItemTransition(itemToDispatch, reason)
-                    }
-
-                    override fun onPlaylistMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
-                        val active = currentActiveMetadata
-                        val track = audioPlayer.currentTrack.value
-                        val metaToDispatch = if (active != null && track != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
-                            active
-                        } else {
-                            mediaMetadata
-                        }
-                        listener.onPlaylistMetadataChanged(metaToDispatch)
-                    }
-
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        listener.onIsPlayingChanged(isPlaying)
-                    }
-
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        listener.onPlaybackStateChanged(playbackState)
-                    }
-
-                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                        listener.onPlayWhenReadyChanged(playWhenReady, reason)
-                    }
-
-                    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                        listener.onPositionDiscontinuity(oldPosition, newPosition, reason)
-                    }
-
-                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                        listener.onTimelineChanged(timeline, reason)
-                    }
-
-                    override fun onEvents(player: Player, events: Player.Events) {
-                        listener.onEvents(player, events)
-                    }
-                }
-                wrappedListeners[listener] = wrapped
-                super.addListener(wrapped)
-            }
-
-            override fun removeListener(listener: Player.Listener) {
-                sessionListeners.remove(listener)
-                val wrapped = wrappedListeners.remove(listener) ?: listener
-                super.removeListener(wrapped)
-            }
-
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS)
@@ -239,7 +162,11 @@ class AuralisMediaService : MediaSessionService() {
             }
 
             override fun getPlayWhenReady(): Boolean {
-                return audioPlayer.isPlaying.value || audioPlayer.isBuffering.value
+                return if (audioPlayer.isUsingExoPlayer) {
+                    super.getPlayWhenReady()
+                } else {
+                    audioPlayer.isPlaying.value || audioPlayer.isBuffering.value
+                }
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
@@ -251,8 +178,12 @@ class AuralisMediaService : MediaSessionService() {
             }
 
             override fun getPlaybackState(): Int {
-                val track = audioPlayer.currentTrack.value
-                return if (track != null) Player.STATE_READY else Player.STATE_IDLE
+                return if (audioPlayer.isUsingExoPlayer) {
+                    super.getPlaybackState()
+                } else {
+                    val track = audioPlayer.currentTrack.value
+                    if (track != null) Player.STATE_READY else Player.STATE_IDLE
+                }
             }
 
             override fun seekToPrevious() {
@@ -288,48 +219,45 @@ class AuralisMediaService : MediaSessionService() {
             }
 
             override fun getCurrentTimeline(): androidx.media3.common.Timeline {
+                if (audioPlayer.isUsingExoPlayer) {
+                    val realTimeline = super.getCurrentTimeline()
+                    if (!realTimeline.isEmpty) return realTimeline
+                }
                 val track = audioPlayer.currentTrack.value
                 val durMs = audioPlayer.durationMs.value.takeIf { it > 0 } ?: ((track?.duration ?: 0L) * 1000L)
                 val durationUs = durMs * 1000L
                 val currentItem = currentMediaItem
-                return if (track != null) SingleTrackTimeline(durationUs, currentItem) else androidx.media3.common.Timeline.EMPTY
+                return if (track != null) SingleTrackTimeline(durationUs, currentItem) else super.getCurrentTimeline()
             }
 
             override fun getCurrentMediaItem(): androidx.media3.common.MediaItem? {
-                val track = audioPlayer.currentTrack.value ?: return super.getCurrentMediaItem()
                 val active = currentActiveMediaItem
-                if (active != null && active.mediaId == track.id) {
+                val track = audioPlayer.currentTrack.value
+                if (active != null && track != null && active.mediaId == track.id) {
                     return active
                 }
-                val meta = currentActiveMetadata ?: androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .build()
-                return androidx.media3.common.MediaItem.Builder()
-                    .setMediaId(track.id)
-                    .setMediaMetadata(meta)
-                    .build()
+                return super.getCurrentMediaItem()
             }
 
             override fun getMediaMetadata(): androidx.media3.common.MediaMetadata {
-                val track = audioPlayer.currentTrack.value ?: return super.getMediaMetadata()
                 val active = currentActiveMetadata
-                if (active != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
+                val track = audioPlayer.currentTrack.value
+                if (active != null && track != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
                     return active
                 }
-                val isRedundant = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
-                val displayAlbum = if (isRedundant) null else track.album
+                val isRedundant = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track?.album, track?.title ?: "")
+                val displayAlbum = if (isRedundant) null else track?.album
                 return androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
+                    .setTitle(track?.title)
+                    .setArtist(track?.artist)
                     .setAlbumTitle(displayAlbum)
                     .build()
             }
 
             override fun getPlaylistMetadata(): androidx.media3.common.MediaMetadata {
-                val track = audioPlayer.currentTrack.value ?: return super.getPlaylistMetadata()
                 val active = currentActiveMetadata
-                if (active != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
+                val track = audioPlayer.currentTrack.value
+                if (active != null && track != null && (active.title?.toString().equals(track.title, ignoreCase = true))) {
                     return active
                 }
                 return super.getPlaylistMetadata()
@@ -342,18 +270,25 @@ class AuralisMediaService : MediaSessionService() {
             override fun getCurrentPeriodIndex(): Int = 0
 
             override fun getDuration(): Long {
+                if (audioPlayer.isUsingExoPlayer) {
+                    val realDur = super.getDuration()
+                    if (realDur > 0) return realDur
+                }
                 val d = audioPlayer.durationMs.value
                 val trackDur = (audioPlayer.currentTrack.value?.duration ?: 0L) * 1000L
                 return if (d > 0) d else if (trackDur > 0) trackDur else super.getDuration()
             }
 
             override fun getCurrentPosition(): Long {
-                val p = audioPlayer.playbackPositionMs.value
-                return if (p > 0) p else super.getCurrentPosition()
+                return if (audioPlayer.isUsingExoPlayer) {
+                    super.getCurrentPosition()
+                } else {
+                    audioPlayer.playbackPositionMs.value
+                }
             }
 
             override fun isPlaying(): Boolean {
-                return audioPlayer.isPlaying.value
+                return if (audioPlayer.isUsingExoPlayer) super.isPlaying() else audioPlayer.isPlaying.value
             }
         }
 
@@ -366,36 +301,10 @@ class AuralisMediaService : MediaSessionService() {
         mediaSession = session
         addSession(session)
 
-        fun dispatchPlaybackState(isPlaying: Boolean) {
-            val track = audioPlayer.currentTrack.value
-            val isBuffering = audioPlayer.isBuffering.value
-            val state = if (track != null) Player.STATE_READY else Player.STATE_IDLE
-            val playWhenReady = isPlaying || isBuffering
-
-            val eventFlags = FlagSet.Builder()
-                .add(Player.EVENT_IS_PLAYING_CHANGED)
-                .add(Player.EVENT_PLAY_WHEN_READY_CHANGED)
-                .add(Player.EVENT_PLAYBACK_STATE_CHANGED)
-                .add(Player.EVENT_TIMELINE_CHANGED)
-                .add(Player.EVENT_METADATA)
-                .build()
-            val events = Player.Events(eventFlags)
-
-            for (listener in sessionListeners) {
-                try {
-                    listener.onIsPlayingChanged(isPlaying)
-                    listener.onPlayWhenReadyChanged(playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
-                    listener.onPlaybackStateChanged(state)
-                    listener.onEvents(forwardingPlayer, events)
-                } catch (_: Exception) {}
-            }
-        }
-
         // Keep MediaSession callback synced with current audio playback states
         serviceScope.launch {
             audioPlayer.isPlaying.collectLatest { isPlaying ->
                 withContext(Dispatchers.Main) {
-                    dispatchPlaybackState(isPlaying)
                     refreshNotification()
                 }
                 updateMediaSessionMetadata(audioPlayer.currentTrack.value, isPlaying, audioPlayer.isFavorite.value)
@@ -405,7 +314,6 @@ class AuralisMediaService : MediaSessionService() {
         serviceScope.launch {
             audioPlayer.isBuffering.collectLatest {
                 withContext(Dispatchers.Main) {
-                    dispatchPlaybackState(audioPlayer.isPlaying.value)
                     refreshNotification()
                 }
             }
@@ -495,24 +403,10 @@ class AuralisMediaService : MediaSessionService() {
                     // ForwardingPlayer dynamically supplies currentActiveMetadata and currentActiveMediaItem
                     // to Media3 MediaSession without injecting URI-less dummy items into ExoPlayer.
 
-                    val metaFlags = FlagSet.Builder()
-                        .add(Player.EVENT_MEDIA_METADATA_CHANGED)
-                        .add(Player.EVENT_PLAYLIST_METADATA_CHANGED)
-                        .add(Player.EVENT_MEDIA_ITEM_TRANSITION)
-                        .add(Player.EVENT_TIMELINE_CHANGED)
-                        .build()
-                    val metaEvents = Player.Events(metaFlags)
-
                     withContext(Dispatchers.Main) {
-                        for (listener in sessionListeners) {
-                            try {
-                                listener.onMediaMetadataChanged(initialMeta)
-                                listener.onPlaylistMetadataChanged(initialMeta)
-                                listener.onMediaItemTransition(initialItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
-                                listener.onEvents(forwardingPlayer, metaEvents)
-                            } catch (_: Exception) {}
-                        }
-                        dispatchPlaybackState(audioPlayer.isPlaying.value)
+                        try {
+                            audioPlayer.exoPlayer.playlistMetadata = initialMeta
+                        } catch (_: Exception) {}
                         refreshNotification()
                     }
                 }
@@ -867,24 +761,9 @@ class AuralisMediaService : MediaSessionService() {
                         currentActiveMediaItem = updatedItem
 
                         // Update MediaSession with artworkData byte array and URI for studio clarity in Android 13/14/15 Quick Settings & Lockscreen
-                        val flags = FlagSet.Builder()
-                            .add(Player.EVENT_MEDIA_METADATA_CHANGED)
-                            .add(Player.EVENT_PLAYLIST_METADATA_CHANGED)
-                            .build()
-                        val events = Player.Events(flags)
-
                         withContext(Dispatchers.Main) {
                             try {
-                                val currentForwardingPlayer = mediaSession?.player
-                                for (listener in sessionListeners) {
-                                    try {
-                                        listener.onMediaMetadataChanged(updatedMeta)
-                                        listener.onPlaylistMetadataChanged(updatedMeta)
-                                        if (currentForwardingPlayer != null) {
-                                            listener.onEvents(currentForwardingPlayer, events)
-                                        }
-                                    } catch (_: Exception) {}
-                                }
+                                audioPlayer.exoPlayer.playlistMetadata = updatedMeta
                                 refreshNotification()
                             } catch (_: Exception) {}
                         }
@@ -992,15 +871,8 @@ class AuralisMediaService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         val isCurrentlyPlaying = audioPlayer.isPlaying.value
-        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying)")
+        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying) -> performing graceful cleanup")
 
-        if (isCurrentlyPlaying) {
-            Log.d("AuralisPlayback", "[AuralisMediaService] Preserving background audio playback across onTaskRemoved")
-            refreshNotification()
-            return
-        }
-
-        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved while paused/idle -> performing graceful cleanup")
         try {
             com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
         } catch (_: Exception) {}

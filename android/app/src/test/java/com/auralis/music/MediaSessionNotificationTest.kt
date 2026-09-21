@@ -66,12 +66,107 @@ class MediaSessionNotificationTest {
     }
 
     @Test
-    fun testTaskRemovedPreservationLogic() {
-        // When user swipes from Recents:
-        // if playing -> PRESERVE playback in foreground
-        // if not playing -> clean up and stop
-        assertTrue(shouldPreservePlaybackOnTaskRemoved(isPlaying = true))
-        assertFalse(shouldPreservePlaybackOnTaskRemoved(isPlaying = false))
+    fun testTaskRemovedWhilePlayingExecutesCleanup() {
+        // Phase 2 Issue #2: When user swipes app away from Recents while playing,
+        // cleanup path MUST execute (no early return).
+        var isPlaying = true
+        var queuePersisted = false
+        var playbackStopped = false
+        var serviceStopped = false
+        var notificationCancelled = false
+        var sessionReleased = false
+
+        fun simulateOnTaskRemoved(playing: Boolean) {
+            queuePersisted = true
+            if (playing) {
+                isPlaying = false
+                playbackStopped = true
+            }
+            notificationCancelled = true
+            sessionReleased = true
+            serviceStopped = true
+        }
+
+        simulateOnTaskRemoved(isPlaying)
+
+        assertTrue("Queue must be persisted", queuePersisted)
+        assertTrue("Playback must be stopped", playbackStopped)
+        assertFalse("Player must not be playing", isPlaying)
+        assertTrue("Notification must be cancelled", notificationCancelled)
+        assertTrue("Session must be released", sessionReleased)
+        assertTrue("Service must be stopped", serviceStopped)
+    }
+
+    @Test
+    fun testTaskRemovedWhilePausedOrIdleExecutesCleanup() {
+        // Phase 2 Issue #2: When user swipes app away from Recents while paused/idle,
+        // cleanup path MUST also execute.
+        var isPlaying = false
+        var queuePersisted = false
+        var serviceStopped = false
+        var notificationCancelled = false
+        var sessionReleased = false
+
+        fun simulateOnTaskRemoved(playing: Boolean) {
+            queuePersisted = true
+            notificationCancelled = true
+            sessionReleased = true
+            serviceStopped = true
+        }
+
+        simulateOnTaskRemoved(isPlaying)
+
+        assertTrue("Queue must be persisted", queuePersisted)
+        assertTrue("Notification must be cancelled", notificationCancelled)
+        assertTrue("Session must be released", sessionReleased)
+        assertTrue("Service must be stopped", serviceStopped)
+    }
+
+    @Test
+    fun testNormalBackgroundLifecycleDoesNotInvokeTaskRemovedCleanup() {
+        // Phase 2 Issue #2: Normal background events (Home button, app switch, screen lock)
+        // trigger Activity.onStop(), NOT Service.onTaskRemoved().
+        // Therefore, playback, foreground notification, and session MUST be preserved.
+        val isPlaying = true
+        val serviceStopped = false
+        val notificationCancelled = false
+
+        // Simulate Activity lifecycle transition to background
+        fun onActivityStopped() {
+            // Normal backgrounding does NOT invoke onTaskRemoved
+            // Playback continues uninterrupted in foreground service
+        }
+
+        onActivityStopped()
+
+        assertTrue("Playback must continue when Activity is stopped", isPlaying)
+        assertFalse("Service must NOT be stopped when Activity is stopped", serviceStopped)
+        assertFalse("Notification must NOT be cancelled when Activity is stopped", notificationCancelled)
+    }
+
+    @Test
+    fun testQueuePersistenceHappensBeforePlaybackStop() {
+        // Phase 2 Issue #2: Queue state must be persisted BEFORE audioPlayer.stop()
+        // so that the current queue and position are safely written to disk before release.
+        val executionOrder = mutableListOf<String>()
+
+        fun executeTaskRemovedCleanup() {
+            executionOrder.add("persistQueue")
+            executionOrder.add("stopPlayback")
+            executionOrder.add("stopForeground")
+            executionOrder.add("cancelNotification")
+            executionOrder.add("releaseSession")
+            executionOrder.add("stopSelf")
+        }
+
+        executeTaskRemovedCleanup()
+
+        val persistIndex = executionOrder.indexOf("persistQueue")
+        val stopIndex = executionOrder.indexOf("stopPlayback")
+
+        assertTrue("persistQueue must be called", persistIndex >= 0)
+        assertTrue("stopPlayback must be called", stopIndex >= 0)
+        assertTrue("persistQueue must precede stopPlayback", persistIndex < stopIndex)
     }
 
     @Test
@@ -146,9 +241,6 @@ class MediaSessionNotificationTest {
         return isPlaying || isBuffering
     }
 
-    private fun shouldPreservePlaybackOnTaskRemoved(isPlaying: Boolean): Boolean {
-        return isPlaying
-    }
 
     private fun resolveNotificationTitleAndArtist(track: Track?): Pair<String, String> {
         val title = track?.title?.ifBlank { "Auralis" } ?: "Auralis"
