@@ -151,18 +151,21 @@ object ArtworkPaletteCache {
                     val value = memCache[cacheKey]
                     val bmp = value?.bitmap
                     if (bmp != null && !bmp.isRecycled) {
-                        try {
-                            val palette = extractFromBitmap(bmp)
-                            if (!palette.isDefault && !palette.isPlaceholder) {
-                                if (!trackId.isNullOrBlank()) put(trackId, palette)
-                                put(effectiveThumb, palette)
-                                getOptimizedThumbnailUrl(effectiveThumb)?.let { put(it, palette) }
-                                if (currentTrackId == trackId) {
-                                    _currentPalette.value = palette
+                        val key = trackId ?: effectiveThumb
+                        cacheScope.launch(Dispatchers.Default) {
+                            try {
+                                val palette = extractFromBitmap(bmp)
+                                if (!palette.isDefault && !palette.isPlaceholder) {
+                                    if (!trackId.isNullOrBlank()) put(trackId, palette)
+                                    put(effectiveThumb, palette)
+                                    getOptimizedThumbnailUrl(effectiveThumb)?.let { put(it, palette) }
+                                    if (currentTrackId == key) {
+                                        _currentPalette.value = palette
+                                    }
                                 }
-                                return palette
-                            }
-                        } catch (_: Throwable) {}
+                            } catch (_: Throwable) {}
+                        }
+                        break
                     }
                 }
             }

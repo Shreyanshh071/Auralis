@@ -73,6 +73,7 @@ class PlayerViewModel(
             PlayerUiState(
                 currentTrack = track,
                 isPlaying = player.isPlaying.value,
+                isBuffering = player.isBuffering.value,
                 playbackPositionMs = pos,
                 durationMs = player.durationMs.value.takeIf { it > 0L } ?: ((track?.duration ?: 0L) * 1000L),
                 queue = qState.queue,
@@ -165,6 +166,7 @@ class PlayerViewModel(
                         isShuffled = initialQState.isShuffled,
                         repeatMode = initialQState.repeatMode,
                         isPlaying = player.isPlaying.value,
+                        isBuffering = player.isBuffering.value,
                         playbackPositionMs = currentPos,
                         durationMs = player.durationMs.value.takeIf { d -> d > 0 } ?: (initialTrack.duration * 1000L)
                     )

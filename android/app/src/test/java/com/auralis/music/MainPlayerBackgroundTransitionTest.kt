@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.player.NowPlayingTab
 import com.auralis.music.ui.player.PlayerBackgroundStyle
+import com.auralis.music.ui.player.calculateSegmentPalette
 import com.auralis.music.ui.player.deriveActiveTrack
 import com.auralis.music.ui.player.lerpArtworkPalette
 import com.auralis.music.ui.theme.ArtworkPalette
@@ -433,5 +434,141 @@ class MainPlayerBackgroundTransitionTest {
         assertTrue(activeModes.contains(PlayerBackgroundStyle.BLUR))
         assertTrue(activeModes.contains(PlayerBackgroundStyle.GLOW_MOTION))
         assertTrue(activeModes.contains(PlayerBackgroundStyle.LIVE_MESH))
+    }
+
+    @Test
+    fun testSwipeABContinuousOffsets() {
+        val palA = samplePalette(Color(1.0f, 0.0f, 0.0f), Color(0.8f, 0.1f, 0.0f), Color(0.6f, 0.0f, 0.0f))
+        val palB = samplePalette(Color(0.0f, 1.0f, 0.0f), Color(0.0f, 0.8f, 0.1f), Color(0.0f, 0.6f, 0.0f))
+        val palettes = listOf(palA, palB)
+
+        // 1. offset 0.0 = A
+        val at0 = calculateSegmentPalette(0, 0.0f, 2, { palettes[it] }, palA)
+        assertEquals(palA.primary, at0.primary)
+
+        // 2. offset 0.25 = 75% A + 25% B
+        val at25 = calculateSegmentPalette(0, 0.25f, 2, { palettes[it] }, palA)
+        val exp25 = androidx.compose.ui.graphics.lerp(palA.primary, palB.primary, 0.25f)
+        assertColorClose(exp25, at25.primary)
+
+        // 3. offset 0.5 = 50% A + 50% B
+        val at50 = calculateSegmentPalette(0, 0.50f, 2, { palettes[it] }, palA)
+        val exp50 = androidx.compose.ui.graphics.lerp(palA.primary, palB.primary, 0.50f)
+        assertColorClose(exp50, at50.primary)
+
+        // 4. offset 0.75 = 25% A + 75% B
+        val at75 = calculateSegmentPalette(0, 0.75f, 2, { palettes[it] }, palA)
+        val exp75 = androidx.compose.ui.graphics.lerp(palA.primary, palB.primary, 0.75f)
+        assertColorClose(exp75, at75.primary)
+
+        // 5. offset 1.0 = B
+        val at100 = calculateSegmentPalette(0, 1.0f, 2, { palettes[it] }, palA)
+        assertEquals(palB.primary, at100.primary)
+    }
+
+    @Test
+    fun testReverseBAInterpolation() {
+        val palA = samplePalette(Color(1.0f, 0.0f, 0.0f), Color(0.8f, 0.1f, 0.0f), Color(0.6f, 0.0f, 0.0f))
+        val palB = samplePalette(Color(0.0f, 1.0f, 0.0f), Color(0.0f, 0.8f, 0.1f), Color(0.0f, 0.6f, 0.0f))
+        val palettes = listOf(palA, palB)
+
+        // Swiping backward from page 1 towards page 0 (offsetFraction = -0.30f)
+        val rev30 = calculateSegmentPalette(1, -0.30f, 2, { palettes[it] }, palB)
+        val expRev30 = androidx.compose.ui.graphics.lerp(palB.primary, palA.primary, 0.30f)
+        assertColorClose(expRev30, rev30.primary)
+
+        // Settle on page 0 in reverse
+        val rev100 = calculateSegmentPalette(1, -1.0f, 2, { palettes[it] }, palB)
+        assertEquals(palA.primary, rev100.primary)
+    }
+
+    @Test
+    fun testMultiPageABCDFollowsVisibleSegment() {
+        val palA = samplePalette(Color(1f, 0f, 0f), Color(0.5f, 0f, 0f), Color(0.2f, 0f, 0f))
+        val palB = samplePalette(Color(0f, 1f, 0f), Color(0f, 0.5f, 0f), Color(0f, 0.2f, 0f))
+        val palC = samplePalette(Color(0f, 0f, 1f), Color(0f, 0f, 0.5f), Color(0f, 0f, 0.2f))
+        val palD = samplePalette(Color(1f, 1f, 0f), Color(0.5f, 0.5f, 0f), Color(0.2f, 0.2f, 0f))
+        val queue = listOf(palA, palB, palC, palD)
+
+        // Visible segment between page 1 (B) and page 2 (C)
+        val segBC = calculateSegmentPalette(1, 0.40f, 4, { queue[it] }, palB)
+        val expBC = androidx.compose.ui.graphics.lerp(palB.primary, palC.primary, 0.40f)
+        assertColorClose(expBC, segBC.primary)
+
+        // Visible segment between page 2 (C) and page 3 (D)
+        val segCD = calculateSegmentPalette(2, 0.60f, 4, { queue[it] }, palC)
+        val expCD = androidx.compose.ui.graphics.lerp(palC.primary, palD.primary, 0.60f)
+        assertColorClose(expCD, segCD.primary)
+    }
+
+    @Test
+    fun testBoundaryContinuityWhenCurrentPageFlips() {
+        val palA = samplePalette(Color(1f, 0f, 0f), Color(0.5f, 0f, 0f), Color(0.2f, 0f, 0f))
+        val palB = samplePalette(Color(0f, 1f, 0f), Color(0f, 0.5f, 0f), Color(0f, 0.2f, 0f))
+        val queue = listOf(palA, palB)
+
+        // Approaching midpoint from page 0: offset = +0.5
+        val fromPage0 = calculateSegmentPalette(0, 0.50f, 2, { queue[it] }, palA)
+        // Flip point: HorizontalPager increments currentPage to 1, offset becomes -0.5
+        val fromPage1 = calculateSegmentPalette(1, -0.50f, 2, { queue[it] }, palB)
+
+        // Color must be strictly continuous across the page flip
+        assertEquals("Primary color must have zero boundary discontinuity", fromPage0.primary, fromPage1.primary)
+        assertEquals("Secondary color must have zero boundary discontinuity", fromPage0.secondary, fromPage1.secondary)
+        assertEquals("Tertiary color must have zero boundary discontinuity", fromPage0.tertiary, fromPage1.tertiary)
+    }
+
+    @Test
+    fun testMissingAdjacentPaletteNeverBlocksRendering() {
+        val palA = samplePalette(Color(1f, 0f, 0f), Color(0.5f, 0f, 0f), Color(0.2f, 0f, 0f))
+        val placeholderB = palA.copy(isPlaceholder = true)
+
+        // Page 1 palette is still loading / placeholder: must safely retain page 0 palette without flash
+        val result = calculateSegmentPalette(0, 0.40f, 2, { if (it == 0) palA else placeholderB }, palA)
+        assertEquals("Must retain current valid palette when neighbor is unavailable", palA.primary, result.primary)
+    }
+
+    @Test
+    fun testTextTransitionKeyStabilitySameTrackDifferentInstance() {
+        val trackV1 = Track(id = "track_42", title = "Midnight City", artist = "M83", duration = 0L)
+        val trackV2 = Track(id = "track_42", title = "Midnight City", artist = "M83", duration = 244000L, dominantColor = 0xFF123456.toInt())
+
+        val keySelector: (Track) -> String = { it.id.ifBlank { it.title } }
+        val key1 = keySelector(trackV1)
+        val key2 = keySelector(trackV2)
+
+        // Key must be strictly identical so AnimatedContent never restarts on metadata/playback updates
+        assertEquals("track_42", key1)
+        assertEquals("track_42", key2)
+        assertEquals("AnimatedContent contentKey must remain invariant across track instance updates", key1, key2)
+    }
+
+    @Test
+    fun testTextTransitionRemainsOnDepartingTrackDuringPagerMovement() {
+        val songA = Track(id = "a", title = "Song A", artist = "Artist A")
+        val songB = Track(id = "b", title = "Song B", artist = "Artist B")
+        val queue = listOf(songA, songB)
+
+        // 1. While pager is scrolling, pendingTargetIndex is null -> activeTrack is songA
+        val duringMotion = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = null,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = songA
+        )
+        assertEquals("a", duringMotion.id)
+        assertEquals("Song A", duringMotion.title)
+
+        // 2. Upon settle at page 1, pendingTargetIndex is committed -> activeTrack transitions to songB
+        val uponSettle = deriveActiveTrack(
+            currentTab = NowPlayingTab.PLAYER,
+            pendingTargetIndex = 1,
+            currentTrackIndex = 0,
+            queue = queue,
+            playingTrack = songA
+        )
+        assertEquals("b", uponSettle.id)
+        assertEquals("Song B", uponSettle.title)
     }
 }

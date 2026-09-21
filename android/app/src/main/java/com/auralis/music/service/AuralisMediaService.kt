@@ -39,6 +39,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
@@ -305,7 +306,7 @@ class AuralisMediaService : MediaSessionService() {
         serviceScope.launch {
             audioPlayer.isPlaying.collectLatest { isPlaying ->
                 withContext(Dispatchers.Main) {
-                    refreshNotification()
+                    refreshNotification(immediate = false)
                 }
                 updateMediaSessionMetadata(audioPlayer.currentTrack.value, isPlaying, audioPlayer.isFavorite.value)
             }
@@ -314,7 +315,7 @@ class AuralisMediaService : MediaSessionService() {
         serviceScope.launch {
             audioPlayer.isBuffering.collectLatest {
                 withContext(Dispatchers.Main) {
-                    refreshNotification()
+                    refreshNotification(immediate = false)
                 }
             }
         }
@@ -325,7 +326,7 @@ class AuralisMediaService : MediaSessionService() {
                     mediaSession?.setCustomLayout(buildCustomLayout(isFav))
                 } catch (_: Exception) {}
                 withContext(Dispatchers.Main) {
-                    refreshNotification()
+                    refreshNotification(immediate = false)
                 }
                 updateMediaSessionMetadata(audioPlayer.currentTrack.value, audioPlayer.isPlaying.value, isFav)
             }
@@ -407,7 +408,7 @@ class AuralisMediaService : MediaSessionService() {
                         try {
                             audioPlayer.exoPlayer.playlistMetadata = initialMeta
                         } catch (_: Exception) {}
-                        refreshNotification()
+                        refreshNotification(immediate = false)
                     }
                 }
                 updateMediaSessionMetadata(track, audioPlayer.isPlaying.value, audioPlayer.isFavorite.value)
@@ -416,7 +417,7 @@ class AuralisMediaService : MediaSessionService() {
 
         // Synchronously publish foreground notification on service startup if a track is present
         if (audioPlayer.currentTrack.value != null) {
-            refreshNotification()
+            refreshNotification(immediate = true)
         }
     }
 
@@ -425,12 +426,11 @@ class AuralisMediaService : MediaSessionService() {
         Log.d("AuralisPlayback", "[AuralisMediaService] onStartCommand received action=${intent?.action}, startId=$startId")
 
         // 1. Immediately and synchronously satisfy foreground service guarantee before processing intent
-        refreshNotification()
+        refreshNotification(immediate = true)
 
         when (intent?.action) {
             ACTION_START, null -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_START -> foreground service confirmed active")
-                refreshNotification()
             }
             ACTION_PLAY -> {
                 Log.d("AuralisPlayback", "[AuralisMediaService] ACTION_PLAY -> audioPlayer.resume()")
@@ -577,7 +577,38 @@ class AuralisMediaService : MediaSessionService() {
         return builder.build()
     }
 
-    fun refreshNotification() {
+    private var lastNotificationPostMs = 0L
+    private var pendingNotificationJob: Job? = null
+
+    fun refreshNotification(immediate: Boolean = false) {
+        if (immediate) {
+            pendingNotificationJob?.cancel()
+            pendingNotificationJob = null
+            executeRefreshNotification()
+            return
+        }
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        val elapsed = now - lastNotificationPostMs
+        val minIntervalMs = 200L
+
+        if (elapsed >= minIntervalMs) {
+            pendingNotificationJob?.cancel()
+            pendingNotificationJob = null
+            executeRefreshNotification()
+        } else {
+            if (pendingNotificationJob == null || pendingNotificationJob?.isActive == false) {
+                val delayMs = minIntervalMs - elapsed
+                pendingNotificationJob = serviceScope.launch {
+                    kotlinx.coroutines.delay(delayMs)
+                    executeRefreshNotification()
+                }
+            }
+        }
+    }
+
+    private fun executeRefreshNotification() {
+        lastNotificationPostMs = android.os.SystemClock.elapsedRealtime()
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         val track = audioPlayer.currentTrack.value
         val isPlaying = audioPlayer.isPlaying.value
@@ -638,7 +669,7 @@ class AuralisMediaService : MediaSessionService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        refreshNotification()
+        refreshNotification(immediate = startInForegroundRequired)
     }
 
     private fun buildCustomLayout(isFavorite: Boolean): List<CommandButton> {
@@ -764,7 +795,6 @@ class AuralisMediaService : MediaSessionService() {
                         withContext(Dispatchers.Main) {
                             try {
                                 audioPlayer.exoPlayer.playlistMetadata = updatedMeta
-                                refreshNotification()
                             } catch (_: Exception) {}
                         }
                     }

@@ -30,6 +30,7 @@ import sh.calvin.reorderable.rememberScroller
 import com.auralis.music.ui.components.QueueTrackItem
 import com.auralis.music.ui.components.createQueueTrackItem
 import com.auralis.music.ui.components.syncLocalQueueWithSnapshot
+import com.auralis.music.domain.model.QueueOperations
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -1253,7 +1254,24 @@ private fun ClassicQueueContent(
                 }.toMutableStateList()
             }
 
-            val queueListState = rememberLazyListState()
+            val initialScrollIndex = remember {
+                val activeIdx = QueueOperations.findActiveTrackIndex(
+                    queue = queueSnapshot,
+                    currentTrack = uiState.currentTrack,
+                    currentIndex = queueCurrentIndex
+                )
+                if (activeIdx >= 0) {
+                    QueueOperations.calculateScrollIndex(
+                        targetIndex = activeIdx,
+                        visibleItemCount = 6,
+                        queueSize = queueSnapshot.size
+                    )
+                } else {
+                    0
+                }
+            }
+
+            val queueListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
             var startDragIndex by remember { mutableIntStateOf(-1) }
             var lastDragEndTime by remember { mutableLongStateOf(0L) }
 
@@ -1276,6 +1294,35 @@ private fun ClassicQueueContent(
 
             LaunchedEffect(queueSnapshot) {
                 syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
+            }
+
+            // Auto-scroll queue to currently playing song when Queue becomes active or active track changes
+            val playingTrackId = uiState.currentTrack?.id
+            LaunchedEffect(playingTrackId) {
+                val playingTrack = uiState.currentTrack ?: return@LaunchedEffect
+                val activeIndex = QueueOperations.findActiveTrackIndex(
+                    queue = localQueue.map { it.track },
+                    currentTrack = playingTrack,
+                    currentIndex = queueCurrentIndex
+                )
+                if (activeIndex >= 0) {
+                    val approxItemHeight = with(density) { 68.dp.roundToPx() }
+                    val visibleCount = if (queueListState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                        queueListState.layoutInfo.visibleItemsInfo.size
+                    } else if (queueListState.layoutInfo.viewportSize.height > 0 && approxItemHeight > 0) {
+                        (queueListState.layoutInfo.viewportSize.height / approxItemHeight).coerceAtLeast(1)
+                    } else {
+                        6
+                    }
+                    val targetScrollIndex = QueueOperations.calculateScrollIndex(
+                        targetIndex = activeIndex,
+                        visibleItemCount = visibleCount,
+                        queueSize = localQueue.size
+                    )
+                    if (!reorderableLazyListState.isAnyItemDragging) {
+                        queueListState.scrollToItem(targetScrollIndex)
+                    }
+                }
             }
 
             // Pre-cache palettes for visible tracks in the Queue so selecting any song hits cache instantly

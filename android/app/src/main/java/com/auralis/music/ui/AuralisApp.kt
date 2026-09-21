@@ -140,7 +140,10 @@ fun AuralisApp(
     // PlayerViewModel: only initialized early if there is already an active track playing in background
     var playerViewModelState by remember {
         mutableStateOf<PlayerViewModel?>(
-            if (viewModelProvider.audioPlayer.currentTrack.value != null) {
+            if (viewModelProvider.audioPlayer.currentTrack.value != null ||
+                viewModelProvider.audioPlayer.isPlaying.value ||
+                viewModelProvider.audioPlayer.isBuffering.value
+            ) {
                 viewModelProvider.getPlayerViewModel()
             } else {
                 null
@@ -1311,9 +1314,8 @@ fun AuralisApp(
         }
 
         // ── Unified BottomSheet Container (MiniPlayer <-> Full Player Parity with VIVI) ──
-        val activePV = playerViewModelState
-        // Use audioPlayer ground-truth as fallback when ViewModel mirror transiently has null currentTrack
         val effectiveTrack = playerUiState.currentTrack ?: audioPlayerTrack
+        val activePV = playerViewModelState ?: if (effectiveTrack != null) obtainPlayerViewModel() else null
         if (effectiveTrack != null && activePV != null) {
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
 

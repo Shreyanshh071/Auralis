@@ -651,9 +651,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         audioLeadingSilenceProcessor.resetDetection()
         _audioLeadingSilenceMs.value = null
 
-        val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
-        val initialTrack = if (track.thumbnail.isBlank() && localArt != null && localArt.exists()) {
-            track.copy(thumbnail = Uri.fromFile(localArt).toString())
+        val initialTrack = if (track.thumbnail.isBlank()) {
+            val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
+            if (localArt != null && localArt.exists()) {
+                track.copy(thumbnail = Uri.fromFile(localArt).toString())
+            } else {
+                track
+            }
         } else {
             track
         }
@@ -667,7 +671,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
         Log.d("AuralisPlayback", "[Play Request #$requestId] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s, initialSeek=${initialSeekMs}ms")
 
-        // Start MediaSessionService for uninterrupted background audio and immediate foreground notification
+        // Start MediaSessionService synchronously for uninterrupted background audio and immediate foreground notification
         startMediaService(AuralisMediaService.ACTION_START)
 
         // Fast-path resolution for native ExoPlayer audio stream (stutter-free native AudioTrack)
@@ -694,11 +698,15 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     Log.w("AuralisPlayback", "[Resolver] Stream resolve notice: ${e.message}")
                 }
             }
 
-            if (currentSessionId.get() != requestId) return@launch
+            if (!isActive || currentSessionId.get() != requestId) {
+                Log.d("AuralisPlayback", "[Resolver] Dropping resolved stream - job cancelled or stale requestId=$requestId vs ${currentSessionId.get()}")
+                return@launch
+            }
             tracker.tStreamResolvedMs = System.currentTimeMillis()
 
             if (!directUrl.isNullOrBlank()) {
@@ -739,6 +747,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         )
                         .build()
 
+                    if (!isActive || currentSessionId.get() != requestId) {
+                        Log.d("AuralisPlayback", "[Resolver] Dropping ExoPlayer start - cancelled or stale requestId=$requestId vs ${currentSessionId.get()}")
+                        return@launch
+                    }
+
                     exoPlayer.setMediaItem(mediaItem)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && _isSpeakerForced.value && preferredAudioDevice != null) {
                         exoPlayer.setPreferredAudioDevice(preferredAudioDevice)
@@ -751,12 +764,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     exoPlayer.play()
                     return@launch
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     Log.e("AuralisPlayback", "[Audio Engine] ExoPlayer start failed, falling back to YouTube engine: ${e.message}")
                 }
             }
 
             // Fallback to hardened YouTube web engine
-            if (currentSessionId.get() != requestId) {
+            if (!isActive || currentSessionId.get() != requestId) {
                 Log.d("AuralisPlayback", "[Stale fallback dropped] reqId=$requestId vs active=${currentSessionId.get()}")
                 return@launch
             }
@@ -872,10 +886,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
+    private var persistJob: Job? = null
+
     fun persistQueue() {
         val qState = queueManager.state
         val pos = _playbackPositionMs.value
-        scope.launch(Dispatchers.IO) {
+        persistJob?.cancel()
+        persistJob = scope.launch(Dispatchers.IO) {
             try {
                 queueDataStore.saveQueue(
                     tracks = qState.queue,
@@ -1424,8 +1441,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun stop() {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] stop() called -> flushing streams")
         cancelSleepTimer()
+        currentSessionId.incrementAndGet()
         streamResolveJob?.cancel()
+        streamResolveJob = null
         _isPlaying.value = false
+        _isBuffering.value = false
         try {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
@@ -1441,7 +1461,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun release() {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] release() called")
         scope.cancel()
+        currentSessionId.incrementAndGet()
         streamResolveJob?.cancel()
+        streamResolveJob = null
         youTubeEngine.release()
         try {
             exoPlayer.release()
