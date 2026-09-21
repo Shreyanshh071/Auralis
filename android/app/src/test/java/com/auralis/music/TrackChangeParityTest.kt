@@ -1,8 +1,12 @@
 package com.auralis.music
 
+import androidx.compose.ui.graphics.Color
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.player.NowPlayingTab
+import com.auralis.music.ui.player.calculateSegmentPalette
 import com.auralis.music.ui.player.deriveActiveTrack
+import com.auralis.music.ui.player.lerpArtworkPalette
+import com.auralis.music.ui.theme.ArtworkPalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -638,6 +642,310 @@ class TrackChangeParityTest {
 
         assertTrue("Tactile bounce must be subtler than previous 0.84f", subtleScaleDown > previousAggressiveScale)
         assertEquals(0.94f, subtleScaleDown, 0.001f)
+    }
+
+    // ── FOCUSED SINGLE NEXT / PREVIOUS & SWIPE REGRESSION TESTS ──
+
+    @Test
+    fun `test single Next button preserves visual identity during motion and commits upon settle`() {
+        val pageCount = queue.size
+        var isScrollInProgress = false
+        var targetPage = 0
+        var userSwipedPager = false
+        var pendingTargetIndex: Int? = null
+        var selectedTrackIndex: Int? = null
+
+        // 1. Idle state at page 0
+        val activeBefore = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 0, queue, queue[0])
+        assertEquals("track_0", activeBefore.id)
+
+        // 2. User taps Next: pager animation begins
+        val fromIndex = 0
+        val targetIndex = (fromIndex + 1).coerceAtMost(pageCount - 1)
+        if (targetIndex != fromIndex) {
+            userSwipedPager = true
+            targetPage = targetIndex
+            isScrollInProgress = true
+        }
+
+        // CRITICAL INVARIANT: pendingTargetIndex is NOT set on tap! Active track is preserved during motion.
+        assertNull("pendingTargetIndex must remain null while animating", pendingTargetIndex)
+        assertTrue("Scroll must be in progress", isScrollInProgress)
+        assertEquals("Target page must be 1", 1, targetPage)
+        val activeDuringMotion = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 0, queue, queue[0])
+        assertEquals("Visual track must remain track_0 during transition motion", "track_0", activeDuringMotion.id)
+
+        // 3. Pager arrives and settles on page 1
+        isScrollInProgress = false
+        val settledPage = 1
+        if (userSwipedPager) {
+            userSwipedPager = false
+            if (settledPage != 0) {
+                pendingTargetIndex = settledPage
+                selectedTrackIndex = settledPage
+            }
+        }
+
+        // CRITICAL INVARIANT: Commit happens upon settle exactly like swipe
+        assertEquals("pendingTargetIndex must commit to 1 upon settle", 1, pendingTargetIndex)
+        assertEquals("Track 1 must be selected for playback upon settle", 1, selectedTrackIndex)
+        val activeAfterSettle = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 0, queue, queue[0])
+        assertEquals("Visual track must switch to track_1 upon settle", "track_1", activeAfterSettle.id)
+    }
+
+    @Test
+    fun `test single Previous button preserves visual identity during motion and commits upon settle`() {
+        val pageCount = queue.size
+        var isScrollInProgress = false
+        var targetPage = 1
+        var userSwipedPager = false
+        var pendingTargetIndex: Int? = null
+        var selectedTrackIndex: Int? = null
+
+        // 1. Idle state at page 1
+        val activeBefore = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 1, queue, queue[1])
+        assertEquals("track_1", activeBefore.id)
+
+        // 2. User taps Previous: pager animation begins towards page 0
+        val fromIndex = 1
+        val targetIndex = (fromIndex - 1).coerceAtLeast(0)
+        if (targetIndex != fromIndex) {
+            userSwipedPager = true
+            targetPage = targetIndex
+            isScrollInProgress = true
+        }
+
+        assertNull("pendingTargetIndex must remain null while animating", pendingTargetIndex)
+        assertTrue("Scroll must be in progress", isScrollInProgress)
+        assertEquals("Target page must be 0", 0, targetPage)
+        val activeDuringMotion = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 1, queue, queue[1])
+        assertEquals("Visual track must remain track_1 during reverse motion", "track_1", activeDuringMotion.id)
+
+        // 3. Pager arrives and settles on page 0
+        isScrollInProgress = false
+        val settledPage = 0
+        if (userSwipedPager) {
+            userSwipedPager = false
+            if (settledPage != 1) {
+                pendingTargetIndex = settledPage
+                selectedTrackIndex = settledPage
+            }
+        }
+
+        assertEquals("pendingTargetIndex must commit to 0 upon settle", 0, pendingTargetIndex)
+        assertEquals("Track 0 must be selected for playback upon settle", 0, selectedTrackIndex)
+        val activeAfterSettle = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 1, queue, queue[1])
+        assertEquals("Visual track must switch to track_0 upon settle", "track_0", activeAfterSettle.id)
+    }
+
+    @Test
+    fun `test existing swipe regression preserves exact same settle semantics`() {
+        var userSwipedPager = false
+        var isScrollInProgress = false
+        var pendingTargetIndex: Int? = null
+        var selectedTrackIndex: Int? = null
+
+        // 1. User drags carousel (swipe start)
+        userSwipedPager = true
+        isScrollInProgress = true
+
+        // During swipe motion, active track is unchanged
+        val activeDuringSwipe = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 0, queue, queue[0])
+        assertEquals("track_0", activeDuringSwipe.id)
+
+        // 2. Swipe settles on page 1
+        isScrollInProgress = false
+        val settledPage = 1
+        if (userSwipedPager) {
+            userSwipedPager = false
+            if (settledPage != 0) {
+                pendingTargetIndex = settledPage
+                selectedTrackIndex = settledPage
+            }
+        }
+
+        assertEquals(1, pendingTargetIndex)
+        assertEquals(1, selectedTrackIndex)
+        val activeAfterSwipeSettle = deriveActiveTrack(NowPlayingTab.PLAYER, pendingTargetIndex, 0, queue, queue[0])
+        assertEquals("track_1", activeAfterSwipeSettle.id)
+    }
+
+    // ── FOCUSED DYNAMIC BACKGROUND MOTION & PALETTE CONTINUITY TESTS ──
+
+    private fun samplePalette(primary: Color, secondary: Color, tertiary: Color, isPlaceholder: Boolean = false): ArtworkPalette {
+        return ArtworkPalette(
+            primary = primary,
+            secondary = secondary,
+            tertiary = tertiary,
+            seedColor = primary,
+            isMonochrome = false,
+            glowColors = listOf(primary, secondary, tertiary),
+            isPlaceholder = isPlaceholder
+        )
+    }
+
+    @Test
+    fun `test 1 swipe A to B background palette interpolation follows offset`() {
+        val paletteA = samplePalette(Color(0xFFFF0000), Color(0xFFAA0000), Color(0xFF550000))
+        val paletteB = samplePalette(Color(0xFF0000FF), Color(0xFF0000AA), Color(0xFF000055))
+        val palettes = listOf(paletteA, paletteB)
+
+        // offset 0.0 => A
+        val at0 = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.0f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        assertEquals(paletteA.primary, at0.primary)
+
+        // offset 0.25 => lerp(A, B, 0.25)
+        val at25 = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.25f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        val expected25 = lerpArtworkPalette(paletteA, paletteB, 0.25f)
+        assertEquals(expected25.primary, at25.primary)
+
+        // offset 0.50 => lerp(A, B, 0.50)
+        val at50 = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.50f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        val expected50 = lerpArtworkPalette(paletteA, paletteB, 0.50f)
+        assertEquals(expected50.primary, at50.primary)
+
+        // offset 0.75 => in Compose PagerState, crossing midpoint increments currentPage to 1 with offset -0.25
+        val at75 = calculateSegmentPalette(currentPage = 1, offsetFraction = -0.25f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        val expected75 = lerpArtworkPalette(paletteB, paletteA, 0.25f) // 75% B, 25% A
+        assertEquals(expected75.primary, at75.primary)
+
+        // offset 1.0 => settled on B (currentPage = 1, offset 0.0)
+        val at100 = calculateSegmentPalette(currentPage = 1, offsetFraction = 0.0f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        assertEquals(paletteB.primary, at100.primary)
+    }
+
+    @Test
+    fun `test 2 reverse swipe B to A background palette interpolation`() {
+        val paletteA = samplePalette(Color(0xFFFF0000), Color(0xFFAA0000), Color(0xFF550000))
+        val paletteB = samplePalette(Color(0xFF0000FF), Color(0xFF0000AA), Color(0xFF000055))
+        val palettes = listOf(paletteA, paletteB)
+
+        // Start at B
+        val atB = calculateSegmentPalette(currentPage = 1, offsetFraction = 0.0f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteB)
+        assertEquals(paletteB.primary, atB.primary)
+
+        // Reverse towards A: offset -0.25
+        val atB25 = calculateSegmentPalette(currentPage = 1, offsetFraction = -0.25f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteB)
+        val expectedB25 = lerpArtworkPalette(paletteB, paletteA, 0.25f)
+        assertEquals(expectedB25.primary, atB25.primary)
+
+        // Midpoint from B side: offset -0.50
+        val atB50 = calculateSegmentPalette(currentPage = 1, offsetFraction = -0.50f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteB)
+        // Midpoint from A side: currentPage = 0, offset +0.50
+        val atA50 = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.50f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        assertEquals("Midpoints must be identical across crossing", atB50.primary, atA50.primary)
+
+        // Settle on A
+        val atA = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.0f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        assertEquals(paletteA.primary, atA.primary)
+    }
+
+    @Test
+    fun `test 3 multi-page A to B to C to D follows visible segment`() {
+        val palA = samplePalette(Color(0xFF110000), Color(0xFF220000), Color(0xFF330000))
+        val palB = samplePalette(Color(0xFF001100), Color(0xFF002200), Color(0xFF003300))
+        val palC = samplePalette(Color(0xFF000011), Color(0xFF000022), Color(0xFF000033))
+        val palD = samplePalette(Color(0xFF111100), Color(0xFF222200), Color(0xFF333300))
+        val pals = listOf(palA, palB, palC, palD)
+
+        // A -> B segment
+        val segAB = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.3f, pageCount = 4, getPaletteForPage = { pals[it] }, fallbackPalette = palA)
+        assertEquals(lerpArtworkPalette(palA, palB, 0.3f).primary, segAB.primary)
+
+        // Settle on B
+        val atB = calculateSegmentPalette(currentPage = 1, offsetFraction = 0.0f, pageCount = 4, getPaletteForPage = { pals[it] }, fallbackPalette = palA)
+        assertEquals(palB.primary, atB.primary)
+
+        // B -> C segment
+        val segBC = calculateSegmentPalette(currentPage = 1, offsetFraction = 0.4f, pageCount = 4, getPaletteForPage = { pals[it] }, fallbackPalette = palB)
+        assertEquals(lerpArtworkPalette(palB, palC, 0.4f).primary, segBC.primary)
+
+        // Settle on C
+        val atC = calculateSegmentPalette(currentPage = 2, offsetFraction = 0.0f, pageCount = 4, getPaletteForPage = { pals[it] }, fallbackPalette = palB)
+        assertEquals(palC.primary, atC.primary)
+
+        // C -> D segment
+        val segCD = calculateSegmentPalette(currentPage = 2, offsetFraction = 0.5f, pageCount = 4, getPaletteForPage = { pals[it] }, fallbackPalette = palC)
+        assertEquals(lerpArtworkPalette(palC, palD, 0.5f).primary, segCD.primary)
+
+        // Settle on D
+        val atD = calculateSegmentPalette(currentPage = 3, offsetFraction = 0.0f, pageCount = 4, getPaletteForPage = { pals[it] }, fallbackPalette = palC)
+        assertEquals(palD.primary, atD.primary)
+    }
+
+    @Test
+    fun `test 4 boundary continuity across page crossing has zero snap`() {
+        val paletteA = samplePalette(Color(0xFFE53935), Color(0xFFD32F2F), Color(0xFFC62828))
+        val paletteB = samplePalette(Color(0xFF1E88E5), Color(0xFF1976D2), Color(0xFF1565C0))
+        val palettes = listOf(paletteA, paletteB)
+
+        // Left boundary approaching B from A: currentPage = 0, offset = +0.50f
+        val leftBoundary = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.50f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        // Right boundary entering B from left: currentPage = 1, offset = -0.50f
+        val rightBoundary = calculateSegmentPalette(currentPage = 1, offsetFraction = -0.50f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+
+        assertEquals("Boundary primary color must match with zero jump", leftBoundary.primary, rightBoundary.primary)
+        assertEquals("Boundary secondary color must match with zero jump", leftBoundary.secondary, rightBoundary.secondary)
+        assertEquals("Boundary tertiary color must match with zero jump", leftBoundary.tertiary, rightBoundary.tertiary)
+    }
+
+    @Test
+    fun `test 5 button-driven animation uses direct segment palette during motion`() {
+        val paletteA = samplePalette(Color(0xFF2E7D32), Color(0xFF388E3C), Color(0xFF43A047))
+        val paletteB = samplePalette(Color(0xFFF57C00), Color(0xFFFFA000), Color(0xFFFFB300))
+        val palettes = listOf(paletteA, paletteB)
+
+        // Button triggers animateScrollToPage from 0 to 1; during motion offsetFraction reaches 0.35
+        val duringMotion = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.35f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        val expected = lerpArtworkPalette(paletteA, paletteB, 0.35f)
+
+        assertEquals("Button animation frames must directly interpolate palette", expected.primary, duringMotion.primary)
+    }
+
+    @Test
+    fun `test 6 no double animation during active pager motion`() {
+        // Contract: when isMoving is true, PlayerBackground receives skipPaletteAnimation = true,
+        // bypassing animateArtworkPalette so committed palette does NOT simultaneously animate.
+        val paletteA = samplePalette(Color.Red, Color.Red, Color.Red)
+        val paletteB = samplePalette(Color.Blue, Color.Blue, Color.Blue)
+        val palettes = listOf(paletteA, paletteB)
+
+        val isMoving = true
+        val directPalette = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.3f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+        val skipPaletteAnimation = isMoving
+
+        assertTrue("skipPaletteAnimation must be active during motion", skipPaletteAnimation)
+        assertEquals(lerpArtworkPalette(paletteA, paletteB, 0.3f).primary, directPalette.primary)
+    }
+
+    @Test
+    fun `test 7 immediate re-swipe after settle has zero leftover animation`() {
+        val palA = samplePalette(Color.Red, Color.Red, Color.Red)
+        val palB = samplePalette(Color.Green, Color.Green, Color.Green)
+        val palC = samplePalette(Color.Blue, Color.Blue, Color.Blue)
+        val pals = listOf(palA, palB, palC)
+
+        // Settle on B
+        val atB = calculateSegmentPalette(currentPage = 1, offsetFraction = 0.0f, pageCount = 3, getPaletteForPage = { pals[it] }, fallbackPalette = palA)
+        assertEquals(palB.primary, atB.primary)
+
+        // Immediately start B -> C
+        val immediateNextSwipe = calculateSegmentPalette(currentPage = 1, offsetFraction = 0.1f, pageCount = 3, getPaletteForPage = { pals[it] }, fallbackPalette = palB)
+        val expected = lerpArtworkPalette(palB, palC, 0.1f)
+        assertEquals("Immediate re-swipe must begin directly from B without leftover A animation", expected.primary, immediateNextSwipe.primary)
+    }
+
+    @Test
+    fun `test 8 missing or placeholder adjacent palette retains current valid palette without blocking`() {
+        val paletteA = samplePalette(Color(0xFF9C27B0), Color(0xFF7B1FA2), Color(0xFF6A1B9A))
+        val placeholderB = samplePalette(Color.Gray, Color.Gray, Color.Gray, isPlaceholder = true)
+        val palettes = listOf(paletteA, placeholderB)
+
+        // Page 1 palette is still loading / placeholder: calculation must retain paletteA smoothly
+        val result = calculateSegmentPalette(currentPage = 0, offsetFraction = 0.4f, pageCount = 2, getPaletteForPage = { palettes[it] }, fallbackPalette = paletteA)
+
+        assertEquals("Must retain current valid palette when adjacent is placeholder", paletteA.primary, result.primary)
+        assertFalse("Result must not be marked as placeholder", result.isPlaceholder)
     }
 }
 

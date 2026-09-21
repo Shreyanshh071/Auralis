@@ -374,6 +374,50 @@ fun animateArtworkPalette(
 }
 
 /**
+ * Coordinated palette driver ensuring:
+ * 1. During ACTIVE PAGER MOTION: direct interpolation without time-based lag.
+ * 2. When PAGER SETTLES: zero redundant post-settle animation restart (state is pre-settled to arrival palette).
+ * 3. During IDLE TRACK COMMITS: smooth time-based interpolation.
+ * 4. During IMMEDIATE RE-SWIPE: zero leftover animation fighting the new swipe.
+ */
+@Composable
+fun coordinatedArtworkPalette(
+    isMotionActive: Boolean,
+    motionPalette: ArtworkPalette,
+    committedPalette: ArtworkPalette,
+    durationMillis: Int = PlayerTransitionMotion.paletteDurationMillis
+): ArtworkPalette {
+    var currentVisiblePalette by remember { mutableStateOf(committedPalette) }
+    var previousTargetPalette by remember { mutableStateOf(committedPalette) }
+    val animProgress = remember { Animatable(1f) }
+
+    if (isMotionActive) {
+        currentVisiblePalette = motionPalette
+        previousTargetPalette = motionPalette
+        LaunchedEffect(Unit) {
+            if (animProgress.value < 1f) {
+                animProgress.snapTo(1f)
+            }
+        }
+        return motionPalette
+    } else {
+        LaunchedEffect(committedPalette) {
+            if (committedPalette != previousTargetPalette) {
+                currentVisiblePalette = lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+                previousTargetPalette = committedPalette
+                val transitionSpec = PlayerTransitionMotion.paletteSpec(animProgress.value, durationMillis)
+                animProgress.snapTo(0f)
+                animProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = transitionSpec
+                )
+            }
+        }
+        return lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+    }
+}
+
+/**
  * Unified, reusable Player Background Renderer shared between:
  * - Mini-player (floating pill interior)
  * - Full Now Playing player
@@ -396,12 +440,14 @@ fun PlayerBackground(
     isPlaying: Boolean = true,
     isVisible: Boolean = true,
     secondaryArtworkUrl: String? = null,
-    swipeFraction: Float = 0f
+    swipeFraction: Float = 0f,
+    skipPaletteAnimation: Boolean = false
 ) {
     val context = LocalContext.current
 
-    val isSwiping = swipeFraction > 0.005f && secondaryArtworkUrl != null
-    // If we are actively swiping, the palette is already mathematically interpolated in real-time by swipeFraction.
+    val isSwiping = (swipeFraction > 0.005f && secondaryArtworkUrl != null) || skipPaletteAnimation
+    // If we are actively swiping or skipPaletteAnimation is requested (e.g. direct pager-driven palette),
+    // the palette is already mathematically interpolated in real-time.
     // Committed changes use one interruptible palette driver.
     val effectivePalette = if (isSwiping) {
         extractedColors
@@ -455,7 +501,7 @@ fun PlayerBackground(
 
             PlayerBackgroundStyle.GRADIENT -> {
                 SeamlessGradientLayer(
-                    palette = extractedColors,
+                    palette = effectivePalette,
                     isMiniPlayer = isMiniPlayer,
                     modifier = Modifier.fillMaxSize(),
                     secondaryArtworkUrl = secondaryArtworkUrl,
@@ -797,7 +843,7 @@ private fun SeamlessGradientLayer(
     secondaryArtworkUrl: String? = null,
     swipeFraction: Float = 0f
 ) {
-    val initialStops = remember {
+    val stops = remember(palette.primary, palette.secondary, palette.tertiary, palette.isMonochrome) {
         PlayerGradientPalette.create(
             primary = palette.primary,
             secondary = palette.secondary,
@@ -805,60 +851,13 @@ private fun SeamlessGradientLayer(
             isMonochrome = palette.isMonochrome
         )
     }
-    var slot0Stops by remember { mutableStateOf(initialStops) }
-    var slot1Stops by remember { mutableStateOf(initialStops) }
-    var activeSlot by remember { mutableIntStateOf(0) }
-    val slot1Alpha = remember { Animatable(0f) }
 
-    LaunchedEffect(palette.primary, palette.secondary, palette.tertiary, palette.isMonochrome, swipeFraction) {
-        if (swipeFraction <= 0.005f) {
-            val newStops = PlayerGradientPalette.create(
-                primary = palette.primary,
-                secondary = palette.secondary,
-                tertiary = palette.tertiary,
-                isMonochrome = palette.isMonochrome
-            )
-            val currentActiveStops = if (activeSlot == 0) slot0Stops else slot1Stops
-            if (newStops != currentActiveStops) {
-                if (activeSlot == 0) {
-                    slot1Stops = newStops
-                    activeSlot = 1
-                    slot1Alpha.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(
-                            durationMillis = PlayerTransitionMotion.paletteDurationMillis,
-                            easing = FastOutSlowInEasing
-                        )
-                    )
-                } else {
-                    slot0Stops = newStops
-                    activeSlot = 0
-                    slot1Alpha.animateTo(
-                        targetValue = 0f,
-                        animationSpec = tween(
-                            durationMillis = PlayerTransitionMotion.paletteDurationMillis,
-                            easing = FastOutSlowInEasing
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    Box(modifier = modifier.clipToBounds()) {
-        SingleGradientLayer(
-            stops = slot0Stops,
-            isMiniPlayer = isMiniPlayer,
-            alpha = { if (swipeFraction > 0.005f) 1f - swipeFraction else 1f - slot1Alpha.value },
-            modifier = Modifier.fillMaxSize()
-        )
-        SingleGradientLayer(
-            stops = slot1Stops,
-            isMiniPlayer = isMiniPlayer,
-            alpha = { if (swipeFraction > 0.005f) swipeFraction else slot1Alpha.value },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
+    SingleGradientLayer(
+        stops = stops,
+        isMiniPlayer = isMiniPlayer,
+        alpha = { 1f },
+        modifier = modifier.clipToBounds()
+    )
 }
 
 @Composable

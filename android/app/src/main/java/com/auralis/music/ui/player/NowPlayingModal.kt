@@ -23,6 +23,8 @@ import com.auralis.music.ui.components.QueueTrackItem
 import com.auralis.music.ui.components.createQueueTrackItem
 import com.auralis.music.ui.components.syncLocalQueueWithSnapshot
 import com.auralis.music.ui.components.getHighResArtworkUrl
+import androidx.compose.ui.draw.clipToBounds
+import com.auralis.music.domain.model.QueueOperations
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterExitState
@@ -111,6 +113,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -147,12 +150,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.palette.graphics.Palette
 import coil.compose.AsyncImage
 import coil.imageLoader
@@ -223,6 +229,133 @@ fun deriveActiveTrack(
         }
     }
     return playingTrack
+}
+
+/**
+ * Continuous segment-based palette interpolation for horizontal pager motion.
+ * As the pager moves across page boundaries (e.g. A -> B -> C -> D), this follows the
+ * actual visible segment without resetting or restarting animations.
+ */
+fun calculateSegmentPalette(
+    currentPage: Int,
+    offsetFraction: Float,
+    pageCount: Int,
+    getPaletteForPage: (Int) -> com.auralis.music.ui.theme.ArtworkPalette,
+    fallbackPalette: com.auralis.music.ui.theme.ArtworkPalette
+): com.auralis.music.ui.theme.ArtworkPalette {
+    if (pageCount <= 0) return fallbackPalette
+    val clampedCurrent = currentPage.coerceIn(0, pageCount - 1)
+    val curPalette = getPaletteForPage(clampedCurrent)
+    val effectiveCur = if (curPalette.isPlaceholder) fallbackPalette else curPalette
+    val absOffset = kotlin.math.abs(offsetFraction)
+    if (absOffset <= 0.005f) return effectiveCur
+
+    val direction = if (offsetFraction > 0f) 1 else if (offsetFraction < 0f) -1 else 0
+    val neighborPage = (clampedCurrent + direction).coerceIn(0, pageCount - 1)
+    if (neighborPage == clampedCurrent) return effectiveCur
+
+    val neighborPalette = getPaletteForPage(neighborPage)
+    if (neighborPalette.isPlaceholder) return effectiveCur
+
+    return lerpArtworkPalette(effectiveCur, neighborPalette, absOffset.coerceIn(0f, 1f))
+}
+
+/**
+ * Isolated background composable for NowPlayingModal.
+ * Reads pager offset fraction exclusively within this composable scope to ensure
+ * smooth 60/120fps continuous color interpolation WITHOUT causing the rest of the
+ * player (controls, title, seekbar, carousel) to recompose on every frame.
+ */
+@Composable
+private fun NowPlayingDynamicBackground(
+    style: PlayerBackgroundStyle,
+    pagerState: androidx.compose.foundation.pager.PagerState,
+    queue: List<Track>,
+    activeTrack: Track,
+    committedPalette: com.auralis.music.ui.theme.ArtworkPalette,
+    isDynamicAccent: Boolean,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val offsetFraction = pagerState.currentPageOffsetFraction
+    val absOffset = kotlin.math.abs(offsetFraction)
+    val isMoving = (pagerState.isScrollInProgress || absOffset > 0.005f) && queue.isNotEmpty()
+
+    val motionPalette = if (isMoving && isDynamicAccent) {
+        val currentPage = pagerState.currentPage
+        calculateSegmentPalette(
+            currentPage = currentPage,
+            offsetFraction = offsetFraction,
+            pageCount = queue.size,
+            getPaletteForPage = { pageIdx ->
+                val trk = queue.getOrNull(pageIdx)
+                if (trk != null) {
+                    if (trk.id == activeTrack.id && !committedPalette.isPlaceholder) {
+                        committedPalette
+                    } else {
+                        val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.id)
+                            ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.thumbnail)
+                        if (cached != null && !cached.isPlaceholder) {
+                            cached
+                        } else if (trk.dominantColor != null && trk.dominantColor != 0) {
+                            val c = Color(trk.dominantColor)
+                            com.auralis.music.ui.theme.ArtworkPalette(
+                                primary = c,
+                                secondary = c,
+                                tertiary = c,
+                                seedColor = c,
+                                isMonochrome = false,
+                                glowColors = listOf(c, c, c, c, c, c)
+                            )
+                        } else {
+                            committedPalette
+                        }
+                    }
+                } else {
+                    committedPalette
+                }
+            },
+            fallbackPalette = committedPalette
+        )
+    } else {
+        committedPalette
+    }
+
+    val effectivePalette = coordinatedArtworkPalette(
+        isMotionActive = isMoving && isDynamicAccent,
+        motionPalette = motionPalette,
+        committedPalette = committedPalette
+    )
+
+    val currentPage = pagerState.currentPage
+    val direction = if (offsetFraction > 0f) 1 else if (offsetFraction < 0f) -1 else 0
+    val neighborPage = (currentPage + direction).coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+
+    val primaryUrl = if (isMoving) {
+        queue.getOrNull(currentPage)?.thumbnail ?: activeTrack.thumbnail
+    } else {
+        activeTrack.thumbnail
+    }
+
+    val secondaryUrl = if (isMoving && neighborPage != currentPage) {
+        queue.getOrNull(neighborPage)?.thumbnail
+    } else {
+        null
+    }
+
+    val swipeFraction = if (isMoving && secondaryUrl != null) absOffset.coerceIn(0f, 1f) else 0f
+
+    PlayerBackground(
+        style = style,
+        artworkUrl = primaryUrl,
+        extractedColors = effectivePalette,
+        secondaryArtworkUrl = secondaryUrl,
+        swipeFraction = swipeFraction,
+        modifier = modifier,
+        isMiniPlayer = false,
+        isPlaying = isPlaying,
+        skipPaletteAnimation = true
+    )
 }
 
 /**
@@ -335,23 +468,23 @@ fun NowPlayingModal(
     var pendingTargetIndex by remember { mutableStateOf<Int?>(null) }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
     var skipPagerAnimation by remember { mutableStateOf(false) }
+    var userSwipedPager by remember { mutableStateOf(false) }
 
     // Active track authoritative synchronization:
-    // During an incomplete/partial swipe, the currently playing track remains strictly authoritative
-    // for background, palette, title, and audio.
+    // During an incomplete/partial swipe or button-driven pager animation,
+    // the currently playing track remains strictly authoritative for background, palette, title, and audio.
     // The activeTrack is ONLY committed to a new queue track when:
-    // 1. A Next/Previous button is tapped (pendingTargetIndex is set), or
-    // 2. A manual carousel swipe genuinely settles on a new page (pendingTargetIndex is set on settle).
+    // A carousel page genuinely settles on a new page (pendingTargetIndex is set on settle).
     val activeTrack = remember(currentTab, pendingTargetIndex, currentTrackIndex, queue, track) {
         deriveActiveTrack(currentTab, pendingTargetIndex, currentTrackIndex, queue, track)
     }
 
-    val handleNext = {
-        if (queue.isNotEmpty() && pageCount > 1) {
-            val fromIndex = pendingTargetIndex ?: pagerState.currentPage
+    val handleNext: () -> Unit = {
+        if (currentTab == NowPlayingTab.PLAYER && queue.isNotEmpty() && pageCount > 1) {
+            val fromIndex = pagerState.currentPage
             val targetIndex = (fromIndex + 1).coerceAtMost(pageCount - 1)
             if (targetIndex != fromIndex) {
-                pendingTargetIndex = targetIndex
+                userSwipedPager = true
                 coroutineScope.launch {
                     try {
                         pagerState.animateScrollToPage(
@@ -363,17 +496,20 @@ fun NowPlayingModal(
                         )
                     } catch (_: Exception) {}
                 }
+            } else {
+                onNextClick()
             }
+        } else {
+            onNextClick()
         }
-        onNextClick()
     }
 
-    val handlePrevious = {
-        if (queue.isNotEmpty() && pageCount > 1) {
-            val fromIndex = pendingTargetIndex ?: pagerState.currentPage
+    val handlePrevious: () -> Unit = {
+        if (currentTab == NowPlayingTab.PLAYER && queue.isNotEmpty() && pageCount > 1) {
+            val fromIndex = pagerState.currentPage
             val targetIndex = (fromIndex - 1).coerceAtLeast(0)
             if (targetIndex != fromIndex) {
-                pendingTargetIndex = targetIndex
+                userSwipedPager = true
                 coroutineScope.launch {
                     try {
                         pagerState.animateScrollToPage(
@@ -385,9 +521,12 @@ fun NowPlayingModal(
                         )
                     } catch (_: Exception) {}
                 }
+            } else {
+                onPreviousClick()
             }
+        } else {
+            onPreviousClick()
         }
-        onPreviousClick()
     }
 
     // 1. Programmatically sync pager when the active track changes externally (Next/Prev buttons, song end, playlist tap, etc.)
@@ -464,8 +603,6 @@ fun NowPlayingModal(
             pendingTargetIndex = null
         }
     }
-
-    var userSwipedPager by remember { mutableStateOf(false) }
 
     val currentTrackIndexState = rememberUpdatedState(currentTrackIndex)
     val currentQueueState = rememberUpdatedState(queue)
@@ -661,25 +798,31 @@ fun NowPlayingModal(
     LaunchedEffect(currentTrackIndex, pagerState.currentPage, currentTab, queue, isDynamicAccent) {
         if (queue.isNotEmpty() && isDynamicAccent) {
             val cur = if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex
-            val nextTrack = queue.getOrNull(cur + 1)
-            if (nextTrack != null) {
-                val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(nextTrack.id)
+            val immediateTargets = listOfNotNull(
+                queue.getOrNull(cur + 1),
+                queue.getOrNull(cur - 1)
+            ).distinctBy { it.id }
+
+            // Extract immediate adjacent neighbors in parallel without delay
+            immediateTargets.forEach { trk ->
+                val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.id)
                 if (cached == null || cached.isPlaceholder) {
                     kotlinx.coroutines.withContext(Dispatchers.IO) {
                         com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
                             context = context,
-                            key = nextTrack.id,
-                            artworkUrl = nextTrack.thumbnail
+                            key = trk.id,
+                            artworkUrl = trk.thumbnail
                         )
                     }
                 }
             }
-            // Delay remaining neighbor track extractions until after the background transition settles
+
+            // Delay remaining distant neighbor track extractions until after the background transition settles
             // to keep CPU and IO completely free during the transition animation
             kotlinx.coroutines.delay(350)
-            val targets = listOf(-1, 2, 3).mapNotNull { offset -> queue.getOrNull(cur + offset) }.distinctBy { it.id }
+            val distantTargets = listOf(2, 3, -2).mapNotNull { offset -> queue.getOrNull(cur + offset) }.distinctBy { it.id }
             kotlinx.coroutines.coroutineScope {
-                targets.forEach { targetTrack ->
+                distantTargets.forEach { targetTrack ->
                     launch(Dispatchers.IO) {
                         val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(targetTrack.id)
                         if (cached == null || cached.isPlaceholder) {
@@ -776,15 +919,15 @@ fun NowPlayingModal(
         // 1. DYNAMIC BACKGROUND RENDERING (Follow theme, Gradient, Blur, Glow Motion, Apple Music, Live Mesh)
         // ====================================================================
         if (renderBackground) {
-            PlayerBackground(
+            NowPlayingDynamicBackground(
                 style = playerBgStyle,
-                artworkUrl = dynamicBgData.primaryArtworkUrl,
-                extractedColors = dynamicBgData.palette,
-                secondaryArtworkUrl = dynamicBgData.secondaryArtworkUrl,
-                swipeFraction = dynamicBgData.swipeFraction,
-                modifier = Modifier.fillMaxSize(),
-                isMiniPlayer = false,
-                isPlaying = uiState.isPlaying
+                pagerState = pagerState,
+                queue = queue,
+                activeTrack = activeTrack,
+                committedPalette = extractedColors,
+                isDynamicAccent = isDynamicAccent,
+                isPlaying = uiState.isPlaying,
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -1023,7 +1166,24 @@ fun NowPlayingModal(
                         }.toMutableStateList()
                     }
 
-                    val queueListState = rememberLazyListState()
+                    val initialScrollIndex = remember {
+                        val activeIdx = QueueOperations.findActiveTrackIndex(
+                            queue = queueSnapshot,
+                            currentTrack = uiState.currentTrack,
+                            currentIndex = queueCurrentIndex
+                        )
+                        if (activeIdx >= 0) {
+                            QueueOperations.calculateScrollIndex(
+                                targetIndex = activeIdx,
+                                visibleItemCount = 6,
+                                queueSize = queueSnapshot.size
+                            )
+                        } else {
+                            0
+                        }
+                    }
+
+                    val queueListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
                     var startDragIndex by remember { mutableIntStateOf(-1) }
                     var lastDragEndTime by remember { mutableLongStateOf(0L) }
 
@@ -1046,6 +1206,35 @@ fun NowPlayingModal(
 
                     LaunchedEffect(queueSnapshot) {
                         syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
+                    }
+
+                    // Auto-scroll queue to currently playing song when Queue becomes active or active track changes
+                    val playingTrackId = uiState.currentTrack?.id
+                    LaunchedEffect(playingTrackId) {
+                        val playingTrack = uiState.currentTrack ?: return@LaunchedEffect
+                        val activeIndex = QueueOperations.findActiveTrackIndex(
+                            queue = localQueue.map { it.track },
+                            currentTrack = playingTrack,
+                            currentIndex = queueCurrentIndex
+                        )
+                        if (activeIndex >= 0) {
+                            val approxItemHeight = with(density) { 68.dp.roundToPx() }
+                            val visibleCount = if (queueListState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                                queueListState.layoutInfo.visibleItemsInfo.size
+                            } else if (queueListState.layoutInfo.viewportSize.height > 0 && approxItemHeight > 0) {
+                                (queueListState.layoutInfo.viewportSize.height / approxItemHeight).coerceAtLeast(1)
+                            } else {
+                                6
+                            }
+                            val targetScrollIndex = QueueOperations.calculateScrollIndex(
+                                targetIndex = activeIndex,
+                                visibleItemCount = visibleCount,
+                                queueSize = localQueue.size
+                            )
+                            if (!reorderableLazyListState.isAnyItemDragging) {
+                                queueListState.scrollToItem(targetScrollIndex)
+                            }
+                        }
                     }
 
                     // Pre-cache palettes for visible tracks in the Queue so selecting any song hits cache instantly
@@ -1339,7 +1528,7 @@ fun NowPlayingModal(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         // ── TRACK INFO & ACTION BUTTONS (ADD TO PLAYLIST + LIKE HEART) ──
                         Row(
@@ -1348,8 +1537,11 @@ fun NowPlayingModal(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                androidx.compose.animation.AnimatedContent(
-                                    targetState = activeTrack,
+                                TrackInfoTransition(
+                                    track = activeTrack,
+                                    queue = queue,
+                                    onArtistClick = onArtistClick,
+                                    onDismiss = onDismiss,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .then(
@@ -1358,62 +1550,8 @@ fun NowPlayingModal(
                                                 animatedVisibilityScope = animatedVisibilityScope,
                                                 enabled = true
                                             )
-                                        ),
-                                    transitionSpec = {
-                                        val targetIdx = queue.indexOfFirst { it.id == targetState.id }
-                                        val initialIdx = queue.indexOfFirst { it.id == initialState.id }
-                                        val isForward = if (targetIdx >= 0 && initialIdx >= 0) targetIdx >= initialIdx else true
-                                        if (isForward) {
-                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(500)) +
-                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 })
-                                                .togetherWith(
-                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(400)) +
-                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 }
-                                                )
-                                        } else {
-                                            (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(500)) +
-                                                    androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { -it / 3 })
-                                                .togetherWith(
-                                                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(400)) +
-                                                            androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 3 }
-                                                )
-                                        }
-                                    },
-                                    label = "TrackInfoAnim"
-                                ) { curTrack ->
-                                    Column {
-                                        Text(
-                                            text = curTrack.title,
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = Color.White,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontSize = 20.sp,
-                                            modifier = Modifier.basicMarquee()
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = curTrack.artist,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = Color.White.copy(alpha = 0.65f),
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontSize = 14.sp,
-                                            modifier = Modifier.clickable {
-                                                onArtistClick?.invoke(
-                                                    com.auralis.music.domain.model.Artist(
-                                                        id = "",
-                                                        name = curTrack.artist,
-                                                        thumbnail = curTrack.thumbnail
-                                                    )
-                                                )
-                                                onDismiss()
-                                            }
-                                        )
-                                    }
-                                }
+                                )
                             }
 
                             Spacer(modifier = Modifier.width(8.dp))
@@ -1638,7 +1776,7 @@ fun NowPlayingModal(
                              }
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.weight(0.12f))
 
                         // ── BOTTOM UTILITY BAR (LEFT CAPSULE PILL: SLEEP/SHUFFLE/REPEAT/AUDIO OUTPUT & RIGHT QUEUE BUTTON) ──
                         Row(
@@ -1692,23 +1830,6 @@ fun NowPlayingModal(
                                     contentDescription = "Audio Output & Quality",
                                     active = false,
                                     onClick = { showAudioOutputSheet = true }
-                                )
-                            }
-
-                            // Right White Circular Queue Button
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                                    .tactileBounce(scaleDown = 0.88f, onClick = { currentTab = NowPlayingTab.QUEUE }),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                                    contentDescription = "Queue",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -1820,6 +1941,9 @@ fun NowPlayingModal(
             onSelectMinutes = { minutes ->
                 onSleepTimerSelect(minutes)
                 showSleepDialog = false
+            },
+            onReset = {
+                onSleepTimerSelect(0)
             },
             onDismiss = { showSleepDialog = false }
         )
@@ -2042,6 +2166,7 @@ private fun SleepTimerDialog(
     currentSeconds: Long,
     isEndOfSongActive: Boolean = false,
     onSelectMinutes: (Int) -> Unit,
+    onReset: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedMinutes by remember {
@@ -2053,14 +2178,25 @@ private fun SleepTimerDialog(
     }
     var isEndOfSong by remember { mutableStateOf(isEndOfSongActive) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 20.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .background(surfaceColor)
+                .padding(horizontal = 24.dp, vertical = 24.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -2070,9 +2206,10 @@ private fun SleepTimerDialog(
                 Text(
                     text = "Sleep timer",
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontSize = 22.sp
+                    fontWeight = FontWeight.Normal,
+                    color = onSurfaceColor,
+                    fontSize = 22.sp,
+                    textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -2089,13 +2226,13 @@ private fun SleepTimerDialog(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFD4E157).copy(alpha = 0.15f))
+                            .background(primaryColor.copy(alpha = 0.15f))
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = timerStatus,
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFD4E157),
+                            color = primaryColor,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -2103,7 +2240,7 @@ private fun SleepTimerDialog(
                 }
 
                 val durationText = if (isEndOfSong) {
-                    "Stop at end of current song"
+                    "End of song"
                 } else if (selectedMinutes >= 60) {
                     val h = selectedMinutes / 60
                     val m = selectedMinutes % 60
@@ -2116,43 +2253,14 @@ private fun SleepTimerDialog(
                 Text(
                     text = durationText,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.70f),
-                    fontSize = 15.sp
+                    color = onSurfaceVariantColor,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(26.dp))
 
-                // 3. Quick Preset Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    listOf(15, 30, 45, 60).forEach { mins ->
-                        val isSelected = !isEndOfSong && selectedMinutes == mins
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) Color(0xFFD4E157) else Color.White.copy(alpha = 0.08f))
-                                .clickable {
-                                    selectedMinutes = mins
-                                    isEndOfSong = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${mins}m",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isSelected) Color.Black else Color.White
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // 4. Custom Dotted Slider Track
+                // 3. Custom Dotted Slider Track
                 val minMinutes = 5f
                 val maxMinutes = 120f
                 val fraction = ((selectedMinutes - minMinutes) / (maxMinutes - minMinutes)).coerceIn(0f, 1f)
@@ -2160,7 +2268,7 @@ private fun SleepTimerDialog(
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
+                        .height(40.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     val widthPx = constraints.maxWidth.toFloat()
@@ -2172,7 +2280,7 @@ private fun SleepTimerDialog(
                             .fillMaxWidth()
                             .height(trackHeight)
                             .clip(RoundedCornerShape(trackCorner))
-                            .background(Color(0xFF323724))
+                            .background(primaryColor.copy(alpha = 0.18f))
                             .pointerInput(Unit) {
                                 detectTapGestures { offset ->
                                     val newFraction = (offset.x / widthPx).coerceIn(0f, 1f)
@@ -2197,17 +2305,10 @@ private fun SleepTimerDialog(
                             val h = size.height
                             val activeWidth = if (isEndOfSong) 0f else w * fraction
 
-                            // Inactive Track
-                            drawRoundRect(
-                                color = Color(0xFF353C24),
-                                size = Size(w, h),
-                                cornerRadius = CornerRadius(h / 2, h / 2)
-                            )
-
                             // Active Track
                             if (activeWidth > 0f) {
                                 drawRoundRect(
-                                    color = Color(0xFFD4E157),
+                                    color = primaryColor,
                                     size = Size(activeWidth, h),
                                     cornerRadius = CornerRadius(h / 2, h / 2)
                                 )
@@ -2219,7 +2320,7 @@ private fun SleepTimerDialog(
                                 val dotX = (w / numDots) * i
                                 val isCovered = dotX <= activeWidth && !isEndOfSong
                                 drawCircle(
-                                    color = if (isCovered) Color(0xFF1B1D16).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.35f),
+                                    color = if (isCovered) onPrimaryColor.copy(alpha = 0.45f) else primaryColor.copy(alpha = 0.85f),
                                     radius = 2.dp.toPx(),
                                     center = Offset(dotX, h / 2)
                                 )
@@ -2229,88 +2330,125 @@ private fun SleepTimerDialog(
 
                     // Vertical Pill Thumb Indicator
                     if (!isEndOfSong) {
-                        val thumbOffset = ((maxWidth - 10.dp) * fraction)
+                        val thumbOffset = ((maxWidth - 6.dp) * fraction)
                         Box(
                             modifier = Modifier
                                 .padding(start = thumbOffset)
-                                .size(width = 8.dp, height = 36.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFFD4E157))
-                                .border(1.dp, Color(0xFF1B1D16), RoundedCornerShape(4.dp))
+                                .size(width = 6.dp, height = 34.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(primaryColor)
+                                .border(0.5.dp, surfaceColor.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // 5. "End of song" Quick Preset Pill
+                // 4. "End of song" Pill Button
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(if (isEndOfSong) Color(0xFFD4E157) else Color.Transparent)
+                        .background(if (isEndOfSong) primaryColor else Color.Transparent)
                         .border(
                             1.dp,
-                            if (isEndOfSong) Color(0xFFD4E157) else Color.White.copy(alpha = 0.18f),
+                            if (isEndOfSong) primaryColor else outlineVariantColor.copy(alpha = 0.6f),
                             CircleShape
                         )
                         .clickable { isEndOfSong = !isEndOfSong }
-                        .padding(horizontal = 22.dp, vertical = 10.dp),
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "End of current song",
+                        text = "End of song",
                         style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isEndOfSong) Color.Black else Color.White
+                        fontWeight = FontWeight.Medium,
+                        color = if (isEndOfSong) onPrimaryColor else onSurfaceColor.copy(alpha = 0.85f)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(26.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-                // 6. Bottom Buttons (Reset, Cancel, Start)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // 5. Stacked Action Buttons (OK, Reset, Cancel)
+                val buttonCardBg = primaryColor.copy(alpha = 0.16f).compositeOver(surfaceColor)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(buttonCardBg)
                 ) {
-                    TextButton(
-                        onClick = {
-                            onSelectMinutes(0)
-                            onDismiss()
-                        }
-                    ) {
-                        Text(
-                            text = "Reset",
-                            color = Color(0xFFE57373),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = onDismiss) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // OK Button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                                .clickable {
+                                    if (isEndOfSong) {
+                                        onSelectMinutes(-1)
+                                    } else {
+                                        onSelectMinutes(selectedMinutes)
+                                    }
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
-                                text = "Cancel",
-                                color = Color.White.copy(alpha = 0.70f),
+                                text = "OK",
+                                color = primaryColor,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp
                             )
                         }
 
-                        TextButton(
-                            onClick = {
-                                if (isEndOfSong) {
-                                    onSelectMinutes(-1)
-                                } else {
-                                    onSelectMinutes(selectedMinutes)
-                                }
-                                onDismiss()
-                            }
+                        HorizontalDivider(
+                            color = surfaceColor,
+                            thickness = 2.dp
+                        )
+
+                        // Reset Button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clickable {
+                                    selectedMinutes = 30
+                                    isEndOfSong = false
+                                    onReset()
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Start",
-                                color = Color(0xFFD4E157),
-                                fontWeight = FontWeight.Bold,
+                                text = "Reset",
+                                color = primaryColor,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp
+                            )
+                        }
+
+                        HorizontalDivider(
+                            color = surfaceColor,
+                            thickness = 2.dp
+                        )
+
+                        // Cancel Button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+                                .clickable {
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                color = primaryColor,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp
                             )
                         }
@@ -2326,6 +2464,194 @@ private fun formatTime(millis: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%d:%02d", minutes, seconds)
+}
+
+// ============================================================================
+// 🎵 SMOOTH TRACK INFO TRANSITION (GPU-ACCELERATED, ZERO-JITTER)
+// ============================================================================
+
+internal data class VisualTrackInfo(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val thumbnail: String = ""
+)
+
+internal class TrackInfoTransitionState(
+    initialTrack: VisualTrackInfo
+) {
+    var currentTrack by mutableStateOf(initialTrack)
+        private set
+    var previousTrack by mutableStateOf<VisualTrackInfo?>(null)
+        private set
+    var isForward by mutableStateOf(true)
+        private set
+    var isAnimating by mutableStateOf(false)
+        private set
+    var animationTriggerCount: Int = 0
+        private set
+
+    fun updateTrack(
+        newTrack: VisualTrackInfo,
+        queue: List<Track>
+    ): Boolean {
+        if (newTrack.id == currentTrack.id) {
+            updateMetadata(newTrack.title, newTrack.artist, newTrack.thumbnail)
+            return false
+        }
+
+        if (newTrack.id.isBlank()) return false
+
+        val targetIdx = queue.indexOfFirst { it.id == newTrack.id }
+        val prevIdx = queue.indexOfFirst { it.id == currentTrack.id }
+        isForward = when {
+            prevIdx >= 0 && targetIdx >= 0 -> {
+                if (prevIdx == queue.lastIndex && targetIdx == 0) true
+                else if (prevIdx == 0 && targetIdx == queue.lastIndex) false
+                else targetIdx >= prevIdx
+            }
+            else -> true
+        }
+
+        previousTrack = currentTrack
+        currentTrack = newTrack
+        isAnimating = true
+        animationTriggerCount++
+        return true
+    }
+
+    fun updateMetadata(title: String, artist: String, thumbnail: String) {
+        if (title != currentTrack.title || artist != currentTrack.artist || thumbnail != currentTrack.thumbnail) {
+            currentTrack = currentTrack.copy(title = title, artist = artist, thumbnail = thumbnail)
+        }
+    }
+
+    fun completeAnimation() {
+        previousTrack = null
+        isAnimating = false
+    }
+}
+
+@Composable
+internal fun TrackInfoTransition(
+    track: Track,
+    queue: List<Track>,
+    onArtistClick: ((com.auralis.music.domain.model.Artist) -> Unit)? = null,
+    onDismiss: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val visualTrack = remember(track.id) {
+        VisualTrackInfo(track.id, track.title, track.artist, track.thumbnail)
+    }
+    val state = remember { TrackInfoTransitionState(visualTrack) }
+    val progress = remember { Animatable(1f) }
+
+    LaunchedEffect(track.id) {
+        val triggered = state.updateTrack(
+            VisualTrackInfo(track.id, track.title, track.artist, track.thumbnail),
+            queue
+        )
+        if (triggered) {
+            progress.snapTo(0f)
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 300,
+                    easing = FastOutSlowInEasing
+                )
+            )
+            state.completeAnimation()
+        }
+    }
+
+    LaunchedEffect(track.title, track.artist, track.thumbnail) {
+        state.updateMetadata(track.title, track.artist, track.thumbnail)
+    }
+
+    val isAnimating = state.isAnimating && state.previousTrack != null
+    val isForward = state.isForward
+    val slideDistancePx = with(androidx.compose.ui.platform.LocalDensity.current) { 60.dp.toPx() }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clipToBounds(),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val prev = state.previousTrack
+        if (isAnimating && prev != null) {
+            TrackTextContent(
+                title = prev.title,
+                artist = prev.artist,
+                onArtistClick = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        val p = progress.value
+                        translationX = if (isForward) -slideDistancePx * p else slideDistancePx * p
+                        alpha = (1f - (p * 1.5f)).coerceIn(0f, 1f)
+                    }
+            )
+        }
+
+        val curr = state.currentTrack
+        TrackTextContent(
+            title = curr.title,
+            artist = curr.artist,
+            onArtistClick = onArtistClick?.let {
+                {
+                    it(com.auralis.music.domain.model.Artist(id = "", name = curr.artist, thumbnail = curr.thumbnail))
+                    onDismiss()
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    if (isAnimating) {
+                        val p = progress.value
+                        translationX = if (isForward) slideDistancePx * (1f - p) else -slideDistancePx * (1f - p)
+                        alpha = ((p - 0.15f) / 0.85f).coerceIn(0f, 1f)
+                    } else {
+                        translationX = 0f
+                        alpha = 1f
+                    }
+                }
+        )
+    }
+}
+
+@Composable
+private fun TrackTextContent(
+    title: String,
+    artist: String,
+    onArtistClick: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = 20.sp,
+            modifier = Modifier.basicMarquee()
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = artist,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.65f),
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = 14.sp,
+            modifier = Modifier.clickable(enabled = onArtistClick != null) {
+                onArtistClick?.invoke()
+            }
+        )
+    }
 }
 
 

@@ -1322,6 +1322,125 @@ private fun UserPlaylistListRow(
 // 📑 PLAYLIST DETAIL VIEW (Matching Photos 2, 3, and 4)
 // ============================================================================
 
+// ============================================================================
+// 🔄 PLAYLIST REORDER SWAP LOGIC & STALE-LAYOUT HYSTERESIS PROTECTION
+// ============================================================================
+
+internal data class PlaylistReorderItemInfo(
+    val key: Any,
+    val offset: Int,
+    val size: Int
+)
+
+internal class PlaylistDragReorderState(
+    var lastSwappedItemId: String? = null,
+    var lastSwapDirection: Int = 0 // -1 for UP, 1 for DOWN
+) {
+    fun reset() {
+        lastSwappedItemId = null
+        lastSwapDirection = 0
+    }
+}
+
+internal data class SwapAction(
+    val fromIndex: Int,
+    val toIndex: Int,
+    val swappedItemId: String,
+    val direction: Int // -1 for UP, 1 for DOWN
+)
+
+internal fun evaluateTargetSwap(
+    currentId: String,
+    localItemIds: List<String>,
+    visibleSongItems: List<PlaylistReorderItemInfo>,
+    pointerY: Float,
+    grabOffsetY: Float,
+    fallbackItemHeight: Float,
+    swapHysteresisPx: Float,
+    reorderState: PlaylistDragReorderState
+): SwapAction? {
+    val currIdx = localItemIds.indexOfFirst { it == currentId }
+    if (currIdx == -1) return null
+
+    val draggedItemInfo = visibleSongItems.find { it.key == currentId }
+    val itemHeight = draggedItemInfo?.size?.toFloat() ?: fallbackItemHeight
+    val draggedCenterY = pointerY - grabOffsetY + (itemHeight / 2f)
+
+    // Check swap with item ABOVE (currIdx - 1) -> UPWARD SWAP (direction = -1)
+    if (currIdx > 0) {
+        val prevInstanceId = localItemIds[currIdx - 1]
+        val prevItemInfo = visibleSongItems.find { it.key == prevInstanceId }
+        if (prevItemInfo != null) {
+            val isReversingJustSwapped = (prevInstanceId == reorderState.lastSwappedItemId && reorderState.lastSwapDirection == 1)
+            val isLayoutStale = isReversingJustSwapped && (draggedItemInfo == null || draggedItemInfo.offset <= prevItemInfo.offset)
+            if (!isLayoutStale) {
+                val prevCenterY = prevItemInfo.offset + (prevItemInfo.size / 2f)
+                if (draggedCenterY < prevCenterY - swapHysteresisPx) {
+                    return SwapAction(
+                        fromIndex = currIdx,
+                        toIndex = currIdx - 1,
+                        swappedItemId = prevInstanceId,
+                        direction = -1
+                    )
+                }
+            }
+        }
+    }
+
+    // Check swap with item BELOW (currIdx + 1) -> DOWNWARD SWAP (direction = 1)
+    if (currIdx < localItemIds.lastIndex) {
+        val nextInstanceId = localItemIds[currIdx + 1]
+        val nextItemInfo = visibleSongItems.find { it.key == nextInstanceId }
+        if (nextItemInfo != null) {
+            val isReversingJustSwapped = (nextInstanceId == reorderState.lastSwappedItemId && reorderState.lastSwapDirection == -1)
+            val isLayoutStale = isReversingJustSwapped && (draggedItemInfo == null || draggedItemInfo.offset >= nextItemInfo.offset)
+            if (!isLayoutStale) {
+                val nextCenterY = nextItemInfo.offset + (nextItemInfo.size / 2f)
+                if (draggedCenterY > nextCenterY + swapHysteresisPx) {
+                    return SwapAction(
+                        fromIndex = currIdx,
+                        toIndex = currIdx + 1,
+                        swappedItemId = nextInstanceId,
+                        direction = 1
+                    )
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+internal fun <T> applyTargetSwap(
+    currentId: String,
+    localItems: MutableList<T>,
+    idSelector: (T) -> String,
+    visibleSongItems: List<PlaylistReorderItemInfo>,
+    pointerY: Float,
+    grabOffsetY: Float,
+    fallbackItemHeight: Float,
+    swapHysteresisPx: Float,
+    reorderState: PlaylistDragReorderState,
+    onHaptic: (() -> Unit)? = null
+): Boolean {
+    val action = evaluateTargetSwap(
+        currentId = currentId,
+        localItemIds = localItems.map(idSelector),
+        visibleSongItems = visibleSongItems,
+        pointerY = pointerY,
+        grabOffsetY = grabOffsetY,
+        fallbackItemHeight = fallbackItemHeight,
+        swapHysteresisPx = swapHysteresisPx,
+        reorderState = reorderState
+    ) ?: return false
+
+    java.util.Collections.swap(localItems, action.fromIndex, action.toIndex)
+    reorderState.lastSwappedItemId = action.swappedItemId
+    reorderState.lastSwapDirection = action.direction
+    onHaptic?.invoke()
+    return true
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 private data class PlaylistTrackItem(
     val instanceId: String,
@@ -1371,6 +1490,7 @@ private fun PlaylistDetailView(
     var originalDragIndex by remember { mutableStateOf(-1) }
     var currentPointerY by remember { mutableStateOf(0f) }
     var grabOffsetY by remember { mutableStateOf(0f) }
+    val reorderState = remember { PlaylistDragReorderState() }
     // playlistListState preserved for scroll position retention
     val playlistListState = androidx.compose.runtime.saveable.rememberSaveable(
         playlist.id,
@@ -1399,43 +1519,23 @@ private fun PlaylistDetailView(
 
     fun checkTargetSwap(pointerY: Float) {
         val currentId = draggingInstanceId ?: return
-        val currIdx = localItems.indexOfFirst { it.instanceId == currentId }
-        if (currIdx == -1) return
-
-        val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
+        val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo
+            .filter { it.contentType == "song" }
+            .map { PlaylistReorderItemInfo(key = it.key, offset = it.offset, size = it.size) }
         if (visibleSongItems.isEmpty()) return
 
-        val draggedItemInfo = visibleSongItems.find { it.key == currentId }
-        val itemHeight = draggedItemInfo?.size?.toFloat() ?: density.run { 56.dp.toPx() }
-        val draggedCenterY = pointerY - grabOffsetY + (itemHeight / 2f)
-
-        // Check swap with item ABOVE (currIdx - 1) - pure 1:1 center crossing
-        if (currIdx > 0) {
-            val prevInstanceId = localItems[currIdx - 1].instanceId
-            val prevItemInfo = visibleSongItems.find { it.key == prevInstanceId }
-            if (prevItemInfo != null) {
-                val prevCenterY = prevItemInfo.offset + (prevItemInfo.size / 2f)
-                if (draggedCenterY < prevCenterY) {
-                    java.util.Collections.swap(localItems, currIdx, currIdx - 1)
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    return
-                }
-            }
-        }
-
-        // Check swap with item BELOW (currIdx + 1) - pure 1:1 center crossing
-        if (currIdx < localItems.lastIndex) {
-            val nextInstanceId = localItems[currIdx + 1].instanceId
-            val nextItemInfo = visibleSongItems.find { it.key == nextInstanceId }
-            if (nextItemInfo != null) {
-                val nextCenterY = nextItemInfo.offset + (nextItemInfo.size / 2f)
-                if (draggedCenterY > nextCenterY) {
-                    java.util.Collections.swap(localItems, currIdx, currIdx + 1)
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    return
-                }
-            }
-        }
+        applyTargetSwap(
+            currentId = currentId,
+            localItems = localItems,
+            idSelector = { it.instanceId },
+            visibleSongItems = visibleSongItems,
+            pointerY = pointerY,
+            grabOffsetY = grabOffsetY,
+            fallbackItemHeight = density.run { 56.dp.toPx() },
+            swapHysteresisPx = density.run { 10.dp.toPx() },
+            reorderState = reorderState,
+            onHaptic = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+        )
     }
 
     // Frame-synced auto-scroll: uses withFrameNanos (Choreographer/vsync) for 120fps smooth scrolling
@@ -1679,6 +1779,7 @@ private fun PlaylistDetailView(
                                         draggingInstanceId = hitInstanceId
                                         grabOffsetY = startOffset.y - hitItem.offset.toFloat()
                                         currentPointerY = startOffset.y
+                                        reorderState.reset()
                                         isDragging = true
                                     }
                                 }
@@ -1694,6 +1795,7 @@ private fun PlaylistDetailView(
                                 isDragging = false
                                 draggingInstanceId = null
                                 originalDragIndex = -1
+                                reorderState.reset()
                                 if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
                                     onReorderTracks?.invoke(startIdx, finalIdx)
                                 }
@@ -1711,6 +1813,7 @@ private fun PlaylistDetailView(
                                 isDragging = false
                                 draggingInstanceId = null
                                 originalDragIndex = -1
+                                reorderState.reset()
                             }
                         )
                     },
