@@ -1,6 +1,7 @@
 package com.auralis.music.ui.components
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,19 +29,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.auralis.music.data.download.AuralisDownloadManager
+import com.auralis.music.data.network.AlbumMetadataResolver
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
+import kotlinx.coroutines.launch
 
-val OPTIONS_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.surface
-val OPTIONS_LIME: Color
-    @Composable get() = MaterialTheme.colorScheme.primary
-val OPTIONS_CARD_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+private val CARD_CONTAINER_COLOR = Color(0xFF262021)
 
 /**
- * YouTube Music & Spotify style Expandable Modal Bottom Sheet for Track Options.
- * Supports partial drag preview and pull-up expansion with dynamic theme styling.
+ * YouTube Music & ViVi style Modal Bottom Sheet for Track Options:
+ * - Compact drag handle
+ * - Artwork, Title, Subtitle (Artist), Favorite heart
+ * - Quick Action Buttons: [ Play next ], [ Add ], [ Share ]
+ * - Action Group 1: Start radio, Add to queue
+ * - Action Group 2: Pin to Speed dial
+ * - Action Group 3: Add to library / Remove from library
+ * - Action Group 4: Download
+ * - Action Group 5: View artist, View album (with authentic album metadata)
+ * - Action Group 6: Recommend to room (Listen Together, if in room)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,7 +59,10 @@ fun TrackOptionsMenu(
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onStartRadio: (() -> Unit)? = null,
+    onPinToSpeedDial: (() -> Unit)? = null,
+    isPinned: Boolean = false,
     onGoToArtist: (() -> Unit)? = null,
+    onGoToAlbum: ((albumId: String?, albumTitle: String) -> Unit)? = null,
     onAddToPlaylist: (Playlist) -> Unit,
     onCreatePlaylistAndAdd: (String) -> Unit,
     isInListenTogetherRoom: Boolean = false,
@@ -62,14 +72,38 @@ fun TrackOptionsMenu(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val dynamicPrimary = MaterialTheme.colorScheme.primary
+    val coroutineScope = rememberCoroutineScope()
     val dynamicSurface = MaterialTheme.colorScheme.surface
-    val dynamicSurfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val dynamicPrimary = MaterialTheme.colorScheme.primary
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var localIsFavorite by remember(isFavorite) { mutableStateOf(isFavorite) }
+    var localIsPinned by remember(track.id, isPinned) { mutableStateOf(isPinned) }
+
+    // Authentic Album Resolution (mirrors ViVi / Apple Music / iTunes query for true parent album)
+    var resolvedAlbumName by remember(track.id) {
+        mutableStateOf(
+            if (!AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)) track.album
+            else null
+        )
+    }
+    var resolvedAlbumId by remember(track.id) { mutableStateOf(track.albumId) }
+
+    LaunchedEffect(track.id, track.title, track.artist) {
+        if (resolvedAlbumName.isNullOrBlank() && track.title.isNotBlank()) {
+            val resolved = AlbumMetadataResolver.resolveAlbum(track.title, track.artist)
+            if (resolved != null && !resolved.albumTitle.isNullOrBlank()) {
+                resolvedAlbumName = resolved.albumTitle
+                if (!resolved.albumId.isNullOrBlank()) {
+                    resolvedAlbumId = resolved.albumId
+                }
+            }
+        }
+    }
+
+    val displayAlbum = resolvedAlbumName ?: track.album.takeIf { !it.isNullOrBlank() } ?: track.title
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -86,7 +120,7 @@ fun TrackOptionsMenu(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
-            // ── COMPACT DRAG HANDLE (Removes excessive empty whitespace) ──
+            // ── DRAG HANDLE ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -102,218 +136,358 @@ fun TrackOptionsMenu(
                 )
             }
 
-            // ── TRACK HEADER (Artwork, Title, Artist, Album / Duration, Quick Actions) ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ArtworkCard(
-                    url = track.thumbnail,
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
-                    cornerRadius = 10.dp,
-                    contentDescription = track.title
-                )
-                Spacer(modifier = Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    val durationText = if (track.duration > 0) {
-                        val mins = track.duration / 60
-                        val secs = track.duration % 60
-                        "%d:%02d".format(mins, secs)
-                    } else null
-
-                    val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
-                    val displayAlbum = if (isRedundantAlbum) null else track.album
-                    val subtitle = listOfNotNull(
-                        track.artist.takeIf { it.isNotBlank() },
-                        displayAlbum,
-                        durationText
-                    ).joinToString(" • ")
-
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Quick Header Action Icons (Like Toggle + Share)
+            if (!showPlaylistPicker) {
+                // ── HEADER ROW (Artwork, Title, Subtitle: Artist, Favorite Heart) ──
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    ArtworkCard(
+                        url = track.thumbnail,
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                        cornerRadius = 10.dp,
+                        contentDescription = track.title
+                    )
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = track.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = track.artist.ifBlank { "Unknown Artist" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.65f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     IconButton(
                         onClick = {
                             val newFav = !localIsFavorite
                             localIsFavorite = newFav
                             onToggleFavorite()
-                            android.widget.Toast.makeText(
+                            Toast.makeText(
                                 context,
-                                if (newFav) "Added to Liked songs" else "Removed from Liked songs",
-                                android.widget.Toast.LENGTH_SHORT
+                                if (newFav) "Saved to Library" else "Removed from Library",
+                                Toast.LENGTH_SHORT
                             ).show()
                         },
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(42.dp)
                     ) {
                         Icon(
                             imageVector = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (localIsFavorite) "Liked" else "Like",
-                            tint = if (localIsFavorite) OPTIONS_LIME else Color.White.copy(alpha = 0.75f),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, track.title)
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
-                                )
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
-                            onDismiss()
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = Color.White.copy(alpha = 0.75f),
-                            modifier = Modifier.size(20.dp)
+                            contentDescription = if (localIsFavorite) "Saved" else "Save",
+                            tint = if (localIsFavorite) Color(0xFFFF4081) else Color.White.copy(alpha = 0.75f),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
-            }
 
-            HorizontalDivider(
-                color = Color.White.copy(alpha = 0.08f),
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
+                HorizontalDivider(
+                    color = Color.White.copy(alpha = 0.08f),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 14.dp)
+                )
 
-            if (!showPlaylistPicker) {
-                // ── ACTIONS LIST (Scrollable for smooth pull-up expansion) ──
+                // ── SCROLLABLE ACTIONS CONTENT ──
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // 1. Play Next
-                    TrackOptionItem(
-                        icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                        label = "Play next",
-                        onClick = {
-                            onPlayNext()
-                            onDismiss()
-                        }
-                    )
-
-                    // 2. Add to Queue
-                    TrackOptionItem(
-                        icon = Icons.AutoMirrored.Filled.QueueMusic,
-                        label = "Add to queue",
-                        onClick = {
-                            onAddToQueue()
-                            onDismiss()
-                        }
-                    )
-
-                    // 3. Save to Playlist
-                    TrackOptionItem(
-                        icon = Icons.Default.BookmarkBorder,
-                        label = "Save to playlist",
-                        onClick = { showPlaylistPicker = true }
-                    )
-
-                    // 4. Download Song / Remove Download
-                    val isDownloaded = com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(track.id)
-                    val isDownloading = com.auralis.music.data.download.AuralisDownloadManager.isDownloading(track.id)
-                    TrackOptionItem(
-                        icon = if (isDownloaded) Icons.Default.DownloadDone else if (isDownloading) Icons.Default.CloudDownload else Icons.Default.Download,
-                        label = if (isDownloaded) "Remove download" else if (isDownloading) "Downloading..." else "Download song",
-                        iconTint = if (isDownloaded) OPTIONS_LIME else Color.White.copy(alpha = 0.85f),
-                        labelColor = if (isDownloaded) OPTIONS_LIME else Color.White,
-                        onClick = {
-                            if (isDownloaded) {
-                                com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
-                            } else {
-                                com.auralis.music.data.download.AuralisDownloadManager.downloadTrack(track)
+                    // ── QUICK ACTIONS ROW: [ PLAY NEXT ], [ ADD ], [ SHARE ] ──
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Pill 1: Play next
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(CARD_CONTAINER_COLOR)
+                                .clickable {
+                                    onPlayNext()
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = "Play next",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Play next",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.5.sp
+                                )
                             }
-                            onDismiss()
                         }
-                    )
 
-                    // 4. Favorite / Liked Songs Toggle
-                    TrackOptionItem(
-                        icon = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        label = if (localIsFavorite) "Remove from Liked songs" else "Add to Liked songs",
-                        iconTint = if (localIsFavorite) OPTIONS_LIME else Color.White.copy(alpha = 0.85f),
-                        labelColor = if (localIsFavorite) OPTIONS_LIME else Color.White,
-                        onClick = {
-                            val newFav = !localIsFavorite
-                            localIsFavorite = newFav
-                            onToggleFavorite()
-                            android.widget.Toast.makeText(
-                                context,
-                                if (newFav) "Added to Liked songs" else "Removed from Liked songs",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
-                            onDismiss()
+                        // Pill 2: Add
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(CARD_CONTAINER_COLOR)
+                                .clickable {
+                                    showPlaylistPicker = true
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                    contentDescription = "Add",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Add",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
                         }
-                    )
 
-                    // 5. View Artist Page
-                    if (!track.artist.isNullOrBlank() && onGoToArtist != null) {
-                        TrackOptionItem(
-                            icon = Icons.Default.AccountCircle,
-                            label = "Go to artist (${track.artist})",
+                        // Pill 3: Share
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(CARD_CONTAINER_COLOR)
+                                .clickable {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, track.title)
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                                        )
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Share",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // ── GROUP 1: START RADIO, ADD TO QUEUE ──
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(CARD_CONTAINER_COLOR)
+                    ) {
+                        TrackOptionRow(
+                            icon = Icons.Default.Sensors,
+                            title = "Start radio",
+                            subtitle = "Create a station based on this item",
                             onClick = {
-                                onGoToArtist()
+                                onStartRadio?.invoke()
+                                onDismiss()
+                            }
+                        )
+
+                        HorizontalDivider(
+                            color = Color.White.copy(alpha = 0.05f),
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        TrackOptionRow(
+                            icon = Icons.AutoMirrored.Filled.QueueMusic,
+                            title = "Add to queue",
+                            subtitle = "Add to the bottom of your queue",
+                            onClick = {
+                                onAddToQueue()
                                 onDismiss()
                             }
                         )
                     }
 
-
-                    // 8. Share Song
-                    TrackOptionItem(
-                        icon = Icons.Default.Share,
-                        label = "Share",
-                        onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, track.title)
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
-                                )
+                    // ── GROUP 2: PIN TO SPEED DIAL ──
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(CARD_CONTAINER_COLOR)
+                    ) {
+                        TrackOptionRow(
+                            icon = if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add,
+                            title = if (localIsPinned) "Unpin from Speed dial" else "Pin to Speed dial",
+                            subtitle = null,
+                            onClick = {
+                                val nextPinned = !localIsPinned
+                                localIsPinned = nextPinned
+                                val msg = if (nextPinned) "Pinned to Speed dial" else "Unpinned from Speed dial"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                                onPinToSpeedDial?.invoke()
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
-                            onDismiss()
-                        }
-                    )
+                        )
+                    }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // ── GROUP 3: ADD TO LIBRARY ──
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(CARD_CONTAINER_COLOR)
+                    ) {
+                        TrackOptionRow(
+                            icon = if (localIsFavorite) Icons.Default.LibraryAddCheck else Icons.Default.LibraryAdd,
+                            title = if (localIsFavorite) "Remove from library" else "Add to library",
+                            subtitle = if (localIsFavorite) "Remove from your library" else "Save to your library",
+                            iconTint = if (localIsFavorite) Color(0xFFFF4081) else Color.White.copy(alpha = 0.9f),
+                            titleColor = if (localIsFavorite) Color(0xFFFF4081) else Color.White,
+                            onClick = {
+                                val newFav = !localIsFavorite
+                                localIsFavorite = newFav
+                                onToggleFavorite()
+                                Toast.makeText(
+                                    context,
+                                    if (newFav) "Saved to Library" else "Removed from Library",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                onDismiss()
+                            }
+                        )
+                    }
+
+                    // ── GROUP 4: DOWNLOAD ──
+                    val isDownloaded = AuralisDownloadManager.isDownloaded(track.id)
+                    val isDownloading = AuralisDownloadManager.isDownloading(track.id)
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(CARD_CONTAINER_COLOR)
+                    ) {
+                        TrackOptionRow(
+                            icon = if (isDownloaded) Icons.Default.DownloadDone else if (isDownloading) Icons.Default.CloudDownload else Icons.Default.Download,
+                            title = if (isDownloaded) "Remove download" else if (isDownloading) "Downloading..." else "Download",
+                            subtitle = if (isDownloaded) "Downloaded to device" else if (isDownloading) "Saving for offline playback" else "Make available for offline playback",
+                            iconTint = if (isDownloaded) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f),
+                            titleColor = if (isDownloaded) Color(0xFF4CAF50) else Color.White,
+                            onClick = {
+                                if (isDownloaded) {
+                                    AuralisDownloadManager.removeDownload(track.id)
+                                } else {
+                                    AuralisDownloadManager.downloadTrack(track)
+                                }
+                                onDismiss()
+                            }
+                        )
+                    }
+
+                    // ── GROUP 5: VIEW ARTIST, VIEW ALBUM ──
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(CARD_CONTAINER_COLOR)
+                    ) {
+                        TrackOptionRow(
+                            icon = Icons.Default.Person,
+                            title = "View artist",
+                            subtitle = track.artist.ifBlank { "Unknown Artist" },
+                            onClick = {
+                                onGoToArtist?.invoke()
+                                onDismiss()
+                            }
+                        )
+
+                        HorizontalDivider(
+                            color = Color.White.copy(alpha = 0.05f),
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        TrackOptionRow(
+                            icon = Icons.Default.Album,
+                            title = "View album",
+                            subtitle = displayAlbum,
+                            onClick = {
+                                onGoToAlbum?.invoke(resolvedAlbumId ?: track.albumId, displayAlbum)
+                                onDismiss()
+                            }
+                        )
+                    }
+
+                    // ── GROUP 6: LISTEN TOGETHER (IF IN ROOM) ──
+                    if (isInListenTogetherRoom && onRecommendToRoom != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(CARD_CONTAINER_COLOR)
+                        ) {
+                            TrackOptionRow(
+                                icon = Icons.Default.Group,
+                                title = "Recommend to room",
+                                subtitle = "Share track with everyone in the room",
+                                onClick = {
+                                    onRecommendToRoom(track)
+                                    onDismiss()
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
                 }
             } else {
                 // ── PLAYLIST PICKER VIEW ──
@@ -326,7 +500,7 @@ fun TrackOptionsMenu(
                 ) {
                     IconButton(onClick = { showPlaylistPicker = false }) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
                             tint = Color.White
                         )
@@ -341,7 +515,7 @@ fun TrackOptionsMenu(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "New Playlist",
-                            tint = OPTIONS_LIME
+                            tint = dynamicPrimary
                         )
                     }
                 }
@@ -365,7 +539,7 @@ fun TrackOptionsMenu(
                             Button(
                                 onClick = { showCreatePlaylistDialog = true },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = OPTIONS_LIME,
+                                    containerColor = dynamicPrimary,
                                     contentColor = Color.Black
                                 ),
                                 shape = RoundedCornerShape(12.dp)
@@ -378,36 +552,28 @@ fun TrackOptionsMenu(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 300.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .heightIn(max = 380.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(userPlaylists, key = { it.id }) { playlist ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(OPTIONS_CARD_BG)
                                     .clickable {
                                         onAddToPlaylist(playlist)
+                                        showPlaylistPicker = false
                                         onDismiss()
                                     }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(dynamicPrimary.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                                        contentDescription = null,
-                                        tint = OPTIONS_LIME,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
+                                ArtworkCard(
+                                    url = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail,
+                                    modifier = Modifier.size(42.dp),
+                                    cornerRadius = 8.dp,
+                                    contentDescription = playlist.title
+                                )
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -419,7 +585,7 @@ fun TrackOptionsMenu(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "${playlist.tracks.size} tracks",
+                                        text = "${playlist.tracks.size} songs",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.White.copy(alpha = 0.6f)
                                     )
@@ -427,16 +593,15 @@ fun TrackOptionsMenu(
                                 Icon(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = "Add",
-                                    tint = Color.White.copy(alpha = 0.4f),
+                                    tint = Color.White.copy(alpha = 0.5f),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
-                        item {
-                            Spacer(modifier = Modifier.height(14.dp))
-                        }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
@@ -444,96 +609,102 @@ fun TrackOptionsMenu(
     // ── CREATE PLAYLIST DIALOG ──
     if (showCreatePlaylistDialog) {
         AlertDialog(
-            onDismissRequest = { showCreatePlaylistDialog = false },
-            containerColor = Color(0xFF1E2117),
-            shape = RoundedCornerShape(24.dp),
+            onDismissRequest = {
+                showCreatePlaylistDialog = false
+                newPlaylistName = ""
+            },
             title = {
-                Text(
-                    text = "New Playlist",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontSize = 20.sp
-                )
+                Text("New Playlist", fontWeight = FontWeight.Bold)
             },
             text = {
                 OutlinedTextField(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist Name", color = Color.White.copy(alpha = 0.6f)) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = OPTIONS_LIME,
-                        focusedLabelColor = OPTIONS_LIME,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
+                    label = { Text("Playlist Name") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = dynamicPrimary,
+                        focusedLabelColor = dynamicPrimary
+                    )
                 )
             },
             confirmButton = {
-                Button(
+                TextButton(
                     onClick = {
                         if (newPlaylistName.isNotBlank()) {
                             onCreatePlaylistAndAdd(newPlaylistName.trim())
                             newPlaylistName = ""
                             showCreatePlaylistDialog = false
+                            showPlaylistPicker = false
                             onDismiss()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OPTIONS_LIME,
-                        contentColor = Color.Black
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                    enabled = newPlaylistName.isNotBlank()
                 ) {
-                    Text("Create & Add", fontWeight = FontWeight.Bold)
+                    Text("Create & Add", fontWeight = FontWeight.Bold, color = dynamicPrimary)
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { showCreatePlaylistDialog = false },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.7f), fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = {
+                    showCreatePlaylistDialog = false
+                    newPlaylistName = ""
+                }) {
+                    Text("Cancel")
                 }
-            }
+            },
+            containerColor = dynamicSurface,
+            titleContentColor = Color.White,
+            textContentColor = Color.White
         )
     }
 }
 
 @Composable
-private fun TrackOptionItem(
+private fun TrackOptionRow(
     icon: ImageVector,
-    label: String,
-    iconTint: Color = Color.White.copy(alpha = 0.85f),
-    labelColor: Color = Color.White,
+    title: String,
+    subtitle: String? = null,
+    iconTint: Color = Color.White.copy(alpha = 0.9f),
+    titleColor: Color = Color.White,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = title,
             tint = iconTint,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-            color = labelColor,
-            fontSize = 15.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = titleColor,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(1.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
+
+

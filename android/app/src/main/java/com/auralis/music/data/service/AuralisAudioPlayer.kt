@@ -137,9 +137,43 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
-    private var isUsingExoPlayer = false
+    var isUsingExoPlayer: Boolean = false
+        private set
     private var nativeRetryCount = 0
     private var streamResolveJob: Job? = null
+
+    private val _isSpeakerForced = MutableStateFlow(false)
+    val isSpeakerForced: StateFlow<Boolean> = _isSpeakerForced.asStateFlow()
+    private var preferredAudioDevice: android.media.AudioDeviceInfo? = null
+
+    fun routeAudio(toSpeaker: Boolean) {
+        _isSpeakerForced.value = toSpeaker
+        val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+        try {
+            val outputs = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+            val speakerDevice = outputs.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            val btDevice = outputs.firstOrNull {
+                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+            }
+
+            preferredAudioDevice = if (toSpeaker) speakerDevice else btDevice
+
+            // Direct ExoPlayer AudioTrack routing
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                exoPlayer.setPreferredAudioDevice(preferredAudioDevice)
+            }
+
+            // Always maintain MODE_NORMAL so media streams are never degraded to telephony voice codecs
+            audioManager.mode = android.media.AudioManager.MODE_NORMAL
+
+            Log.d("AuralisPlayback", "[AudioRoute] Switched audio route: toSpeaker=$toSpeaker (device=${preferredAudioDevice?.productName ?: "Default"})")
+        } catch (e: Throwable) {
+            Log.e("AuralisPlayback", "[AudioRoute] Failed to switch audio route: ${e.message}", e)
+        }
+    }
 
     val audioLeadingSilenceProcessor = AudioLeadingSilenceProcessor().apply {
         onLeadingSilenceDetected = { silenceMs ->
@@ -706,6 +740,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         .build()
 
                     exoPlayer.setMediaItem(mediaItem)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && _isSpeakerForced.value && preferredAudioDevice != null) {
+                        exoPlayer.setPreferredAudioDevice(preferredAudioDevice)
+                    }
                     exoPlayer.prepare()
                     tracker.tMediaItemPreparedMs = System.currentTimeMillis()
                     if (initialSeekMs > 0) {

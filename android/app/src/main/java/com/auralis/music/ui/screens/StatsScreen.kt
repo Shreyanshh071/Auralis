@@ -101,6 +101,8 @@ fun StatsScreen(
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     hasActiveMiniPlayer: Boolean = false,
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -890,6 +892,8 @@ fun StatsScreen(
                     onCreatePlaylistAndAdd(title, trk)
                     selectedTrackForMenu = null
                 },
+                isPinned = isTrackPinned?.invoke(trk.id) == true,
+                onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(trk) },
                 onDismiss = { selectedTrackForMenu = null }
             )
         }

@@ -39,6 +39,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.foundation.lazy.LazyColumn
@@ -221,6 +225,8 @@ fun LibraryScreen(
     onCloseSmartCollection: () -> Unit = {},
     onDeletePlaylistJob: (String) -> Unit = {},
     onRetryPlaylistJob: (String) -> Unit = {},
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val themePrimary = MaterialTheme.colorScheme.primary
@@ -360,6 +366,8 @@ fun LibraryScreen(
                         isFavorite = isFav,
                         userPlaylists = uiState.playlists,
                         onToggleFavorite = { onFavoriteToggle(track) },
+                        isPinned = isTrackPinned?.invoke(track.id) == true,
+                        onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
                         onPlayNext = {
                             onPlayNext(track)
                             selectedTrackForMenu = null
@@ -2257,121 +2265,273 @@ private fun PlaylistOptionsBottomSheet(
     if (activeDialog == null) {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
-            containerColor = CARD_DARK_BG,
-            dragHandle = {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = 10.dp)
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f))
-                )
-            }
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            dragHandle = null,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp)
             ) {
+                // ── DRAG HANDLE ──
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.35f))
+                    )
+                }
+
+                // ── HEADER: PLAYLIST INFO ──
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
+                    ArtworkCard(
+                        url = coverUrl,
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                        cornerRadius = 10.dp,
+                        contentDescription = playlist.title
+                    )
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = playlist.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${playlist.tracks.size} songs",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.65f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                HorizontalDivider(
+                    color = Color.White.copy(alpha = 0.08f),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 14.dp)
+                )
+
                 val isSmartPlaylist = playlist.id.startsWith("smart_")
 
-                // Option 1: Edit
-                if (!isSmartPlaylist) {
-                    PlaylistActionRow(
-                        icon = Icons.Default.Edit,
-                        title = "Edit",
-                        subtitle = "Edit playlist",
-                        onClick = {
-                            editTitle = playlist.title
-                            editDesc = playlist.description ?: ""
-                            editCoverUrl = playlist.coverUrl ?: ""
-                            activeDialog = PlaylistDialogType.EDIT
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // ── QUICK ACTIONS ROW: ADD TO QUEUE & SHARE PILLS ──
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Add to queue Pill
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF262021))
+                                .clickable {
+                                    onDismiss()
+                                    onAddToQueue?.invoke(playlist.tracks)
+                                    Toast.makeText(context, "Added ${playlist.tracks.size} tracks to queue", Toast.LENGTH_SHORT).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlaylistAdd,
+                                    contentDescription = "Add to queue",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Add to queue",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp
+                                )
+                            }
                         }
-                    )
-                }
 
-                // Option 2: Add to queue
-                PlaylistActionRow(
-                    icon = Icons.Default.PlaylistAdd,
-                    title = "Add to queue",
-                    subtitle = "Add to the end of the queue",
-                    onClick = {
-                        onDismiss()
-                        onAddToQueue?.invoke(playlist.tracks)
-                        Toast.makeText(context, "Added ${playlist.tracks.size} tracks to queue", Toast.LENGTH_SHORT).show()
+                        // Share Pill
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF262021))
+                                .clickable {
+                                    onDismiss()
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, playlist.title)
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "Listen to '${playlist.title}' on Auralis Music (${playlist.tracks.size} songs)\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                                        )
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Playlist"))
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Share",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
                     }
-                )
 
-                // Option 3: Download (Only for non-downloaded playlists)
-                if (playlist.id != "smart_downloaded") {
-                    val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
-                    PlaylistActionRow(
-                        icon = if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
-                        title = if (isAllDownloaded) "Downloaded" else "Download playlist",
-                        subtitle = if (isAllDownloaded) "All ${playlist.tracks.size} songs are available offline" else "Download all songs for offline playback",
-                        onClick = {
-                            onDismiss()
-                            com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
-                                context = context,
-                                playlistId = playlist.id,
-                                playlistName = playlist.title,
-                                tracks = playlist.tracks
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // ── GROUP 1: EDIT & EXPORT ──
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF262021))
+                    ) {
+                        if (!isSmartPlaylist) {
+                            PlaylistActionRow(
+                                icon = Icons.Default.Edit,
+                                title = "Edit",
+                                subtitle = "Edit playlist name and cover",
+                                onClick = {
+                                    editTitle = playlist.title
+                                    editDesc = playlist.description ?: ""
+                                    editCoverUrl = playlist.coverUrl ?: ""
+                                    activeDialog = PlaylistDialogType.EDIT
+                                }
+                            )
+
+                            HorizontalDivider(
+                                color = Color.White.copy(alpha = 0.05f),
+                                modifier = Modifier.padding(horizontal = 16.dp)
                             )
                         }
-                    )
-                }
 
-                // Option 4: Share
-                PlaylistActionRow(
-                    icon = Icons.Default.Share,
-                    title = "Share",
-                    subtitle = "Share this playlist with others",
-                    onClick = {
-                        onDismiss()
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, playlist.title)
-                            putExtra(
-                                Intent.EXTRA_TEXT,
-                                "Listen to '${playlist.title}' on Auralis Music (${playlist.tracks.size} songs)\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                        PlaylistActionRow(
+                            icon = Icons.Default.Share,
+                            title = "Export playlist",
+                            subtitle = "Export tracks to file",
+                            onClick = {
+                                activeDialog = PlaylistDialogType.EXPORT
+                            }
+                        )
+                    }
+
+                    // ── GROUP 2: DOWNLOAD ──
+                    if (playlist.id != "smart_downloaded") {
+                        val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF262021))
+                        ) {
+                            PlaylistActionRow(
+                                icon = if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                                title = if (isAllDownloaded) "Downloaded" else "Download playlist",
+                                subtitle = if (isAllDownloaded) "All ${playlist.tracks.size} songs are available offline" else "Download all songs for offline playback",
+                                iconTint = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f),
+                                titleColor = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White,
+                                onClick = {
+                                    onDismiss()
+                                    com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
+                                        context = context,
+                                        playlistId = playlist.id,
+                                        playlistName = playlist.title,
+                                        tracks = playlist.tracks
+                                    )
+                                }
                             )
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Playlist"))
                     }
-                )
 
-                // Option 5: Export playlist
-                PlaylistActionRow(
-                    icon = Icons.Default.Share,
-                    title = "Export playlist",
-                    subtitle = null,
-                    onClick = {
-                        activeDialog = PlaylistDialogType.EXPORT
+                    // ── GROUP 3: DELETE ──
+                    if (playlist.id == "smart_downloaded") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF262021))
+                        ) {
+                            PlaylistActionRow(
+                                icon = Icons.Default.Delete,
+                                title = "Delete all downloads",
+                                subtitle = "Remove all ${playlist.tracks.size} downloaded songs from device",
+                                iconTint = Color(0xFFFF5252),
+                                titleColor = Color(0xFFFF5252),
+                                onClick = {
+                                    activeDialog = PlaylistDialogType.DELETE_ALL_DOWNLOADS
+                                }
+                            )
+                        }
+                    } else if (!isSmartPlaylist) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF262021))
+                        ) {
+                            PlaylistActionRow(
+                                icon = Icons.Default.Delete,
+                                title = "Delete",
+                                subtitle = "Remove this playlist permanently",
+                                iconTint = Color(0xFFFF5252),
+                                titleColor = Color(0xFFFF5252),
+                                onClick = {
+                                    activeDialog = PlaylistDialogType.DELETE
+                                }
+                            )
+                        }
                     }
-                )
 
-                // Option 6: Delete
-                if (playlist.id == "smart_downloaded") {
-                    PlaylistActionRow(
-                        icon = Icons.Default.Delete,
-                        title = "Delete all downloads",
-                        subtitle = "Remove all ${playlist.tracks.size} downloaded songs from device",
-                        onClick = {
-                            activeDialog = PlaylistDialogType.DELETE_ALL_DOWNLOADS
-                        }
-                    )
-                } else if (!isSmartPlaylist) {
-                    PlaylistActionRow(
-                        icon = Icons.Default.Delete,
-                        title = "Delete",
-                        subtitle = "Remove this playlist permanently",
-                        onClick = {
-                            activeDialog = PlaylistDialogType.DELETE
-                        }
-                    )
+                    Spacer(modifier = Modifier.height(18.dp))
                 }
             }
         }
@@ -2813,21 +2973,21 @@ private fun PlaylistActionRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    iconTint: Color = Color.White.copy(alpha = 0.9f),
+    titleColor: Color = Color.White,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = MaterialTheme.colorScheme.onBackground,
+            tint = iconTint,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
@@ -2836,16 +2996,20 @@ private fun PlaylistActionRow(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 16.sp
+                color = titleColor,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             if (!subtitle.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(1.dp))
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

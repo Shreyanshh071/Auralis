@@ -51,6 +51,8 @@ fun HomeScreen(
     onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     PureHomeScreen(
@@ -90,6 +92,8 @@ fun HomeScreen(
         onDownloadAlbum = onDownloadAlbum,
         isInListenTogetherRoom = isInListenTogetherRoom,
         onRecommendToRoom = onRecommendToRoom,
+        isTrackPinned = isTrackPinned,
+        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
         modifier = modifier
     )
 }

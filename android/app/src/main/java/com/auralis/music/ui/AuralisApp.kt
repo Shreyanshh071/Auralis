@@ -34,9 +34,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -899,7 +896,9 @@ fun AuralisApp(
                                                 onRecommendToRoom = { trk ->
                                                     obtainListenTogetherViewModel().recommendSong(trk)
                                                     android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
+                                                },
+                                                isTrackPinned = { homeViewModel.isTrackPinned(it) },
+                                                onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
                                             )
                                         }
 
@@ -1047,7 +1046,9 @@ fun AuralisApp(
                                                 onRecommendToRoom = { trk ->
                                                     obtainListenTogetherViewModel().recommendSong(trk)
                                                     android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
+                                                },
+                                                isTrackPinned = { homeViewModel.isTrackPinned(it) },
+                                                onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
                                             )
                                         }
 
@@ -1124,7 +1125,9 @@ fun AuralisApp(
                                                     libVM.reorderPlaylistTracks(plId, from, to)
                                                 },
                                                 isExternalCreateDialogOpen = isExternalCreatePlaylistOpen,
-                                                onCloseExternalCreateDialog = { isExternalCreatePlaylistOpen = false }
+                                                onCloseExternalCreateDialog = { isExternalCreatePlaylistOpen = false },
+                                                isTrackPinned = { homeViewModel.isTrackPinned(it) },
+                                                onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
                                             )
                                         }
                                     }
@@ -1301,7 +1304,9 @@ fun AuralisApp(
                     obtainPlayerViewModel().addToQueue(listOf(track))
                     android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
                 },
-                hasActiveMiniPlayer = (playerUiState.currentTrack ?: audioPlayerTrack) != null
+                hasActiveMiniPlayer = (playerUiState.currentTrack ?: audioPlayerTrack) != null,
+                isTrackPinned = { homeViewModel.isTrackPinned(it) },
+                onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
             )
         }
 
@@ -1390,42 +1395,6 @@ fun AuralisApp(
                                 }
                                 shape = RoundedCornerShape(topStart = radius, topEnd = radius)
                                 clip = true
-                            }
-                            .pointerInput(Unit) {
-                                awaitEachGesture {
-                                    awaitFirstDown(requireUnconsumed = false)
-                                    val wasAnimating = sheetAnimationJob?.isActive == true
-                                    if (wasAnimating) {
-                                        sheetAnimationJob?.cancel()
-                                    }
-                                    if (dismissAnimationJob?.isActive == true) {
-                                        dismissAnimationJob?.cancel()
-                                    }
-                                    if (wasAnimating) {
-                                        val up = waitForUpOrCancellation()
-                                        if (up != null && sheetAnimationJob?.isActive != true) {
-                                            val target = if (playerSheetProgress.value < 0.5f) 0f else 1f
-                                            sheetAnimationJob = coroutineScope.launch {
-                                                try {
-                                                    playerSheetProgress.animateTo(
-                                                        targetValue = target,
-                                                        animationSpec = if (reducedMotion) snap() else spring(
-                                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                                            stiffness = Spring.StiffnessLow
-                                                        )
-                                                    )
-                                                } finally {
-                                                    isNowPlayingOpen = (target == 1f)
-                                                    if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                        playerSheetProgress.snapTo(0f)
-                                                    } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                        playerSheetProgress.snapTo(1f)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                             .pointerInput(travelDistance) {
                                 if (travelDistance <= 0f) return@pointerInput
@@ -1607,7 +1576,11 @@ fun AuralisApp(
                                 },
                                 onDismiss = { collapsePlayer() },
                                 sharedTransitionScope = null,
-                                animatedVisibilityScope = null
+                                animatedVisibilityScope = null,
+                                currentQuality = currentPV.playerSettings.collectAsState().value.audioQuality,
+                                onAudioQualityChange = { currentPV.updateAudioQuality(it) },
+                                isTrackPinned = { homeViewModel.isTrackPinned(it) },
+                                onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
                             )
                         }
                     }

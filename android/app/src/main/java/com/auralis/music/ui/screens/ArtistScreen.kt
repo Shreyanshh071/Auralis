@@ -96,6 +96,8 @@ fun ArtistScreen(
     isAlbumPinned: ((String) -> Boolean)? = null,
     pinnedSpeedDialIds: Set<String> = emptySet(),
     onPinAlbumToSpeedDial: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onBack: () -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
@@ -711,6 +713,7 @@ fun ArtistScreen(
     // Options Menu Bottom Sheet
     selectedTrackForMenu?.let { track ->
         val isFav = favoriteTracks.any { it.id == track.id }
+        val isPinned = isTrackPinned?.invoke(track.id) ?: pinnedSpeedDialIds.contains(track.id)
         TrackOptionsMenu(
             track = track,
             isFavorite = isFav,
@@ -719,6 +722,8 @@ fun ArtistScreen(
             onPlayNext = { onPlayNext(track) },
             onAddToQueue = { onAddToQueue(track) },
             onStartRadio = { onStartRadio(track) },
+            isPinned = isPinned,
+            onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
             onGoToArtist = null, // Already on ArtistScreen
             onAddToPlaylist = { playlist -> onAddToPlaylist(playlist.id, track) },
             onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAdd(title, track) },

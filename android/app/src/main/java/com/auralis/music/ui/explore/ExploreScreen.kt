@@ -152,6 +152,8 @@ fun ExploreScreen(
     isAlbumPinned: ((String) -> Boolean)? = null,
     pinnedSpeedDialIds: Set<String> = emptySet(),
     onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
+    isTrackPinned: ((String) -> Boolean)? = null,
+    onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onStartListening: () -> Unit = {},
     onStopListening: () -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
@@ -292,6 +294,8 @@ fun ExploreScreen(
                         isAlbumPinned = isAlbumPinned,
                         pinnedSpeedDialIds = pinnedSpeedDialIds,
                         onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+                        isTrackPinned = isTrackPinned,
+                        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
                         onStartRadio = onStartRadio,
                         onOpenArtist = handleOpenArtist,
                         onAlbumClick = handleOpenAlbum,
@@ -321,6 +325,8 @@ fun ExploreScreen(
                         isAlbumPinned = isAlbumPinned,
                         pinnedSpeedDialIds = pinnedSpeedDialIds,
                         onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+                        isTrackPinned = isTrackPinned,
+                        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
                         onTrackClick = handleTrackClick,
                         onFavoriteToggle = onFavoriteToggle,
                         onAddToPlaylist = onAddToPlaylist,
@@ -716,6 +722,7 @@ fun ExploreScreen(
     // Options Menu
     selectedTrackForMenu?.let { track ->
         val isFav = favoriteTracks.any { it.id == track.id }
+        val isPinned = isTrackPinned?.invoke(track.id) ?: pinnedSpeedDialIds.contains(track.id)
         TrackOptionsMenu(
             track = track,
             isFavorite = isFav,
@@ -724,6 +731,8 @@ fun ExploreScreen(
             onPlayNext = { onPlayNext(track) },
             onAddToQueue = { onAddToQueue(track) },
             onStartRadio = { onStartRadio(track) },
+            isPinned = isPinned,
+            onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
             onGoToArtist = {
                 onOpenArtist(Artist(id = "", name = track.artist))
             },
