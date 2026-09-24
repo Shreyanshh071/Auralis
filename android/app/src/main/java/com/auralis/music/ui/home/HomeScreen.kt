@@ -312,8 +312,7 @@ fun HomeScreen(
                                                                             thumbnail = dialItem.image ?: ""
                                                                         )
                                                                     }.ifEmpty { listOf(trk) }
-                                                                    val queueToPlay = if (speedDialTracks.any { it.id == trk.id }) speedDialTracks else listOf(trk) + speedDialTracks
-                                                                    onTrackClick(trk, queueToPlay)
+                                                                    onTrackClick(trk, listOf(trk))
                                                                 }
                                                                 SpeedDialType.ALBUM -> {
                                                                     val alb = item.album ?: com.auralis.music.domain.model.PlaylistResult(
@@ -474,7 +473,7 @@ fun HomeScreen(
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(10.dp))
                                             .combinedClickable(
-                                                onClick = { onTrackClick(track, uiState.quickPicks.take(16)) },
+                                                onClick = { onTrackClick(track, listOf(track)) },
                                                 onLongClick = { selectedTrackForMenu = track }
                                             )
                                             .padding(vertical = 4.dp),
@@ -680,7 +679,7 @@ fun HomeScreen(
                                         .clip(RoundedCornerShape(12.dp))
                                         // Long-press opens the song's ⋮ menu, like every other Home shelf.
                                         .combinedClickable(
-                                            onClick = { onTrackClick(track, simRec.items) },
+                                            onClick = { onTrackClick(track, listOf(track)) },
                                             onLongClick = { selectedTrackForMenu = track }
                                         )
                                         .padding(4.dp)
@@ -754,7 +753,7 @@ fun HomeScreen(
                                                 .width(120.dp)
                                                 .clip(RoundedCornerShape(12.dp))
                                                 .combinedClickable(
-                                                    onClick = { onTrackClick(track, section.items) },
+                                                    onClick = { onTrackClick(track, listOf(track)) },
                                                     onLongClick = { selectedTrackForMenu = track }
                                                 )
                                                 .padding(4.dp)

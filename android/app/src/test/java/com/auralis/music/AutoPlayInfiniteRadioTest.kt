@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -35,11 +36,15 @@ class AutoPlayInfiniteRadioTest {
     private class MockInnerTubeClient(
         var radioTracksToReturn: List<Track> = emptyList()
     ) : InnerTubeClient() {
+        val requested = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var responseGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
         override suspend fun getRadioTracks(
             videoId: String,
             artist: String?,
             title: String?
         ): List<Track> {
+            requested.complete(Unit)
+            responseGate?.await()
             return radioTracksToReturn
         }
     }
@@ -105,7 +110,7 @@ class AutoPlayInfiniteRadioTest {
     }
 
     private class MockSettingsRepo : SettingsRepository {
-        override val settingsFlow: Flow<PlayerSettings> = flowOf(PlayerSettings())
+        override val settingsFlow = kotlinx.coroutines.flow.MutableStateFlow(PlayerSettings())
         override suspend fun updateSettings(settings: PlayerSettings) {}
         override suspend fun setThemeMode(mode: ThemeMode) {}
         override suspend fun setAudioQuality(quality: AudioQuality) {}
@@ -240,7 +245,7 @@ class AutoPlayInfiniteRadioTest {
     }
 
     @Test
-    fun `user playlist queue with isUserQueue true respects finite queue boundary`() = runTest(testDispatcher) {
+    fun `user playlist remains finite across explicit skip wraparound`() = runTest(testDispatcher) {
         val viewModel = PlayerViewModel(
             libraryRepository = MockLibraryRepo(),
             historyRepository = MockHistoryRepo(),
@@ -258,9 +263,130 @@ class AutoPlayInfiniteRadioTest {
         assertEquals("Playlist Song 2", viewModel.uiState.value.currentTrack?.title)
         assertTrue(viewModel.uiState.value.isPlaying)
 
-        // Advance past end of finite user queue
+        // Auralis intentionally wraps manual Next; it must not append recommendations.
         viewModel.next()
-        assertFalse(viewModel.uiState.value.isPlaying)
+        assertTrue(viewModel.uiState.value.isPlaying)
+        assertEquals("pl1", viewModel.uiState.value.currentTrack?.id)
+        assertEquals(2, viewModel.uiState.value.queue.size)
         viewModel.closePlayer()
     }
+    @Test
+    fun `disabling auto load keeps existing queue playable without appending recommendations`() = runTest(testDispatcher) {
+        val settings = MockSettingsRepo()
+        settings.settingsFlow.value = PlayerSettings(autoLoadMore = false)
+        val viewModel = PlayerViewModel(
+            MockLibraryRepo(), MockHistoryRepo(), MockLyricsRepo(), settings,
+            innerTubeClient = MockInnerTubeClient(listOf(sampleTrack("unexpected", "Unexpected")))
+        )
+        runCurrent()
+        val tracks = listOf(sampleTrack("one", "One"), sampleTrack("two", "Two"))
+        viewModel.playTrack(tracks[0], tracks, 0, isUserQueue = false)
+        advanceUntilIdle()
+        assertEquals(tracks.map { it.id }, viewModel.uiState.value.queue.map { it.id })
+        viewModel.next()
+        assertEquals("two", viewModel.uiState.value.currentTrack?.id)
+        viewModel.next()
+        assertTrue(viewModel.uiState.value.isPlaying)
+        assertEquals("one", viewModel.uiState.value.currentTrack?.id)
+        assertEquals(2, viewModel.uiState.value.queue.size)
+        viewModel.closePlayer()
+    }
+
+    @Test
+    fun `turning auto load off discards an in flight recommendation response`() = runTest(testDispatcher) {
+        val settings = MockSettingsRepo()
+        val client = MockInnerTubeClient(listOf(sampleTrack("late", "Late recommendation")))
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        client.responseGate = gate
+        val viewModel = PlayerViewModel(
+            MockLibraryRepo(), MockHistoryRepo(), MockLyricsRepo(), settings, innerTubeClient = client
+        )
+        runCurrent()
+        viewModel.playTrack(sampleTrack("seed", "Seed"))
+        client.requested.await()
+        settings.settingsFlow.value = PlayerSettings(autoLoadMore = false)
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("seed"), viewModel.uiState.value.queue.map { it.id })
+        viewModel.closePlayer()
+    }
+
+    @Test
+    fun `direct single-song selection caps initial recommendation batch at 14 songs`() = runTest(testDispatcher) {
+        val mockRecommendations = (1..30).map { sampleTrack("rec$it", "Rec $it") }
+        val mockInnerTube = MockInnerTubeClient(radioTracksToReturn = mockRecommendations)
+        val viewModel = PlayerViewModel(
+            MockLibraryRepo(), MockHistoryRepo(), MockLyricsRepo(), MockSettingsRepo(),
+            audioPlayer = null, innerTubeClient = mockInnerTube
+        )
+
+        val seed = sampleTrack("seed", "Seed Song")
+        viewModel.playTrack(seed)
+        for (i in 0 until 40) {
+            testScheduler.advanceTimeBy(300)
+            advanceUntilIdle()
+            if (viewModel.uiState.value.queue.size >= 15) break
+            Thread.sleep(50)
+        }
+
+        // 1 seed + 14 recommendations = 15 songs
+        val state = viewModel.uiState.value
+        assertEquals(15, state.queue.size)
+        assertEquals(0, state.currentIndex)
+        assertEquals("seed", state.currentTrack?.id)
+        assertEquals("rec1", state.queue[1].id)
+        assertEquals("rec14", state.queue[14].id)
+        viewModel.closePlayer()
+    }
+
+    @Test
+    fun `selecting another song directly discards previous auto-radio queue and starts fresh queue at index 0`() = runTest(testDispatcher) {
+        val mockRecommendations1 = (1..20).map { sampleTrack("rec$it", "Rec $it") }
+        val client = MockInnerTubeClient(radioTracksToReturn = mockRecommendations1)
+        val viewModel = PlayerViewModel(
+            MockLibraryRepo(), MockHistoryRepo(), MockLyricsRepo(), MockSettingsRepo(),
+            audioPlayer = null, innerTubeClient = client
+        )
+
+        // Play song 1
+        val song1 = sampleTrack("song1", "Song One")
+        viewModel.playTrack(song1)
+        for (i in 0 until 40) {
+            testScheduler.advanceTimeBy(300)
+            advanceUntilIdle()
+            if (viewModel.uiState.value.queue.size >= 15) break
+            Thread.sleep(50)
+        }
+        assertEquals(15, viewModel.uiState.value.queue.size)
+
+        // Even if the new song was present in song 1's recommendations (e.g. rec5):
+        val song2 = sampleTrack("rec5", "Rec 5")
+        val mockRecommendations2 = (100..120).map { sampleTrack("newRec$it", "New Rec $it") }
+        client.radioTracksToReturn = mockRecommendations2
+
+        // Directly select song2 (e.g. from Search)
+        viewModel.playTrack(song2)
+        assertEquals(1, viewModel.uiState.value.queue.size)
+        assertEquals(0, viewModel.uiState.value.currentIndex)
+        assertEquals("rec5", viewModel.uiState.value.currentTrack?.id)
+
+        for (i in 0 until 40) {
+            testScheduler.advanceTimeBy(300)
+            advanceUntilIdle()
+            if (viewModel.uiState.value.queue.size >= 15) break
+            Thread.sleep(50)
+        }
+
+        val stateAfterSong2 = viewModel.uiState.value
+        assertEquals(15, stateAfterSong2.queue.size)
+        assertEquals(0, stateAfterSong2.currentIndex)
+        assertEquals("rec5", stateAfterSong2.currentTrack?.id)
+        // Songs from song1's queue must NOT be present
+        assertFalse(stateAfterSong2.queue.any { it.id == "song1" })
+        assertFalse(stateAfterSong2.queue.any { it.id == "rec1" })
+        assertEquals("newRec100", stateAfterSong2.queue[1].id)
+        viewModel.closePlayer()
+    }
+
 }

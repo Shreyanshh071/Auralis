@@ -266,7 +266,7 @@ fun HistorySheet(
                                         if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
                                         RoundedCornerShape(14.dp)
                                     )
-                                    .clickable { onTrackClick(track, trackList) }
+                                    .clickable { onTrackClick(track, listOf(track)) }
                                     .padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
