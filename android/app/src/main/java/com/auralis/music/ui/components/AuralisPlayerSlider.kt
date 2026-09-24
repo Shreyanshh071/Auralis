@@ -70,7 +70,9 @@ fun AuralisPlayerSlider(
     activeTrackColor: Color = Color.White,
     inactiveTrackColor: Color = Color.White.copy(alpha = 0.28f),
     thumbColor: Color = Color.White,
-    textColor: Color = Color.White.copy(alpha = 0.65f)
+    textColor: Color = Color.White.copy(alpha = 0.65f),
+    /** Timestamps under the track; off for decorative previews (e.g. the style picker). */
+    showTimestamps: Boolean = true
 ) {
     val view = LocalView.current
     val density = LocalDensity.current
@@ -484,6 +486,7 @@ fun AuralisPlayerSlider(
             }
         }
 
+        if (showTimestamps) {
         Spacer(modifier = Modifier.height(2.dp))
 
         // ── TIMESTAMPS ROW ──
@@ -507,6 +510,7 @@ fun AuralisPlayerSlider(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
+        }
         }
     }
 }
