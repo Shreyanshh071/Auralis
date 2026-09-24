@@ -29,6 +29,7 @@ data class PlayerUiState(
     val isFavorite: Boolean = false,
     val queue: List<Track> = emptyList(),
     val currentIndex: Int = -1,
+    val queueSourceTitle: String? = null,
     val isShuffled: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val lyrics: LyricsData? = null,
@@ -40,6 +41,17 @@ data class PlayerUiState(
     val errorMessage: String? = null,
     val audioLeadingSilenceMs: Long? = null
 )
+
+internal fun resolveQueueSourceTitle(
+    queueSize: Int,
+    sourcePlaylistTitle: String?,
+    previousTitle: String?,
+    preservePrevious: Boolean
+): String? = when {
+    queueSize <= 1 -> null
+    preservePrevious -> previousTitle
+    else -> sourcePlaylistTitle?.trim()?.takeIf { it.isNotEmpty() }
+}
 
 @OptIn(UnstableApi::class)
 class PlayerViewModel(
@@ -208,6 +220,15 @@ class PlayerViewModel(
                                 )
                             }
                             loadLyrics(activeTrack, reqId)
+                            viewModelScope.launch(Dispatchers.IO) {
+                                val isPaused = context?.let { ctx ->
+                                    com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseListenHistory
+                                } ?: false
+                                if (!isPaused) {
+                                    historyRepository.addToHistory(activeTrack)
+                                    historyRepository.recordPlay(activeTrack)
+                                }
+                            }
                         } else {
                             _uiState.update {
                                 it.copy(
@@ -325,7 +346,11 @@ class PlayerViewModel(
                 viewModelScope.launch(Dispatchers.IO) {
                     if (com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(effectiveTrack.album, effectiveTrack.title)) {
                         try {
-                            val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(effectiveTrack.title, effectiveTrack.artist)
+                            val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(
+                                trackTitle = effectiveTrack.title,
+                                artistName = effectiveTrack.artist,
+                                knownAlbum = effectiveTrack.album
+                            )
                             if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() && reqId == currentPlaybackRequestId.get()) {
                                 val updatedTrack = (_uiState.value.currentTrack ?: effectiveTrack).copy(
                                     album = resolved.albumTitle,
@@ -449,7 +474,11 @@ class PlayerViewModel(
             // Asynchronously resolve authentic album if missing or redundant with title
             if (com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)) {
                 try {
-                    val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(track.title, track.artist)
+                    val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(
+                        trackTitle = track.title,
+                        artistName = track.artist,
+                        knownAlbum = track.album
+                    )
                     if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() && requestId == currentPlaybackRequestId.get()) {
                         val updatedTrack = (_uiState.value.currentTrack ?: track).copy(
                             album = resolved.albumTitle,
@@ -482,7 +511,9 @@ class PlayerViewModel(
         newQueue: List<Track> = emptyList(),
         startIndex: Int = 0,
         isUserQueue: Boolean = (newQueue.size > 1),
-        initialPositionMs: Long = 0L
+        initialPositionMs: Long = 0L,
+        sourcePlaylistTitle: String? = null,
+        preserveQueueSource: Boolean = false
     ) {
         val reqId = currentPlaybackRequestId.incrementAndGet()
         val isAutoQueue = !isUserQueue || newQueue.size <= 1
@@ -491,6 +522,12 @@ class PlayerViewModel(
         Log.d("AuralisPlayback", "[UI Tap] playTrack #$reqId: id=${track.id}, title='${track.title}', queueSize=${newQueue.size}, isAutoRadio=$isAutoRadioMode, initialPos=${initialPositionMs}ms")
         
         val targetQueue = if (newQueue.isNotEmpty()) newQueue else _uiState.value.queue
+        val queueSourceTitle = resolveQueueSourceTitle(
+            queueSize = targetQueue.size,
+            sourcePlaylistTitle = sourcePlaylistTitle,
+            previousTitle = _uiState.value.queueSourceTitle,
+            preservePrevious = preserveQueueSource
+        )
         val targetIndex = if (startIndex in targetQueue.indices && targetQueue[startIndex].id == track.id) {
             startIndex
         } else {
@@ -523,6 +560,7 @@ class PlayerViewModel(
                 currentTrack = track,
                 queue = targetQueue,
                 currentIndex = targetIndex,
+                queueSourceTitle = queueSourceTitle,
                 isPlaying = true,
                 lyrics = null,
                 isLoadingLyrics = true,

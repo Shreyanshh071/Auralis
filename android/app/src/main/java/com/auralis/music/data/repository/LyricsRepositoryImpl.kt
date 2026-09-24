@@ -55,7 +55,7 @@ class LyricsRepositoryImpl(
          * 11 = Phase 5.5: master-aware audio leading silence alignment & resilient NetEase DNS.
          * 12 = Phase 5.6: Float PCM leading silence processor & studio audio duration mapping.
          */
-        const val LYRICS_PIPELINE_VERSION = 12
+        const val LYRICS_PIPELINE_VERSION = 13 // 13: same-timestamp LRC translations paired; cache keeps translatedText
 
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
@@ -81,6 +81,8 @@ class LyricsRepositoryImpl(
                 if (line.isBackground) lineObj.put("isBackground", true)
                 if (line.endTime != null) lineObj.put("endTime", line.endTime)
                 if (line.agent != null) lineObj.put("agent", line.agent)
+                // Persist translations; they were silently dropped on every cache round-trip.
+                if (!line.translatedText.isNullOrBlank()) lineObj.put("translatedText", line.translatedText)
                 if (!line.words.isNullOrEmpty()) {
                     val wordsArray = JSONArray()
                     for (w in line.words) {
@@ -162,6 +164,7 @@ class LyricsRepositoryImpl(
                     val baseLine = LyricLine(
                         time = time,
                         text = resolvedText,
+                        translatedText = lineObj.optString("translatedText").takeIf { it.isNotBlank() },
                         words = mergedWords,
                         isInstrumental = isInst,
                         isBackground = lineObj.optBoolean("isBackground", false),
@@ -319,6 +322,72 @@ class LyricsRepositoryImpl(
                             } else if (isMasterMismatch || isDomainIntroCorrupt || com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(domainLyrics)) {
                                 lyricsDao.deleteLyrics(trackKey)
                                 memoryCache.remove(trackKey)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // The same recording can enter the app through different catalog IDs
+            // (for example Spotify and YouTube). Do not throw away a known synced
+            // result merely because the currently playing duplicate has another ID.
+            try {
+                val metadataEntity = lyricsDao.getBestLyricsByMetadata(
+                    title = title,
+                    artist = artist,
+                    durationMs = playbackMs,
+                    pipelineVersion = LYRICS_PIPELINE_VERSION
+                )
+                if (metadataEntity != null && metadataEntity.trackId != trackKey) {
+                    val metadataLyrics = entityToDomain(metadataEntity, title, artist)?.copy(
+                        // A match from another catalog ID is metadata-matched, not
+                        // an exact-video match, even when its original provider was.
+                        isExactVideoMatch = false,
+                        matchedVideoId = null
+                    )
+                    if (metadataLyrics != null && metadataLyrics.syncType != SyncType.PLAIN) {
+                        val candTitle = metadataLyrics.trackName ?: title
+                        val candArtist = metadataLyrics.artistName ?: artist
+                        val confidence = com.auralis.music.data.parser.LyricsMatcher.calculateConfidence(
+                            queryTitle = title,
+                            queryArtist = artist,
+                            candidateTitle = candTitle,
+                            candidateArtist = candArtist,
+                            queryDurationSec = durationSec,
+                            queryAlbum = album
+                        )
+                        val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                            lyrics = metadataLyrics,
+                            playbackDurationMs = playbackMs,
+                            playbackTitle = title,
+                            candidateTitle = candTitle,
+                            playbackChannelTitle = channelTitle,
+                            playbackVideoId = videoId,
+                            audioLeadingSilenceMs = audioLeadingSilenceMs,
+                            playbackArtist = artist,
+                            candidateArtist = candArtist
+                        )
+                        val isInvalid = com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(metadataLyrics, durationSec) ||
+                            com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(metadataLyrics)
+                        if (confidence >= 50 && isAcceptable && !isInvalid) {
+                            val aligned = if (playbackMs > 0L) {
+                                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(
+                                    metadataLyrics,
+                                    playbackMs,
+                                    audioLeadingSilenceMs
+                                )
+                            } else {
+                                metadataLyrics
+                            }
+                            if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
+                                memoryCache[trackKey] = aligned
+                                lyricsDao.insertLyrics(domainToEntity(trackKey, aligned, title, artist))
+                                android.util.Log.d(
+                                    "AuralisLyrics",
+                                    "[getCachedLyrics] Reused ${aligned.syncType} cache by metadata for '$title' " +
+                                        "(${metadataEntity.trackId} -> $trackKey)"
+                                )
+                                return aligned
                             }
                         }
                     }

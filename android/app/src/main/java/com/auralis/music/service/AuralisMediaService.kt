@@ -86,6 +86,7 @@ class AuralisMediaService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        com.auralis.music.data.service.ListeningTimeTracker.start(applicationContext)
         // 1. Create notification channel synchronously with low importance and public lockscreen visibility
         createNotificationChannel()
 
@@ -343,7 +344,9 @@ class AuralisMediaService : MediaSessionService() {
                             ?: imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(track.thumbnail ?: ""))?.bitmap
                     } else null
 
-                    val effectiveBitmap = if (cachedBitmap != null) {
+                    // Only consider cachedBitmap if it is high-resolution (>= 300px), avoiding tiny list thumbnails (e.g. 56x56, 120x120)
+                    val isHighResCache = cachedBitmap != null && cachedBitmap.width >= 300 && cachedBitmap.height >= 300
+                    val effectiveBitmap = if (isHighResCache) {
                         cachedBitmap
                     } else if (localArtFile != null && localArtFile.exists()) {
                         try {
@@ -352,14 +355,12 @@ class AuralisMediaService : MediaSessionService() {
                     } else null
 
                     // ── PERF FIX #2: Move CPU-heavy bitmap processing off Main thread ──
-                    // processForMediaNotification (crop+resize), saveMasterArtworkToCache (disk I/O),
-                    // and toByteArray (JPEG encode) previously ran synchronously on Dispatchers.Main.
                     var localArtworkUri: android.net.Uri? = null
                     var artworkBytes: ByteArray? = null
                     if (effectiveBitmap != null) {
                         val (processed, artUri, bytes) = withContext(Dispatchers.IO) {
-                            val p = ArtworkProcessor.processForMediaNotification(effectiveBitmap, targetSize = 600)
-                            val uri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, p)
+                            val p = ArtworkProcessor.processForMediaNotification(effectiveBitmap, targetSize = 800)
+                            val uri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, p, track.id)
                             val b = ArtworkProcessor.toByteArray(p, quality = 92)
                             Triple(p, uri, b)
                         }
@@ -727,17 +728,24 @@ class AuralisMediaService : MediaSessionService() {
 
         if (cacheKey != lastArtworkUrl) {
             lastArtworkUrl = cacheKey
-            currentArtworkBitmap = null
+            // Do NOT reset currentArtworkBitmap = null here so existing/cached cover doesn't flicker/disappear
 
             serviceScope.launch(Dispatchers.IO) {
                 try {
                     val localArtFile = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(targetTrackId)
                     val localArtUri = if (localArtFile != null && localArtFile.exists()) android.net.Uri.fromFile(localArtFile).toString() else null
                     val matchedYtId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(targetTrackId)
-                    val matchedYtUrl = if (!matchedYtId.isNullOrBlank() && matchedYtId.length in 8..15) "https://i.ytimg.com/vi/$matchedYtId/hq720.jpg" else null
+                    val matchedYtCandidates = if (!matchedYtId.isNullOrBlank() && matchedYtId.length in 8..15) {
+                        listOf(
+                            "https://i.ytimg.com/vi/$matchedYtId/maxresdefault.jpg",
+                            "https://i.ytimg.com/vi/$matchedYtId/hq720.jpg",
+                            "https://i.ytimg.com/vi/$matchedYtId/sddefault.jpg",
+                            "https://i.ytimg.com/vi/$matchedYtId/hqdefault.jpg"
+                        )
+                    } else emptyList()
 
                     val masterUrl = MasterArtworkResolver.resolveMasterArtworkUrl(targetTrackTitle, targetTrackArtist, thumbUrl)
-                    val candidates = (listOfNotNull(localArtUri, masterUrl, matchedYtUrl) + ArtworkProcessor.getHighResArtworkCandidates(thumbUrl)).distinct()
+                    val candidates = (listOfNotNull(localArtUri, masterUrl) + matchedYtCandidates + ArtworkProcessor.getHighResArtworkCandidates(thumbUrl)).distinct()
 
                     var loadedBitmap: Bitmap? = null
                     var resolvedUrl = localArtUri ?: masterUrl ?: thumbUrl ?: ""
@@ -754,9 +762,14 @@ class AuralisMediaService : MediaSessionService() {
                                 // Reject YouTube's 120x90 dummy placeholder returned on missing maxresdefault
                                 val isYouTubeDummy = bmp.width <= 120 && bmp.height <= 90
                                 if (!isYouTubeDummy && bmp.width > 0 && bmp.height > 0) {
-                                    loadedBitmap = bmp
-                                    resolvedUrl = candidate
-                                    break
+                                    if (bmp.width >= 300 && bmp.height >= 300) {
+                                        loadedBitmap = bmp
+                                        resolvedUrl = candidate
+                                        break
+                                    } else if (loadedBitmap == null) {
+                                        loadedBitmap = bmp
+                                        resolvedUrl = candidate
+                                    }
                                 }
                             }
                         } catch (_: Exception) {}
@@ -766,10 +779,10 @@ class AuralisMediaService : MediaSessionService() {
                     val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
                     val activeTrack = audioPlayer.currentTrack.value
                     if (loadedBitmap != null && activeTrack != null && activeTrack.id == targetTrackId) {
-                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap, targetSize = 600)
+                        val processed = ArtworkProcessor.processForMediaNotification(loadedBitmap, targetSize = 800)
                         currentArtworkBitmap = processed
                         val artworkBytes = ArtworkProcessor.toByteArray(processed, quality = 92)
-                        val localContentUri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, processed)
+                        val localContentUri = ArtworkProcessor.saveMasterArtworkToCache(applicationContext, processed, activeTrack.id)
 
                         val isHighResCdn = resolvedUrl.isNotBlank() && !resolvedUrl.contains("hqdefault.jpg") && !resolvedUrl.contains("mqdefault.jpg")
                         val finalUri = localContentUri ?: if (isHighResCdn) android.net.Uri.parse(resolvedUrl) else null
@@ -791,11 +804,12 @@ class AuralisMediaService : MediaSessionService() {
                         currentActiveMetadata = updatedMeta
                         currentActiveMediaItem = updatedItem
 
-                        // Update MediaSession with artworkData byte array and URI for studio clarity in Android 13/14/15 Quick Settings & Lockscreen
+                        // Update MediaSession with artworkData byte array and URI for studio clarity in Android 13/14/15/16 Quick Settings & Lockscreen
                         withContext(Dispatchers.Main) {
                             try {
                                 audioPlayer.exoPlayer.playlistMetadata = updatedMeta
                             } catch (_: Exception) {}
+                            refreshNotification(immediate = true)
                         }
                     }
                 } catch (_: Exception) {}
@@ -936,6 +950,7 @@ class AuralisMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        com.auralis.music.data.service.ListeningTimeTracker.flushNow(applicationContext)
         Log.d("AuralisPlayback", "[AuralisMediaService] onDestroy - cleaning up serviceScope and mediaSession")
         try {
             com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()

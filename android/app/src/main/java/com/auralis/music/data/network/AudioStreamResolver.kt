@@ -254,7 +254,8 @@ object AudioStreamResolver {
         try {
             diagLog("[Diag-Resolver] Starting stream resolution for '$title' ($effectiveTargetId)")
 
-            val isSpotifyId = effectiveTargetId.startsWith("sp_") || effectiveTargetId.startsWith("spotify:")
+            val actualTargetId = if (!mappedId.isNullOrBlank() && !mappedId.startsWith("sp_") && !mappedId.startsWith("spotify:")) mappedId else effectiveTargetId
+            val isSpotifyId = actualTargetId.startsWith("sp_") || actualTargetId.startsWith("spotify:")
 
             // 1. Tier 1: Native Stream Extractor for exact YouTube ID
             if (!isSpotifyId) {
@@ -262,7 +263,7 @@ object AudioStreamResolver {
                     val tNpStart = System.currentTimeMillis()
                     ensureNewPipeInitialized()
                     val nativeStream = withTimeoutOrNull(6000L) {
-                        val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$effectiveTargetId")
+                        val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$actualTargetId")
                         streamExtractor.fetchPage()
                         val audioStreams = streamExtractor.audioStreams ?: emptyList()
                         val selectedAudio = selectStreamForQuality(audioStreams, quality, context)
@@ -271,22 +272,23 @@ object AudioStreamResolver {
                     val npMs = System.currentTimeMillis() - tNpStart
                     if (!nativeStream.isNullOrBlank()) {
                         val totalMs = System.currentTimeMillis() - t0Resolve
-                        diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $effectiveTargetId ('$title') in ${totalMs}ms [$quality, extraction took ${npMs}ms]")
+                        diagLog("[Diag-Resolver] WINNER: Native Stream Extractor for $actualTargetId ('$title') in ${totalMs}ms [$quality, extraction took ${npMs}ms]")
                         cacheStream(cacheKey, nativeStream)
+                        cacheStream(actualTargetId, nativeStream)
                         cacheStream(effectiveTargetId, nativeStream)
                         cacheStream(videoId, nativeStream)
                         return@withContext nativeStream
                     } else {
-                        diagLog("[Diag-Resolver] Native Extractor returned no stream for $effectiveTargetId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback (NEVER substituting alternative video)")
+                        diagLog("[Diag-Resolver] Native Extractor returned no stream for $actualTargetId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback")
                         return@withContext null
                     }
                 } catch (e: Exception) {
-                    diagLog("[Diag-Resolver] Native Extractor exception for $effectiveTargetId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback (NEVER substituting alternative video)")
+                    diagLog("[Diag-Resolver] Native Extractor exception for $actualTargetId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback")
                     return@withContext null
                 }
             } else {
                 diagLog("[Diag-Resolver] Spotify Track ID detected ($effectiveTargetId) - resolving official YouTube release")
-                val altStream = withTimeoutOrNull(6500L) {
+                val altStream = withTimeoutOrNull(9500L) {
                     resolveNonRestrictedAlternative(title, artist, effectiveTargetId, quality, context, duration)
                 }
                 if (!altStream.isNullOrBlank()) {
@@ -347,18 +349,26 @@ object AudioStreamResolver {
                 .filter { it.id != originalVideoId }
                 .mapNotNull { cand ->
                     val score = com.auralis.music.domain.search.SearchQueryMatcher.scoreTrackCandidate(dummyTarget, cand)
-                    if (score >= 45.0) cand to score else null
+                    if (score >= 40.0) cand to score else null
                 }
                 .sortedByDescending { it.second }
                 .map { it.first }
 
-            if (scoredCandidates.isEmpty()) {
-                diagLog("[Diag-Resolver] No high-confidence match found for track '$title' by '$artist'")
+            val bestCandidate = scoredCandidates.firstOrNull() ?: allCandidates.firstOrNull { it.id != originalVideoId }
+
+            if (bestCandidate == null) {
+                diagLog("[Diag-Resolver] No match found for track '$title' by '$artist'")
                 return null
             }
 
+            // CRITICAL: Immediately register matched YouTube ID so that YouTube Web Engine fallback
+            // can play the track even if ExoPlayer extraction times out or fails!
+            matchedVideoIdCache[originalVideoId] = bestCandidate.id
+            diagLog("[Diag-Resolver] Registered match: Spotify '$title' ($originalVideoId) -> YouTube '${bestCandidate.title}' (${bestCandidate.id})")
+
             ensureNewPipeInitialized()
-            for (candidate in scoredCandidates.take(2)) {
+            val candidatesToTry = (listOf(bestCandidate) + scoredCandidates.filter { it.id != bestCandidate.id }).take(2)
+            for (candidate in candidatesToTry) {
                 try {
                     val streamUrl = withTimeoutOrNull(4500L) {
                         val streamExtractor = org.schabi.newpipe.extractor.ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=${candidate.id}")

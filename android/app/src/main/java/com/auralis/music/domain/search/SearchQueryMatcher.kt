@@ -184,6 +184,19 @@ object SearchQueryMatcher {
                 ScoredTrack(track, MatchTier.CLOSE_TITLE, 80.0)
             }
 
+            // 3b. Query = title + extra words (usually a remembered lyric), e.g. "chogada tara" for
+            // "Chogada (From "Loveyatri")". This used to not match at all, so the song people
+            // actually mean fell into Recommendations below low-play exact-title uploads.
+            // Scored by how much of the query the title covers; popularity decides the rest.
+            (cleanTitle.length >= 4 && normQuery.startsWith("$cleanTitle ")) ||
+                (normTitle.length >= 4 && normQuery.startsWith("$normTitle ")) -> {
+                val covered = maxOf(
+                    if (normQuery.startsWith("$cleanTitle ")) cleanTitle.length else 0,
+                    if (normQuery.startsWith("$normTitle ")) normTitle.length else 0
+                )
+                ScoredTrack(track, MatchTier.CLOSE_TITLE, 70.0 + 20.0 * covered / normQuery.length.coerceAtLeast(1))
+            }
+
             // 4. Typo / Levenshtein distance <= 2 for short typo tolerance (e.g. "Dragula" for "dracula")
             dist <= 2 && normQuery.length >= 4 -> {
                 ScoredTrack(track, MatchTier.TYPO_MATCH, 70.0 - dist)
@@ -433,16 +446,18 @@ object SearchQueryMatcher {
         }
 
         // Sort actual matches:
-        // 1. Tier priority (EXACT_TITLE -> PREFIX_TITLE -> CLOSE_TITLE -> TYPO_MATCH -> ARTIST_MATCH -> METADATA_PARTIAL)
-        // 2. Highest view / play counts within that tier (e.g. Tame Impala Dracula with 232M views beats smaller Draculas)
-        // 3. Score
-        // 4. Original index
+        // 1. Match group: every title-based match (exact, prefix, contains, title+lyric words) is one
+        //    group, then typo, artist and loose metadata matches.
+        // 2. Score, which already carries the popularity boost (+35 at 1B plays ... +5 at 1M). Within
+        //    the title group this lets the song everyone means (1.3B plays, title + lyric query) beat
+        //    a 97K-play upload that happens to be titled exactly like the query. Exact titles still
+        //    win whenever popularity is comparable (exact 100 vs prefix ~90 vs title+lyric ~80).
+        // 3. Views, then YouTube Music's own order.
         val sortedMatchedTracks = scoredMatches
             .sortedWith(
                 compareBy<ScoredTrack> {
                     when (it.tier) {
-                        MatchTier.EXACT_TITLE -> 1
-                        MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE -> 2
+                        MatchTier.EXACT_TITLE, MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE -> 1
                         MatchTier.TYPO_MATCH -> 3
                         MatchTier.ARTIST_MATCH -> 4
                         MatchTier.METADATA_PARTIAL -> 5

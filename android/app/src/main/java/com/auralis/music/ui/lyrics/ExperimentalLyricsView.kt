@@ -411,7 +411,8 @@ fun ExperimentalLyricsView(
     onSearchManually: (() -> Unit)? = null,
     headerContent: (@Composable () -> Unit)? = null,
     footerContent: (@Composable () -> Unit)? = null,
-    track: Track? = null
+    track: Track? = null,
+    standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -710,17 +711,33 @@ fun ExperimentalLyricsView(
                     val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * LYRICS_ANCHOR_RATIO)
                     var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
                     if (itemInfo == null) {
-                        val currentFirst = listState.firstVisibleItemIndex
-                        val distance = kotlin.math.abs(targetIndex - currentFirst)
-                        if (distance > 8) {
-                            val preIndex = if (targetIndex > currentFirst) {
-                                (targetIndex - 2).coerceAtLeast(0)
-                            } else {
-                                (targetIndex + 2).coerceAtMost(mergedLyricsList.size - 1)
-                            }
-                            listState.scrollToItem(preIndex)
+                        val visibleNow = layoutInfo.visibleItemsInfo
+                        if (animate && visibleNow.isNotEmpty()) {
+                            // Off-screen target on an animated move (e.g. auto-resume after the user scrolled
+                            // away): glide there in one motion instead of jumping, estimating the distance
+                            // from the average visible line height. The correction below centres it exactly.
+                            val avgItem = visibleNow.map { it.size }.average().toFloat() + layoutInfo.mainAxisItemSpacing
+                            val anchor = visibleNow.first()
+                            val estimatedCenter = anchor.offset + (targetIndex - anchor.index) * avgItem + avgItem / 2f
+                            val estimatedDelta = estimatedCenter - targetCenterY
+                            val glideMs = (350 + kotlin.math.abs(estimatedDelta) / 6f).toInt().coerceIn(400, 900)
+                            listState.animateScrollBy(
+                                value = estimatedDelta,
+                                animationSpec = tween(durationMillis = glideMs, easing = FastOutSlowInEasing)
+                            )
                         } else {
-                            listState.scrollToItem(targetIndex)
+                            val currentFirst = listState.firstVisibleItemIndex
+                            val distance = kotlin.math.abs(targetIndex - currentFirst)
+                            if (distance > 8) {
+                                val preIndex = if (targetIndex > currentFirst) {
+                                    (targetIndex - 2).coerceAtLeast(0)
+                                } else {
+                                    (targetIndex + 2).coerceAtMost(mergedLyricsList.size - 1)
+                                }
+                                listState.scrollToItem(preIndex)
+                            } else {
+                                listState.scrollToItem(targetIndex)
+                            }
                         }
                         try {
                             withFrameMillis { }
@@ -784,11 +801,29 @@ fun ExperimentalLyricsView(
             activeListIndexState.value
         }
         if (activeIndex in mergedLyricsList.indices) {
+            // Mark it handled first so the follow-the-line effect (restarted by re-enabling
+            // auto scroll) does not launch a second, competing scroll to the same line.
+            lastCenteredIndex = activeIndex
             scope.launch {
                 centerActiveLine(activeIndex, true)
-                lastCenteredIndex = activeIndex
             }
         }
+    }
+
+    // Same as the standard view: with auto scroll on, resume following 1.5s after the user
+    // stops scrolling (unless they are selecting lines), instead of waiting for Re-sync.
+    LaunchedEffect(
+        appearance.autoScrollLyrics,
+        isAutoScrollEnabled,
+        listState.isScrollInProgress,
+        isSelectionModeActive,
+        isSynced
+    ) {
+        if (!appearance.autoScrollLyrics || !isSynced || isAutoScrollEnabled ||
+            listState.isScrollInProgress || isSelectionModeActive
+        ) return@LaunchedEffect
+        delay(1_500L)
+        resyncLyrics()
     }
 
     val lyricsNestedScrollConnection = remember {
@@ -903,6 +938,16 @@ fun ExperimentalLyricsView(
                             } else false
 
                             val bgVisible = !isAutoScrollEnabled || (line.isBackground && (activeLineIndices.contains(pairedMainLineIndex) || activeLineIndices.contains(index) || isInGapWithMain))
+                            val blurGeometry by remember(listIndex, listState, activeListIndexState) {
+                                derivedStateOf {
+                                    resolveLyricsBlurGeometry(
+                                        layoutInfo = listState.layoutInfo,
+                                        lineIndex = listIndex,
+                                        activeIndex = activeListIndexState.value,
+                                        fallbackActiveFraction = LYRICS_ANCHOR_RATIO
+                                    )
+                                }
+                            }
 
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
@@ -912,6 +957,7 @@ fun ExperimentalLyricsView(
                                     InstrumentalIntroIndicator(
                                         currentTimeMsState = introTimeState,
                                         introDurationMs = introDurationMs,
+                                        isMetroLyrics = true,
                                         onSkipIntro = { onSeekTo(introDurationMs) }
                                     )
                                 }
@@ -961,7 +1007,11 @@ fun ExperimentalLyricsView(
                                     syncType = lyrics?.syncType ?: SyncType.PLAIN,
                                     isPlaying = isPlaying,
                                     isBuffering = isBuffering || (pendingSeekTarget != null),
-                                    standardBlur = appearance.standardLyricsBlur,
+                                    standardBlur = standardLyricsBlur,
+                                    lineCenterPx = blurGeometry.lineCenterPx,
+                                    activeLineCenterPx = blurGeometry.activeLineCenterPx,
+                                    viewportStartPx = blurGeometry.viewportStartPx,
+                                    viewportEndPx = blurGeometry.viewportEndPx,
                                     onSizeChanged = { },
                                     onClick = {
                                         if (isSelectionModeActive) {
@@ -1010,6 +1060,7 @@ fun ExperimentalLyricsView(
                                 currentPositionMs = currentPositionState,
                                 visible = indicatorVisible,
                                 color = Color.White,
+                                isMetroLyrics = true,
                                 onSkip = { onSeekTo(listItem.gapEndMs) }
                             )
                         }
@@ -1185,6 +1236,10 @@ internal fun ExperimentalLyricsLine(
     isPlaying: Boolean,
     isBuffering: Boolean = false,
     standardBlur: Boolean = false,
+    lineCenterPx: Float = Float.NaN,
+    activeLineCenterPx: Float = Float.NaN,
+    viewportStartPx: Float = Float.NaN,
+    viewportEndPx: Float = Float.NaN,
     onSizeChanged: (Int) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -1258,21 +1313,26 @@ internal fun ExperimentalLyricsLine(
     ) {
         @Composable
         fun LineContent() {
-            val distanceFromCurrent = if (isActiveLine) 0 else abs(index - displayedCurrentLineIndex)
             val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine) {
                 0f
             } else {
-                when (distanceFromCurrent) {
-                    0 -> 0f
-                    1 -> 2.5f
-                    2 -> 4.5f
-                    else -> 6f
-                }
+                computeLyricsProgressiveBlur(
+                    standardBlur = true,
+                    isSynced = isSynced,
+                    isPlain = syncType == SyncType.PLAIN,
+                    isSelected = isSelected,
+                    isCurrent = isActiveLine,
+                    isUserInteracting = !isAutoScrollEnabled,
+                    lineCenterPx = lineCenterPx,
+                    activeLineCenterPx = activeLineCenterPx,
+                    viewportStartPx = viewportStartPx,
+                    viewportEndPx = viewportEndPx
+                )
             }
 
             val animatedBlur by animateFloatAsState(
                 targetValue = targetBlur,
-                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                animationSpec = if (!standardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
                 label = "expLineBlur"
             )
 

@@ -38,6 +38,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.ui.platform.LocalContext
+import com.auralis.music.data.datastore.PrivacyDataStore
+import com.auralis.music.domain.model.PrivacySettings
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import com.auralis.music.ui.components.SwipeableTrackContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -60,9 +69,7 @@ import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.auralis.music.domain.recommendations.TrackDeduplicator
 
 val HISTORY_LIME: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -71,13 +78,14 @@ val HISTORY_CARD_BG: Color
 
 /**
  * Fullscreen Listening History Sheet opened from the top header history button.
- * Lists all played songs with playback timestamps, clear history, and instant play.
+ * Lists all played songs without timestamps, clear history, and instant play.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistorySheet(
     history: List<HistoryEntry>,
-    currentTrackId: String?,
+    currentTrack: Track? = null,
+    currentTrackId: String? = currentTrack?.id,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
     onRemoveFromHistory: (String) -> Unit,
@@ -143,6 +151,46 @@ fun HistorySheet(
                 }
             }
 
+            val context = LocalContext.current
+            val coroutineScope = rememberCoroutineScope()
+            val privacyDataStore = remember { PrivacyDataStore(context) }
+            val privacySettings by privacyDataStore.settingsFlow.collectAsState(initial = PrivacySettings())
+
+            if (privacySettings.pauseListenHistory) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clickable {
+                            coroutineScope.launch {
+                                privacyDataStore.setPauseListenHistory(false)
+                            }
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PauseCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "History is paused in Privacy Settings. Tap to resume.",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
             if (history.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -182,7 +230,7 @@ fun HistorySheet(
                 }
             } else {
                 val trackList = history.map { it.track }
-                val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+                val currentTrackFp = remember(currentTrack) { currentTrack?.let { TrackDeduplicator.getSongFingerprint(it) } }
 
                 val historyBottomPad = if (currentTrackId != null) 120.dp else 32.dp
                 LazyColumn(
@@ -201,7 +249,8 @@ fun HistorySheet(
 
                     items(history, key = { "${it.track.id}_${it.playedAt}" }) { entry ->
                         val track = entry.track
-                        val isCurrent = track.id == currentTrackId
+                        val isCurrent = track.id == currentTrackId ||
+                                (currentTrackFp != null && TrackDeduplicator.isDuplicateSong(TrackDeduplicator.getSongFingerprint(track), currentTrackFp, matchAlternateVersions = true))
 
                         SwipeableTrackContainer(
                             onPlayNext = onPlayNext?.let { { it(track) } },
@@ -241,22 +290,13 @@ fun HistorySheet(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = track.artist,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                        Text(
-                                            text = " • ${timeFormat.format(Date(entry.playedAt))}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 11.sp
-                                        )
-                                    }
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
 
                                 if (isCurrent) {

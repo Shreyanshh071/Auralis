@@ -635,6 +635,7 @@ class UnisonLyricsSourceTest {
 
         val mockDao = object : LyricsDao {
             override suspend fun getLyrics(trackId: String): LyricsEntity? = storedEntity
+            override suspend fun getBestLyricsByMetadata(title: String, artist: String, durationMs: Long, pipelineVersion: Int, durationToleranceMs: Long): LyricsEntity? = null
             override suspend fun insertLyrics(entity: LyricsEntity) { storedEntity = entity }
             override suspend fun deleteLyrics(trackId: String) { storedEntity = null }
             override suspend fun clearAllLyrics() { storedEntity = null }

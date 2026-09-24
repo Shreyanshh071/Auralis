@@ -261,4 +261,31 @@ class DynamicThemeBackgroundTest {
             )
         }
     }
+
+    @Test
+    fun testCuratedColorSchemeMatchesSelectedPalette() {
+        val skyBlue = com.auralis.music.ui.theme.getCuratedColorScheme(
+            paletteId = "Sky Blue",
+            isDark = true,
+            isAmoled = false,
+            appTheme = "Dark Mode"
+        )
+        assertEquals(
+            "Curated scheme for Sky Blue must use Sky Blue primary color",
+            Color(0xFF4FC3F7),
+            skyBlue.primary
+        )
+
+        val rubyRed = com.auralis.music.ui.theme.getCuratedColorScheme(
+            paletteId = "Ruby Red",
+            isDark = true,
+            isAmoled = false,
+            appTheme = "Dark Mode"
+        )
+        assertEquals(
+            "Curated scheme for Ruby Red must use Ruby Red primary color",
+            Color(0xFFEF5350),
+            rubyRed.primary
+        )
+    }
 }

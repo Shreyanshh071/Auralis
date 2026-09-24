@@ -294,18 +294,35 @@ fun HomeScreen(
                                                         item = item,
                                                         modifier = Modifier.fillMaxSize(),
                                                         onClick = {
+                                                            android.util.Log.d("AuralisPlayback", "[SpeedDial Tap] item='${item.name}' (${item.id}, type=${item.type})")
                                                             when (item.type) {
                                                                 SpeedDialType.TRACK -> {
-                                                                    item.track?.let { trk ->
-                                                                        val speedDialTracks = items.mapNotNull { it.track }
-                                                                        val queueToPlay = if (speedDialTracks.size > 1) speedDialTracks else listOf(trk)
-                                                                        onTrackClick(trk, queueToPlay)
-                                                                    }
+                                                                    val canonicalId = SpeedDialIdHelper.getCanonicalTrackId(item.id) ?: item.id
+                                                                    val trk = item.track ?: com.auralis.music.domain.model.Track(
+                                                                        id = canonicalId,
+                                                                        title = item.name,
+                                                                        artist = item.artistQuery ?: "",
+                                                                        thumbnail = item.image ?: ""
+                                                                    )
+                                                                    val speedDialTracks = items.filter { it.type == SpeedDialType.TRACK }.map { dialItem ->
+                                                                        dialItem.track ?: com.auralis.music.domain.model.Track(
+                                                                            id = SpeedDialIdHelper.getCanonicalTrackId(dialItem.id) ?: dialItem.id,
+                                                                            title = dialItem.name,
+                                                                            artist = dialItem.artistQuery ?: "",
+                                                                            thumbnail = dialItem.image ?: ""
+                                                                        )
+                                                                    }.ifEmpty { listOf(trk) }
+                                                                    val queueToPlay = if (speedDialTracks.any { it.id == trk.id }) speedDialTracks else listOf(trk) + speedDialTracks
+                                                                    onTrackClick(trk, queueToPlay)
                                                                 }
                                                                 SpeedDialType.ALBUM -> {
-                                                                    item.album?.let { alb ->
-                                                                        onAlbumClick(alb)
-                                                                    }
+                                                                    val alb = item.album ?: com.auralis.music.domain.model.PlaylistResult(
+                                                                        id = item.id.removePrefix("album-"),
+                                                                        title = item.name,
+                                                                        author = item.artistQuery,
+                                                                        thumbnail = item.image ?: ""
+                                                                    )
+                                                                    onAlbumClick(alb)
                                                                 }
                                                                 SpeedDialType.ARTIST -> {
                                                                     onArtistClick(
@@ -408,7 +425,8 @@ fun HomeScreen(
                                 .border(1.dp, themeOnBackground.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                                 .clickable {
                                     if (uiState.quickPicks.isNotEmpty()) {
-                                        onTrackClick(uiState.quickPicks.first(), uiState.quickPicks)
+                                        val shown = uiState.quickPicks.take(16)
+                                        onTrackClick(shown.first(), shown)
                                     }
                                 }
                                 .padding(horizontal = 14.dp, vertical = 4.dp)
@@ -422,8 +440,9 @@ fun HomeScreen(
                         }
                     }
 
+                    // Exactly 4 pages of 4 (16 songs), even when more picks were fetched.
                     val quickPickPages = remember(uiState.quickPicks) {
-                        uiState.quickPicks.chunked(4)
+                        uiState.quickPicks.take(16).chunked(4)
                     }
                     val quickPicksPagerState = rememberPagerState { quickPickPages.size }
 
@@ -443,16 +462,19 @@ fun HomeScreen(
                         ) {
                             pageTracks.forEach { track ->
                                 val isCurrent = track.id == currentTrackId
+                                // No row swipe here: with "swipe left/right to queue/play next" on,
+                                // the rows swallowed every sideways swipe, so the 4 pages could
+                                // never be reached. Play next / Add to queue stay in the long-press menu.
                                 SwipeableTrackContainer(
-                                    onPlayNext = { onPlayNext(track) },
-                                    onAddToQueue = { onAddToQueue(track) }
+                                    onPlayNext = null,
+                                    onAddToQueue = null
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(10.dp))
                                             .combinedClickable(
-                                                onClick = { onTrackClick(track, uiState.quickPicks) },
+                                                onClick = { onTrackClick(track, uiState.quickPicks.take(16)) },
                                                 onLongClick = { selectedTrackForMenu = track }
                                             )
                                             .padding(vertical = 4.dp),
@@ -494,6 +516,27 @@ fun HomeScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    if (quickPickPages.size > 1) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        // Page dots, same style as Speed dial, so the swipeable pages are discoverable.
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(quickPickPages.size) { idx ->
+                                val isCurrentPage = quickPicksPagerState.currentPage == idx
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 4.dp)
+                                        .size(if (isCurrentPage) 7.dp else 5.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isCurrentPage) themePrimary else themeOnBackground.copy(alpha = 0.25f))
+                                )
                             }
                         }
                     }
@@ -635,7 +678,11 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .width(115.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .clickable { onTrackClick(track, simRec.items) }
+                                        // Long-press opens the song's ⋮ menu, like every other Home shelf.
+                                        .combinedClickable(
+                                            onClick = { onTrackClick(track, simRec.items) },
+                                            onLongClick = { selectedTrackForMenu = track }
+                                        )
                                         .padding(4.dp)
                                 ) {
                                     ArtworkCard(
@@ -809,13 +856,14 @@ fun HomeScreen(
             onGoToArtist = {
                 onArtistClick(Artist(id = "", name = track.artist))
             },
-            onGoToAlbum = { albumId, albumTitle ->
+            onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
+                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
                 onAlbumClick(
                     PlaylistResult(
-                        id = albumId ?: "album-${track.id}",
+                        id = albumId ?: cached?.albumId ?: "album-${track.id}",
                         title = albumTitle,
-                        author = track.artist,
-                        thumbnail = track.thumbnail
+                        author = albumArtist ?: cached?.artistName ?: track.artist,
+                        thumbnail = albumArt ?: cached?.albumArt ?: track.thumbnail
                     )
                 )
             },

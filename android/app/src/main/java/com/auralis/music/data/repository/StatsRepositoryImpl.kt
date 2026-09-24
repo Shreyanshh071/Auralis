@@ -44,17 +44,16 @@ class StatsRepositoryImpl(
     }
 
     override fun observeStatsOverview(fromTimestamp: Long, toTimestamp: Long): Flow<StatsOverview> {
-        return combine(
-            playbackEventDao.getTotalPlayTimeInRange(fromTimestamp, toTimestamp),
-            playbackEventDao.getUniqueSongCountInRange(fromTimestamp, toTimestamp),
-            playbackEventDao.getUniqueArtistCountInRange(fromTimestamp, toTimestamp),
-            playbackEventDao.getUniqueAlbumCountInRange(fromTimestamp, toTimestamp)
-        ) { totalTime, songs, artists, albums ->
+        // Counted from the same grouped events as the lists below, so "75 Songs" means 75 distinct
+        // songs (not 75 YouTube IDs, where one song can have an audio, video and Topic upload).
+        return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
             StatsOverview(
-                totalPlayTimeMs = totalTime ?: 0L,
-                songsCount = songs,
-                artistsCount = artists,
-                albumsCount = albums
+                totalPlayTimeMs = list.sumOf { it.event.playTimeMs },
+                songsCount = list.map { songKey(it.track.toDomain()) }.distinct().size,
+                artistsCount = list.mapNotNull { artistKey(it.track.artist) }.distinct().size,
+                albumsCount = list.mapNotNull { e ->
+                    e.track.album?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+                }.distinct().size
             )
         }
     }
@@ -65,16 +64,20 @@ class StatsRepositoryImpl(
         limit: Int
     ): Flow<List<SongStat>> {
         return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
-            list.groupBy { it.track.id }
+            // Group by the song itself (cleaned title + artist), not the YouTube ID: the same song
+            // played from its official audio and its music video used to show up twice.
+            list.groupBy { songKey(it.track.toDomain()) }
                 .map { (_, events) ->
-                    val first = events.first()
-                    val totalDuration = events.sumOf { it.event.playTimeMs }
+                    // Show the version that was played most.
+                    val representative = events.groupBy { it.track.id }
+                        .maxByOrNull { (_, e) -> e.size }!!.value.first().track
                     SongStat(
-                        track = first.track.toDomain(),
-                        playCount = events.size,
-                        timeListenedMs = totalDuration
+                        track = representative.toDomain(),
+                        playCount = events.count { countsAsPlay(it.event.playTimeMs, it.track.duration) },
+                        timeListenedMs = events.sumOf { it.event.playTimeMs }
                     )
                 }
+                .filter { it.timeListenedMs > 0 }
                 .sortedByDescending { it.timeListenedMs }
                 .take(limit)
         }
@@ -86,22 +89,44 @@ class StatsRepositoryImpl(
         limit: Int
     ): Flow<List<ArtistStat>> {
         return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
-            list.filter { it.track.artist.isNotBlank() }
-                .groupBy { it.track.artist.trim() }
-                .map { (artistName, events) ->
-                    val distinctSongs = events.map { it.track.id }.distinct().size
-                    val totalDuration = events.sumOf { it.event.playTimeMs }
+            list.mapNotNull { e -> artistKey(e.track.artist)?.let { it to e } }
+                .groupBy({ it.first }, { it.second })
+                .map { (_, events) ->
+                    // Most common spelling, without YouTube's " - Topic" channel suffix.
+                    val artistName = events.groupingBy { displayArtist(it.track.artist) }.eachCount()
+                        .maxByOrNull { it.value }!!.key
                     val photo = com.auralis.music.data.network.ArtistPhotoProvider.getCachedPhoto(artistName)
                     ArtistStat(
                         name = artistName,
                         thumbnailUrl = photo,
-                        songsPlayedCount = distinctSongs,
-                        timeListenedMs = totalDuration
+                        songsPlayedCount = events.map { songKey(it.track.toDomain()) }.distinct().size,
+                        timeListenedMs = events.sumOf { it.event.playTimeMs }
                     )
                 }
                 .sortedByDescending { it.timeListenedMs }
                 .take(limit)
         }
+    }
+
+    private fun songKey(track: Track): String {
+        val fp = com.auralis.music.domain.recommendations.TrackDeduplicator.getSongFingerprint(track)
+        val title = fp.normalizedCoreTitle.ifBlank { fp.normalizedTitle }.ifBlank { track.id }
+        return "${fp.normalizedArtist}|$title"
+    }
+
+    private fun displayArtist(raw: String): String =
+        raw.trim().replace(Regex("""(?i)\s*-\s*topic$"""), "").replace(Regex("""(?i)vevo$"""), "").trim()
+
+    private fun artistKey(raw: String): String? =
+        displayArtist(raw).lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "").takeIf { it.isNotBlank() }
+
+    /**
+     * A listen counts as a "play" once it reaches 30s (or half the song, for songs under a minute).
+     * Time listened always counts in full; this only stops skips from inflating play counts.
+     */
+    private fun countsAsPlay(playTimeMs: Long, durationSec: Long): Boolean {
+        val threshold = if (durationSec in 1..59) durationSec * 500L else 30_000L
+        return playTimeMs >= threshold
     }
 
     override fun observeFirstEventTimestamp(): Flow<Long?> {

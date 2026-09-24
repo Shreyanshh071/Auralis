@@ -129,6 +129,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -217,6 +218,7 @@ fun LibraryScreen(
     onAddToQueueTrack: (Track) -> Unit = {},
     onStartRadio: (Track) -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
+    onOpenAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
     onReorderPlaylistTracks: ((String, Int, Int) -> Unit)? = null,
@@ -267,6 +269,9 @@ fun LibraryScreen(
             tracks = uiState.downloadedTracks
         )
     }
+    val activeDownloads by com.auralis.music.data.download.AuralisDownloadManager.activeDownloads.collectAsState()
+    val isJobDownloading = activeDownloads.isNotEmpty() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
+    val hasDownloads = uiState.downloadedTracks.isNotEmpty() || isJobDownloading
     val top50Playlist = remember(uiState.top50Tracks) {
         Playlist(
             id = "smart_top_50",
@@ -334,6 +339,7 @@ fun LibraryScreen(
             if (selectedPl != null) {
                 PlaylistDetailView(
                     playlist = selectedPl,
+                    savedAlbums = uiState.savedAlbums,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
                     userName = userName,
@@ -382,6 +388,18 @@ fun LibraryScreen(
                         },
                         onGoToArtist = {
                             onOpenArtist(Artist(id = "", name = track.artist))
+                            selectedTrackForMenu = null
+                        },
+                        onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
+                            val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+                            onOpenAlbum?.invoke(
+                                com.auralis.music.domain.model.PlaylistResult(
+                                    id = albumId ?: cached?.albumId ?: "album-${track.id}",
+                                    title = albumTitle,
+                                    author = albumArtist ?: cached?.artistName ?: track.artist,
+                                    thumbnail = albumArt ?: cached?.albumArt ?: track.thumbnail
+                                )
+                            )
                             selectedTrackForMenu = null
                         },
                         onAddToPlaylist = { playlist ->
@@ -651,13 +669,11 @@ fun LibraryScreen(
                             }
 
                             // 2. Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
-                            val hasDownloads = uiState.downloadedTracks.isNotEmpty() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" || it.completedCount > 0 }
                             if (appearance.showDownloadedPlaylist && hasDownloads) {
-                                val isJobDownloading = uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
                                 item(key = "smart_downloaded", contentType = "smart_card") {
                                     SmartLibraryCard(
                                         title = "Downloaded",
-                                        subtitle = if (isJobDownloading) "Downloading..." else "${uiState.downloadedTracks.size} songs",
+                                        subtitle = if (isJobDownloading) "Downloading..." else if (uiState.downloadedTracks.size == 1) "1 song" else "${uiState.downloadedTracks.size} songs",
                                         icon = if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone,
                                         tracks = uiState.downloadedTracks,
                                         onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) },
@@ -700,6 +716,7 @@ fun LibraryScreen(
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                 UserPlaylistGridCard(
                                     playlist = playlist,
+                                    savedAlbums = uiState.savedAlbums,
                                     onClick = { onPlaylistSelect(playlist) },
                                     onLongClick = { selectedPlaylistForMenu = playlist }
                                 )
@@ -730,13 +747,11 @@ fun LibraryScreen(
                             }
 
                             // Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
-                            val hasDownloadsList = uiState.downloadedTracks.isNotEmpty() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" || it.completedCount > 0 }
-                            if (appearance.showDownloadedPlaylist && hasDownloadsList) {
-                                val isJobDownloading = uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
+                            if (appearance.showDownloadedPlaylist && hasDownloads) {
                                 item(key = "list_smart_downloaded", contentType = "smart_row") {
                                     SmartLibraryListRow(
                                         title = "Downloaded",
-                                        subtitle = if (isJobDownloading) "Downloading..." else "${uiState.downloadedTracks.size} songs",
+                                        subtitle = if (isJobDownloading) "Downloading..." else if (uiState.downloadedTracks.size == 1) "1 song" else "${uiState.downloadedTracks.size} songs",
                                         icon = if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone,
                                         tracks = uiState.downloadedTracks,
                                         onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) },
@@ -780,6 +795,7 @@ fun LibraryScreen(
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                 UserPlaylistListRow(
                                     playlist = playlist,
+                                    savedAlbums = uiState.savedAlbums,
                                     onClick = { onPlaylistSelect(playlist) },
                                     onLongClick = { selectedPlaylistForMenu = playlist }
                                 )
@@ -926,6 +942,153 @@ fun LibraryScreen(
 // 🔲 SMART LIBRARY CARD (Liked, Downloaded, Cached, My Top 50, Uploaded)
 // ============================================================================
 
+/**
+ * Deduplicates tracks to find distinct album/artwork representations.
+ * If all tracks share the same album or thumbnail (e.g. an added album),
+ * this returns a list of size 1 so that a single full-size album artwork
+ * is displayed rather than a 4-quadrant collage of identical images.
+ */
+internal fun getDistinctArtworkTracks(tracks: List<Track>): List<Track> {
+    val seenArtworkKeys = mutableSetOf<String>()
+    val result = mutableListOf<Track>()
+    for (track in tracks) {
+        if (track.thumbnail.isBlank() && track.id.isBlank()) continue
+        val cleanThumb = track.thumbnail.substringBefore("=").substringBefore("?").trim()
+        val albumKey = when {
+            !track.albumId.isNullOrBlank() -> "albumId:${track.albumId}"
+            !track.album.isNullOrBlank() && !track.album.equals("Single", ignoreCase = true) -> "album:${track.album.trim().lowercase()}"
+            else -> null
+        }
+        val thumbKey = if (cleanThumb.isNotBlank()) "thumb:$cleanThumb" else null
+        val idKey = "track:${track.id}"
+
+        val hasMatch = (albumKey != null && albumKey in seenArtworkKeys) ||
+                (thumbKey != null && thumbKey in seenArtworkKeys)
+
+        if (!hasMatch) {
+            albumKey?.let { seenArtworkKeys.add(it) }
+            thumbKey?.let { seenArtworkKeys.add(it) }
+            seenArtworkKeys.add(idKey)
+            result.add(track)
+        }
+    }
+    return result
+}
+
+/**
+ * Determines whether a playlist item represents an album rather than a user collection/playlist.
+ */
+internal fun isAlbumPlaylist(
+    playlist: Playlist,
+    savedAlbums: List<SavedAlbum> = emptyList()
+): Boolean {
+    val id = playlist.id
+    // 1. YouTube Music album browse ID or Auralis synthetic album ID
+    if (id.startsWith("album-") || id.startsWith("album:") || id.startsWith("MPREb_") || id.startsWith("OLAK5uy_") || id.startsWith("VLOLAK5uy_")) {
+        return true
+    }
+    if (com.auralis.music.domain.recommendations.SpeedDialIdHelper.isAlbumId(id) && !id.startsWith("VLPL") && !id.startsWith("PL")) {
+        return true
+    }
+
+    // 2. Description explicitly created by Auralis album-addition or album import
+    val desc = playlist.description?.trim()
+    if (desc != null && (desc.startsWith("Album by ", ignoreCase = true) ||
+            desc.startsWith("Album •", ignoreCase = true) ||
+            desc.equals("Album", ignoreCase = true) ||
+            desc.startsWith("EP by ", ignoreCase = true) ||
+            desc.startsWith("Single by ", ignoreCase = true))) {
+        return true
+    }
+
+    // 3. Matched against user's saved albums
+    if (savedAlbums.isNotEmpty()) {
+        val cleanTitle = playlist.title.trim()
+        if (savedAlbums.any { it.id == id || it.title.equals(cleanTitle, ignoreCase = true) }) {
+            return true
+        }
+    }
+
+    // 4. Track album metadata consistency
+    if (playlist.tracks.isNotEmpty()) {
+        val cleanPlaylistTitle = playlist.title.trim()
+
+        // Check if all tracks with albumId share the same albumId
+        val albumIds = playlist.tracks.mapNotNull { it.albumId?.trim()?.takeIf { aId -> aId.isNotBlank() } }
+        if (albumIds.isNotEmpty() && albumIds.all { it == albumIds.first() }) {
+            return true
+        }
+
+        // Check if all tracks with album name belong to the same album
+        val meaningfulAlbums = playlist.tracks.mapNotNull {
+            it.album?.trim()?.takeIf { a -> a.isNotBlank() && !a.equals("Single", ignoreCase = true) }
+        }
+        if (meaningfulAlbums.isNotEmpty() &&
+            meaningfulAlbums.all { it.equals(meaningfulAlbums.first(), ignoreCase = true) } &&
+            meaningfulAlbums.size >= (playlist.tracks.size / 2).coerceAtLeast(1)) {
+            return true
+        }
+
+        // Check if the playlist title matches the album of the tracks
+        if (playlist.tracks.any { it.album?.trim()?.equals(cleanPlaylistTitle, ignoreCase = true) == true }) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/**
+ * Resolves the canonical single album artwork URL using canonical Auralis metadata sources.
+ */
+internal fun resolveAlbumArtworkUrl(
+    playlist: Playlist,
+    savedAlbums: List<SavedAlbum> = emptyList()
+): String? {
+    // 1. Direct album cover if set
+    if (!playlist.coverUrl.isNullOrBlank()) {
+        return playlist.coverUrl
+    }
+
+    // 2. SavedAlbum thumbnail if present
+    if (savedAlbums.isNotEmpty()) {
+        val cleanTitle = playlist.title.trim()
+        val matchingSaved = savedAlbums.firstOrNull { it.id == playlist.id || it.title.equals(cleanTitle, ignoreCase = true) }
+        if (!matchingSaved?.thumbnail.isNullOrBlank()) {
+            return matchingSaved?.thumbnail
+        }
+    }
+
+    // 3. Track's thumbnail if tracks are present (album tracks inherently carry the official album thumbnail)
+    val trackThumb = playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+    if (!trackThumb.isNullOrBlank()) {
+        return trackThumb
+    }
+
+    // 4. Cached album artwork in AlbumMetadataResolver across tracks ONLY IF the cached album title matches the playlist title!
+    val cleanPlaylistTitle = playlist.title.trim()
+    for (track in playlist.tracks) {
+        val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+        if (!cached?.albumArt.isNullOrBlank() &&
+            !cached?.albumTitle.isNullOrBlank() &&
+            (cached.albumTitle.equals(cleanPlaylistTitle, ignoreCase = true) ||
+             cleanPlaylistTitle.contains(cached.albumTitle, ignoreCase = true) ||
+             cached.albumTitle.contains(cleanPlaylistTitle, ignoreCase = true))) {
+            return cached.albumArt
+        }
+    }
+
+    // 5. Cached artwork in ArtworkResolver across tracks
+    for (track in playlist.tracks) {
+        val art = com.auralis.music.data.network.ArtworkResolver.getArtwork(track)
+        if (!art.isNullOrBlank()) {
+            return art
+        }
+    }
+
+    return null
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SmartLibraryCard(
@@ -938,6 +1101,9 @@ private fun SmartLibraryCard(
 ) {
     val validTracks = remember(tracks) {
         tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+    }
+    val distinctTracks = remember(tracks) {
+        getDistinctArtworkTracks(tracks)
     }
 
     Column(
@@ -955,19 +1121,19 @@ private fun SmartLibraryCard(
                 .clip(RoundedCornerShape(18.dp))
                 .background(CARD_DARK_BG)
         ) {
-            if (validTracks.size >= 4) {
+            if (distinctTracks.size >= 4) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         ArtworkCard(
-                            url = validTracks[0].thumbnail,
-                            fallbackTrack = validTracks[0],
+                            url = distinctTracks[0].thumbnail,
+                            fallbackTrack = distinctTracks[0],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
                         )
                         ArtworkCard(
-                            url = validTracks[1].thumbnail,
-                            fallbackTrack = validTracks[1],
+                            url = distinctTracks[1].thumbnail,
+                            fallbackTrack = distinctTracks[1],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
@@ -975,15 +1141,15 @@ private fun SmartLibraryCard(
                     }
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         ArtworkCard(
-                            url = validTracks[2].thumbnail,
-                            fallbackTrack = validTracks[2],
+                            url = distinctTracks[2].thumbnail,
+                            fallbackTrack = distinctTracks[2],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
                         )
                         ArtworkCard(
-                            url = validTracks[3].thumbnail,
-                            fallbackTrack = validTracks[3],
+                            url = distinctTracks[3].thumbnail,
+                            fallbackTrack = distinctTracks[3],
                             modifier = Modifier.weight(1f).fillMaxSize(),
                             cornerRadius = 0.dp,
                             contentDescription = null
@@ -1077,11 +1243,18 @@ private fun SmartLibraryCard(
 @Composable
 private fun UserPlaylistGridCard(
     playlist: Playlist,
+    savedAlbums: List<SavedAlbum> = emptyList(),
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
+    val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
+        isAlbumPlaylist(playlist, savedAlbums)
+    }
     val validTracks = remember(playlist.tracks) {
         playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+    }
+    val distinctTracks = remember(playlist.tracks) {
+        getDistinctArtworkTracks(playlist.tracks)
     }
 
     Column(
@@ -1099,58 +1272,72 @@ private fun UserPlaylistGridCard(
                 .clip(RoundedCornerShape(18.dp))
                 .background(CARD_DARK_BG)
         ) {
-            // If custom cover is set, display it; otherwise show 4-quadrant collage or single artwork
-            if (!playlist.coverUrl.isNullOrBlank()) {
-                ArtworkCard(
-                    url = playlist.coverUrl,
-                    fallbackTrack = validTracks.firstOrNull(),
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 18.dp,
-                    contentDescription = playlist.title
-                )
-            } else if (validTracks.size >= 4) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ArtworkCard(
-                            url = validTracks[0].thumbnail,
-                            fallbackTrack = validTracks[0],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                        ArtworkCard(
-                            url = validTracks[1].thumbnail,
-                            fallbackTrack = validTracks[1],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                    }
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ArtworkCard(
-                            url = validTracks[2].thumbnail,
-                            fallbackTrack = validTracks[2],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                        ArtworkCard(
-                            url = validTracks[3].thumbnail,
-                            fallbackTrack = validTracks[3],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                    }
+            if (isAlbum) {
+                // Album cards must display ONE actual album cover matching Player artwork presentation (no 2x2 collage)
+                val albumCoverUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums) {
+                    resolveAlbumArtworkUrl(playlist, savedAlbums)
                 }
-            } else {
                 ArtworkCard(
-                    url = validTracks.firstOrNull()?.thumbnail ?: playlist.tracks.firstOrNull()?.thumbnail,
+                    url = albumCoverUrl,
                     fallbackTrack = validTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
                     modifier = Modifier.fillMaxSize(),
                     cornerRadius = 18.dp,
                     contentDescription = playlist.title
                 )
+            } else {
+                // Playlist/collection artwork behavior remains unchanged
+                if (!playlist.coverUrl.isNullOrBlank()) {
+                    ArtworkCard(
+                        url = playlist.coverUrl,
+                        fallbackTrack = validTracks.firstOrNull(),
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 18.dp,
+                        contentDescription = playlist.title
+                    )
+                } else if (distinctTracks.size >= 4) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            ArtworkCard(
+                                url = distinctTracks[0].thumbnail,
+                                fallbackTrack = distinctTracks[0],
+                                modifier = Modifier.weight(1f).fillMaxSize(),
+                                cornerRadius = 0.dp,
+                                contentDescription = null
+                            )
+                            ArtworkCard(
+                                url = distinctTracks[1].thumbnail,
+                                fallbackTrack = distinctTracks[1],
+                                modifier = Modifier.weight(1f).fillMaxSize(),
+                                cornerRadius = 0.dp,
+                                contentDescription = null
+                            )
+                        }
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            ArtworkCard(
+                                url = distinctTracks[2].thumbnail,
+                                fallbackTrack = distinctTracks[2],
+                                modifier = Modifier.weight(1f).fillMaxSize(),
+                                cornerRadius = 0.dp,
+                                contentDescription = null
+                            )
+                            ArtworkCard(
+                                url = distinctTracks[3].thumbnail,
+                                fallbackTrack = distinctTracks[3],
+                                modifier = Modifier.weight(1f).fillMaxSize(),
+                                cornerRadius = 0.dp,
+                                contentDescription = null
+                            )
+                        }
+                    }
+                } else {
+                    ArtworkCard(
+                        url = validTracks.firstOrNull()?.thumbnail ?: playlist.tracks.firstOrNull()?.thumbnail,
+                        fallbackTrack = validTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 18.dp,
+                        contentDescription = playlist.title
+                    )
+                }
             }
         }
 
@@ -1263,11 +1450,22 @@ private fun SmartLibraryListRow(
 @Composable
 private fun UserPlaylistListRow(
     playlist: Playlist,
+    savedAlbums: List<SavedAlbum> = emptyList(),
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
+    val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
+        isAlbumPlaylist(playlist, savedAlbums)
+    }
     val firstValid = remember(playlist.tracks) {
         playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() } ?: playlist.tracks.firstOrNull()
+    }
+    val artworkUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums, isAlbum) {
+        if (isAlbum) {
+            resolveAlbumArtworkUrl(playlist, savedAlbums)
+        } else {
+            playlist.coverUrl ?: firstValid?.thumbnail
+        }
     }
 
     Row(
@@ -1284,7 +1482,7 @@ private fun UserPlaylistListRow(
     ) {
         ArtworkCard(
             sizeToConstraints = true,
-            url = playlist.coverUrl ?: firstValid?.thumbnail,
+            url = artworkUrl,
             fallbackTrack = firstValid,
             modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)),
             cornerRadius = 10.dp,
@@ -1450,6 +1648,7 @@ private data class PlaylistTrackItem(
 @Composable
 private fun PlaylistDetailView(
     playlist: Playlist,
+    savedAlbums: List<SavedAlbum> = emptyList(),
     currentTrackId: String?,
     isPlaying: Boolean,
     userName: String = "You",
@@ -1837,8 +2036,26 @@ private fun PlaylistDetailView(
                             val detailValidTracks = remember(playlist.tracks) {
                                 playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
                             }
+                            val detailDistinctTracks = remember(playlist.tracks) {
+                                getDistinctArtworkTracks(playlist.tracks)
+                            }
 
-                            if (!playlist.coverUrl.isNullOrBlank()) {
+                            val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
+                                isAlbumPlaylist(playlist, savedAlbums)
+                            }
+
+                            if (isAlbum) {
+                                val albumCoverUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums) {
+                                    resolveAlbumArtworkUrl(playlist, savedAlbums)
+                                }
+                                ArtworkCard(
+                                    url = albumCoverUrl,
+                                    fallbackTrack = detailValidTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
+                                    modifier = Modifier.fillMaxSize(),
+                                    cornerRadius = 18.dp,
+                                    contentDescription = playlist.title
+                                )
+                            } else if (!playlist.coverUrl.isNullOrBlank()) {
                                 ArtworkCard(
                                     url = playlist.coverUrl,
                                     fallbackTrack = detailValidTracks.firstOrNull(),
@@ -1846,19 +2063,19 @@ private fun PlaylistDetailView(
                                     cornerRadius = 18.dp,
                                     contentDescription = playlist.title
                                 )
-                            } else if (detailValidTracks.size >= 4) {
+                            } else if (detailDistinctTracks.size >= 4) {
                                 Column(modifier = Modifier.fillMaxSize()) {
                                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                         ArtworkCard(
-                                            url = detailValidTracks[0].thumbnail,
-                                            fallbackTrack = detailValidTracks[0],
+                                            url = detailDistinctTracks[0].thumbnail,
+                                            fallbackTrack = detailDistinctTracks[0],
                                             modifier = Modifier.weight(1f).fillMaxSize(),
                                             cornerRadius = 0.dp,
                                             contentDescription = null
                                         )
                                         ArtworkCard(
-                                            url = detailValidTracks[1].thumbnail,
-                                            fallbackTrack = detailValidTracks[1],
+                                            url = detailDistinctTracks[1].thumbnail,
+                                            fallbackTrack = detailDistinctTracks[1],
                                             modifier = Modifier.weight(1f).fillMaxSize(),
                                             cornerRadius = 0.dp,
                                             contentDescription = null
@@ -1866,15 +2083,15 @@ private fun PlaylistDetailView(
                                     }
                                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                         ArtworkCard(
-                                            url = detailValidTracks[2].thumbnail,
-                                            fallbackTrack = detailValidTracks[2],
+                                            url = detailDistinctTracks[2].thumbnail,
+                                            fallbackTrack = detailDistinctTracks[2],
                                             modifier = Modifier.weight(1f).fillMaxSize(),
                                             cornerRadius = 0.dp,
                                             contentDescription = null
                                         )
                                         ArtworkCard(
-                                            url = detailValidTracks[3].thumbnail,
-                                            fallbackTrack = detailValidTracks[3],
+                                            url = detailDistinctTracks[3].thumbnail,
+                                            fallbackTrack = detailDistinctTracks[3],
                                             modifier = Modifier.weight(1f).fillMaxSize(),
                                             cornerRadius = 0.dp,
                                             contentDescription = null
@@ -1906,26 +2123,28 @@ private fun PlaylistDetailView(
                             }
 
                             // Edit Pencil Overlay in bottom right corner (Opens Edit Photo & Name dialog)
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(8.dp)
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.75f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                                     .clickable {
-                                         initialMenuDialog = PlaylistDialogType.EDIT
-                                         showOptionsMenu = true
-                                     },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit Playlist Photo and Name",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                            if (!playlist.id.startsWith("smart_")) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(8.dp)
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.75f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                        .clickable {
+                                            initialMenuDialog = PlaylistDialogType.EDIT
+                                            showOptionsMenu = true
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Playlist Photo and Name",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -2222,26 +2441,15 @@ private fun PlaylistDetailView(
                             )
                         }
                         .zIndex(999f)
-                        .graphicsLayer {
-                            scaleX = 1.04f
-                            scaleY = 1.04f
-                            shadowElevation = 32f
-                        }
                 ) {
+                    // The dragged row looks exactly like a normal row (no card, border, lift or
+                    // accent): it just follows the finger. Painted with the page background so it
+                    // doesn't show through the rows it passes over.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f),
-                                RoundedCornerShape(12.dp)
-                            )
-                            .border(
-                                1.5.dp,
-                                MaterialTheme.colorScheme.primary,
-                                RoundedCornerShape(12.dp)
-                            )
-                            .padding(vertical = 4.dp, horizontal = 8.dp),
+                            .background(MaterialTheme.dynamicBackground)
+                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ArtworkCard(
@@ -2281,7 +2489,7 @@ private fun PlaylistDetailView(
                             Icon(
                                 imageVector = Icons.Default.DragHandle,
                                 contentDescription = "Drag to reorder song",
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = Color.White.copy(alpha = 0.45f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -3168,8 +3376,9 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             )
             .padding(horizontal = 16.dp, vertical = 2.dp)
             .then(
+                // Hidden (not ghosted) while its copy is being dragged, so it reads as the row moving.
                 if (isItemBeingDragged) {
-                    Modifier.graphicsLayer { alpha = 0.2f }
+                    Modifier.graphicsLayer { alpha = 0f }
                 } else Modifier
             )
     ) {
@@ -3234,7 +3443,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                     Icon(
                         imageVector = Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder song",
-                        tint = if (isItemBeingDragged) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.45f),
+                        tint = Color.White.copy(alpha = 0.45f),
                         modifier = Modifier.size(20.dp)
                     )
                 }
