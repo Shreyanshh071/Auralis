@@ -62,12 +62,13 @@ fun TrackOptionsMenu(
     onPinToSpeedDial: (() -> Unit)? = null,
     isPinned: Boolean = false,
     onGoToArtist: (() -> Unit)? = null,
-    onGoToAlbum: ((albumId: String?, albumTitle: String) -> Unit)? = null,
+    onGoToAlbum: ((albumId: String?, albumTitle: String, albumArtist: String?, albumArt: String?) -> Unit)? = null,
     onAddToPlaylist: (Playlist) -> Unit,
     onCreatePlaylistAndAdd: (String) -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
     onDismiss: () -> Unit,
+    queueReferenceStyle: Boolean = false,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
     modifier: Modifier = Modifier
 ) {
@@ -83,27 +84,52 @@ fun TrackOptionsMenu(
     var localIsPinned by remember(track.id, isPinned) { mutableStateOf(isPinned) }
 
     // Authentic Album Resolution (mirrors ViVi / Apple Music / iTunes query for true parent album)
-    var resolvedAlbumName by remember(track.id) {
-        mutableStateOf(
-            if (!AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)) track.album
-            else null
-        )
+    val cachedAlbum = remember(track.id, track.title, track.artist) {
+        AlbumMetadataResolver.getCached(track.title, track.artist)
     }
-    var resolvedAlbumId by remember(track.id) { mutableStateOf(track.albumId) }
+    val isRedundantTrackAlbum = remember(track.album, track.title) {
+        AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+    }
 
-    LaunchedEffect(track.id, track.title, track.artist) {
-        if (resolvedAlbumName.isNullOrBlank() && track.title.isNotBlank()) {
-            val resolved = AlbumMetadataResolver.resolveAlbum(track.title, track.artist)
-            if (resolved != null && !resolved.albumTitle.isNullOrBlank()) {
-                resolvedAlbumName = resolved.albumTitle
-                if (!resolved.albumId.isNullOrBlank()) {
-                    resolvedAlbumId = resolved.albumId
+    val initialAlbumName = when {
+        !isRedundantTrackAlbum && !track.album.isNullOrBlank() -> track.album
+        cachedAlbum != null && !cachedAlbum.albumTitle.isNullOrBlank() && !cachedAlbum.isSingle -> cachedAlbum.albumTitle
+        else -> null
+    }
+    val initialAlbumId = when {
+        !isRedundantTrackAlbum && !track.albumId.isNullOrBlank() -> track.albumId
+        cachedAlbum != null && !cachedAlbum.albumId.isNullOrBlank() && !cachedAlbum.isSingle -> cachedAlbum.albumId
+        else -> null
+    }
+
+    var resolvedAlbumName by remember(track.id) { mutableStateOf(initialAlbumName) }
+    var resolvedAlbumId by remember(track.id) { mutableStateOf(initialAlbumId) }
+    var resolvedArtistName by remember(track.id) { mutableStateOf(cachedAlbum?.artistName) }
+    var resolvedAlbumArt by remember(track.id) { mutableStateOf(cachedAlbum?.albumArt) }
+
+    LaunchedEffect(track.id, track.title, track.artist, track.album) {
+        if (resolvedAlbumName.isNullOrBlank() || resolvedAlbumId.isNullOrBlank() ||
+            AlbumMetadataResolver.isRedundantOrSingle(resolvedAlbumName, track.title)) {
+            val resolved = AlbumMetadataResolver.resolveAlbum(
+                trackTitle = track.title,
+                artistName = track.artist,
+                knownAlbum = track.album
+            )
+            if (resolved != null && !resolved.albumTitle.isNullOrBlank() && !resolved.isSingle) {
+                val keepExistingTitle = !isRedundantTrackAlbum && !track.album.isNullOrBlank()
+                if (!keepExistingTitle || resolved.albumTitle.contains(track.album!!, ignoreCase = true) || track.album!!.contains(resolved.albumTitle, ignoreCase = true)) {
+                    resolvedAlbumName = resolved.albumTitle
                 }
+                resolvedAlbumId = resolved.albumId
+                resolvedArtistName = resolved.artistName
+                resolvedAlbumArt = resolved.albumArt
             }
         }
     }
 
-    val displayAlbum = resolvedAlbumName ?: track.album.takeIf { !it.isNullOrBlank() } ?: track.title
+    val displayAlbum = resolvedAlbumName
+        ?: track.album.takeIf { !it.isNullOrBlank() && !AlbumMetadataResolver.isRedundantOrSingle(it, track.title) }
+        ?: "Album"
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -211,12 +237,12 @@ fun TrackOptionsMenu(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // ── QUICK ACTIONS ROW: [ PLAY NEXT ], [ ADD ], [ SHARE ] ──
+                    // Classic Queue follows the reference's Radio / Add / Share action row.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Pill 1: Play next
+                        // Pill 1: Radio in classic Queue, Play next elsewhere.
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -224,7 +250,7 @@ fun TrackOptionsMenu(
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(CARD_CONTAINER_COLOR)
                                 .clickable {
-                                    onPlayNext()
+                                    if (queueReferenceStyle) onStartRadio?.invoke() else onPlayNext()
                                     onDismiss()
                                 },
                             contentAlignment = Alignment.Center
@@ -234,14 +260,14 @@ fun TrackOptionsMenu(
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                                    contentDescription = "Play next",
+                                    imageVector = if (queueReferenceStyle) Icons.Default.Sensors else Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = if (queueReferenceStyle) "Radio" else "Play next",
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Play next",
+                                    text = if (queueReferenceStyle) "Radio" else "Play next",
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
@@ -325,7 +351,7 @@ fun TrackOptionsMenu(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // ── GROUP 1: START RADIO, ADD TO QUEUE ──
+                    // ── GROUP 1: PLAY NEXT / RADIO, ADD TO QUEUE ──
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -333,11 +359,11 @@ fun TrackOptionsMenu(
                             .background(CARD_CONTAINER_COLOR)
                     ) {
                         TrackOptionRow(
-                            icon = Icons.Default.Sensors,
-                            title = "Start radio",
-                            subtitle = "Create a station based on this item",
+                            icon = if (queueReferenceStyle) Icons.AutoMirrored.Filled.PlaylistPlay else Icons.Default.Sensors,
+                            title = if (queueReferenceStyle) "Play next" else "Start radio",
+                            subtitle = if (queueReferenceStyle) "Add to the top of your queue" else "Create a station based on this item",
                             onClick = {
-                                onStartRadio?.invoke()
+                                if (queueReferenceStyle) onPlayNext() else onStartRadio?.invoke()
                                 onDismiss()
                             }
                         )
@@ -359,7 +385,7 @@ fun TrackOptionsMenu(
                     }
 
                     // ── GROUP 2: PIN TO SPEED DIAL ──
-                    Column(
+                    if (!queueReferenceStyle) Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
@@ -381,7 +407,7 @@ fun TrackOptionsMenu(
                     }
 
                     // ── GROUP 3: ADD TO LIBRARY ──
-                    Column(
+                    if (!queueReferenceStyle) Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
@@ -461,7 +487,14 @@ fun TrackOptionsMenu(
                             title = "View album",
                             subtitle = displayAlbum,
                             onClick = {
-                                onGoToAlbum?.invoke(resolvedAlbumId ?: track.albumId, displayAlbum)
+                                val targetAlbumId = resolvedAlbumId
+                                    ?: track.albumId.takeIf { !AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title) }
+                                onGoToAlbum?.invoke(
+                                    targetAlbumId,
+                                    displayAlbum,
+                                    resolvedArtistName ?: track.artist,
+                                    resolvedAlbumArt ?: track.thumbnail
+                                )
                                 onDismiss()
                             }
                         )
@@ -706,5 +739,4 @@ private fun TrackOptionRow(
         }
     }
 }
-
 

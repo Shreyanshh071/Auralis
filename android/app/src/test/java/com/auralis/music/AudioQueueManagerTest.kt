@@ -6,6 +6,27 @@ import org.junit.Test
 
 class AudioQueueManagerTest {
 
+    @Test
+    fun `shuffle stays on when a new list starts and the tapped song plays first`() {
+        val m = AudioQueueManager()
+        val first = (1..5).map { sampleTrack("a$it", "A$it") }
+        m.setQueue(first, 0)
+        m.toggleShuffle()
+        assertTrue(m.state.isShuffled)
+
+        val playlist = (1..20).map { sampleTrack("p$it", "P$it") }
+        val s = m.setQueue(playlist, startIndex = 7)
+        assertTrue("shuffle must survive starting a new list", s.isShuffled)
+        assertEquals("p8", s.currentTrack?.id)
+        assertEquals(playlist.map { it.id }.toSet(), s.queue.map { it.id }.toSet())
+
+        // Turning shuffle off restores the new list's original order.
+        val off = m.toggleShuffle()
+        assertFalse(off.isShuffled)
+        assertEquals(playlist.map { it.id }, off.queue.map { it.id })
+        assertEquals("p8", off.currentTrack?.id)
+    }
+
     private fun sampleTrack(id: String, title: String) = Track(
         id = id,
         title = title,

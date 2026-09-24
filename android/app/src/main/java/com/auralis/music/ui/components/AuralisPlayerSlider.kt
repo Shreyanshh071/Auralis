@@ -121,7 +121,24 @@ fun AuralisPlayerSlider(
         label = "thumbRadiusAnim"
     )
 
+    // ViVi squiggly drift: 24px per second, advanced frame by frame only while playing,
+    // wrapping every wavelength. Separate from the Wavy style's faster Bézier cycle.
+    var squigglyPhasePx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    if (normalizedStyle == "Squiggly") {
+        androidx.compose.runtime.LaunchedEffect(isPlaying) {
+            if (!isPlaying) return@LaunchedEffect
+            var last = androidx.compose.runtime.withFrameMillis { it }
+            while (true) {
+                androidx.compose.runtime.withFrameMillis { now ->
+                    squigglyPhasePx = (squigglyPhasePx + (now - last) / 1000f * SQUIGGLY_PHASE_SPEED_PX) % SQUIGGLY_WAVELENGTH_PX
+                    last = now
+                }
+            }
+        }
+    }
+
     val cachedWavePath = remember { Path() }
+    val cachedInactiveWavePath = remember { Path() }
     val cachedActiveDefaultPath = remember { Path() }
     val cachedInactiveDefaultPath = remember { Path() }
 
@@ -403,91 +420,64 @@ fun AuralisPlayerSlider(
                     }
 
                     "Squiggly" -> {
-                        // ── 4. SQUIGGLY STYLE (Wavy-Identical Wave Physics + Thickened Vertical Capsule Pill Thumb) ──
+                        // ── 4. SQUIGGLY STYLE — ViVi Music's SquigglySlider, value for value ──
+                        // Pixel-based like the original: 80px wavelength, 6px amplitude, drifting 24px/s
+                        // (squigglyPhasePx), height fading linearly over 1.5 wavelengths centred on the
+                        // playhead so the wave is half-height at the bar and seeps flat just past it.
                         val strokePx = with(density) { 5.dp.toPx() }
                         val r = strokePx / 2f
                         val startX = r
                         val endX = width - r
                         val trackWidth = (endX - startX).coerceAtLeast(1f)
                         val thumbX = (startX + trackWidth * effectiveProgress).coerceIn(startX, endX)
-                        val ampPx = with(density) { animatedAmplitude.toPx() }
-                        val waveLengthPx = with(density) { 40.dp.toPx() }
 
-                        // Thickened vertical capsule pill thumb bar
-                        val pillWidthPx = with(density) { (if (isDragging) 6.dp else 4.5.dp).toPx() }
-                        val pillHeightPx = with(density) { (if (isDragging) 26.dp else 20.dp).toPx() }
-                        val pillRadiusPx = pillWidthPx / 2f
+                        val waveLength = SQUIGGLY_WAVELENGTH_PX
+                        val lineAmplitude = SQUIGGLY_AMPLITUDE_PX
+                        val heightFraction = (animatedAmplitude.value / 2.8f).coerceIn(0f, 1f)
+                        val transitionLength = 1.5f * waveLength
+                        val phaseOffset = squigglyPhasePx
 
-                        // Clamped boundary to ensure wave round cap NEVER seeps past the vertical bar
-                        val waveEndX = (thumbX - r).coerceAtLeast(startX)
-                        val inactiveStartX = (thumbX + r).coerceAtMost(endX)
-
-                        // Inactive Track (Clean straight line starting right at the bar)
-                        if (inactiveStartX < endX) {
-                            drawLine(
-                                color = inactiveTrackColor,
-                                start = Offset(inactiveStartX, centerY),
-                                end = Offset(endX, centerY),
-                                strokeWidth = strokePx,
-                                cap = StrokeCap.Round
-                            )
+                        fun waveY(x: Float): Float {
+                            val coeff = ((thumbX + transitionLength / 2f - x) / transitionLength).coerceIn(0f, 1f)
+                            val cycle = (x + phaseOffset + waveLength / 2f) / waveLength
+                            return centerY + kotlin.math.cos(cycle * 2f * PI.toFloat()) * lineAmplitude * heightFraction * coeff
                         }
+                        val waveStroke = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
-                        // Active Track (Silky continuous wave stopping cleanly inside the vertical bar)
-                        if (waveEndX > startX) {
-                            if (ampPx > 0.2f) {
-                                val totalSpan = (waveEndX - startX).coerceAtLeast(1f)
-                                val endTransitionLength = (waveLengthPx * 0.9f).coerceAtMost(totalSpan * 0.6f).coerceAtLeast(1f)
-                                val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
-                                val startY = centerY + sin(startAngle) * ampPx
-
-                                cachedWavePath.reset()
-                                cachedWavePath.moveTo(startX, startY)
-
-                                var currentX = startX
-                                val step = 1.0f
-                                while (currentX <= waveEndX) {
-                                    val distFromStart = currentX - startX
-                                    val distFromEnd = waveEndX - currentX
-
-                                    val endEnvelope = if (distFromEnd < endTransitionLength) {
-                                        val v = (distFromEnd / endTransitionLength).coerceIn(0f, 1f)
-                                        0.5f * (1f - kotlin.math.cos(v * PI.toFloat()))
-                                    } else 1.0f
-
-                                    val angle = (distFromStart / waveLengthPx) * (2 * PI).toFloat() + startAngle
-                                    val y = centerY + sin(angle) * ampPx * endEnvelope
-                                    cachedWavePath.lineTo(currentX, y)
-                                    currentX += step
-                                }
-                                cachedWavePath.lineTo(waveEndX, centerY)
-
-                                drawPath(
-                                    path = cachedWavePath,
-                                    color = activeTrackColor,
-                                    style = Stroke(
-                                        width = strokePx,
-                                        cap = StrokeCap.Round,
-                                        join = StrokeJoin.Round
-                                    )
-                                )
-                            } else {
-                                drawLine(
-                                    color = activeTrackColor,
-                                    start = Offset(startX, centerY),
-                                    end = Offset(waveEndX, centerY),
-                                    strokeWidth = strokePx,
-                                    cap = StrokeCap.Round
-                                )
+                        // Inactive (grey) part: continues the same wave past the bar, then flat.
+                        if (thumbX < endX) {
+                            cachedInactiveWavePath.reset()
+                            cachedInactiveWavePath.moveTo(thumbX, waveY(thumbX))
+                            val flatFrom = (thumbX + transitionLength / 2f).coerceAtMost(endX)
+                            var x = thumbX
+                            while (x < flatFrom) {
+                                x = (x + 1f).coerceAtMost(flatFrom)
+                                cachedInactiveWavePath.lineTo(x, waveY(x))
                             }
+                            cachedInactiveWavePath.lineTo(endX, centerY)
+                            drawPath(cachedInactiveWavePath, inactiveTrackColor, style = waveStroke)
                         }
 
-                        // Vertical Rounded Capsule Divider Thumb Bar (Rendered on top)
-                        drawRoundRect(
+                        // Active (played) part: the wave up to the bar.
+                        if (thumbX > startX) {
+                            cachedWavePath.reset()
+                            cachedWavePath.moveTo(startX, waveY(startX))
+                            var x = startX
+                            while (x < thumbX) {
+                                x = (x + 1f).coerceAtMost(thumbX)
+                                cachedWavePath.lineTo(x, waveY(x))
+                            }
+                            drawPath(cachedWavePath, activeTrackColor, style = waveStroke)
+                        }
+
+                        // Vertical bar playhead: 5dp wide, spanning ±(amplitude + stroke) like ViVi.
+                        val barHalfHeight = lineAmplitude + strokePx + if (isDragging) with(density) { 2.dp.toPx() } else 0f
+                        drawLine(
                             color = thumbColor,
-                            topLeft = Offset(thumbX - pillRadiusPx, centerY - pillHeightPx / 2f),
-                            size = Size(pillWidthPx, pillHeightPx),
-                            cornerRadius = CornerRadius(pillRadiusPx, pillRadiusPx)
+                            start = Offset(thumbX, centerY - barHalfHeight),
+                            end = Offset(thumbX, centerY + barHalfHeight),
+                            strokeWidth = with(density) { 5.dp.toPx() },
+                            cap = StrokeCap.Round
                         )
                     }
                 }
@@ -527,3 +517,8 @@ private fun formatDuration(millis: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%d:%02d", minutes, seconds)
 }
+
+// ViVi Music SquigglySlider constants (raw pixels, as in the original).
+private const val SQUIGGLY_WAVELENGTH_PX = 80f
+private const val SQUIGGLY_AMPLITUDE_PX = 6f
+private const val SQUIGGLY_PHASE_SPEED_PX = 24f

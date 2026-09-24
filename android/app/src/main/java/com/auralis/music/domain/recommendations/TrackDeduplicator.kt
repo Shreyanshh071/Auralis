@@ -66,6 +66,7 @@ object TrackDeduplicator {
     private val TRAILING_VERSION_SUFFIX_REGEX = Regex(
         """(?i)\s*[-–—/|:]\s*(?:remix.*|mix.*|edit.*|slowed.*|reverb.*|sped\s*up.*|speed\s*up.*|phonk.*|cover.*|acoustic.*|live.*|instrumental.*|vip.*|dub.*|extended.*|radio\s*edit.*|version.*|remaster(?:ed)?(?:\s*\d{4})?.*|\d{4}\s*remaster(?:ed)?.*|bonus.*|deluxe.*|mono.*|stereo.*|anniversary.*|session.*|unplugged.*|orchestral.*|piano.*|original\s*mix.*|club\s*mix.*|clean.*|explicit.*|single\s*version.*|album\s*version.*|audio|video|official.*)$"""
     )
+    private val NON_ALPHANUMERIC_REGEX = Regex("""[^\p{L}\p{M}0-9]""")
 
     /**
      * Extracts a bare base song title stripped of all versions, remix tags, slowed/reverb tags,
@@ -79,7 +80,7 @@ object TrackDeduplicator {
         t = VERSION_AND_REMIX_REGEX.replace(t, " ")
         t = ALL_BRACKETS_REGEX.replace(t, " ")
         t = t.replace(MOVIE_ATTRIBUTION_REGEX, " ")
-        return t.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
+        return t.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
     }
 
     /**
@@ -88,16 +89,16 @@ object TrackDeduplicator {
     fun getSongFingerprint(track: Track): SongFingerprint {
         val (rawArtist, rawTitle) = TitleCleaner.splitArtistAndTitle(track.title, track.artist)
         val cleaned = TitleCleaner.cleanTitle(rawTitle).ifBlank { rawTitle.trim() }
-        val normTitle = cleaned.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
+        val normTitle = cleaned.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
 
         val coreTitle = cleaned.replace(MOVIE_ATTRIBUTION_REGEX, "").trim().ifBlank { cleaned }
-        val normCoreTitle = coreTitle.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
+        val normCoreTitle = coreTitle.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
 
         val baseTitle = extractBaseSongTitle(rawTitle)
 
         val cleanedArt = TitleCleaner.cleanArtist(rawArtist).ifBlank { rawArtist.trim() }
         val normArtist = if (isInvalidArtistName(cleanedArt)) "" else {
-            cleanedArt.lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "")
+            cleanedArt.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
         }
 
         val isVideo = isVideoOrBloatedTrack(track)

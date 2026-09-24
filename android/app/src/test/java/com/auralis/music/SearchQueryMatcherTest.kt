@@ -7,6 +7,31 @@ import org.junit.Test
 
 class SearchQueryMatcherTest {
 
+    @Test
+    fun `title plus lyric query ranks the hugely popular song above low-play exact titles`() {
+        // "chogada tara": people mean Chogada (Loveyatri, 1.3B plays); "tara" is its lyric.
+        // Low-play uploads literally titled "Chogada Tara" must not bury it.
+        val loveyatri = Track(
+            id = "a", title = "Chogada (From \"Loveyatri\")",
+            artist = "Lijo George-Dj Chetas, Darshan Raval & Asees Kaur",
+            album = "Loveyatri - A Journey Of Love", views = "1.3B plays"
+        )
+        val exact1 = Track(id = "b", title = "Chogada Tara", artist = "Firoz Ladka", album = "Greatest Raas-Garba Hits", views = "97K plays")
+        val exact2 = Track(id = "c", title = "Chogada Tara", artist = "Abhijeet Bhatt", views = "13K plays")
+
+        val (matches, _) = SearchQueryMatcher.partitionResults(listOf(exact1, exact2, loveyatri), "chogada tara")
+        assertEquals("a", matches.first().id)
+        assertTrue("exact-title uploads still listed", matches.any { it.id == "b" })
+    }
+
+    @Test
+    fun `exact title still wins when popularity is comparable`() {
+        val exact = Track(id = "x", title = "Love Me Not", artist = "Ravyn Lenae", album = "Bird's Eye", views = "300M plays")
+        val shorter = Track(id = "y", title = "Love", artist = "Someone", album = "Love", views = "400M plays")
+        val (matches, _) = SearchQueryMatcher.partitionResults(listOf(shorter, exact), "love me not")
+        assertEquals("x", matches.first().id)
+    }
+
     private fun createTrack(id: String, title: String, artist: String, album: String? = null): Track {
         return Track(
             id = id,

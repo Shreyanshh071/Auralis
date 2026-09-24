@@ -4,9 +4,45 @@ import com.auralis.music.data.parser.LrcParser
 import com.auralis.music.domain.model.SyncType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LrcParserTest {
+
+    @Test
+    fun `same-timestamp translation lines fold into the lyric instead of becoming sung lines`() {
+        val lrc = """
+            [00:10.00]ab aao mere paas rah jaao mere saath
+            [00:10.00]Now come close to me, stay with me
+            [00:14.00]prem ni aa mosam che
+            [00:14.00]This is the season of love
+            [00:18.00]chogada tara
+            [00:18.00]Your chogada
+            [00:22.00]solo line with no translation
+        """.trimIndent()
+        val lines = com.auralis.music.data.parser.LrcParser.parse(lrc).lines
+        assertEquals(4, lines.size)
+        assertEquals("ab aao mere paas rah jaao mere saath", lines[0].text)
+        assertEquals("Now come close to me, stay with me", lines[0].translatedText)
+        assertEquals("This is the season of love", lines[1].translatedText)
+        assertNull(lines[3].translatedText)
+    }
+
+    @Test
+    fun `a single coincidental timestamp collision is not treated as a translation`() {
+        val lrc = """
+            [00:10.00]first line
+            [00:10.00]second line same time
+            [00:14.00]third line
+            [00:18.00]fourth line
+        """.trimIndent()
+        val lines = com.auralis.music.data.parser.LrcParser.parse(lrc).lines
+        assertEquals(4, lines.size)
+        assertTrue(lines.all { it.translatedText == null })
+    }
+
 
     @Test
     fun `parse handles standard line-synced LRC files`() {

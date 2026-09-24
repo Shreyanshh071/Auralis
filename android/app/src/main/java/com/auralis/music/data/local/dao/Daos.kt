@@ -224,7 +224,7 @@ interface HistoryDao {
     @Query("DELETE FROM history")
     suspend fun clearHistory()
 
-    @Query("DELETE FROM history WHERE trackId NOT IN (SELECT trackId FROM history ORDER BY playedAt DESC LIMIT 100)")
+    @Query("DELETE FROM history WHERE trackId NOT IN (SELECT trackId FROM (SELECT trackId FROM history ORDER BY playedAt DESC LIMIT 100))")
     suspend fun pruneHistoryToCap()
 }
 
@@ -277,6 +277,29 @@ interface SearchHistoryDao {
 interface LyricsDao {
     @Query("SELECT * FROM lyrics_cache WHERE trackId = :trackId LIMIT 1")
     suspend fun getLyrics(trackId: String): com.auralis.music.data.local.entity.LyricsEntity?
+
+    @Query(
+        """
+        SELECT * FROM lyrics_cache
+        WHERE trackName COLLATE NOCASE = :title COLLATE NOCASE
+          AND artistName COLLATE NOCASE = :artist COLLATE NOCASE
+          AND pipelineVersion = :pipelineVersion
+          AND (:durationMs <= 0 OR durationMs IS NULL OR ABS(durationMs - :durationMs) <= :durationToleranceMs)
+        ORDER BY hasWordTiming DESC,
+                 CASE syncType WHEN 'RICHSYNC' THEN 2 WHEN 'LINE_SYNC' THEN 1 ELSE 0 END DESC,
+                 CASE WHEN durationMs IS NULL OR :durationMs <= 0 THEN 1 ELSE 0 END ASC,
+                 ABS(COALESCE(durationMs, :durationMs) - :durationMs) ASC,
+                 cachedAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun getBestLyricsByMetadata(
+        title: String,
+        artist: String,
+        durationMs: Long,
+        pipelineVersion: Int,
+        durationToleranceMs: Long = 10_000L
+    ): com.auralis.music.data.local.entity.LyricsEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLyrics(entity: com.auralis.music.data.local.entity.LyricsEntity)

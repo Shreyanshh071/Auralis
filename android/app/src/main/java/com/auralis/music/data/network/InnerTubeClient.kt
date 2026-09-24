@@ -1424,36 +1424,61 @@ open class InnerTubeClient(
         val typeKeywords = setOf("song", "video", "artist", "album", "single", "ep", "playlist")
 
         if (col1Runs != null) {
+            // The subtitle is "•"-separated sections, e.g.
+            //   [Song •] Lijo George-Dj Chetas, Darshan Raval & Asees Kaur • Loveyatri • 3:41 • 1.3B plays
+            // where one section can hold several runs (artist links plus ", " / " & " glue).
+            // Reading run-by-run kept only the first plain artist (or the last linked one) and
+            // mistook the ", " / " & " glue for the album. Read whole sections instead.
+            data class Section(val text: String, val artistLink: Boolean, val albumId: String?)
+            val sections = mutableListOf<Section>()
+            val buf = StringBuilder()
+            var hasArtistLink = false
+            var sectionAlbumId: String? = null
+            fun endSection() {
+                val t = buf.toString().trim()
+                if (t.isNotBlank()) sections.add(Section(t, hasArtistLink, sectionAlbumId))
+                buf.setLength(0)
+                hasArtistLink = false
+                sectionAlbumId = null
+            }
             for (r in 0 until col1Runs.length()) {
                 val runObj = col1Runs.optJSONObject(r) ?: continue
-                val text = runObj.optString("text").trim()
-                if (text.isBlank() || text == "•") continue
-
+                val raw = runObj.optString("text")
+                if (raw.trim() == "•") {
+                    endSection()
+                    continue
+                }
                 val nav = runObj.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
                 val runBrowseId = nav?.optString("browseId")
                 val pageType = nav?.optJSONObject("browseEndpointContextSupportedConfigs")
                     ?.optJSONObject("browseEndpointContextMusicConfig")
                     ?.optString("pageType")
-
-                val lowerText = text.lowercase()
-
                 if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || (runBrowseId != null && runBrowseId.startsWith("UC"))) {
-                    artistName = text
+                    hasArtistLink = true
                 } else if (pageType == "MUSIC_PAGE_TYPE_ALBUM" || (runBrowseId != null && (runBrowseId.startsWith("MPRE") || runBrowseId.startsWith("FEmusic") || runBrowseId.startsWith("OLAK")))) {
-                    albumName = text
-                    albumIdStr = runBrowseId
-                } else if (text.matches(Regex("""\d+:\d+(:\d+)?"""))) {
-                    durationSec = parseDurationToSeconds(text)
-                } else if (lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener") || lowerText.contains("subscriber")) {
-                    viewsStr = text
-                } else if (typeKeywords.contains(lowerText)) {
-                    itemType = lowerText
-                } else {
-                    if (artistName == "Unknown Artist") {
-                        artistName = text
-                    } else if (albumName == null) {
+                    sectionAlbumId = runBrowseId
+                }
+                buf.append(raw)
+            }
+            endSection()
+
+            for (section in sections) {
+                val text = section.text
+                val lowerText = text.lowercase()
+                when {
+                    section.albumId != null -> {
                         albumName = text
+                        albumIdStr = section.albumId
                     }
+                    section.artistLink -> {
+                        // First artist section wins; it already contains every credited artist.
+                        if (artistName == "Unknown Artist") artistName = text
+                    }
+                    text.matches(Regex("""\d+:\d+(:\d+)?""")) -> durationSec = parseDurationToSeconds(text)
+                    lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener") || lowerText.contains("subscriber") -> viewsStr = text
+                    typeKeywords.contains(lowerText) -> itemType = lowerText
+                    artistName == "Unknown Artist" -> artistName = text
+                    albumName == null -> albumName = text
                 }
             }
         }

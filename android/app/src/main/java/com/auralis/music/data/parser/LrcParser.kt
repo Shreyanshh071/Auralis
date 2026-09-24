@@ -135,7 +135,7 @@ object LrcParser {
             }
         }
 
-        val sorted = lines.sortedBy { it.time }
+        val sorted = pairTranslationLines(lines.sortedBy { it.time })
 
         // Enhanced LRC states word starts and no ends, so it is word-synced in the
         // step sense but not the sweep sense — [WordTiming.hasGenuineWordStarts] is
@@ -157,6 +157,50 @@ object LrcParser {
     }
 
     /**
+     * Translated LRC files carry each translation as a second line with the *same* timestamp:
+     *   [01:02.30]ab aao mere paas rah jaao mere saath
+     *   [01:02.30]Now come close to me, stay with me
+     * Left as-is, the translation became its own "sung" line and lit up together with the lyric.
+     * When the song shows this pattern repeatedly, fold each same-time pair into one line whose
+     * [LyricLine.translatedText] the renderers already draw as a smaller, dimmer sub-line.
+     * A lone coincidental timestamp collision (fewer than 3 pairs) is left untouched.
+     */
+    internal fun pairTranslationLines(sorted: List<LyricLine>): List<LyricLine> {
+        fun isPairAt(i: Int): Boolean {
+            val a = sorted[i]
+            val b = sorted.getOrNull(i + 1) ?: return false
+            val c = sorted.getOrNull(i + 2)
+            return b.time == a.time && (c == null || c.time != a.time) &&
+                !a.isBackground && !b.isBackground && !a.isInstrumental && !b.isInstrumental &&
+                a.text.isNotBlank() && b.text.isNotBlank() && !a.text.equals(b.text, ignoreCase = true)
+        }
+
+        var pairCount = 0
+        var k = 0
+        while (k < sorted.size) {
+            if (isPairAt(k)) { pairCount++; k += 2 } else k++
+        }
+        if (pairCount < 3) return sorted
+
+        val result = ArrayList<LyricLine>(sorted.size)
+        var i = 0
+        while (i < sorted.size) {
+            if (isPairAt(i)) {
+                val a = sorted[i]
+                val b = sorted[i + 1]
+                // The line with real word timing is the sung one; otherwise the file order holds.
+                val (original, translation) = if (a.words.isNullOrEmpty() && !b.words.isNullOrEmpty()) b to a else a to b
+                result.add(original.copy(translatedText = translation.text))
+                i += 2
+            } else {
+                result.add(sorted[i])
+                i++
+            }
+        }
+        return result
+    }
+
+    /**
      * Intelligently groups rapid 1-3 word phrase fragments into natural, complete poetic lines
      * with word-level timing preserved, matching Metrolist and Apple Music display style.
      *
@@ -168,6 +212,9 @@ object LrcParser {
      */
     fun mergeMicroFragments(rawLines: List<LyricLine>): List<LyricLine> {
         if (rawLines.size <= 2) return rawLines
+        // Lines are rebuilt below without their translations; translated lyrics are already
+        // whole lines, so leave them exactly as the provider gave them.
+        if (rawLines.any { !it.translatedText.isNullOrBlank() }) return rawLines
 
         val result = mutableListOf<LyricLine>()
         var currentMergedTime = rawLines[0].time

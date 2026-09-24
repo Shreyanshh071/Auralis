@@ -267,7 +267,7 @@ class SearchViewModel(
         }
     }
 
-    fun openArtist(artist: Artist) {
+    fun openArtist(artist: Artist, resetStack: Boolean = false) {
         val isKanye = artist.name.equals("Kanye West", ignoreCase = true) || artist.name.equals("Ye", ignoreCase = true)
         val defaultKanyeThumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
         val verifiedBanner = when {
@@ -279,11 +279,14 @@ class SearchViewModel(
         val newEntry = ExploreDetail.Artist(artistPage = initialPage, isLoading = true)
 
         _uiState.update { current ->
-            val updatedStack = current.detailStack + newEntry
+            val updatedStack = if (resetStack) listOf(newEntry) else current.detailStack + newEntry
             current.copy(
                 detailStack = updatedStack,
                 selectedArtistPage = initialPage,
-                isLoadingArtist = true
+                isLoadingArtist = true,
+                selectedAlbum = if (resetStack) null else current.selectedAlbum,
+                selectedAlbumTracks = if (resetStack) emptyList() else current.selectedAlbumTracks,
+                isLoadingAlbum = if (resetStack) false else current.isLoadingAlbum
             )
         }
 
@@ -307,7 +310,7 @@ class SearchViewModel(
         }
     }
 
-    fun openAlbum(album: com.auralis.music.domain.model.PlaylistResult) {
+    fun openAlbum(album: com.auralis.music.domain.model.PlaylistResult, resetStack: Boolean = false) {
         val initialTracks = if (album.id.startsWith("artist_top_songs:")) {
             _uiState.value.selectedArtistPage?.topSongs ?: emptyList()
         } else {
@@ -316,12 +319,14 @@ class SearchViewModel(
         val newEntry = ExploreDetail.Album(album = album, tracks = initialTracks, isLoading = true)
 
         _uiState.update { current ->
-            val updatedStack = current.detailStack + newEntry
+            val updatedStack = if (resetStack) listOf(newEntry) else current.detailStack + newEntry
             current.copy(
                 detailStack = updatedStack,
                 selectedAlbum = album,
                 selectedAlbumTracks = initialTracks,
-                isLoadingAlbum = true
+                isLoadingAlbum = true,
+                selectedArtistPage = if (resetStack) null else current.selectedArtistPage,
+                isLoadingArtist = if (resetStack) false else current.isLoadingArtist
             )
         }
 
@@ -331,7 +336,15 @@ class SearchViewModel(
             _uiState.update { current ->
                 val updatedStack = current.detailStack.map { detail ->
                     if (detail is ExploreDetail.Album && (detail.album.id == album.id || detail.album.title.equals(album.title, ignoreCase = true))) {
-                        detail.copy(tracks = finalTracks, isLoading = false)
+                        val firstTrk = finalTracks.firstOrNull()
+                        val enrichedAlbum = if (firstTrk != null && (detail.album.thumbnail.isNullOrBlank() || detail.album.thumbnail.contains("default"))) {
+                            detail.album.copy(
+                                thumbnail = firstTrk.thumbnail.takeIf { it.isNotBlank() } ?: detail.album.thumbnail
+                            )
+                        } else {
+                            detail.album
+                        }
+                        detail.copy(album = enrichedAlbum, tracks = finalTracks, isLoading = false)
                     } else {
                         detail
                     }

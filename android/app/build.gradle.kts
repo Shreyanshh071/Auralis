@@ -123,6 +123,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui.text.google.fonts)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    implementation(libs.androidx.graphics.shapes)
     implementation("sh.calvin.reorderable:reorderable:2.4.3")
 
     // AndroidX Media3 & ExoPlayer

@@ -57,6 +57,26 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
             addToQueueList.clear()
         }
         val index = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
+
+        // Shuffle is a mode, not a property of one queue: when it is on and a new list starts
+        // (playlist, album, search result...), keep it on — the tapped song plays first and the
+        // rest of the new list is shuffled behind it. originalQueue (set above) still holds the
+        // in-order list, so turning shuffle off restores it. Previously every new list silently
+        // turned shuffle off.
+        if (!preserveOrderIfSame && state.isShuffled && tracks.size > 1) {
+            val start = tracks[index]
+            val rest = tracks.filterIndexed { i, _ -> i != index }.shuffled()
+            state = QueueState(
+                queue = listOf(start) + rest,
+                currentIndex = 0,
+                isShuffled = true,
+                repeatMode = state.repeatMode,
+                isUserQueue = isUserQueue
+            )
+            syncUserQueuesWithUpcoming()
+            return state
+        }
+
         state = QueueState(
             queue = tracks.toList(),
             currentIndex = if (tracks.isNotEmpty()) index else -1,
@@ -207,6 +227,15 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
             currentIndex = newIndex,
             isShuffled = nextShuffled
         )
+        return state
+    }
+
+    /**
+     * Restores the shuffle *mode* after an app restart. The persisted queue is already in its
+     * shuffled order, so this only sets the flag (no reshuffle); new lists will then be shuffled.
+     */
+    fun restoreShuffleFlag(isShuffled: Boolean): QueueState {
+        state = state.copy(isShuffled = isShuffled)
         return state
     }
 

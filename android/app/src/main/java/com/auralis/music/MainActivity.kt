@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
         val settingsDataStore = SettingsDataStore(applicationContext)
         val appearanceDataStore = AppearanceSettingsDataStore(applicationContext)
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+        com.auralis.music.data.service.ListeningTimeTracker.start(applicationContext)
 
         val trackDao = db.trackDao()
         val playlistDao = db.playlistDao()

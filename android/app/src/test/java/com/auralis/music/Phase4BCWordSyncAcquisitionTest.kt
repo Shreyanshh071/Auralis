@@ -356,6 +356,7 @@ class Phase4BCWordSyncAcquisitionTest {
 
         val mockDao = object : LyricsDao {
             override suspend fun getLyrics(trackId: String): LyricsEntity? = cachedEntity
+            override suspend fun getBestLyricsByMetadata(title: String, artist: String, durationMs: Long, pipelineVersion: Int, durationToleranceMs: Long): LyricsEntity? = null
             override suspend fun insertLyrics(entity: LyricsEntity) {
                 insertedEntity.set(entity)
             }
@@ -451,6 +452,7 @@ class Phase4BCWordSyncAcquisitionTest {
 
         val mockDao = object : LyricsDao {
             override suspend fun getLyrics(trackId: String): LyricsEntity? = dbMap[trackId]
+            override suspend fun getBestLyricsByMetadata(title: String, artist: String, durationMs: Long, pipelineVersion: Int, durationToleranceMs: Long): LyricsEntity? = null
             override suspend fun insertLyrics(entity: LyricsEntity) { dbMap[entity.trackId] = entity }
             override suspend fun deleteLyrics(trackId: String) { dbMap.remove(trackId) }
             override suspend fun clearAllLyrics() { dbMap.clear() }
@@ -491,6 +493,7 @@ class Phase4BCWordSyncAcquisitionTest {
         val dbMap = mutableMapOf("sunflower_id" to staleLineSyncRow)
         val mockDao = object : LyricsDao {
             override suspend fun getLyrics(trackId: String): LyricsEntity? = dbMap[trackId]
+            override suspend fun getBestLyricsByMetadata(title: String, artist: String, durationMs: Long, pipelineVersion: Int, durationToleranceMs: Long): LyricsEntity? = null
             override suspend fun insertLyrics(entity: LyricsEntity) { dbMap[entity.trackId] = entity }
             override suspend fun deleteLyrics(trackId: String) { dbMap.remove(trackId) }
             override suspend fun clearAllLyrics() { dbMap.clear() }
@@ -535,6 +538,7 @@ class Phase4BCWordSyncAcquisitionTest {
         val dbMap = mutableMapOf("love_me_not_id" to existingWordSyncRow)
         val mockDao = object : LyricsDao {
             override suspend fun getLyrics(trackId: String): LyricsEntity? = dbMap[trackId]
+            override suspend fun getBestLyricsByMetadata(title: String, artist: String, durationMs: Long, pipelineVersion: Int, durationToleranceMs: Long): LyricsEntity? = null
             override suspend fun insertLyrics(entity: LyricsEntity) { dbMap[entity.trackId] = entity }
             override suspend fun deleteLyrics(trackId: String) { dbMap.remove(trackId) }
             override suspend fun clearAllLyrics() { dbMap.clear() }

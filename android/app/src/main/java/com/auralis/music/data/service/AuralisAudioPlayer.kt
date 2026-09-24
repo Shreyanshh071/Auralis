@@ -94,6 +94,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 isUserQueue = persisted.isUserQueue
                             )
                             queueManager.setRepeatMode(repeatMode)
+                            // Shuffle was saved but never restored, so it silently turned off
+                            // every time the app restarted.
+                            queueManager.restoreShuffleFlag(persisted.isShuffled)
                             _queueState.value = queueManager.state
                             val cur = queueManager.state.currentTrack
                             if (cur != null && _currentTrack.value == null) {
@@ -687,7 +690,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 Log.d("AuralisPlayback", "[Offline Engine] Playing '${track.title}' from local storage: $directUrl")
             } else {
                 try {
-                    withTimeoutOrNull(6500L) {
+                    val resolveTimeoutMs = if (track.id.startsWith("sp_") || track.id.startsWith("spotify:")) 10000L else 6500L
+                    withTimeoutOrNull(resolveTimeoutMs) {
                         directUrl = AudioStreamResolver.resolveAudioStream(
                             videoId = track.id,
                             title = track.title,
