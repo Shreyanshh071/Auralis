@@ -23,6 +23,8 @@ import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.domain.model.Track
 import com.auralis.music.service.AuralisMediaService
 import com.auralis.music.ui.components.getHighResArtworkUrl
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -41,6 +43,45 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     val youTubeEngine = YouTubeAudioEngine(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val spatialAudioController = SpatialAudioController()
+    private val settingsDataStore = com.auralis.music.data.datastore.SettingsDataStore(appContext)
+    private var settingsLoaded = false
+    private var runtimeSettings = com.auralis.music.domain.model.PlayerSettings()
+    private val queuePersistenceMutex = Mutex()
+    private var queueRestoreComplete = false
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+    private val connectedAudioDevices = mutableSetOf<Int>()
+    private val audioDeviceCallback = object : android.media.AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(devices: Array<out android.media.AudioDeviceInfo>) {
+            val newBluetoothOutput = devices.any { device ->
+                device.id !in connectedAudioDevices && device.isSink && device.type in setOf(
+                    android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                    android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+                    android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER
+                )
+            }
+            connectedAudioDevices.addAll(devices.map { it.id })
+            if (newBluetoothOutput && runtimeSettings.resumeOnBluetoothConnect &&
+                !_isSpeakerForced.value && !_isPlaying.value && !_isBuffering.value &&
+                _currentTrack.value != null && !isGuestListenTogether.value && !isMediaMuted()) {
+                resume()
+            }
+        }
+
+        override fun onAudioDevicesRemoved(devices: Array<out android.media.AudioDeviceInfo>) {
+            connectedAudioDevices.removeAll(devices.map { it.id }.toSet())
+        }
+    }
+    private val mediaVolumeObserver = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) { pauseIfMediaMuted() }
+    }
+
+    private fun isMediaMuted(): Boolean = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0 ||
+        audioManager.isStreamMute(android.media.AudioManager.STREAM_MUSIC)
+
+    private fun pauseIfMediaMuted() {
+        if (runtimeSettings.pauseOnMediaMute && _isPlaying.value && isMediaMuted()) pause()
+    }
+
     private val queueDataStore = com.auralis.music.data.datastore.QueueDataStore(appContext)
     private val database by lazy { AuralisDatabase.getInstance(appContext) }
     private val trackDao by lazy { database.trackDao() }
@@ -78,10 +119,14 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         // Restore persisted queue asynchronously if player is freshly initialized
         scope.launch(Dispatchers.IO) {
             try {
+                if (!settingsDataStore.settingsFlow.first().persistentQueue) {
+                    queuePersistenceMutex.withLock { queueDataStore.clearPersistedQueue() }
+                    return@launch
+                }
                 val persisted = queueDataStore.persistedQueueFlow.first()
                 if (persisted.tracks.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
-                        if (queueManager.state.queue.isEmpty()) {
+                        if (settingsDataStore.settingsFlow.first().persistentQueue && queueManager.state.queue.isEmpty()) {
                             val repeatMode = try {
                                 com.auralis.music.domain.model.RepeatMode.valueOf(persisted.repeatMode)
                             } catch (_: Exception) {
@@ -110,6 +155,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 }
             } catch (e: Exception) {
                 Log.w("AuralisPlayback", "[Persistence] Failed to restore queue on init: ${e.message}")
+            } finally {
+                withContext(Dispatchers.Main) {
+                    queueRestoreComplete = true
+                    persistQueue()
+                }
             }
         }
 
@@ -343,6 +393,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 syncUpcomingGaplessTrack()
                                 persistQueue()
                                 onGaplessTransitionCallback?.invoke(advancedTrack)
+                                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                                    requestAutoQueueExtension()
+                                }
                             } else {
                                 dispatchTrackCompleted()
                             }
@@ -475,11 +528,20 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
-            } else {
-                if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.OFF) {
-                    _isPlaying.value = false
+                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                    requestAutoQueueExtension()
                 }
-                persistQueue()
+            } else {
+                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+                    _isBuffering.value = true
+                    persistQueue()
+                    requestAutoQueueExtension(advanceWhenLoaded = true)
+                } else {
+                    if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.OFF) {
+                        _isPlaying.value = false
+                    }
+                    persistQueue()
+                }
             }
             for (listener in onTrackCompletedListeners) {
                 try {
@@ -492,6 +554,27 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     init {
+        // Observe preferences for the lifetime of the existing player, including background playback.
+        connectedAudioDevices.addAll(audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).map { it.id })
+        audioManager.registerAudioDeviceCallback(audioDeviceCallback, android.os.Handler(android.os.Looper.getMainLooper()))
+        appContext.contentResolver.registerContentObserver(android.provider.Settings.System.CONTENT_URI, true, mediaVolumeObserver)
+        scope.launch {
+            settingsDataStore.settingsFlow.collect { settings ->
+                val persistenceChanged = runtimeSettings.persistentQueue != settings.persistentQueue
+                val autoLoadEnabled = (!settingsLoaded || !runtimeSettings.autoLoadMore) && settings.autoLoadMore
+                settingsLoaded = true
+                runtimeSettings = settings
+                if (!settings.autoLoadMore) {
+                    autoQueueJob?.cancel()
+                    advanceAfterAutoLoad = false
+                } else if (autoLoadEnabled && _isPlaying.value && queueManager.isNearEnd(4)) {
+                    requestAutoQueueExtension()
+                }
+                if (persistenceChanged) persistQueue()
+                pauseIfMediaMuted()
+            }
+        }
+        scope.launch { _isPlaying.collect { if (it) pauseIfMediaMuted() } }
         // Collect YouTube engine states
         scope.launch {
             youTubeEngine.isPlaying.collect { playing ->
@@ -549,6 +632,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             var lastPersistTickMs = System.currentTimeMillis()
             while (isActive) {
                 delay(100)
+                pauseIfMediaMuted()
                 if (isUsingExoPlayer && (exoPlayer.isPlaying || _isPlaying.value)) {
                     val pos = exoPlayer.currentPosition
                     if (pos >= 0L && pos != _playbackPositionMs.value) {
@@ -642,6 +726,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         )
         activeTimingTracker = tracker
         currentSessionId.set(requestId)
+        autoQueueJob?.cancel()
+        advanceAfterAutoLoad = false
         streamResolveJob?.cancel()
 
         // 1. Immediately and synchronously stop & flush all previous playback
@@ -890,22 +976,113 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
+    private val queueGenerationId = java.util.concurrent.atomic.AtomicLong(0L)
+    private var autoQueueJob: Job? = null
+    private var advanceAfterAutoLoad = false
+    private val radioHistory by lazy {
+        com.auralis.music.data.repository.HistoryRepositoryImpl(
+            database.trackDao(), database.historyDao(), database.playCountDao(), database.playbackEventDao()
+        )
+    }
+    private val radioClient by lazy { com.auralis.music.data.network.InnerTubeClient() }
+
+    // Queue extension belongs to the existing player so it survives Activity/task removal.
+    fun requestAutoQueueExtension(advanceWhenLoaded: Boolean = false) {
+        if (!runtimeSettings.autoLoadMore || queueManager.state.isUserQueue || isGuestListenTogether.value) return
+        val seed = queueManager.state.currentTrack ?: return
+        advanceAfterAutoLoad = advanceAfterAutoLoad || advanceWhenLoaded
+        if (autoQueueJob?.isActive == true) return
+        val genId = queueGenerationId.get()
+        autoQueueJob = scope.launch {
+            try {
+                val tracks = withContext(Dispatchers.IO) {
+                    withTimeoutOrNull(5000L) { radioClient.getRadioTracks(seed.id, seed.artist, seed.title) } ?: emptyList()
+                }
+                ensureActive()
+                if (!runtimeSettings.autoLoadMore || queueGenerationId.get() != genId ||
+                    queueManager.state.isUserQueue || isGuestListenTogether.value) return@launch
+
+                val existingIds = queueManager.state.queue.map { it.id }.toSet()
+                var uniqueTracks = tracks.filter { it.id !in existingIds && it.id != seed.id }
+
+                if (uniqueTracks.size < 14) {
+                    val fallbackCandidates = withContext(Dispatchers.IO) {
+                        try {
+                            val candidates = radioHistory.getRecentHeavyRotation() +
+                                radioHistory.getHistory().first().map { it.track } + radioHistory.getLikedSeeds()
+                            val fromHistory = candidates.filter { it.id != seed.id && it.id !in existingIds && it.id !in uniqueTracks.map { u -> u.id } }
+                            if (fromHistory.isNotEmpty()) {
+                                fromHistory.shuffled().take(14 - uniqueTracks.size)
+                            } else {
+                                withTimeoutOrNull(2500L) {
+                                    radioClient.search("${seed.artist} songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS)
+                                        .songs.filter { it.id != seed.id && it.id !in existingIds && it.id !in uniqueTracks.map { u -> u.id } }
+                                        .take(14 - uniqueTracks.size)
+                                } ?: emptyList()
+                            }
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                    uniqueTracks = uniqueTracks + fallbackCandidates
+                }
+
+                val batch = uniqueTracks.take(14)
+                if (batch.isNotEmpty()) {
+                    appendTracks(batch)
+                    Log.d("AuralisPlayback", "[AutoRadio] Appended ${batch.size} tracks to queue. New queueSize=${queueManager.state.queue.size}")
+                }
+
+                if (advanceAfterAutoLoad) {
+                    advanceAfterAutoLoad = false
+                    val nextTrack = queueManager.advanceNext()
+                    if (nextTrack != null) {
+                        _queueState.value = queueManager.state
+                        play(nextTrack, initialSeekMs = 0L)
+                        syncUpcomingGaplessTrack()
+                        persistQueue()
+                    } else {
+                        pause()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("AuralisPlayback", "[AutoRadio] Queue extension failed: ${e.message}")
+                if (advanceAfterAutoLoad) pause()
+            } finally {
+                if (coroutineContext[Job] == autoQueueJob) advanceAfterAutoLoad = false
+            }
+        }
+    }
+
     private var persistJob: Job? = null
 
     fun persistQueue() {
+        if (!queueRestoreComplete) return
         val qState = queueManager.state
         val pos = _playbackPositionMs.value
         persistJob?.cancel()
         persistJob = scope.launch(Dispatchers.IO) {
             try {
-                queueDataStore.saveQueue(
-                    tracks = qState.queue,
-                    currentIndex = qState.currentIndex,
-                    positionMs = pos,
-                    isUserQueue = qState.isUserQueue,
-                    isShuffled = qState.isShuffled,
-                    repeatMode = qState.repeatMode.name
-                )
+                // Serialize save/clear operations and re-read the preference inside the lock so
+                // an older save can never resurrect a queue after persistence is disabled.
+                queuePersistenceMutex.withLock {
+                    if (settingsDataStore.settingsFlow.first().persistentQueue) {
+                        queueDataStore.saveQueue(
+                            tracks = qState.queue,
+                            currentIndex = qState.currentIndex,
+                            positionMs = pos,
+                            isUserQueue = qState.isUserQueue,
+                            isShuffled = qState.isShuffled,
+                            repeatMode = qState.repeatMode.name
+                        )
+                    } else {
+                        queueDataStore.clearPersistedQueue()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w("AuralisPlayback", "[Persistence] Failed to persist queue: ${e.message}")
             }
@@ -1032,28 +1209,48 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         track: Track,
         newQueue: List<Track> = emptyList(),
         startIndex: Int = 0,
-        isUserQueue: Boolean = (newQueue.size > 1),
-        initialPositionMs: Long = 0L
+        isUserQueue: Boolean = false,
+        initialPositionMs: Long = 0L,
+        preserveQueueSource: Boolean = false
     ) {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack blocked - user is listener in Listen Together room")
             return
         }
-        val isAutoQueue = !isUserQueue || newQueue.size <= 1
-        Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack: title='${track.title}', artist='${track.artist}', queueSize=${newQueue.size}, initialPos=${initialPositionMs}ms")
-        
-        val qState = if (newQueue.isNotEmpty()) {
-            val isSameQueue = queueManager.state.queue.isNotEmpty() &&
-                              newQueue.map { it.id } == queueManager.state.queue.map { it.id }
-            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = isSameQueue, isUserQueue = !isAutoQueue)
-        } else {
-            queueManager.playTrack(track, isUserQueue = !isAutoQueue)
+        val isSingleSongSelection = !preserveQueueSource && !isUserQueue && (newQueue.isEmpty() || newQueue.size == 1)
+        if (isSingleSongSelection) {
+            queueGenerationId.incrementAndGet()
+            autoQueueJob?.cancel()
+            advanceAfterAutoLoad = false
         }
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack: title='${track.title}', artist='${track.artist}', queueSize=${newQueue.size}, isSingleSong=$isSingleSongSelection, initialPos=${initialPositionMs}ms")
+        
+        val targetQueue = if (isSingleSongSelection) {
+            listOf(track)
+        } else if (newQueue.isNotEmpty()) {
+            newQueue
+        } else {
+            queueManager.state.queue
+        }
+        val targetIndex = if (isSingleSongSelection) {
+            0
+        } else if (startIndex in targetQueue.indices && targetQueue[startIndex].id == track.id) {
+            startIndex
+        } else {
+            targetQueue.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: startIndex.coerceIn(0, (targetQueue.size - 1).coerceAtLeast(0))
+        }
+
+        val isSameQueue = queueManager.state.queue.isNotEmpty() &&
+                          targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
+        val qState = queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = isUserQueue)
         _queueState.value = qState
 
         play(track, initialSeekMs = initialPositionMs)
         syncUpcomingGaplessTrack()
         persistQueue()
+        if (isSingleSongSelection && runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+            requestAutoQueueExtension()
+        }
     }
 
     fun startMediaService(action: String = AuralisMediaService.ACTION_START) {
@@ -1107,6 +1304,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun pause() {
+        advanceAfterAutoLoad = false
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() blocked - user is listener in Listen Together room")
             return
@@ -1123,7 +1321,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         youTubeEngine.pause()
         _isPlaying.value = false
-        startMediaService(AuralisMediaService.ACTION_START)
+        // The running service observes isPlaying; pausing must not start a new foreground service.
         persistQueue()
     }
 
@@ -1279,11 +1477,18 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
+                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                    requestAutoQueueExtension()
+                }
                 return true
             }
         }
-        Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() cannot advance queue (end of queue or single track). Notifying onNextCallback.")
-        onNextCallback?.invoke()
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() reached the end of the queue")
+        if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+            requestAutoQueueExtension(advanceWhenLoaded = true)
+        } else {
+            pause()
+        }
         return false
     }
 
@@ -1395,11 +1600,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         _queueState.value = qState
         _currentTrack.value = null
         syncUpcomingGaplessTrack()
-        scope.launch(Dispatchers.IO) {
-            try {
-                queueDataStore.clearPersistedQueue()
-            } catch (_: Exception) {}
-        }
+        persistQueue()
     }
 
     fun clearCurrentTrack() {
@@ -1443,6 +1644,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun stop() {
+        autoQueueJob?.cancel()
+        advanceAfterAutoLoad = false
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] stop() called -> flushing streams")
         cancelSleepTimer()
         currentSessionId.incrementAndGet()
@@ -1464,6 +1667,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     fun release() {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] release() called")
+        audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+        appContext.contentResolver.unregisterContentObserver(mediaVolumeObserver)
         scope.cancel()
         currentSessionId.incrementAndGet()
         streamResolveJob?.cancel()

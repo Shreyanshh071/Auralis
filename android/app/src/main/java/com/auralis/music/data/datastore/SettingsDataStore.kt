@@ -18,8 +18,8 @@ val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
     }
 )
 
-class SettingsDataStore(private val context: Context) {
-    private val dataStore = context.settingsDataStore
+class SettingsDataStore internal constructor(private val dataStore: DataStore<Preferences>) {
+    constructor(context: Context) : this(context.settingsDataStore)
 
     companion object {
         val VOLUME = floatPreferencesKey("volume")
@@ -28,6 +28,12 @@ class SettingsDataStore(private val context: Context) {
         val AUDIO_QUALITY = stringPreferencesKey("audio_quality")
         val GAPLESS_PLAYBACK = booleanPreferencesKey("gapless_playback")
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val PERSISTENT_QUEUE = booleanPreferencesKey("persistent_queue")
+        val AUTO_LOAD_MORE = booleanPreferencesKey("auto_load_more")
+        val STOP_MUSIC_ON_TASK_CLEAR = booleanPreferencesKey("stop_music_on_task_clear")
+        val PAUSE_ON_MEDIA_MUTE = booleanPreferencesKey("pause_on_media_mute")
+        val RESUME_ON_BLUETOOTH_CONNECT = booleanPreferencesKey("resume_on_bluetooth_connect")
+        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val SPATIAL_AUDIO = booleanPreferencesKey("spatial_audio")
         val LYRICS_FONT_SIZE = stringPreferencesKey("lyrics_font_size")
         val LYRICS_MODE = stringPreferencesKey("lyrics_mode")
@@ -53,6 +59,12 @@ class SettingsDataStore(private val context: Context) {
                 audioQuality = parseEnum(preferences[AUDIO_QUALITY], AudioQuality.AUTO),
                 gaplessPlayback = preferences[GAPLESS_PLAYBACK] ?: true,
                 skipSilence = preferences[SKIP_SILENCE] ?: false,
+                persistentQueue = preferences[PERSISTENT_QUEUE] ?: true,
+                autoLoadMore = preferences[AUTO_LOAD_MORE] ?: true,
+                stopMusicOnTaskClear = preferences[STOP_MUSIC_ON_TASK_CLEAR] ?: true,
+                pauseOnMediaMute = preferences[PAUSE_ON_MEDIA_MUTE] ?: false,
+                resumeOnBluetoothConnect = preferences[RESUME_ON_BLUETOOTH_CONNECT] ?: false,
+                keepScreenOn = preferences[KEEP_SCREEN_ON] ?: false,
                 spatialAudio = preferences[SPATIAL_AUDIO] ?: false,
                 lyricsFontSize = parseEnum(preferences[LYRICS_FONT_SIZE], FontSize.MEDIUM),
                 lyricsMode = parseEnum(preferences[LYRICS_MODE], LyricsMode.SPICY),
@@ -71,6 +83,12 @@ class SettingsDataStore(private val context: Context) {
             preferences[AUDIO_QUALITY] = settings.audioQuality.name
             preferences[GAPLESS_PLAYBACK] = settings.gaplessPlayback
             preferences[SKIP_SILENCE] = settings.skipSilence
+            preferences[PERSISTENT_QUEUE] = settings.persistentQueue
+            preferences[AUTO_LOAD_MORE] = settings.autoLoadMore
+            preferences[STOP_MUSIC_ON_TASK_CLEAR] = settings.stopMusicOnTaskClear
+            preferences[PAUSE_ON_MEDIA_MUTE] = settings.pauseOnMediaMute
+            preferences[RESUME_ON_BLUETOOTH_CONNECT] = settings.resumeOnBluetoothConnect
+            preferences[KEEP_SCREEN_ON] = settings.keepScreenOn
             preferences[SPATIAL_AUDIO] = settings.spatialAudio
             preferences[LYRICS_FONT_SIZE] = settings.lyricsFontSize.name
             preferences[LYRICS_MODE] = settings.lyricsMode.name
@@ -99,6 +117,30 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setSpatialAudio(enabled: Boolean) {
         dataStore.edit { it[SPATIAL_AUDIO] = enabled }
+    }
+
+    suspend fun setPersistentQueue(enabled: Boolean) {
+        dataStore.edit { it[PERSISTENT_QUEUE] = enabled }
+    }
+
+    suspend fun setAutoLoadMore(enabled: Boolean) {
+        dataStore.edit { it[AUTO_LOAD_MORE] = enabled }
+    }
+
+    suspend fun setStopMusicOnTaskClear(enabled: Boolean) {
+        dataStore.edit { it[STOP_MUSIC_ON_TASK_CLEAR] = enabled }
+    }
+
+    suspend fun setPauseOnMediaMute(enabled: Boolean) {
+        dataStore.edit { it[PAUSE_ON_MEDIA_MUTE] = enabled }
+    }
+
+    suspend fun setResumeOnBluetoothConnect(enabled: Boolean) {
+        dataStore.edit { it[RESUME_ON_BLUETOOTH_CONNECT] = enabled }
+    }
+
+    suspend fun setKeepScreenOn(enabled: Boolean) {
+        dataStore.edit { it[KEEP_SCREEN_ON] = enabled }
     }
 
     suspend fun setVolume(volume: Float) {

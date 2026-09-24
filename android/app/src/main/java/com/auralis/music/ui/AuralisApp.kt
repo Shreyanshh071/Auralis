@@ -283,6 +283,14 @@ fun AuralisApp(
 
     val playerSheetProgress = remember { Animatable(0f) }
     var isNowPlayingOpen by remember { mutableStateOf(false) }
+    val playerView = androidx.compose.ui.platform.LocalView.current
+    val keepPlayerAwake = playerSettings.keepScreenOn && isNowPlayingOpen && playerUiState.isPlaying
+    DisposableEffect(playerView, keepPlayerAwake) {
+        val previous = playerView.keepScreenOn
+        playerView.keepScreenOn = keepPlayerAwake
+        onDispose { playerView.keepScreenOn = previous }
+    }
+
     val isPlayerSheetActive by remember {
         derivedStateOf { playerSheetProgress.value > 0f || isNowPlayingOpen }
     }
