@@ -5,6 +5,11 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,6 +59,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val settingsStore = remember(context) { com.auralis.music.data.datastore.SettingsDataStore(context) }
+    val settingsScope = rememberCoroutineScope()
     var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<SettingsDialogType?>(null) }
 
     androidx.activity.compose.BackHandler(enabled = true) {
@@ -262,7 +269,11 @@ fun SettingsScreen(
                     containerColor = surfaceColor,
                     title = { Text("Player and audio", fontWeight = FontWeight.Bold, color = onBackground) },
                     text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column(
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            SettingsCategoryHeader("Player", primaryColor)
                             // Quality
                             Column(
                                 modifier = Modifier
@@ -419,6 +430,26 @@ fun SettingsScreen(
                                     )
                                 )
                             }
+                            SettingsCategoryHeader("Queue", primaryColor)
+                            PlayerPreferenceToggle("Persistent queue", "Restore your queue and position after restarting", settings.persistentQueue) {
+                                settingsScope.launch { settingsStore.setPersistentQueue(it) }
+                            }
+                            PlayerPreferenceToggle("Auto load more songs", "Add recommendations as your radio queue runs low", settings.autoLoadMore) {
+                                settingsScope.launch { settingsStore.setAutoLoadMore(it) }
+                            }
+                            SettingsCategoryHeader("Misc", primaryColor)
+                            PlayerPreferenceToggle("Stop music on task clear", "Stop playback when Auralis is swiped away from recent apps", settings.stopMusicOnTaskClear) {
+                                settingsScope.launch { settingsStore.setStopMusicOnTaskClear(it) }
+                            }
+                            PlayerPreferenceToggle("Pause music when media is muted", "Pause when device media volume reaches zero", settings.pauseOnMediaMute) {
+                                settingsScope.launch { settingsStore.setPauseOnMediaMute(it) }
+                            }
+                            PlayerPreferenceToggle("Resume on Bluetooth connect", "Resume the current song when Bluetooth audio connects", settings.resumeOnBluetoothConnect) {
+                                settingsScope.launch { settingsStore.setResumeOnBluetoothConnect(it) }
+                            }
+                            PlayerPreferenceToggle("Keep screen on when player is expanded", "Keep the display awake while the expanded player is playing", settings.keepScreenOn) {
+                                settingsScope.launch { settingsStore.setKeepScreenOn(it) }
+                            }
                         }
                     },
                     confirmButton = {
@@ -541,5 +572,24 @@ private fun SettingsRowItem(
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+@Composable
+private fun PlayerPreferenceToggle(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Switch(checked = checked, onCheckedChange = null)
     }
 }

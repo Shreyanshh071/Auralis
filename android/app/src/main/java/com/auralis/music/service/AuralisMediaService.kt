@@ -42,6 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -913,40 +914,47 @@ class AuralisMediaService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
-        val isCurrentlyPlaying = audioPlayer.isPlaying.value
-        Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying) -> performing graceful cleanup")
-
-        try {
-            com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
-        } catch (_: Exception) {}
-
-        try {
-            audioPlayer.persistQueue()
-            audioPlayer.stop()
-        } catch (_: Exception) {}
-
-        try {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } catch (_: Exception) {}
-
-        try {
-            val notifManager = NotificationManagerCompat.from(this)
-            notifManager.cancel(NOTIFICATION_ID)
-        } catch (_: Exception) {}
-
-        try {
-            mediaSession?.run {
-                try {
-                    removeSession(this)
-                } catch (_: Exception) {}
-                release()
-                mediaSession = null
+        serviceScope.launch {
+            val settings = com.auralis.music.data.datastore.SettingsDataStore(applicationContext).settingsFlow.first()
+            val player = AuralisAudioPlayer.getInstance(applicationContext)
+            if (!settings.stopMusicOnTaskClear && (player.isPlaying.value || player.isBuffering.value)) {
+                player.persistQueue()
+                return@launch
             }
-        } catch (_: Exception) {}
+            val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
+            val isCurrentlyPlaying = audioPlayer.isPlaying.value
+            Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying) -> performing graceful cleanup")
 
-        stopSelf()
-        super.onTaskRemoved(rootIntent)
+            try {
+                com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
+            } catch (_: Exception) {}
+
+            try {
+                audioPlayer.persistQueue()
+                audioPlayer.stop()
+            } catch (_: Exception) {}
+
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Exception) {}
+
+            try {
+                val notifManager = NotificationManagerCompat.from(this@AuralisMediaService)
+                notifManager.cancel(NOTIFICATION_ID)
+            } catch (_: Exception) {}
+
+            try {
+                mediaSession?.run {
+                    try {
+                        removeSession(this)
+                    } catch (_: Exception) {}
+                    release()
+                    mediaSession = null
+                }
+            } catch (_: Exception) {}
+
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {

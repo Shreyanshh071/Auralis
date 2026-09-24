@@ -638,7 +638,7 @@ fun ExploreScreen(
                                         track = track,
                                         isCurrent = isCurrent,
                                         isPlaying = isPlaying,
-                                        playlist = uiState.liveSongRecommendations,
+                                        playlist = listOf(track),
                                         onTrackClick = handleTrackClick,
                                         onPlayNext = onPlayNext,
                                         onAddToQueue = onAddToQueue,
