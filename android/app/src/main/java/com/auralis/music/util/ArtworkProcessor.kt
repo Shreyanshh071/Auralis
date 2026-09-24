@@ -261,15 +261,17 @@ object ArtworkProcessor {
             val videoIdRegex = Regex("""(?:vi/|vi_webp/|v=|embed/|\.be/)([a-zA-Z0-9_-]{11})""")
             val match = videoIdRegex.find(cleaned)?.groupValues?.getOrNull(1)
             if (!match.isNullOrBlank()) {
-                candidates.add("https://i.ytimg.com/vi/$match/hqdefault.jpg")
-                candidates.add("https://i.ytimg.com/vi/$match/sddefault.jpg")
                 candidates.add("https://i.ytimg.com/vi/$match/maxresdefault.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/hq720.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/sddefault.jpg")
+                candidates.add("https://i.ytimg.com/vi/$match/hqdefault.jpg")
                 candidates.add("https://i.ytimg.com/vi/$match/mqdefault.jpg")
             } else {
                 val base = cleaned.substringBeforeLast('?').substringBeforeLast('/')
-                candidates.add("$base/hqdefault.jpg")
-                candidates.add("$base/sddefault.jpg")
                 candidates.add("$base/maxresdefault.jpg")
+                candidates.add("$base/hq720.jpg")
+                candidates.add("$base/sddefault.jpg")
+                candidates.add("$base/hqdefault.jpg")
                 candidates.add("$base/mqdefault.jpg")
             }
             val cleanNoQuery = cleaned.substringBefore('?')
@@ -371,38 +373,38 @@ object ArtworkProcessor {
     }
 
     /**
-     * Processes artwork to a pristine, uncompressed 1:1 square master bitmap (600x600).
+     * Processes artwork to a pristine, uncompressed 1:1 square master bitmap (targetSize = 800).
+     * Automatically strips black letterbox/pillarbox bars from video stills and centers the art.
      * Perfectly formatted for OnePlus (OxygenOS / ColorOS Media Player), Pixel, One UI, and Lockscreen.
      */
-    fun processForMediaNotification(bitmap: Bitmap, targetSize: Int = 600): Bitmap {
+    fun processForMediaNotification(bitmap: Bitmap, targetSize: Int = 800): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
         if (width <= 0 || height <= 0) return bitmap
 
-        // 1. If not 1:1 square, center-crop to 1:1 square
-        val cleanedBitmap = if (width != height) {
-            cropToCenterSquare(bitmap)
-        } else {
-            bitmap
+        // 1. Strip black letterbox/pillarbox bars from video stills
+        val debarred = stripBlackBars(bitmap)
+
+        // 2. Crop to 1:1 center square
+        val squareBitmap = cropToCenterSquare(debarred)
+        val sqWidth = squareBitmap.width
+        val sqHeight = squareBitmap.height
+
+        if (sqWidth == targetSize && sqHeight == targetSize) {
+            return squareBitmap
         }
 
-        val cleanWidth = cleanedBitmap.width
-        val cleanHeight = cleanedBitmap.height
-        if (cleanWidth == targetSize && cleanHeight == targetSize) {
-            return cleanedBitmap
-        }
-
-        // 2. High-fidelity bilinear scaling with anti-aliasing and dithering enabled
+        // 3. High-fidelity bilinear scaling with anti-aliasing and dithering enabled
         return try {
             val output = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(output)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
-            val srcRect = Rect(0, 0, cleanWidth, cleanHeight)
+            val srcRect = Rect(0, 0, sqWidth, sqHeight)
             val destRect = Rect(0, 0, targetSize, targetSize)
-            canvas.drawBitmap(cleanedBitmap, srcRect, destRect, paint)
+            canvas.drawBitmap(squareBitmap, srcRect, destRect, paint)
             output
         } catch (_: Exception) {
-            cleanedBitmap
+            squareBitmap
         }
     }
 
@@ -439,15 +441,24 @@ object ArtworkProcessor {
 
     /**
      * Exports processed master artwork to an accessible local file with a FileProvider content:// URI.
-     * Allows OnePlus / OxygenOS SystemUI to decode the original 600x600 master without network restrictions.
+     * Generates a unique versioned URI to invalidate SystemUI's internal image cache and prevent blurry cover retention.
+     * Cleans up older media artwork files to keep the disk cache minimal.
      */
-    fun saveMasterArtworkToCache(context: Context, bitmap: Bitmap): Uri? {
+    fun saveMasterArtworkToCache(context: Context, bitmap: Bitmap, trackId: String? = null): Uri? {
         return try {
             val dir = File(context.cacheDir, "artwork").apply { if (!exists()) mkdirs() }
-            val file = File(dir, "current_media_art.jpg")
+            val sanitizedId = trackId?.filter { it.isLetterOrDigit() }?.take(16) ?: "art"
+            val newFileName = "media_art_${sanitizedId}_${System.currentTimeMillis()}.jpg"
+            val file = File(dir, newFileName)
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
                 out.flush()
+            }
+            // Cleanup older artwork files so disk cache doesn't accumulate
+            dir.listFiles()?.forEach { oldFile ->
+                if (oldFile.name != newFileName && oldFile.name.startsWith("media_art_")) {
+                    try { oldFile.delete() } catch (_: Exception) {}
+                }
             }
             val uri = androidx.core.content.FileProvider.getUriForFile(
                 context,

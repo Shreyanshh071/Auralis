@@ -1310,5 +1310,71 @@ class LyricsPipelineRegressionTest {
         // Must NOT call deleteLyrics on DB for compatible offset
         coVerify(exactly = 0) { mockDao.deleteLyrics(trackKey) }
     }
-}
 
+    @Test
+    fun `synced cache is reused across duplicate Spotify and YouTube track IDs`() = runBlocking {
+        val mockDao = mockk<LyricsDao>(relaxed = true)
+        val mockClient = mockk<LyricsClient>(relaxed = true)
+        val youtubeKey = "7j6c9metnm0"
+
+        val plainForYoutube = LyricsData(
+            syncType = SyncType.PLAIN,
+            lines = listOf(LyricLine(time = 0L, text = "Cigarettes out the window")),
+            provider = LyricsProvider.YOUTUBE,
+            trackName = "Cigarettes out the Window",
+            artistName = "TV Girl"
+        )
+        val syncedForSpotify = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            lines = listOf(
+                createWordTimedLine(8_000L, "Cigarettes out the window"),
+                createWordTimedLine(12_000L, "My girl Liddy used to always smoke"),
+                createWordTimedLine(16_000L, "Cigarettes when she couldn't sleep"),
+                createWordTimedLine(20_000L, "She'd disappear for an hour and a half")
+            ),
+            provider = LyricsProvider.BETTER_LYRICS,
+            trackName = "Cigarettes out the Window",
+            artistName = "TV Girl",
+            durationMs = 199_000L
+        )
+
+        val plainEntity = LyricsRepositoryImpl.domainToEntity(
+            youtubeKey,
+            plainForYoutube,
+            "Cigarettes out the Window",
+            "TV Girl"
+        )
+        val syncedEntity = LyricsRepositoryImpl.domainToEntity(
+            "sp_6qeysvyqyusfbzsapbjdho",
+            syncedForSpotify,
+            "Cigarettes out the Window",
+            "TV Girl"
+        )
+        coEvery { mockDao.getLyrics(youtubeKey) } returns plainEntity
+        coEvery {
+            mockDao.getBestLyricsByMetadata(
+                title = "Cigarettes out the Window",
+                artist = "TV Girl",
+                durationMs = 198_000L,
+                pipelineVersion = LyricsRepositoryImpl.LYRICS_PIPELINE_VERSION,
+                durationToleranceMs = any()
+            )
+        } returns syncedEntity
+
+        val repository = LyricsRepositoryImpl(mockClient, mockDao)
+        val result = repository.getCachedLyrics(
+            title = "Cigarettes out the Window",
+            artist = "TV Girl",
+            durationSec = 198L,
+            videoId = youtubeKey,
+            durationMs = 198_000L
+        )
+
+        assertNotNull(result)
+        assertEquals(SyncType.RICHSYNC, result?.syncType)
+        assertEquals(LyricsProvider.BETTER_LYRICS, result?.provider)
+        coVerify {
+            mockDao.insertLyrics(match { it.trackId == youtubeKey && it.syncType == SyncType.RICHSYNC.name })
+        }
+    }
+}

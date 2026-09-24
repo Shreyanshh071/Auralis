@@ -229,8 +229,23 @@ class SearchRepositoryImpl(
             // 6. Top matched song
             // 7. YouTube Music general song card
             // 8. Fallback exact matches
+            // A hugely popular song that genuinely matches on its title (e.g. "chogada tara" ->
+            // Chogada from Loveyatri, 1.3B plays, where "tara" is its lyric) must not lose the Top
+            // result to an obscure album that happens to be titled exactly like the query.
+            val topSongTier = topMatchedSong?.let { SearchQueryMatcher.evaluateMatch(it, trimmed)?.tier }
+            val popularTitleSongWins = topMatchedSong != null && !topSongIsExactTitle &&
+                topSongViews >= 10_000_000L &&
+                topSongTier in setOf(
+                    SearchQueryMatcher.MatchTier.EXACT_TITLE,
+                    SearchQueryMatcher.MatchTier.PREFIX_TITLE,
+                    SearchQueryMatcher.MatchTier.CLOSE_TITLE
+                )
+
             var resolvedTopResult: SearchTopResult? = when {
                 topSongWins -> {
+                    SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
+                }
+                popularTitleSongWins && !isYtmArtistValidMatch -> {
                     SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
                 isYtmArtistValidMatch -> {
@@ -633,15 +648,35 @@ class SearchRepositoryImpl(
             }
 
             // 2. Lookup the official album via YouTube Music InnerTube FILTER_ALBUMS
-            val searchParam = "${album.author ?: ""} ${album.title}".trim()
-            val albumsResult = innerTubeClient.search(searchParam, InnerTubeClient.FILTER_ALBUMS).albums
-            val matchedAlbum = albumsResult.firstOrNull {
-                it.title.equals(album.title, ignoreCase = true) ||
-                (album.author != null && it.author?.contains(album.author, ignoreCase = true) == true) ||
-                it.id.startsWith("MPRE")
-            } ?: albumsResult.firstOrNull()
+            val cleanTitle = AlbumMetadataResolver.cleanAlbumTitle(album.title)
+            val primaryArtist = album.author
+                ?.split(",", "&", "feat.", "ft.", "/", "•")
+                ?.firstOrNull()?.trim()
+                ?.takeIf { it.isNotBlank() && it != "Artist" && it != "Various Artists" }
 
-            if (matchedAlbum != null && (matchedAlbum.id.startsWith("MPRE") || matchedAlbum.id.startsWith("OLAK") || matchedAlbum.id.startsWith("VL"))) {
+            val queriesToTry = listOfNotNull(
+                cleanTitle.takeIf { it.isNotBlank() },
+                primaryArtist?.let { "$it $cleanTitle" },
+                album.title.takeIf { it != cleanTitle }
+            ).distinct()
+
+            var matchedAlbum: PlaylistResult? = null
+            for (query in queriesToTry) {
+                val albumsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_ALBUMS).albums
+                val match = albumsResult.firstOrNull { cand ->
+                    val candClean = AlbumMetadataResolver.cleanAlbumTitle(cand.title)
+                    candClean.equals(cleanTitle, ignoreCase = true) ||
+                    cand.title.equals(album.title, ignoreCase = true) ||
+                    (cleanTitle.length > 3 && candClean.contains(cleanTitle, ignoreCase = true)) ||
+                    (candClean.length > 3 && cleanTitle.contains(candClean, ignoreCase = true))
+                }
+                if (match != null) {
+                    matchedAlbum = match
+                    break
+                }
+            }
+
+            if (matchedAlbum != null && (matchedAlbum.id.startsWith("MPRE") || matchedAlbum.id.startsWith("OLAK") || matchedAlbum.id.startsWith("VL") || matchedAlbum.id.startsWith("PL"))) {
                 val imported = youtubePlaylistImporter.importPlaylistById(matchedAlbum.id)
                 if (imported != null && imported.tracks.isNotEmpty()) {
                     val albumCover = imported.coverUrl ?: matchedAlbum.thumbnail ?: album.thumbnail
@@ -658,16 +693,29 @@ class SearchRepositoryImpl(
                 }
             }
 
-            // 3. Fallback: songs where album metadata EXACTLY matches album.title
-            val albumSongs = innerTubeClient.search(searchParam, InnerTubeClient.FILTER_SONGS).songs
-            val strictlyMatchingSongs = albumSongs.filter {
-                it.album?.equals(album.title, ignoreCase = true) == true
-            }.map {
-                val albumCover = album.thumbnail
-                if (!albumCover.isNullOrBlank()) it.copy(thumbnail = albumCover) else it
-            }
-            if (strictlyMatchingSongs.isNotEmpty()) {
-                return@withContext filterOfficialAlbumTracks(album, strictlyMatchingSongs)
+            // 3. Fallback: Search songs where album metadata matches cleanTitle or album.title
+            val songQueries = listOfNotNull(
+                primaryArtist?.let { "$it $cleanTitle" },
+                cleanTitle,
+                album.title.takeIf { it != cleanTitle }
+            ).distinct()
+
+            for (sQuery in songQueries) {
+                val albumSongs = innerTubeClient.search(sQuery, InnerTubeClient.FILTER_SONGS).songs
+                val matchingSongs = albumSongs.filter {
+                    val songAlbum = it.album ?: ""
+                    val cleanSongAlbum = AlbumMetadataResolver.cleanAlbumTitle(songAlbum)
+                    songAlbum.equals(album.title, ignoreCase = true) ||
+                    cleanSongAlbum.equals(cleanTitle, ignoreCase = true) ||
+                    (cleanTitle.length > 4 && cleanSongAlbum.contains(cleanTitle, ignoreCase = true)) ||
+                    (cleanSongAlbum.length > 4 && cleanTitle.contains(cleanSongAlbum, ignoreCase = true))
+                }.map {
+                    val albumCover = album.thumbnail
+                    if (!albumCover.isNullOrBlank() && it.thumbnail.isBlank()) it.copy(thumbnail = albumCover) else it
+                }
+                if (matchingSongs.isNotEmpty()) {
+                    return@withContext filterOfficialAlbumTracks(album, matchingSongs.distinctBy { it.id })
+                }
             }
 
             return@withContext emptyList()

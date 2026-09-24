@@ -62,7 +62,17 @@ object PlaylistDownloadCoordinator {
             val existing = repository.getForPlaylist(playlistId)
             if (existing?.status == PlaylistDownloadStatus.DOWNLOADING.name && !existing.cancelRequested) return@launch
             val job = repository.createOrUpdate(playlistId, playlistName, tracks, backend)
-            scheduleOrPersistFailure(context.applicationContext, repository, job)
+            if (job.status == PlaylistDownloadStatus.COMPLETE.name) {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        context.applicationContext,
+                        "\"$playlistName\" is already downloaded and available offline!",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } else {
+                scheduleOrPersistFailure(context.applicationContext, repository, job)
+            }
         }
     }
 
@@ -226,11 +236,19 @@ object PlaylistDownloadCoordinator {
             val files = PlaylistDownloadFiles(context)
             repository.results(job).forEach { files.delete(it.contentUri) }
             files.deleteFolderIfEmpty(job.folderName)
-            // Also remove each track from the main DownloadStore so they
-            // disappear from the "Downloaded" cover grid in the Library.
+            // Also remove each track from the main DownloadStore only if no other
+            // playlist job still has that track downloaded.
+            val otherJobs = repository.getAll().filter { it.jobId != jobId }
+            val otherTrackIds = otherJobs.flatMap { other ->
+                repository.results(other)
+                    .filter { it.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES }
+                    .map { it.trackId }
+            }.toSet()
             val trackIds = tracks(job).map { it.id }
             trackIds.forEach { trackId ->
-                AuralisDownloadManager.removeDownload(trackId)
+                if (trackId !in otherTrackIds) {
+                    AuralisDownloadManager.removeDownload(trackId)
+                }
             }
             repository.delete(jobId)
             _jobs.update { removePlaylistJobFromState(it, jobId) }

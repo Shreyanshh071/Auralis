@@ -11,7 +11,9 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntOffset
 import com.auralis.music.ui.player.PlayerTransitionMotion
-import com.auralis.music.ui.player.animateArtworkPalette
+import com.auralis.music.ui.player.PaletteBlend
+import com.auralis.music.ui.player.lerpArtworkPalette
+import com.auralis.music.ui.player.rememberPaletteBlend
 import com.auralis.music.ui.theme.ArtworkPalette
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -83,7 +85,10 @@ class PlayerTransitionMotionTest {
         val c = palette(Color.Blue)
         val d = palette(Color.Yellow)
         val target = mutableStateOf(a)
-        var visible = a
+        var blend: PaletteBlend? = null
+        // What the background draws: the blend's two fixed palettes mixed by its draw-time progress.
+        fun visible(): ArtworkPalette =
+            blend!!.let { lerpArtworkPalette(it.from, it.to, it.progress.value) }
         var nanos = 0L
 
         fun applyAtCurrentTime() {
@@ -101,43 +106,43 @@ class PlayerTransitionMotionTest {
             repeat(count) {
                 nanos += 16_000_000L
                 applyAtCurrentTime()
-                assertEquals(1f, visible.primary.alpha)
-                assertTrue(visible.primary != Color.Black)
+                assertEquals(1f, visible().primary.alpha)
+                assertTrue(visible().primary != Color.Black)
             }
         }
 
         try {
-            composition.setContent { visible = animateArtworkPalette(target.value) }
+            composition.setContent { blend = rememberPaletteBlend(target.value) }
             frames(2)
-            assertEquals(a, visible)
+            assertEquals(a, visible())
             target.value = b
             frames(5)
-            assertTrue(visible.primary != a.primary && visible.primary != b.primary)
-            frames(16)
-            assertEquals(b, visible)
+            assertTrue(visible().primary != a.primary && visible().primary != b.primary)
+            frames(30)
+            assertEquals(b, visible())
 
             // Return to A, then interrupt A -> B -> C -> D on consecutive short intervals.
             target.value = a
-            frames(20)
+            frames(35)
             for (next in listOf(b, c, d)) {
-                val before = visible
+                val before = visible()
                 target.value = next
                 applyAtCurrentTime()
-                assertEquals("Retargeting must preserve the visible color", before.primary, visible.primary)
+                assertEquals("Retargeting must preserve the visible color", before.primary, visible().primary)
                 frames(3)
             }
-            frames(14)
-            assertEquals(d, visible)
-            frames(20)
-            assertEquals("No obsolete transition may roll the background back", d, visible)
+            frames(30)
+            assertEquals(d, visible())
+            frames(35)
+            assertEquals("No obsolete transition may roll the background back", d, visible())
 
             // Rapid Previous/Next reversals use the same driver.
             for (next in listOf(c, b, c, d, c)) {
                 target.value = next
                 frames(3)
             }
-            frames(20)
-            assertEquals(c, visible)
+            frames(35)
+            assertEquals(c, visible())
         } finally {
             composition.dispose()
             recomposer.cancel()

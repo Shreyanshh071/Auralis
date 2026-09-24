@@ -28,6 +28,31 @@ class PlaylistDownloadExecutor(private val context: Context) {
                 }
                 .associateBy { it.trackId }
                 .toMutableMap()
+
+            // Pre-resolve any tracks that are already downloaded globally on device (e.g. from another playlist)
+            for ((index, track) in tracks.withIndex()) {
+                if (results.containsKey(track.id)) continue
+                if (AuralisDownloadManager.isDownloaded(track.id)) {
+                    val source = AuralisDownloadManager.getDownloadedFile(track.id)
+                    if (source != null && source.isFile && source.length() > 1024) {
+                        try {
+                            val published = publicFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
+                            results[track.id] = TrackDownloadResult(
+                                trackId = track.id,
+                                outcome = DownloadOutcome.ALREADY_DOWNLOADED,
+                                contentUri = published.first,
+                                bytes = published.second
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.w("PlaylistDownload", "Pre-resolve publish failed for ${track.title}: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            job = repository.update(job, tracks.mapNotNull { results[it.id] }, PlaylistDownloadStatus.DOWNLOADING, null, false)
+            onProgress(job)
+
             try {
                 for ((index, track) in tracks.withIndex()) {
                     job = requireNotNull(repository.get(jobId))

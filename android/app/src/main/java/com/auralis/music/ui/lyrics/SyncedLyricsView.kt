@@ -23,6 +23,8 @@ import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -39,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -57,7 +60,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -93,6 +98,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlin.math.pow
 
 /**
  * High-performance, smooth 60fps Line-Synced Lyrics View:
@@ -126,7 +132,11 @@ fun SyncedLyricsView(
     lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
     isPlaying: Boolean = true,
     isBuffering: Boolean = false,
-    audioLeadingSilenceMs: Long? = null
+    audioLeadingSilenceMs: Long? = null,
+    readingFocusFraction: Float = 0.45f,
+    listState: LazyListState = rememberLazyListState(),
+    standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
+    loadingAlignment: Alignment = Alignment.Center
 ) {
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {
@@ -193,7 +203,7 @@ fun SyncedLyricsView(
     if (isLoading) {
         Box(
             modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            contentAlignment = loadingAlignment
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 com.auralis.music.ui.components.SquirlyProgressRing(
@@ -240,7 +250,7 @@ fun SyncedLyricsView(
     if (isInstrumental) {
         Box(
             modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            contentAlignment = loadingAlignment
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -284,7 +294,7 @@ fun SyncedLyricsView(
     }
 
     if (lyrics == null || effectiveLines.isEmpty()) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = loadingAlignment) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "Lyrics not available",
@@ -401,7 +411,6 @@ fun SyncedLyricsView(
         }
     }
 
-    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     if (appearance.shouldUseExperimentalLyrics) {
@@ -418,7 +427,8 @@ fun SyncedLyricsView(
             onSearchManually = onSearchManually,
             headerContent = null,
             footerContent = null,
-            track = track
+            track = track,
+            standardLyricsBlur = standardLyricsBlur
         )
         return
     }
@@ -496,17 +506,21 @@ fun SyncedLyricsView(
         // Target center position: 0.45f keeps the active lyric line directly in
         // the user's natural reading focal point while providing generous space for
         // reading upcoming lines below.
-        val targetCenterFraction = 0.45f
-        val topPaddingDp = 20.dp
+        val targetCenterFraction = readingFocusFraction.coerceIn(0.2f, 0.6f)
+        val topPaddingDp = 8.dp
         val bottomPaddingDp = (maxHeight * (1f - targetCenterFraction) + 40.dp).coerceAtLeast(160.dp)
 
         // Track whether initial scroll has completed
-        var hasInitialCentered by remember { mutableStateOf(false) }
+        var hasInitialCentered by rememberSaveable(track?.id) { mutableStateOf(false) }
         // Track last centered index to detect large jumps (tap-to-seek) vs natural progression
-        var lastCenteredIndex by remember { mutableIntStateOf(-1) }
+        var lastCenteredIndex by rememberSaveable(track?.id) { mutableIntStateOf(-1) }
+        // Not saveable on purpose: when this view is (re)composed — e.g. switching back to the
+        // Lyrics tab — the first centering snaps while the tab is still fading in, instead of
+        // stacking a 260ms scroll on top of the tab's entry glide (read as a slow creep).
+        var centeredSinceComposed by remember { mutableStateOf(false) }
 
-        // Initial centering on first composition / tab switch
-        LaunchedEffect(lyrics) {
+        // Initial centering on track change
+        LaunchedEffect(track?.id, lyrics) {
             hasInitialCentered = false
             lastCenteredIndex = -1
             isAutoScrollEnabled = appearance.autoScrollLyrics
@@ -579,11 +593,15 @@ fun SyncedLyricsView(
                 if (isUserInteracting || listState.isScrollInProgress) return@derivedStateOf false
                 val activeIdx = activeMergedIndexState.value
                 if (activeIdx !in mergedLyricsItems.indices) return@derivedStateOf true
+                // The first item (index 0) anchored near top of viewport is centered by definition
+                if (activeIdx == 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 24) {
+                    return@derivedStateOf true
+                }
                 val layoutInfo = listState.layoutInfo
                 val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIdx } ?: return@derivedStateOf false
                 val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
                 if (viewportHeight <= 0) return@derivedStateOf false
-                val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * 0.45f)
+                val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * targetCenterFraction)
                 val itemCenterY = item.offset + (item.size / 2f)
                 kotlin.math.abs(itemCenterY - targetCenterY) < 100f
             }
@@ -621,17 +639,33 @@ fun SyncedLyricsView(
                         val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * targetCenterFraction)
                         var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
                         if (itemInfo == null) {
-                            val currentFirst = listState.firstVisibleItemIndex
-                            val distance = kotlin.math.abs(targetIndex - currentFirst)
-                            if (distance > 8) {
-                                val preIndex = if (targetIndex > currentFirst) {
-                                    (targetIndex - 2).coerceAtLeast(0)
-                                } else {
-                                    (targetIndex + 2).coerceAtMost(mergedLyricsItems.size - 1)
-                                }
-                                listState.scrollToItem(preIndex)
+                            val visibleNow = layoutInfo.visibleItemsInfo
+                            if (animate && visibleNow.isNotEmpty()) {
+                                // Off-screen target on an animated move (e.g. auto-resume after the user scrolled
+                                // away): glide there in one motion instead of jumping, estimating the distance
+                                // from the average visible line height. The correction below centres it exactly.
+                                val avgItem = visibleNow.map { it.size }.average().toFloat() + layoutInfo.mainAxisItemSpacing
+                                val anchor = visibleNow.first()
+                                val estimatedCenter = anchor.offset + (targetIndex - anchor.index) * avgItem + avgItem / 2f
+                                val estimatedDelta = estimatedCenter - targetCenterY
+                                val glideMs = (350 + kotlin.math.abs(estimatedDelta) / 6f).toInt().coerceIn(400, 900)
+                                listState.animateScrollBy(
+                                    value = estimatedDelta,
+                                    animationSpec = tween(durationMillis = glideMs, easing = FastOutSlowInEasing)
+                                )
                             } else {
-                                listState.scrollToItem(targetIndex)
+                                val currentFirst = listState.firstVisibleItemIndex
+                                val distance = kotlin.math.abs(targetIndex - currentFirst)
+                                if (distance > 8) {
+                                    val preIndex = if (targetIndex > currentFirst) {
+                                        (targetIndex - 2).coerceAtLeast(0)
+                                    } else {
+                                        (targetIndex + 2).coerceAtMost(mergedLyricsItems.size - 1)
+                                    }
+                                    listState.scrollToItem(preIndex)
+                                } else {
+                                    listState.scrollToItem(targetIndex)
+                                }
                             }
                             try {
                                 withFrameMillis { }
@@ -643,8 +677,13 @@ fun SyncedLyricsView(
                         }
 
                         if (itemInfo != null) {
+                            val targetCenterYActual = if (targetIndex == 0) {
+                                layoutInfo.viewportStartOffset + with(density) { 16.dp.toPx() } + (itemInfo.size / 2f)
+                            } else {
+                                targetCenterY
+                            }
                             val itemCenterY = itemInfo.offset + (itemInfo.size / 2f)
-                            val scrollDelta = itemCenterY - targetCenterY
+                            val scrollDelta = itemCenterY - targetCenterYActual
                             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                                 try {
                                     if (animate) {
@@ -678,16 +717,40 @@ fun SyncedLyricsView(
             pendingSeekTarget = null
             val activeIndex = activeMergedIndexState.value
             if (activeIndex in mergedLyricsItems.indices) {
+                // Mark it handled first so the follow-the-line effect (restarted by re-enabling
+                // auto scroll) does not launch a second, competing scroll to the same line.
+                lastCenteredIndex = activeIndex
                 coroutineScope.launch {
                     centerActiveLine(activeIndex, true)
-                    lastCenteredIndex = activeIndex
                 }
             } else if (mergedLyricsItems.isNotEmpty()) {
+                // Mark it handled first so the follow-the-line effect (restarted by re-enabling
+                // auto scroll) does not launch a second, competing scroll to the same line.
+                lastCenteredIndex = 0
                 coroutineScope.launch {
                     centerActiveLine(0, true)
-                    lastCenteredIndex = 0
                 }
             }
+        }
+
+        // With "Auto scroll lyrics" on, a manual scroll only pauses following: once the user has
+        // left the list alone for 1.5s (no drag, no fling, not selecting lines), re-centre the
+        // active line and resume. Any new touch restarts the wait. Previously it stayed off until
+        // the Re-sync button was tapped.
+        // (isScrollInProgress stays true for the whole drag, even while the finger rests, so it
+        // alone tracks "user is scrolling"; isUserInteracting can be left stale by line selection.)
+        LaunchedEffect(
+            appearance.autoScrollLyrics,
+            isAutoScrollEnabled,
+            listState.isScrollInProgress,
+            selectedIndices.isEmpty(),
+            isSynced
+        ) {
+            if (!appearance.autoScrollLyrics || !isSynced || isAutoScrollEnabled ||
+                listState.isScrollInProgress || selectedIndices.isNotEmpty()
+            ) return@LaunchedEffect
+            delay(1_500L)
+            resyncLyrics()
         }
 
         // Automatic, smooth centering of active lyric line or instrumental indicator.
@@ -700,17 +763,21 @@ fun SyncedLyricsView(
                 .collectLatest { (activeIndex, interacting, selecting) ->
                     if (interacting || selecting) return@collectLatest
                     if (activeIndex < 0) {
-                        if (mergedLyricsItems.isNotEmpty()) {
+                        if (mergedLyricsItems.isNotEmpty() && lastCenteredIndex != 0) {
                             centerActiveLine(0, hasInitialCentered)
+                            lastCenteredIndex = 0
                         }
                         return@collectLatest
                     }
                     if (activeIndex >= mergedLyricsItems.size) return@collectLatest
+                    // Do not re-scroll or animate if the active line has not changed
+                    if (hasInitialCentered && activeIndex == lastCenteredIndex) return@collectLatest
 
-                    val shouldAnimate = hasInitialCentered
+                    val shouldAnimate = hasInitialCentered && centeredSinceComposed
                     centerActiveLine(activeIndex, shouldAnimate)
                     lastCenteredIndex = activeIndex
                     hasInitialCentered = true
+                    centeredSinceComposed = true
                 }
         }
 
@@ -797,11 +864,32 @@ fun SyncedLyricsView(
                             val ref = minActive ?: (primaryIndex + 1)
                             (ref - index).coerceAtLeast(1)
                         } else 0
+                        val futureDistance = if (!isPast && !isCurrent) {
+                            val maxActive = (visualActiveIndices + activeIndices).maxOrNull()
+                            val ref = maxActive ?: primaryIndex
+                            if (ref >= 0) (index - ref).coerceAtLeast(1) else 1
+                        } else 0
                         val distanceFromCurrent = when {
                             isCurrent -> 0
                             isPast -> pastDistance
-                            primaryIndex >= 0 -> kotlin.math.abs(index - primaryIndex)
-                            else -> 1
+                            else -> futureDistance
+                        }
+                        val blurGeometry by remember(
+                            listIndex,
+                            listState,
+                            activeMergedIndexState,
+                            targetCenterFraction,
+                            viewportHeightPx
+                        ) {
+                            derivedStateOf {
+                                resolveLyricsBlurGeometry(
+                                    layoutInfo = listState.layoutInfo,
+                                    lineIndex = listIndex,
+                                    activeIndex = activeMergedIndexState.value,
+                                    fallbackActiveFraction = targetCenterFraction,
+                                    fallbackViewportHeightPx = viewportHeightPx
+                                )
+                            }
                         }
 
                         // Vocal agent & background vocal positioning
@@ -843,6 +931,7 @@ fun SyncedLyricsView(
                                 InstrumentalIntroIndicator(
                                     currentTimeMsState = introTimeState,
                                     introDurationMs = introDurationMs,
+                                    isMetroLyrics = false,
                                     onSkipIntro = { onSeekTo(introDurationMs) }
                                 )
                             }
@@ -915,6 +1004,10 @@ fun SyncedLyricsView(
                                     isPast = isPast,
                                     pastDistance = pastDistance,
                                     distanceFromCurrent = distanceFromCurrent,
+                                    lineCenterPx = blurGeometry.lineCenterPx,
+                                    activeLineCenterPx = blurGeometry.activeLineCenterPx,
+                                    viewportStartPx = blurGeometry.viewportStartPx,
+                                    viewportEndPx = blurGeometry.viewportEndPx,
                                     isSelected = isSelected,
                                     lyricsMode = lyricsMode,
                                     syncType = lyrics.syncType,
@@ -925,11 +1018,12 @@ fun SyncedLyricsView(
                                     offsetMs = offsetMs,
                                     animationMode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation),
                                     enableGlowEffect = appearance.enableGlowingLyricsEffect,
-                                    standardBlur = appearance.standardLyricsBlur,
+                                    standardBlur = standardLyricsBlur,
                                     fontSizeSp = appearance.lyricsTextSize,
                                     lineSpacingMultiplier = appearance.lyricsLineSpacing,
                                     isAutoScrollActive = isAutoScrollEnabled,
                                     isUserInteracting = isUserInteracting || !isAutoScrollEnabled,
+                                    isScrolling = listState.isScrollInProgress,
                                     rowMaxWidthPx = rowMaxWidthPx,
                                     isPlaying = isPlaying
                                 )
@@ -945,6 +1039,7 @@ fun SyncedLyricsView(
                             currentPositionMs = currentPos,
                             visible = isIndicatorVisible,
                             color = Color.White,
+                            isMetroLyrics = false,
                             onSkip = { onSeekTo(item.gapEndMs) }
                         )
                     }
@@ -1243,6 +1338,108 @@ private fun buildWordLayouts(
     }
 }
 
+internal fun computeLyricsProgressiveBlur(
+    standardBlur: Boolean,
+    isSynced: Boolean,
+    isPlain: Boolean,
+    isSelected: Boolean,
+    isCurrent: Boolean,
+    isUserInteracting: Boolean,
+    lineCenterPx: Float,
+    activeLineCenterPx: Float,
+    viewportStartPx: Float,
+    viewportEndPx: Float
+): Float {
+    if (!standardBlur || !isSynced || isPlain || isSelected || isCurrent) {
+        return 0f
+    }
+    // Manual reading mode stays sharp. Re-enabling sync restores the positional blur.
+    if (isUserInteracting) {
+        return 0f
+    }
+    if (!lineCenterPx.isFinite() || !activeLineCenterPx.isFinite() ||
+        !viewportStartPx.isFinite() || !viewportEndPx.isFinite() ||
+        viewportEndPx <= viewportStartPx
+    ) {
+        return 0f
+    }
+
+    val lineCenter = lineCenterPx.coerceIn(viewportStartPx, viewportEndPx)
+    val activeCenter = activeLineCenterPx.coerceIn(viewportStartPx, viewportEndPx)
+    if (lineCenter <= activeCenter) {
+        val availableAbove = (activeCenter - viewportStartPx).coerceAtLeast(1f)
+        val aboveProgress = ((activeCenter - lineCenter) / availableAbove).coerceIn(0f, 1f)
+        return 2.5f * aboveProgress.pow(1.35f)
+    }
+
+    val availableBelow = (viewportEndPx - activeCenter).coerceAtLeast(1f)
+    val rawProgress = ((lineCenter - activeCenter) / availableBelow).coerceIn(0f, 1f)
+    // A small crisp band around the active line flows continuously into full blur
+    // at the viewport bottom. This is positional, not a line-distance bucket.
+    val blurProgress = ((rawProgress - 0.04f) / 0.96f).coerceIn(0f, 1f)
+    return 24f * blurProgress.pow(1.35f)
+}
+
+internal data class LyricsBlurGeometry(
+    val lineCenterPx: Float,
+    val activeLineCenterPx: Float,
+    val viewportStartPx: Float,
+    val viewportEndPx: Float
+)
+
+internal fun resolveLyricsBlurGeometry(
+    layoutInfo: LazyListLayoutInfo,
+    lineIndex: Int,
+    activeIndex: Int,
+    fallbackActiveFraction: Float,
+    fallbackViewportHeightPx: Float = 0f
+): LyricsBlurGeometry {
+    val measuredHeight = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).toFloat()
+    val viewportHeight = if (measuredHeight > 0f) measuredHeight else fallbackViewportHeightPx.coerceAtLeast(0f)
+    val viewportStart = layoutInfo.viewportStartOffset.toFloat()
+    val viewportEnd = if (measuredHeight > 0f) layoutInfo.viewportEndOffset.toFloat() else (viewportStart + viewportHeight)
+    val lineInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == lineIndex }
+    val activeInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
+    val fallbackCenter = viewportStart + viewportHeight * fallbackActiveFraction.coerceIn(0f, 1f)
+    val lineCenter = if (lineInfo != null) {
+        lineInfo.offset + lineInfo.size / 2f
+    } else if (viewportHeight > 0f && activeIndex >= 0) {
+        // Fallback: estimate line position from active line index offset to prevent initial frame-0 unblurred flash
+        val estimatedItemHeight = (viewportHeight * 0.08f).coerceIn(40f, 80f)
+        fallbackCenter + (lineIndex - activeIndex) * estimatedItemHeight
+    } else {
+        Float.NaN
+    }
+    return LyricsBlurGeometry(
+        lineCenterPx = lineCenter,
+        activeLineCenterPx = activeInfo?.let { it.offset + it.size / 2f } ?: fallbackCenter,
+        viewportStartPx = viewportStart,
+        viewportEndPx = viewportEnd
+    )
+}
+
+internal fun computeClassicLyricsLayerAlpha(
+    isPlain: Boolean,
+    isCurrent: Boolean,
+    isPast: Boolean,
+    lyricsMode: LyricsMode
+): Float = when {
+    isPlain -> 0.95f
+    isCurrent -> 1f
+    isPast -> if (lyricsMode == LyricsMode.CINEMA) 0.55f else 0.58f
+    else -> if (lyricsMode == LyricsMode.CINEMA) 0.32f else 0.38f
+}
+
+internal fun computeClassicLyricsTextAlpha(
+    isBackground: Boolean,
+    isCurrent: Boolean,
+    isPast: Boolean
+): Float = when {
+    isCurrent -> if (isBackground) 0.85f else 1f
+    isPast -> if (isBackground) 0.45f else 0.60f
+    else -> if (isBackground) 0.28f else 0.38f
+}
+
 /**
  * Universal lyric line row supporting Auralis native canvas sweep + 10 VIVI animation styles.
  *
@@ -1260,6 +1457,10 @@ private fun LyricLineRow(
     isPast: Boolean,
     pastDistance: Int = 0,
     distanceFromCurrent: Int = 0,
+    lineCenterPx: Float = Float.NaN,
+    activeLineCenterPx: Float = Float.NaN,
+    viewportStartPx: Float = Float.NaN,
+    viewportEndPx: Float = Float.NaN,
     isSelected: Boolean = false,
     lyricsMode: LyricsMode,
     syncType: SyncType,
@@ -1275,27 +1476,28 @@ private fun LyricLineRow(
     lineSpacingMultiplier: Float,
     isAutoScrollActive: Boolean,
     isUserInteracting: Boolean = false,
+    isScrolling: Boolean = false,
     rowMaxWidthPx: Int,
     isPlaying: Boolean = true
 ) {
     val isPlain = syncType == SyncType.PLAIN
 
-    val targetBlur = if (!standardBlur || !isSynced || isPlain || isSelected || isCurrent) {
-        0f
-    } else if (isUserInteracting) {
-        1.5f
-    } else {
-        when (distanceFromCurrent) {
-            0 -> 0f
-            1 -> 2.5f
-            2 -> 4.5f
-            else -> 6f
-        }
-    }
+    val targetBlur = computeLyricsProgressiveBlur(
+        standardBlur = standardBlur,
+        isSynced = isSynced,
+        isPlain = isPlain,
+        isSelected = isSelected,
+        isCurrent = isCurrent,
+        isUserInteracting = isUserInteracting,
+        lineCenterPx = lineCenterPx,
+        activeLineCenterPx = activeLineCenterPx,
+        viewportStartPx = viewportStartPx,
+        viewportEndPx = viewportEndPx
+    )
 
     val animatedBlur by animateFloatAsState(
         targetValue = targetBlur,
-        animationSpec = if (isUserInteracting) androidx.compose.animation.core.snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        animationSpec = if (isUserInteracting || isScrolling) androidx.compose.animation.core.snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
         label = "LyricStandardBlur"
     )
 
@@ -1320,12 +1522,7 @@ private fun LyricLineRow(
 
     val hasWordTiming = !effectiveWords.isNullOrEmpty()
 
-    val targetAlpha = when {
-        isPlain -> 0.95f
-        isCurrent -> 1.0f
-        isPast -> if (lyricsMode == LyricsMode.CINEMA) 0.55f else 0.58f
-        else -> if (lyricsMode == LyricsMode.CINEMA) 0.32f else 0.38f
-    }
+    val targetAlpha = computeClassicLyricsLayerAlpha(isPlain, isCurrent, isPast, lyricsMode)
     val animAlpha by animateFloatAsState(
         targetValue = targetAlpha,
         animationSpec = motionTween(AuralisDuration.Standard, AuralisEasing.Standard),
@@ -1349,11 +1546,9 @@ private fun LyricLineRow(
         else -> FontWeight.SemiBold
     }
 
-    val textColor = when {
-        isCurrent -> if (line.isBackground) Color.White.copy(alpha = 0.85f) else Color.White
-        isPast -> if (line.isBackground) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.60f)
-        else -> if (line.isBackground) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.38f)
-    }
+    val textColor = Color.White.copy(
+        alpha = computeClassicLyricsTextAlpha(line.isBackground, isCurrent, isPast)
+    )
 
     // Precompute character mapping for words only when line is active
     val wordRanges = remember(line, effectiveWords, isCurrent) {
@@ -1426,7 +1621,12 @@ private fun LyricLineRow(
     }
     val effectiveAccentColor = Color.White
 
-    val blurModifier = if (standardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier
+    val blurModifier = if (standardBlur && animatedBlur > 0.1f) {
+        Modifier.blur(
+            radius = animatedBlur.dp,
+            edgeTreatment = BlurredEdgeTreatment.Unbounded
+        )
+    } else Modifier
 
     Column(
         modifier = Modifier
@@ -1694,13 +1894,21 @@ private fun LyricLineRow(
 
 
 /**
- * Modern circular progress countdown during song instrumental intros (ViVi Music / MetroList design).
+ * Modern circular progress countdown during song instrumental intros.
+ *
+ * For MetroLyrics, displays the thicker 40dp / 5.0dp Metrolist style.
+ * For all other animation modes (Auralis Default, Apple Music, Fade, Glow, etc.),
+ * displays the classic thin 34dp / 3.0dp style.
  */
 @Composable
 internal fun InstrumentalIntroIndicator(
     currentTimeMsState: State<Long>,
     introDurationMs: Long,
     modifier: Modifier = Modifier,
+    isMetroLyrics: Boolean = false,
+    indicatorSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroIndicatorSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardIndicatorSize,
+    strokeWidth: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroStrokeWidth else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardStrokeWidth,
+    gapSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroTrackGapSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardTrackGapSize,
     onSkipIntro: (() -> Unit)? = null
 ) {
     val currentTimeMs = currentTimeMsState.value
@@ -1713,16 +1921,18 @@ internal fun InstrumentalIntroIndicator(
         label = "introProgress"
     )
 
+    val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 12.dp, bottom = 18.dp),
+            .padding(top = 4.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(44.dp)
+                .size(clickableSize)
                 .then(
                     if (onSkipIntro != null) {
                         Modifier
@@ -1733,15 +1943,12 @@ internal fun InstrumentalIntroIndicator(
         ) {
             WavyProgressIndicator(
                 progress = animatedProgress,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(indicatorSize),
                 color = Color.White.copy(alpha = 0.95f),
                 trackColor = Color.White.copy(alpha = 0.18f),
-                strokeWidth = 3.0.dp,
-                gapSize = 3.0.dp,
-                lobes = 7,
-                amplitudeRatio = 0.085f
+                strokeWidth = strokeWidth,
+                gapSize = gapSize,
             )
         }
     }
 }
-

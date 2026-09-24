@@ -34,10 +34,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -336,42 +338,80 @@ fun lerpArtworkPalette(start: ArtworkPalette, stop: ArtworkPalette, fraction: Fl
 }
 
 /**
- * Interpolates an [ArtworkPalette] with an immediate-start, 240ms settle.
- * Automatically accelerates transition when rapid track skips interrupt an active transition, keeping pace
- * dynamically with fast swiping and button skipping.
- * Uses a single [Animatable] float + [lerpArtworkPalette] to animate all color channels together in one
- * invalidation per frame, eliminating the 10-simultaneous animateColorAsState flood that caused frame jank.
+ * A song-change palette blend whose progress is read only at draw time.
+ *
+ * [from] and [to] change once per song; [progress] animates 0→1. Consumers draw the outgoing
+ * look and fade the incoming one over it (or lerp inside a draw lambda), so the background
+ * never recomposes during the blend. The previous driver returned a freshly lerped palette
+ * every frame, rebuilding every gradient/brush in the background for the whole transition.
  */
+@androidx.compose.runtime.Stable
+class PaletteBlend(
+    val from: ArtworkPalette,
+    val to: ArtworkPalette,
+    val progress: androidx.compose.runtime.State<Float>
+)
+
+private val SettledProgress: androidx.compose.runtime.State<Float> = androidx.compose.runtime.mutableFloatStateOf(1f)
+
 @Composable
-fun animateArtworkPalette(
-    targetPalette: ArtworkPalette,
+fun rememberPaletteBlend(
+    target: ArtworkPalette,
+    snap: Boolean = false,
     durationMillis: Int = PlayerTransitionMotion.paletteDurationMillis
-): ArtworkPalette {
-    // Keep track of the "start" snapshot (what was visible the moment the target changed)
-    var currentVisiblePalette by remember { mutableStateOf(targetPalette) }
-    var previousTargetPalette by remember { mutableStateOf(targetPalette) }
-    val animProgress = remember { Animatable(1f) }
+): PaletteBlend {
+    var from by remember { mutableStateOf(target) }
+    var to by remember { mutableStateOf(target) }
+    val progress = remember { Animatable(1f) }
 
-    LaunchedEffect(targetPalette) {
-        if (targetPalette != previousTargetPalette) {
-            // Snapshot whatever is CURRENTLY visible at the interruption moment so rapid
-            // A → B → C switches never jump or restart from a stale baseline.
-            currentVisiblePalette = lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
-            previousTargetPalette = targetPalette
-
-            // When changing tracks rapidly ("fast fast"), accelerate interpolation to dynamically catch up
-            val transitionSpec = PlayerTransitionMotion.paletteSpec(animProgress.value, durationMillis)
-
-            animProgress.snapTo(0f)
-            animProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = transitionSpec
-            )
+    LaunchedEffect(target, snap) {
+        if (snap) {
+            // Pager-driven palette is already interpolated per frame by the caller.
+            progress.snapTo(1f)
+            from = target
+            to = target
+            return@LaunchedEffect
+        }
+        if (target != to) {
+            // Start from whatever is on screen right now, so rapid A→B→C skips never jump.
+            val visible = lerpArtworkPalette(from, to, progress.value)
+            val spec = PlayerTransitionMotion.paletteSpec(progress.value, durationMillis)
+            progress.snapTo(0f)
+            from = visible
+            to = target
+            progress.animateTo(1f, spec)
         }
     }
 
-    return lerpArtworkPalette(currentVisiblePalette, previousTargetPalette, animProgress.value)
+    return if (snap) {
+        remember(target) { PaletteBlend(target, target, SettledProgress) }
+    } else {
+        remember(from, to) { PaletteBlend(from, to, progress.asState()) }
+    }
 }
+
+private fun glowColorsOf(palette: ArtworkPalette): List<Color> =
+    if (palette.glowColors.size >= 6) {
+        palette.glowColors.take(6)
+    } else {
+        val baseList = palette.glowColors.ifEmpty { listOf(palette.primary, palette.secondary, palette.tertiary) }
+        List(6) { idx -> baseList[idx % baseList.size] }
+    }
+
+private fun gradientStopsOf(palette: ArtworkPalette): GradientStops = PlayerGradientPalette.create(
+    primary = palette.primary,
+    secondary = palette.secondary,
+    tertiary = palette.tertiary,
+    isMonochrome = palette.isMonochrome
+)
+
+/** Outgoing brush drawn solid, incoming brush faded over it by [progress] — all at draw time. */
+private fun Modifier.crossfadeBackground(from: Brush, to: Brush, progress: androidx.compose.runtime.State<Float>): Modifier =
+    this.drawBehind {
+        val p = progress.value
+        if (p < 1f) drawRect(from)
+        if (p > 0f) drawRect(to, alpha = p)
+    }
 
 /**
  * Coordinated palette driver ensuring:
@@ -449,32 +489,15 @@ fun PlayerBackground(
     // If we are actively swiping or skipPaletteAnimation is requested (e.g. direct pager-driven palette),
     // the palette is already mathematically interpolated in real-time.
     // Committed changes use one interruptible palette driver.
-    val effectivePalette = if (isSwiping) {
-        extractedColors
-    } else {
-        animateArtworkPalette(extractedColors)
-    }
+    val blend = rememberPaletteBlend(extractedColors, snap = isSwiping)
+    val blendProgress = blend.progress
+    // Discrete (non-animated) properties follow the incoming palette.
+    val effectivePalette = blend.to
 
-    val animatedGlowColors = remember(effectivePalette) {
-        if (effectivePalette.glowColors.size >= 6) {
-            effectivePalette.glowColors.take(6)
-        } else {
-            val baseList = effectivePalette.glowColors.ifEmpty {
-                listOf(effectivePalette.primary, effectivePalette.secondary, effectivePalette.tertiary)
-            }
-            List(6) { idx -> baseList[idx % baseList.size] }
-        }
-    }
-
-    // Unified vibrant gradient stops derived from animated artwork colors
-    val gradStops = remember(effectivePalette.primary, effectivePalette.secondary, effectivePalette.tertiary, effectivePalette.isMonochrome) {
-        PlayerGradientPalette.create(
-            primary = effectivePalette.primary,
-            secondary = effectivePalette.secondary,
-            tertiary = effectivePalette.tertiary,
-            isMonochrome = effectivePalette.isMonochrome
-        )
-    }
+    val fromGlowColors = remember(blend.from) { glowColorsOf(blend.from) }
+    val toGlowColors = remember(blend.to) { glowColorsOf(blend.to) }
+    val fromStops = remember(blend.from) { gradientStopsOf(blend.from) }
+    val toStops = remember(blend.to) { gradientStopsOf(blend.to) }
 
     Crossfade(
         targetState = style,
@@ -501,11 +524,11 @@ fun PlayerBackground(
 
             PlayerBackgroundStyle.GRADIENT -> {
                 SeamlessGradientLayer(
-                    palette = effectivePalette,
+                    fromStops = fromStops,
+                    toStops = toStops,
+                    progress = blendProgress,
                     isMiniPlayer = isMiniPlayer,
-                    modifier = Modifier.fillMaxSize(),
-                    secondaryArtworkUrl = secondaryArtworkUrl,
-                    swipeFraction = swipeFraction
+                    modifier = Modifier.fillMaxSize()
                 )
             }
 
@@ -550,7 +573,10 @@ fun PlayerBackground(
             PlayerBackgroundStyle.GLOW_MOTION -> {
                 // ViVi-exact 20-second continuous rotation
                 val infiniteTransition = rememberInfiniteTransition(label = "glowMotionTransition")
-                val glowProgress by infiniteTransition.animateFloat(
+                // Kept as State and read only in the draw phase: reading it in composition rebuilt
+                // this whole background on every frame of the never-ending 20s rotation, which
+                // made song-change colour blends stutter on top of it.
+                val glowProgressState = infiniteTransition.animateFloat(
                     initialValue = 0f,
                     targetValue = 1f,
                     animationSpec = infiniteRepeatable(
@@ -559,162 +585,86 @@ fun PlayerBackground(
                     ),
                     label = "glowMotionProgress"
                 )
-
-                fun rotatedColorAt(index: Int): Color {
-                    val size = animatedGlowColors.size
+                fun rotated(colors: List<Color>, index: Int, glowProgress: Float): Color {
+                    val size = colors.size
                     val idx = index.toFloat() + glowProgress * size
                     val a = floor(idx).toInt() % size
                     val b = (a + 1) % size
                     val frac = idx - floor(idx)
-                    return lerp(animatedGlowColors[a], animatedGlowColors[b], frac)
+                    return lerp(colors[a], colors[b], frac)
                 }
 
-                fun oscillate(min: Float, max: Float, phase: Float, speed: Float = 1f): Float {
+                // Called only from draw lambdas: song-change blend and rotation both resolve here.
+                fun rotatedColorAt(index: Int, glowProgress: Float): Color = lerp(
+                    rotated(fromGlowColors, index, glowProgress),
+                    rotated(toGlowColors, index, glowProgress),
+                    blendProgress.value
+                )
+
+                fun oscillate(glowProgress: Float, min: Float, max: Float, phase: Float, speed: Float = 1f): Float {
                     val v = sin(2f * PI.toFloat() * (glowProgress * speed + phase))
                     return min + (max - min) * ((v + 1f) * 0.5f)
                 }
 
                 if (isMiniPlayer) {
                     // ViVi's EXACT Mini Player Glow Motion (vivi_MiniPlayer.kt lines 1069-1128)
-                    val c1 = rotatedColorAt(0)
-                    val c2 = rotatedColorAt(1)
-
-                    val o1x = oscillate(0.0f, 1.0f, 0.0f)
-                    val o1y = oscillate(0.0f, 0.5f, 0.1f)
-                    val o2x = oscillate(1.0f, 0.0f, 0.2f)
-                    val o2y = oscillate(0.5f, 1.0f, 0.3f)
-
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .drawWithCache {
+                            .drawBehind {
+                                val gp = glowProgressState.value
                                 val width = size.width
                                 val height = size.height
-
+                                val c1 = rotatedColorAt(0, gp)
+                                val c2 = rotatedColorAt(1, gp)
                                 val b1 = Brush.radialGradient(
                                     colors = listOf(c1.copy(alpha = 0.8f), Color.Transparent),
-                                    center = Offset(width * o1x, height * o1y),
+                                    center = Offset(width * oscillate(gp, 0.0f, 1.0f, 0.0f), height * oscillate(gp, 0.0f, 0.5f, 0.1f)),
                                     radius = width * 1.2f
                                 )
                                 val b2 = Brush.radialGradient(
                                     colors = listOf(c2.copy(alpha = 0.7f), Color.Transparent),
-                                    center = Offset(width * o2x, height * o2y),
+                                    center = Offset(width * oscillate(gp, 1.0f, 0.0f, 0.2f), height * oscillate(gp, 0.5f, 1.0f, 0.3f)),
                                     radius = width * 1.0f
                                 )
-
-                                onDrawBehind {
-                                    drawRect(Color(0xFF050505))
-                                    drawRect(b1)
-                                    drawRect(b2)
-                                }
+                                drawRect(Color(0xFF050505))
+                                drawRect(b1)
+                                drawRect(b2)
                             }
                     )
                 } else {
                     // ViVi's EXACT Full Player Glow Motion (vivi_Player.kt lines 921-1065)
-                    val color1 = rotatedColorAt(0)
-                    val color2 = rotatedColorAt(1)
-                    val color3 = rotatedColorAt(2)
-                    val color4 = rotatedColorAt(3)
-                    val color5 = rotatedColorAt(4)
-                    val color6 = rotatedColorAt(5)
-
-                    val o1x = oscillate(0.0f, 1.0f, 0.00f, 1.0f)
-                    val o1y = oscillate(0.0f, 0.5f, 0.07f, 1.0f)
-                    val r1 = oscillate(0.8f, 1.6f, 0.12f, 1.0f)
-
-                    val o2x = oscillate(1.0f, 0.0f, 0.20f, 1.0f)
-                    val o2y = oscillate(0.5f, 1.0f, 0.25f, 1.0f)
-                    val r2 = oscillate(0.7f, 1.5f, 0.18f, 1.0f)
-
-                    val o3x = oscillate(0.2f, 0.8f, 0.33f, 1.0f)
-                    val o3y = oscillate(0.8f, 0.2f, 0.36f, 1.0f)
-                    val r3 = oscillate(0.6f, 1.4f, 0.29f, 1.0f)
-
-                    val o4x = oscillate(0.3f, 0.7f, 0.44f, 1.0f)
-                    val o4y = oscillate(0.2f, 0.8f, 0.41f, 1.0f)
-                    val r4 = oscillate(0.9f, 1.7f, 0.47f, 1.0f)
-
-                    val o5x = oscillate(0.4f, 0.6f, 0.55f, 1.0f)
-                    val o5y = oscillate(0.0f, 1.0f, 0.51f, 1.0f)
-                    val r5 = oscillate(0.7f, 1.5f, 0.58f, 1.0f)
-
-                    val o6x = oscillate(0.0f, 1.0f, 0.66f, 1.0f)
-                    val o6y = oscillate(0.5f, 0.7f, 0.62f, 1.0f)
-                    val r6 = oscillate(0.8f, 1.8f, 0.69f, 1.0f)
-
                     val baseColor = Color(0xFF050505)
-
+                    // (colour index, peak/mid alpha, center x/y ranges + phases, radius range + phase)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .drawWithCache {
+                            .drawBehind {
+                                val gp = glowProgressState.value
                                 val width = size.width
                                 val height = size.height
 
-                                val brush1 = Brush.radialGradient(
-                                    colors = listOf(
-                                        color1.copy(alpha = 0.85f),
-                                        color1.copy(alpha = 0.5f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(width * o1x, height * o1y),
-                                    radius = width * r1
-                                )
-                                val brush2 = Brush.radialGradient(
-                                    colors = listOf(
-                                        color2.copy(alpha = 0.8f),
-                                        color2.copy(alpha = 0.45f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(width * o2x, height * o2y),
-                                    radius = width * r2
-                                )
-                                val brush3 = Brush.radialGradient(
-                                    colors = listOf(
-                                        color3.copy(alpha = 0.75f),
-                                        color3.copy(alpha = 0.4f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(width * o3x, height * o3y),
-                                    radius = width * r3
-                                )
-                                val brush4 = Brush.radialGradient(
-                                    colors = listOf(
-                                        color4.copy(alpha = 0.7f),
-                                        color4.copy(alpha = 0.35f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(width * o4x, height * o4y),
-                                    radius = width * r4
-                                )
-                                val brush5 = Brush.radialGradient(
-                                    colors = listOf(
-                                        color5.copy(alpha = 0.65f),
-                                        color5.copy(alpha = 0.3f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(width * o5x, height * o5y),
-                                    radius = width * r5
-                                )
-                                val brush6 = Brush.radialGradient(
-                                    colors = listOf(
-                                        color6.copy(alpha = 0.6f),
-                                        color6.copy(alpha = 0.25f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(width * o6x, height * o6y),
-                                    radius = width * r6
-                                )
-
-                                onDrawBehind {
-                                    drawRect(color = baseColor)
-                                    drawRect(brush = brush1)
-                                    drawRect(brush = brush2)
-                                    drawRect(brush = brush3)
-                                    drawRect(brush = brush4)
-                                    drawRect(brush = brush5)
-                                    drawRect(brush = brush6)
+                                fun blob(
+                                    index: Int, peak: Float, mid: Float,
+                                    xMin: Float, xMax: Float, xPhase: Float,
+                                    yMin: Float, yMax: Float, yPhase: Float,
+                                    rMin: Float, rMax: Float, rPhase: Float
+                                ): Brush {
+                                    val c = rotatedColorAt(index, gp)
+                                    return Brush.radialGradient(
+                                        colors = listOf(c.copy(alpha = peak), c.copy(alpha = mid), Color.Transparent),
+                                        center = Offset(width * oscillate(gp, xMin, xMax, xPhase), height * oscillate(gp, yMin, yMax, yPhase)),
+                                        radius = width * oscillate(gp, rMin, rMax, rPhase)
+                                    )
                                 }
+
+                                drawRect(color = baseColor)
+                                drawRect(blob(0, 0.85f, 0.5f, 0.0f, 1.0f, 0.00f, 0.0f, 0.5f, 0.07f, 0.8f, 1.6f, 0.12f))
+                                drawRect(blob(1, 0.8f, 0.45f, 1.0f, 0.0f, 0.20f, 0.5f, 1.0f, 0.25f, 0.7f, 1.5f, 0.18f))
+                                drawRect(blob(2, 0.75f, 0.4f, 0.2f, 0.8f, 0.33f, 0.8f, 0.2f, 0.36f, 0.6f, 1.4f, 0.29f))
+                                drawRect(blob(3, 0.7f, 0.35f, 0.3f, 0.7f, 0.44f, 0.2f, 0.8f, 0.41f, 0.9f, 1.7f, 0.47f))
+                                drawRect(blob(4, 0.65f, 0.3f, 0.4f, 0.6f, 0.55f, 0.0f, 1.0f, 0.51f, 0.7f, 1.5f, 0.58f))
+                                drawRect(blob(5, 0.6f, 0.25f, 0.0f, 1.0f, 0.66f, 0.5f, 0.7f, 0.62f, 0.8f, 1.8f, 0.69f))
                             }
                     )
                 }
@@ -722,24 +672,25 @@ fun PlayerBackground(
 
             PlayerBackgroundStyle.APPLE_MUSIC -> {
                 // Apple Music-inspired blurred backdrop with authentic frosted liquid glass refraction
+                fun appleBrush(stops: GradientStops): Brush = if (isMiniPlayer) {
+                    Brush.horizontalGradient(
+                        0.0f to stops.miniLeft.copy(alpha = 0.16f),
+                        0.5f to stops.miniCenter.copy(alpha = 0.10f),
+                        1.0f to stops.miniRight.copy(alpha = 0.20f)
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        0.0f to stops.topVibrant,
+                        0.48f to stops.midHarmonic,
+                        1.0f to stops.bottomObsidian
+                    )
+                }
+                val appleFrom = remember(fromStops, isMiniPlayer) { appleBrush(fromStops) }
+                val appleTo = remember(toStops, isMiniPlayer) { appleBrush(toStops) }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            if (isMiniPlayer) {
-                                Brush.horizontalGradient(
-                                    0.0f to gradStops.miniLeft.copy(alpha = 0.16f),
-                                    0.5f to gradStops.miniCenter.copy(alpha = 0.10f),
-                                    1.0f to gradStops.miniRight.copy(alpha = 0.20f)
-                                )
-                            } else {
-                                Brush.verticalGradient(
-                                    0.0f to gradStops.topVibrant,
-                                    0.48f to gradStops.midHarmonic,
-                                    1.0f to gradStops.bottomObsidian
-                                )
-                            }
-                        )
+                        .crossfadeBackground(appleFrom, appleTo, blendProgress)
                 )
 
                 // Seamless Dual-Layer Apple Music Blurred Artwork (zero black frames while image decodes)
@@ -803,16 +754,17 @@ fun PlayerBackground(
             PlayerBackgroundStyle.LIVE_MESH -> {
                 // ViVi-inspired Live Mesh Dynamic Background
                 // Foundation: Deep vertical gradient anchored to top dominant color
+                fun meshBrush(stops: GradientStops): Brush = Brush.verticalGradient(
+                    0.0f to stops.topVibrant.copy(alpha = 0.45f),
+                    0.5f to stops.midHarmonic.copy(alpha = 0.25f),
+                    1.0f to Color(0xFF050505)
+                )
+                val meshFrom = remember(fromStops) { meshBrush(fromStops) }
+                val meshTo = remember(toStops) { meshBrush(toStops) }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.0f to gradStops.topVibrant.copy(alpha = 0.45f),
-                                0.5f to gradStops.midHarmonic.copy(alpha = 0.25f),
-                                1.0f to Color(0xFF050505)
-                            )
-                        )
+                        .crossfadeBackground(meshFrom, meshTo, blendProgress)
                 )
 
                 LiveMeshArtworkLayer(
@@ -837,27 +789,27 @@ fun PlayerBackground(
  */
 @Composable
 private fun SeamlessGradientLayer(
-    palette: ArtworkPalette,
+    fromStops: GradientStops,
+    toStops: GradientStops,
+    progress: androidx.compose.runtime.State<Float>,
     isMiniPlayer: Boolean,
-    modifier: Modifier = Modifier,
-    secondaryArtworkUrl: String? = null,
-    swipeFraction: Float = 0f
+    modifier: Modifier = Modifier
 ) {
-    val stops = remember(palette.primary, palette.secondary, palette.tertiary, palette.isMonochrome) {
-        PlayerGradientPalette.create(
-            primary = palette.primary,
-            secondary = palette.secondary,
-            tertiary = palette.tertiary,
-            isMonochrome = palette.isMonochrome
+    // Outgoing gradient underneath, incoming gradient fading in over it on the GPU.
+    Box(modifier = modifier.clipToBounds()) {
+        SingleGradientLayer(
+            stops = fromStops,
+            isMiniPlayer = isMiniPlayer,
+            alpha = { if (progress.value < 1f) 1f else 0f },
+            modifier = Modifier.fillMaxSize()
+        )
+        SingleGradientLayer(
+            stops = toStops,
+            isMiniPlayer = isMiniPlayer,
+            alpha = { progress.value },
+            modifier = Modifier.fillMaxSize()
         )
     }
-
-    SingleGradientLayer(
-        stops = stops,
-        isMiniPlayer = isMiniPlayer,
-        alpha = { 1f },
-        modifier = modifier.clipToBounds()
-    )
 }
 
 @Composable
@@ -949,6 +901,10 @@ private fun SeamlessArtworkBlurLayer(
     val colorFilter = remember(colorMatrix) {
         colorMatrix?.let { ColorFilter.colorMatrix(it) }
     }
+    // Blur a quarter-size copy (radius / 4) and scale it back up. A 120dp blur over the full
+    // screen, twice during every song-change crossfade, was the heaviest GPU work in the app and
+    // dropped frames; blurred content has no fine detail, so the downscaled result looks the same.
+    val blurDownscale = if (isMiniPlayer) 1f else 4f
 
     // Ping-pong layer slots: Slot 0 (base) and Slot 1 (overlay)
     // slot1Alpha: 0f = Slot 0 is fully visible; 1f = Slot 1 is fully visible.
@@ -958,18 +914,27 @@ private fun SeamlessArtworkBlurLayer(
     val slot1Alpha = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
 
+    // Which URL each slot has actually finished decoding. The incoming slot only starts fading
+    // once its bitmap is ready; fading immediately finished on an empty layer and the artwork
+    // then popped in, which read as a jerky background change.
+    var slot0LoadedUrl by remember { mutableStateOf<String?>(null) }
+    var slot1LoadedUrl by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(artworkUrl, swipeFraction) {
         if (!artworkUrl.isNullOrBlank() && swipeFraction <= 0.005f) {
             val currentActiveUrl = if (activeSlot == 0) slot0Url else slot1Url
             if (artworkUrl != currentActiveUrl) {
+                val blend = tween<Float>(PlayerTransitionMotion.paletteDurationMillis, easing = FastOutSlowInEasing)
                 if (activeSlot == 0) {
                     slot1Url = artworkUrl
                     activeSlot = 1
-                    slot1Alpha.animateTo(1f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                    awaitSlotLoaded(artworkUrl) { slot1LoadedUrl }
+                    slot1Alpha.animateTo(1f, blend)
                 } else {
                     slot0Url = artworkUrl
                     activeSlot = 0
-                    slot1Alpha.animateTo(0f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                    awaitSlotLoaded(artworkUrl) { slot0LoadedUrl }
+                    slot1Alpha.animateTo(0f, blend)
                 }
             }
         }
@@ -993,15 +958,16 @@ private fun SeamlessArtworkBlurLayer(
                     contentScale = ContentScale.Crop,
                     colorFilter = colorFilter,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .blur(radius = blurRadius)
+                        .align(Alignment.Center)
+                        .fillMaxSize(1f / blurDownscale)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                            scaleX = scale * blurDownscale
+                            scaleY = scale * blurDownscale
+                            if (translationYRatio != 0f) translationY = size.height * blurDownscale * translationYRatio
                             alpha = targetAlpha * (1f - swipeFraction)
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
+                        .blur(radius = blurRadius / blurDownscale)
                 )
             }
 
@@ -1019,15 +985,16 @@ private fun SeamlessArtworkBlurLayer(
                 contentScale = ContentScale.Crop,
                 colorFilter = colorFilter,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .blur(radius = blurRadius)
+                    .align(Alignment.Center)
+                    .fillMaxSize(1f / blurDownscale)
                     .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                        scaleX = scale * blurDownscale
+                        scaleY = scale * blurDownscale
+                        if (translationYRatio != 0f) translationY = size.height * blurDownscale * translationYRatio
                         alpha = targetAlpha * swipeFraction
                         if (rotationZ != 0f) this.rotationZ = rotationZ
                     }
+                    .blur(radius = blurRadius / blurDownscale)
             )
         } else {
             // Stable Ping-Pong Dual-Layer: Slot 0 and Slot 1 persist seamlessly.
@@ -1047,16 +1014,18 @@ private fun SeamlessArtworkBlurLayer(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     colorFilter = colorFilter,
+                    onSuccess = { slot0LoadedUrl = u0 },
                     modifier = Modifier
-                        .fillMaxSize()
-                        .blur(radius = blurRadius)
+                        .align(Alignment.Center)
+                        .fillMaxSize(1f / blurDownscale)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                            scaleX = scale * blurDownscale
+                            scaleY = scale * blurDownscale
+                            if (translationYRatio != 0f) translationY = size.height * blurDownscale * translationYRatio
                             alpha = targetAlpha
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
+                        .blur(radius = blurRadius / blurDownscale)
                 )
             }
 
@@ -1075,16 +1044,18 @@ private fun SeamlessArtworkBlurLayer(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     colorFilter = colorFilter,
+                    onSuccess = { slot1LoadedUrl = u1 },
                     modifier = Modifier
-                        .fillMaxSize()
-                        .blur(radius = blurRadius)
+                        .align(Alignment.Center)
+                        .fillMaxSize(1f / blurDownscale)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            if (translationYRatio != 0f) translationY = size.height * translationYRatio
+                            scaleX = scale * blurDownscale
+                            scaleY = scale * blurDownscale
+                            if (translationYRatio != 0f) translationY = size.height * blurDownscale * translationYRatio
                             alpha = targetAlpha * slot1Alpha.value
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
+                        .blur(radius = blurRadius / blurDownscale)
                 )
             }
         }
@@ -1112,18 +1083,27 @@ private fun LiveMeshArtworkLayer(
     val slot1Alpha = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
 
+    // Which URL each slot has actually finished decoding. The incoming slot only starts fading
+    // once its bitmap is ready; fading immediately finished on an empty layer and the artwork
+    // then popped in, which read as a jerky background change.
+    var slot0LoadedUrl by remember { mutableStateOf<String?>(null) }
+    var slot1LoadedUrl by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(artworkUrl, swipeFraction) {
         if (!artworkUrl.isNullOrBlank() && swipeFraction <= 0.005f) {
             val currentActiveUrl = if (activeSlot == 0) slot0Url else slot1Url
             if (artworkUrl != currentActiveUrl) {
+                val blend = tween<Float>(PlayerTransitionMotion.paletteDurationMillis, easing = FastOutSlowInEasing)
                 if (activeSlot == 0) {
                     slot1Url = artworkUrl
                     activeSlot = 1
-                    slot1Alpha.animateTo(1f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                    awaitSlotLoaded(artworkUrl) { slot1LoadedUrl }
+                    slot1Alpha.animateTo(1f, blend)
                 } else {
                     slot0Url = artworkUrl
                     activeSlot = 0
-                    slot1Alpha.animateTo(0f, tween(PlayerTransitionMotion.paletteDurationMillis, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                    awaitSlotLoaded(artworkUrl) { slot0LoadedUrl }
+                    slot1Alpha.animateTo(0f, blend)
                 }
             }
         }
@@ -1141,7 +1121,7 @@ private fun LiveMeshArtworkLayer(
     val colorFilter = remember(matrix) { ColorFilter.colorMatrix(matrix) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "liveMeshRotation")
-    val miniRotation by infiniteTransition.animateFloat(
+    val miniRotation = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -1150,7 +1130,7 @@ private fun LiveMeshArtworkLayer(
         ),
         label = "miniMeshRotation"
     )
-    val anchorRotation by infiniteTransition.animateFloat(
+    val anchorRotation = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = -360f,
         animationSpec = infiniteRepeatable(
@@ -1159,7 +1139,7 @@ private fun LiveMeshArtworkLayer(
         ),
         label = "anchorRotation"
     )
-    val fastRotation by infiniteTransition.animateFloat(
+    val fastRotation = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -1168,7 +1148,7 @@ private fun LiveMeshArtworkLayer(
         ),
         label = "fastRotation"
     )
-    val slowRotation by infiniteTransition.animateFloat(
+    val slowRotation = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -1190,7 +1170,7 @@ private fun LiveMeshArtworkLayer(
                     anchorRotation = anchorRotation,
                     fastRotation = fastRotation,
                     slowRotation = slowRotation,
-                    alpha = 1f - swipeFraction,
+                    alpha = { 1f - swipeFraction },
                     onLoaded = null
                 )
             }
@@ -1202,7 +1182,7 @@ private fun LiveMeshArtworkLayer(
                 anchorRotation = anchorRotation,
                 fastRotation = fastRotation,
                 slowRotation = slowRotation,
-                alpha = swipeFraction,
+                alpha = { swipeFraction },
                 onLoaded = null
             )
         } else {
@@ -1217,8 +1197,8 @@ private fun LiveMeshArtworkLayer(
                     anchorRotation = anchorRotation,
                     fastRotation = fastRotation,
                     slowRotation = slowRotation,
-                    alpha = 1f,
-                    onLoaded = null
+                    alpha = { 1f },
+                    onLoaded = { slot0LoadedUrl = u0 }
                 )
             }
 
@@ -1232,8 +1212,9 @@ private fun LiveMeshArtworkLayer(
                     anchorRotation = anchorRotation,
                     fastRotation = fastRotation,
                     slowRotation = slowRotation,
-                    alpha = slot1Alpha.value,
-                    onLoaded = null
+                    // Read at draw time: reading slot1Alpha.value here recomposed the mesh per frame.
+                    alpha = { slot1Alpha.value },
+                    onLoaded = { slot1LoadedUrl = u1 }
                 )
             }
         }
@@ -1245,11 +1226,13 @@ private fun LiveMeshArtworkContent(
     url: String,
     isMiniPlayer: Boolean,
     colorFilter: ColorFilter,
-    miniRotation: Float,
-    anchorRotation: Float,
-    fastRotation: Float,
-    slowRotation: Float,
-    alpha: Float,
+    // States/lambdas, read only inside graphicsLayer: passing the raw Floats recomposed the whole
+    // mesh (four blurred images) on every frame of its never-ending rotation.
+    miniRotation: androidx.compose.runtime.State<Float>,
+    anchorRotation: androidx.compose.runtime.State<Float>,
+    fastRotation: androidx.compose.runtime.State<Float>,
+    slowRotation: androidx.compose.runtime.State<Float>,
+    alpha: () -> Float,
     onLoaded: (() -> Unit)?
 ) {
     val context = LocalContext.current
@@ -1271,7 +1254,7 @@ private fun LiveMeshArtworkContent(
                 .graphicsLayer {
                     scaleX = 1.5f
                     scaleY = 1.5f
-                    this.alpha = alpha
+                    this.alpha = alpha()
                 }
         ) {
             AsyncImage(
@@ -1283,7 +1266,7 @@ private fun LiveMeshArtworkContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .blur(40.dp)
-                    .graphicsLayer { rotationZ = miniRotation }
+                    .graphicsLayer { rotationZ = miniRotation.value }
             )
             Box(
                 modifier = Modifier
@@ -1298,53 +1281,65 @@ private fun LiveMeshArtworkContent(
                 .graphicsLayer {
                     scaleX = 1.7f
                     scaleY = 1.7f
-                    this.alpha = alpha
+                    this.alpha = alpha()
                 }
         ) {
-            // Layer 1: The Anchor (Full Image, Counter-Clockwise)
-            AsyncImage(
-                model = meshReq,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                colorFilter = colorFilter,
-                onSuccess = { onLoaded?.invoke() },
+            // The three blurred layers render at quarter size (blur radius / 4) and are scaled
+            // back up: six full-screen 100-120dp blurs during a song-change crossfade dropped frames.
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .blur(100.dp)
-                    .graphicsLayer { rotationZ = anchorRotation }
-            )
-
-            // Layer 2: Fast Rotating Crop (Top-Left)
-            AsyncImage(
-                model = meshReq,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                colorFilter = colorFilter,
-                alignment = Alignment.TopStart,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(120.dp)
+                    .align(Alignment.Center)
+                    .fillMaxSize(0.25f)
                     .graphicsLayer {
-                        rotationZ = fastRotation
-                        this.alpha = 0.6f
+                        scaleX = 4f
+                        scaleY = 4f
                     }
-            )
+            ) {
+                // Layer 1: The Anchor (Full Image, Counter-Clockwise)
+                AsyncImage(
+                    model = meshReq,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = colorFilter,
+                    onSuccess = { onLoaded?.invoke() },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(25.dp)
+                        .graphicsLayer { rotationZ = anchorRotation.value }
+                )
 
-            // Layer 3: Slow Rotating Crop (Bottom-Right)
-            AsyncImage(
-                model = meshReq,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                colorFilter = colorFilter,
-                alignment = Alignment.BottomEnd,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(120.dp)
-                    .graphicsLayer {
-                        rotationZ = slowRotation
-                        this.alpha = 0.5f
-                    }
-            )
+                // Layer 2: Fast Rotating Crop (Top-Left)
+                AsyncImage(
+                    model = meshReq,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = colorFilter,
+                    alignment = Alignment.TopStart,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(30.dp)
+                        .graphicsLayer {
+                            rotationZ = fastRotation.value
+                            this.alpha = 0.6f
+                        }
+                )
+
+                // Layer 3: Slow Rotating Crop (Bottom-Right)
+                AsyncImage(
+                    model = meshReq,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = colorFilter,
+                    alignment = Alignment.BottomEnd,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(30.dp)
+                        .graphicsLayer {
+                            rotationZ = slowRotation.value
+                            this.alpha = 0.5f
+                        }
+                )
+            }
 
             // Global dark tint + vertical gradient depth matching ViVi
             Box(
@@ -1365,5 +1360,12 @@ private fun LiveMeshArtworkContent(
                     )
             )
         }
+    }
+}
+
+/** Suspends until [loadedUrl] reports [url] decoded, or a short timeout so a failed load cannot stall. */
+private suspend fun awaitSlotLoaded(url: String, loadedUrl: () -> String?) {
+    kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+        androidx.compose.runtime.snapshotFlow { loadedUrl() }.first { it == url }
     }
 }

@@ -54,6 +54,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -65,28 +67,12 @@ import com.auralis.music.domain.model.AudioQuality
 import com.auralis.music.ui.components.tactileBounce
 import kotlin.math.roundToInt
 
-// ── VIVI-EXACT COLOR PALETTE ──
-private val ViviSheetBg = Color(0xFF191517)
-private val ViviCardBg = Color(0xFF251F23)
-private val ViviCardBorder = Color.White.copy(alpha = 0.05f)
-private val ViviAccentPink = Color(0xFFF7B5BE)
-private val ViviAccentDarkText = Color(0xFF2B141B)
-private val ViviBadgeBg = Color(0xFF392D32)
-private val ViviVolumeTrackBg = Color(0xFF4C3039)
-private val ViviVolumeFillGradientStart = Color(0xFF7A4A57)
-private val ViviVolumeFillGradientEnd = Color(0xFF8D5564)
-
 /**
- * Audio Output & Device Switcher Bottom Sheet with 100% ViVi Parity.
+ * Audio Output & Device Switcher Bottom Sheet with dynamic song-reactive theming.
  *
- * Matches ViVi reference video:
- * 1. Connected audio card:
- *    - Bluetooth: Circular battery gauge (100%), Bluetooth icon + device name (e.g. "OnePlus Buds 4"), "Connected" badge, expandable chevron.
- *    - Phone speaker: Flower squircle speaker badge, "Phone speaker", "Connected" badge.
- *    - Interactive 2-way routing: tapping "This phone" switches audio to phone speaker and updates the card.
- *      Tapping the Bluetooth device in the dropdown routes audio back to Bluetooth.
- * 2. Volume card: Speaker icon + "Volume" + percentage badge ("26%"), thick pill track + pastel pink scalloped thumb.
- * 3. Audio Quality card: "Audio Quality" header + 3-segment pill selector (Auto | High | Low) with solid pink active pill.
+ * Dynamically reacts to the playing song's artwork color palette:
+ * - Active audio route, volume slider fill, thumb, and audio quality pills seamlessly match the song's primary color.
+ * - Sheet and card containers are subtly tinted with the song's authentic hue.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,7 +80,8 @@ fun AudioOutputBottomSheet(
     currentQuality: AudioQuality,
     onAudioQualityChange: (AudioQuality) -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accentColor: Color = MaterialTheme.colorScheme.primary
 ) {
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -242,10 +229,74 @@ fun AudioOutputBottomSheet(
         }
     }
 
+    val rawAccent = if (accentColor != Color.Unspecified) accentColor else MaterialTheme.colorScheme.primary
+    // Dark artwork yields a near-black accent (e.g. deep brown) that vanishes on this dark sheet.
+    // Keep the album's hue but lift brightness/saturation so icons, the volume fill and the
+    // selected quality pill always read clearly.
+    val resolvedAccent = remember(rawAccent) {
+        val a = FloatArray(3)
+        android.graphics.Color.colorToHSV(rawAccent.toArgb(), a)
+        if (a[1] < 0.08f) {
+            Color.hsv(0f, 0f, a[2].coerceAtLeast(0.88f))
+        } else {
+            Color.hsv(a[0], a[1].coerceIn(0.35f, 0.80f), a[2].coerceAtLeast(0.88f))
+        }
+    }
+    val activeAccent by animateColorAsState(
+        targetValue = resolvedAccent,
+        animationSpec = tween(320, easing = FastOutSlowInEasing),
+        label = "audioOutputAccent"
+    )
+
+    val hsv = remember(activeAccent) {
+        val array = FloatArray(3)
+        android.graphics.Color.colorToHSV(activeAccent.toArgb(), array)
+        array
+    }
+    val isMonochrome = hsv[1] < 0.08f
+
+    val dynamicSheetBg = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color(0xFF141414)
+        else Color.hsv(hsv[0], (hsv[1] * 0.14f).coerceIn(0.04f, 0.10f), 0.08f)
+    }
+
+    val dynamicCardBg = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color(0xFF202020)
+        else Color.hsv(hsv[0], (hsv[1] * 0.18f).coerceIn(0.06f, 0.14f), 0.13f)
+    }
+
+    val dynamicCardBorder = remember(isMonochrome) {
+        Color.White.copy(alpha = 0.06f)
+    }
+
+    val dynamicBadgeBg = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color.White.copy(alpha = 0.12f)
+        else activeAccent.copy(alpha = 0.16f)
+    }
+
+    val dynamicVolumeTrackBg = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color.White.copy(alpha = 0.10f)
+        else activeAccent.copy(alpha = 0.22f)
+    }
+
+    val dynamicVolumeFillStart = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color(0xFF888888)
+        else activeAccent.copy(alpha = 0.65f)
+    }
+
+    val dynamicVolumeFillEnd = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color(0xFFE0E0E0)
+        else activeAccent
+    }
+
+    val onAccentTextColor = remember(activeAccent) {
+        if (activeAccent.luminance() > 0.45f) Color(0xFF101010) else Color.White
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = ViviSheetBg,
+        containerColor = dynamicSheetBg,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -278,8 +329,8 @@ fun AudioOutputBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ViviCardBg)
-                    .border(1.dp, ViviCardBorder, RoundedCornerShape(22.dp))
+                    .background(dynamicCardBg)
+                    .border(1.dp, dynamicCardBorder, RoundedCornerShape(22.dp))
                     .padding(16.dp)
             ) {
                 Row(
@@ -289,13 +340,13 @@ fun AudioOutputBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left Badge / Indicator:
-                    // If Bluetooth is active and battery level is known -> Circular pink battery gauge
-                    // If Bluetooth is active but battery is unknown -> Headphones icon in pink badge
+                    // If Bluetooth is active and battery level is known -> Circular battery gauge
+                    // If Bluetooth is active but battery is unknown -> Headphones icon in badge
                     // If Phone speaker is active -> Speaker icon badge
                     if (isBtActive && batteryPercentage != null) {
                         CircularBatteryGauge(
                             percentage = batteryPercentage!!,
-                            accentColor = ViviAccentPink,
+                            accentColor = activeAccent,
                             modifier = Modifier.size(48.dp)
                         )
                     } else {
@@ -303,13 +354,13 @@ fun AudioOutputBottomSheet(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(ViviBadgeBg),
+                                .background(dynamicBadgeBg),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = if (isBtActive || (!isBluetoothConnected && connectedDeviceName != null)) Icons.Default.Headphones else Icons.Default.Speaker,
                                 contentDescription = null,
-                                tint = if (isBtActive) ViviAccentPink else Color.White,
+                                tint = activeAccent,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -323,7 +374,7 @@ fun AudioOutputBottomSheet(
                                 Icon(
                                     imageVector = Icons.Default.Bluetooth,
                                     contentDescription = null,
-                                    tint = ViviAccentPink,
+                                    tint = activeAccent,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -345,14 +396,14 @@ fun AudioOutputBottomSheet(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(ViviBadgeBg)
+                                .background(dynamicBadgeBg)
                                 .padding(horizontal = 10.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "Connected",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White.copy(alpha = 0.85f),
+                                color = Color.White.copy(alpha = 0.90f),
                                 fontSize = 11.sp
                             )
                         }
@@ -392,6 +443,7 @@ fun AudioOutputBottomSheet(
                                 subtitle = "Active bluetooth route",
                                 icon = Icons.Default.Bluetooth,
                                 isSelected = !isSpeakerForced,
+                                accentColor = activeAccent,
                                 onClick = {
                                     switchAudioRoute(toSpeaker = false)
                                     isDropdownExpanded = false
@@ -406,6 +458,7 @@ fun AudioOutputBottomSheet(
                             subtitle = "Internal device speaker",
                             icon = Icons.Default.PhoneAndroid,
                             isSelected = isSpeakerForced || !isBluetoothConnected,
+                            accentColor = activeAccent,
                             onClick = {
                                 switchAudioRoute(toSpeaker = true)
                                 isDropdownExpanded = false
@@ -420,6 +473,7 @@ fun AudioOutputBottomSheet(
                             subtitle = "Switch output via Android system panel",
                             icon = Icons.Default.Settings,
                             isSelected = false,
+                            accentColor = activeAccent,
                             onClick = {
                                 isDropdownExpanded = false
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -450,8 +504,8 @@ fun AudioOutputBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ViviCardBg)
-                    .border(1.dp, ViviCardBorder, RoundedCornerShape(22.dp))
+                    .background(dynamicCardBg)
+                    .border(1.dp, dynamicCardBorder, RoundedCornerShape(22.dp))
                     .padding(16.dp)
             ) {
                 val volumePercent = (systemVolumeFraction * 100f).roundToInt()
@@ -482,14 +536,14 @@ fun AudioOutputBottomSheet(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(ViviBadgeBg)
+                            .background(dynamicBadgeBg)
                             .padding(horizontal = 10.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = "$volumePercent%",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = Color.White.copy(alpha = 0.90f),
                             fontSize = 12.sp
                         )
                     }
@@ -497,13 +551,13 @@ fun AudioOutputBottomSheet(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Custom thick tactile volume pill slider with pastel pink thumb
+                // Custom thick tactile volume pill slider with dynamic thumb
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(36.dp)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(ViviVolumeTrackBg)
+                        .background(dynamicVolumeTrackBg)
                         .pointerInput(maxVolume) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -530,7 +584,7 @@ fun AudioOutputBottomSheet(
                     val trackWidth = maxWidth
                     val fillWidth = trackWidth * systemVolumeFraction
 
-                    // Filled active bar with warm gradient
+                    // Filled active bar with dynamic gradient
                     Box(
                         modifier = Modifier
                             .width(fillWidth)
@@ -539,14 +593,14 @@ fun AudioOutputBottomSheet(
                             .background(
                                 Brush.horizontalGradient(
                                     listOf(
-                                        ViviVolumeFillGradientStart,
-                                        ViviVolumeFillGradientEnd
+                                        dynamicVolumeFillStart,
+                                        dynamicVolumeFillEnd
                                     )
                                 )
                             )
                     )
 
-                    // Scalloped / Tactile pastel pink thumb handle
+                    // Scalloped / Tactile dynamic thumb handle
                     if (fillWidth > 18.dp) {
                         Box(
                             modifier = Modifier
@@ -554,7 +608,8 @@ fun AudioOutputBottomSheet(
                                 .size(24.dp)
                                 .shadow(4.dp, CircleShape)
                                 .clip(CircleShape)
-                                .background(ViviAccentPink)
+                                // White so the thumb stands out from the accent-coloured fill.
+                                .background(Color.White)
                         )
                     }
                 }
@@ -567,8 +622,8 @@ fun AudioOutputBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(ViviCardBg)
-                    .border(1.dp, ViviCardBorder, RoundedCornerShape(22.dp))
+                    .background(dynamicCardBg)
+                    .border(1.dp, dynamicCardBorder, RoundedCornerShape(22.dp))
                     .padding(16.dp)
             ) {
                 Text(
@@ -581,7 +636,7 @@ fun AudioOutputBottomSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 3-Option Segmented Pill (Auto | High | Low) with solid pink active pill
+                // 3-Option Segmented Pill (Auto | High | Low) with solid dynamic active pill
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -596,6 +651,8 @@ fun AudioOutputBottomSheet(
                     AudioQualitySegment(
                         label = "Auto",
                         isSelected = currentQuality == AudioQuality.AUTO,
+                        activeColor = activeAccent,
+                        onActiveTextColor = onAccentTextColor,
                         onClick = { onAudioQualityChange(AudioQuality.AUTO) },
                         modifier = Modifier.weight(1f)
                     )
@@ -603,6 +660,8 @@ fun AudioOutputBottomSheet(
                     AudioQualitySegment(
                         label = "High",
                         isSelected = currentQuality == AudioQuality.HIGH,
+                        activeColor = activeAccent,
+                        onActiveTextColor = onAccentTextColor,
                         onClick = { onAudioQualityChange(AudioQuality.HIGH) },
                         modifier = Modifier.weight(1f)
                     )
@@ -610,6 +669,8 @@ fun AudioOutputBottomSheet(
                     AudioQualitySegment(
                         label = "Low",
                         isSelected = currentQuality == AudioQuality.LOW,
+                        activeColor = activeAccent,
+                        onActiveTextColor = onAccentTextColor,
                         onClick = { onAudioQualityChange(AudioQuality.LOW) },
                         modifier = Modifier.weight(1f)
                     )
@@ -622,13 +683,13 @@ fun AudioOutputBottomSheet(
 }
 
 /**
- * Circular Battery Gauge with pink progress ring and percentage text matching ViVi.
+ * Circular Battery Gauge with dynamic progress ring and percentage text.
  */
 @Composable
 private fun CircularBatteryGauge(
     percentage: Int,
-    modifier: Modifier = Modifier,
-    accentColor: Color = ViviAccentPink
+    accentColor: Color,
+    modifier: Modifier = Modifier
 ) {
     val progress = (percentage / 100f).coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(
@@ -681,22 +742,24 @@ private fun CircularBatteryGauge(
 }
 
 /**
- * Single Segment in the Audio Quality Picker with ViVi's solid pastel pink pill.
+ * Single Segment in the Audio Quality Picker with dynamic active pill.
  */
 @Composable
 private fun AudioQualitySegment(
     label: String,
     isSelected: Boolean,
+    activeColor: Color,
+    onActiveTextColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val bgAnim by animateColorAsState(
-        targetValue = if (isSelected) ViviAccentPink else Color.Transparent,
+        targetValue = if (isSelected) activeColor else Color.Transparent,
         animationSpec = tween(180),
         label = "segmentBg"
     )
     val textAnim by animateColorAsState(
-        targetValue = if (isSelected) ViviAccentDarkText else Color.White.copy(alpha = 0.70f),
+        targetValue = if (isSelected) onActiveTextColor else Color.White.copy(alpha = 0.70f),
         animationSpec = tween(180),
         label = "segmentText"
     )
@@ -727,6 +790,7 @@ private fun AudioRouteRow(
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     isSelected: Boolean,
+    accentColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -741,7 +805,7 @@ private fun AudioRouteRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (isSelected) ViviAccentPink else Color.White.copy(alpha = 0.65f),
+            tint = if (isSelected) accentColor else Color.White.copy(alpha = 0.65f),
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(12.dp))
@@ -750,7 +814,7 @@ private fun AudioRouteRow(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) ViviAccentPink else Color.White,
+                color = if (isSelected) accentColor else Color.White,
                 fontSize = 14.sp
             )
             Text(
@@ -764,7 +828,7 @@ private fun AudioRouteRow(
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Selected",
-                tint = ViviAccentPink,
+                tint = accentColor,
                 modifier = Modifier.size(18.dp)
             )
         }

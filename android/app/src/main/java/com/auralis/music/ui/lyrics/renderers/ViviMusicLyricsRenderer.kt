@@ -8,6 +8,7 @@ package com.auralis.music.ui.lyrics.renderers
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,7 +47,7 @@ import kotlinx.coroutines.delay
  * - Continuous global wave progress (0->1) sweeping from first word to last.
  * - Trailing-feather gradient brush for soft oceanic edge.
  * - Sentence linger: holds active state for 180ms after line change for seamless handoff.
- * - Progressive distance blur (0, 0, 2dp, 4dp, 6dp) when standardLyricsBlur is active.
+ * - Continuous viewport-position blur when standardLyricsBlur is active.
  * - Smooth spring-like line scale (1.05f on active).
  * - Space glyphs animated in sync with preceding word wave front.
  * - Graceful fallback: whole sentence sweeps if no genuine word timing exists.
@@ -68,6 +69,10 @@ fun ViviMusicLyricsLine(
     lineSpacingMultiplier: Float,
     enableStandardBlur: Boolean,
     isAutoScrollActive: Boolean,
+    lineCenterPx: Float = Float.NaN,
+    activeLineCenterPx: Float = Float.NaN,
+    viewportStartPx: Float = Float.NaN,
+    viewportEndPx: Float = Float.NaN,
     modifier: Modifier = Modifier
 ) {
     // ── Sentence linger ──
@@ -81,21 +86,23 @@ fun ViviMusicLyricsLine(
         }
     }
 
-    // ── Distance Blur ──
-    val targetBlur = if (!enableStandardBlur || isActive) {
-        0f
-    } else {
-        when (distanceFromCurrent) {
-            0 -> 0f
-            1 -> 2.5f
-            2 -> 4.5f
-            else -> 6f
-        }
-    }
+    // ── Continuous viewport-position blur ──
+    val targetBlur = com.auralis.music.ui.lyrics.computeLyricsProgressiveBlur(
+        standardBlur = enableStandardBlur,
+        isSynced = true,
+        isPlain = false,
+        isSelected = false,
+        isCurrent = isActive,
+        isUserInteracting = !isAutoScrollActive,
+        lineCenterPx = lineCenterPx,
+        activeLineCenterPx = activeLineCenterPx,
+        viewportStartPx = viewportStartPx,
+        viewportEndPx = viewportEndPx
+    )
 
     val animatedBlur by animateFloatAsState(
         targetValue = targetBlur,
-        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        animationSpec = if (!enableStandardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
         label = "viviBlur"
     )
 
@@ -153,7 +160,7 @@ fun ViviMusicLyricsLine(
             this.scaleY = scale
         }
         .padding(vertical = (4 * lineSpacingMultiplier).dp)
-        .then(if (animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier)
+        .then(if (enableStandardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier)
 
     Column(
         modifier = itemModifier,

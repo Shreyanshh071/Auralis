@@ -736,6 +736,17 @@ fun ExploreScreen(
             onGoToArtist = {
                 onOpenArtist(Artist(id = "", name = track.artist))
             },
+            onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
+                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+                onAlbumClick(
+                    com.auralis.music.domain.model.PlaylistResult(
+                        id = albumId ?: cached?.albumId ?: "album-${track.id}",
+                        title = albumTitle,
+                        author = albumArtist ?: cached?.artistName ?: track.artist,
+                        thumbnail = albumArt ?: cached?.albumArt ?: track.thumbnail
+                    )
+                )
+            },
             onAddToPlaylist = { playlist -> onAddToPlaylist(playlist.id, track) },
             onCreatePlaylistAndAdd = { title -> onCreatePlaylistAndAdd(title, track) },
             isInListenTogetherRoom = isInListenTogetherRoom,

@@ -696,6 +696,13 @@ class PaxsenixLyricsSourceTest {
             val stored = mutableMapOf<String, LyricsEntity>()
 
             override suspend fun getLyrics(trackId: String): LyricsEntity? = stored[trackId]
+            override suspend fun getBestLyricsByMetadata(
+                title: String,
+                artist: String,
+                durationMs: Long,
+                pipelineVersion: Int,
+                durationToleranceMs: Long
+            ): LyricsEntity? = null
 
             override suspend fun insertLyrics(entity: LyricsEntity) {
                 stored[entity.trackId] = entity

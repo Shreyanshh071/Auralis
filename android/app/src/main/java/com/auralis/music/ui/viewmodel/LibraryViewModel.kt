@@ -119,10 +119,16 @@ class LibraryViewModel(
                         val job = jobsMap.values.firstOrNull { it.jobId == folderJobId || it.playlistId == folderJobId }
                         if (job != null) {
                             val allTracks = com.auralis.music.data.download.PlaylistDownloadCoordinator.tracks(job)
-                            val downloadedForJob = allTracks.filter { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+                            val successfulTrackIds = com.auralis.music.data.download.PlaylistDownloadCoordinator.results(job)
+                                .filter { it.outcome in com.auralis.music.data.download.PlaylistDownloadRepository.SUCCESS_OUTCOMES }
+                                .map { it.trackId }
+                                .toSet()
+                            val downloadedForJob = allTracks.filter { it.id in successfulTrackIds && com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+                            val originalPlaylist = state.playlists.firstOrNull { it.id == job.playlistId || it.title.equals(job.playlistName, ignoreCase = true) }
                             updated.copy(
                                 selectedPlaylist = current.copy(
                                     description = "${downloadedForJob.size} of ${allTracks.size} offline songs",
+                                    coverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() },
                                     tracks = downloadedForJob
                                 )
                             )
@@ -201,6 +207,16 @@ class LibraryViewModel(
             for (pl in playlists) {
                 while (com.auralis.music.data.network.AudioStreamResolver.isPlaybackResolving) {
                     kotlinx.coroutines.delay(1000)
+                }
+
+                // If album playlist has missing coverUrl, backfill it from its authentic track thumbnail
+                if (pl.coverUrl.isNullOrBlank() && com.auralis.music.ui.library.isAlbumPlaylist(pl)) {
+                    val canonicalArt = pl.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+                    if (!canonicalArt.isNullOrBlank()) {
+                        try {
+                            libraryRepository.updatePlaylist(pl.id, pl.title, pl.description, canonicalArt)
+                        } catch (_: Exception) {}
+                    }
                 }
                 val hasCorruptedTitles = pl.tracks.any {
                     it.title.startsWith("From \"", ignoreCase = true) ||
@@ -300,6 +316,14 @@ class LibraryViewModel(
                 )
                 if (tracks.isNotEmpty()) {
                     libraryRepository.replacePlaylistTracks(targetPlaylist.id, tracks)
+                }
+                if (existing != null && coverUrl != null && existing.coverUrl != coverUrl) {
+                    libraryRepository.updatePlaylist(
+                        playlistId = targetPlaylist.id,
+                        title = targetPlaylist.title,
+                        description = targetPlaylist.description,
+                        coverUrl = coverUrl
+                    )
                 }
                 val populated = targetPlaylist.copy(
                     tracks = tracks,

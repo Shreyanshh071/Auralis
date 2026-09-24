@@ -82,10 +82,23 @@ fun DownloadedHubView(
         // 1. Jobs from PlaylistDownloadCoordinator
         for (job in downloadedJobs) {
             val allTracks = PlaylistDownloadCoordinator.tracks(job)
-            val downloadedForJob = allTracks.filter { AuralisDownloadManager.isDownloaded(it.id) }
-            downloadedForJob.forEach { accountedTrackIds.add(it.id) }
+            val successfulResults = PlaylistDownloadCoordinator.results(job)
+                .filter { it.outcome in com.auralis.music.data.download.PlaylistDownloadRepository.SUCCESS_OUTCOMES }
+                .associateBy { it.trackId }
+            val downloadedForJob = allTracks.filter { track ->
+                successfulResults.containsKey(track.id) && AuralisDownloadManager.isDownloaded(track.id)
+            }
 
-            if (job.status == "DOWNLOADING" || downloadedForJob.isNotEmpty() || job.completedCount > 0) {
+            val isJobActive = job.status == "DOWNLOADING"
+            val hasDownloadedTracks = downloadedForJob.isNotEmpty() || (job.completedCount > 0 && job.status != "FAILED" && job.status != "CANCELLED")
+
+            if (isJobActive || hasDownloadedTracks) {
+                downloadedForJob.forEach { accountedTrackIds.add(it.id) }
+                val originalPlaylist = userPlaylists.firstOrNull {
+                    it.id == job.playlistId || it.title.equals(job.playlistName, ignoreCase = true)
+                }
+                val resolvedCoverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() }
+
                 list.add(
                     DownloadFolderItem(
                         id = job.jobId,
@@ -93,7 +106,6 @@ fun DownloadedHubView(
                         subtitle = when (job.status) {
                             "DOWNLOADING" -> "Downloading · ${job.completedCount} of ${allTracks.size} songs"
                             "PARTIAL_FAILURE" -> "${downloadedForJob.size} of ${allTracks.size} downloaded · ${job.failedCount} failed"
-                            "FAILED" -> "Failed to download · ${job.failedCount} errors"
                             else -> "${downloadedForJob.size} songs • Offline"
                         },
                         totalCount = allTracks.size,
@@ -102,8 +114,7 @@ fun DownloadedHubView(
                         completedCount = job.completedCount,
                         failedCount = job.failedCount,
                         jobId = job.jobId,
-                        coverUrl = downloadedForJob.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
-                            ?: allTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+                        coverUrl = resolvedCoverUrl
                     )
                 )
             }
@@ -123,7 +134,7 @@ fun DownloadedHubView(
                     completedCount = individualTracks.size,
                     failedCount = 0,
                     jobId = null,
-                    coverUrl = individualTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail,
+                    coverUrl = null,
                     isIndividualSongs = true
                 )
             )
@@ -305,7 +316,7 @@ fun DownloadedHubView(
                                             id = "smart_downloaded_all",
                                             title = "All Downloaded Songs",
                                             description = "${downloadedTracks.size} offline songs",
-                                            coverUrl = downloadedTracks.firstOrNull()?.thumbnail,
+                                            coverUrl = null,
                                             tracks = downloadedTracks
                                         )
                                     )
@@ -594,9 +605,11 @@ private fun FolderCardItem(
                             .background(MaterialTheme.dynamicPrimary.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (!folder.coverUrl.isNullOrBlank()) {
+                        val displayArt = folder.coverUrl
+                            ?: folder.downloadedTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+                        if (!displayArt.isNullOrBlank()) {
                             ArtworkCard(
-                                url = folder.coverUrl,
+                                url = displayArt,
                                 contentDescription = folder.title,
                                 modifier = Modifier.fillMaxSize()
                             )

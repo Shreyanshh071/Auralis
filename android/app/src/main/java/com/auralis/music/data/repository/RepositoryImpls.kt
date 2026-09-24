@@ -7,14 +7,17 @@ import com.auralis.music.data.local.entity.PlayCountEntity
 import com.auralis.music.data.local.entity.PlaylistTrackCrossRef
 import com.auralis.music.data.local.mapper.*
 import com.auralis.music.domain.model.*
+import com.auralis.music.domain.recommendations.TrackDeduplicator
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.repository.SettingsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class LibraryRepositoryImpl(
@@ -167,21 +170,84 @@ class HistoryRepositoryImpl(
 ) : HistoryRepository {
 
     override fun getHistory(): Flow<List<HistoryEntry>> {
-        return historyDao.getHistoryWithTracksFlow().map { list -> list.map { it.toDomain() } }
+        return historyDao.getHistoryWithTracksFlow()
+            .map { list ->
+                val seenFps = mutableListOf<com.auralis.music.domain.recommendations.SongFingerprint>()
+                val seenKeys = mutableSetOf<String>()
+                val deduplicated = mutableListOf<HistoryEntry>()
+
+                for (item in list) {
+                    val entry = item.toDomain()
+                    val fp = TrackDeduplicator.getSongFingerprint(entry.track)
+                    val fastKey = if (fp.normalizedBaseTitle.isNotBlank() && fp.normalizedArtist.isNotBlank()) {
+                        "${fp.normalizedArtist}::${fp.normalizedBaseTitle}"
+                    } else null
+
+                    val isDup = (fastKey != null && seenKeys.contains(fastKey)) ||
+                            seenFps.any { existingFp ->
+                                TrackDeduplicator.isDuplicateSong(existingFp, fp, matchAlternateVersions = true)
+                            }
+
+                    if (!isDup) {
+                        if (fastKey != null) seenKeys.add(fastKey)
+                        seenFps.add(fp)
+                        deduplicated.add(entry)
+                    }
+                }
+                deduplicated
+            }
+            .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun addToHistory(track: Track) {
-        if (track.id.isBlank()) return
+    override suspend fun addToHistory(track: Track): Unit = withContext(Dispatchers.IO) {
+        if (track.id.isBlank()) return@withContext
         trackDao.upsertTrackPreservingFavorite(track.toEntity())
+
+        // Remove any existing duplicate track (e.g. alternate YouTube video ID or cut of the same song)
+        val trackFp = TrackDeduplicator.getSongFingerprint(track)
+        val existingEntries = historyDao.getHistoryWithTracks()
+        val idsToRemove = mutableListOf<String>()
+        for (entry in existingEntries) {
+            val existingTrack = entry.track.toDomain()
+            if (existingTrack.id != track.id) {
+                val existingFp = TrackDeduplicator.getSongFingerprint(existingTrack)
+                if (TrackDeduplicator.isDuplicateSong(existingFp, trackFp, matchAlternateVersions = true)) {
+                    idsToRemove.add(existingTrack.id)
+                }
+            }
+        }
+        for (id in idsToRemove) {
+            historyDao.removeFromHistory(id)
+        }
+
+        // Upsert current track at the latest timestamp so it appears at index 0 (the very top)
         historyDao.upsertHistory(HistoryEntity(trackId = track.id, playedAt = System.currentTimeMillis()))
         historyDao.pruneHistoryToCap()
     }
 
-    override suspend fun removeFromHistory(trackId: String) {
+    override suspend fun removeFromHistory(trackId: String): Unit = withContext(Dispatchers.IO) {
+        val existingEntries = historyDao.getHistoryWithTracks()
+        val targetTrack = existingEntries.firstOrNull { it.track.id == trackId }?.track?.toDomain()
         historyDao.removeFromHistory(trackId)
+        if (targetTrack != null) {
+            val targetFp = TrackDeduplicator.getSongFingerprint(targetTrack)
+            val idsToRemove = mutableListOf<String>()
+            for (entry in existingEntries) {
+                val existingTrack = entry.track.toDomain()
+                if (existingTrack.id != trackId) {
+                    val existingFp = TrackDeduplicator.getSongFingerprint(existingTrack)
+                    if (TrackDeduplicator.isDuplicateSong(existingFp, targetFp, matchAlternateVersions = true)) {
+                        idsToRemove.add(existingTrack.id)
+                    }
+                }
+            }
+            for (id in idsToRemove) {
+                historyDao.removeFromHistory(id)
+            }
+        }
     }
 
-    override suspend fun clearHistory() {
+    override suspend fun clearHistory(): Unit = withContext(Dispatchers.IO) {
         historyDao.clearHistory()
         playCountDao.clearPlayCounts()
     }
@@ -190,8 +256,8 @@ class HistoryRepositoryImpl(
         return playCountDao.getTopPlayedTracksFlow().map { list -> list.map { it.toDomain() } }
     }
 
-    override suspend fun recordPlay(track: Track) {
-        if (track.id.isBlank()) return
+    override suspend fun recordPlay(track: Track): Unit = withContext(Dispatchers.IO) {
+        if (track.id.isBlank()) return@withContext
         trackDao.upsertTrackPreservingFavorite(track.toEntity())
         val existing = playCountDao.getPlayCount(track.id)
         val count = (existing?.count ?: 0) + 1
@@ -202,16 +268,9 @@ class HistoryRepositoryImpl(
                 lastPlayed = System.currentTimeMillis()
             )
         )
-        playbackEventDao?.let { dao ->
-            val durMs = (track.duration.takeIf { it > 0 } ?: 198L) * 1000L
-            dao.insertEvent(
-                com.auralis.music.data.local.entity.PlaybackEventEntity(
-                    trackId = track.id,
-                    timestamp = System.currentTimeMillis(),
-                    playTimeMs = durMs
-                )
-            )
-        }
+        // Stats listening time is recorded by ListeningTimeTracker with the real played duration
+        // when the song ends; logging the full song length here on every start made skips count
+        // as complete listens.
     }
 
     override suspend fun getPlayCounts(): List<PlayCountEntry> {

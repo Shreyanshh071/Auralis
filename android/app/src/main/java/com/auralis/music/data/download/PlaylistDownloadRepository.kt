@@ -29,13 +29,45 @@ class PlaylistDownloadRepository(private val context: Context) {
         val existing = dao.getForPlaylist(playlistId)
         val now = System.currentTimeMillis()
         val snapshot = tracks.distinctBy { it.id }
-        val existingResults = existing?.let(::results).orEmpty().filter { old ->
+        val folderName = existing?.folderName ?: uniqueFolderName(playlistName, playlistId)
+        val existingResultsMap = existing?.let(::results).orEmpty().filter { old ->
             snapshot.any { it.id == old.trackId } &&
                 old.outcome in SUCCESS_OUTCOMES &&
                 AuralisDownloadManager.isDownloaded(old.trackId) &&
                 files.verify(old.contentUri)
+        }.associateBy { it.trackId }.toMutableMap()
+
+        // Pre-resolve any tracks that are already downloaded globally on device (e.g. from another playlist)
+        for ((index, track) in snapshot.withIndex()) {
+            if (existingResultsMap.containsKey(track.id)) continue
+            if (AuralisDownloadManager.isDownloaded(track.id)) {
+                val source = AuralisDownloadManager.getDownloadedFile(track.id)
+                if (source != null && source.isFile && source.length() > 1024) {
+                    try {
+                        val fileName = PlaylistDownloadPaths.trackFileName(index, track)
+                        val published = files.publish(source, folderName, fileName)
+                        existingResultsMap[track.id] = TrackDownloadResult(
+                            trackId = track.id,
+                            outcome = DownloadOutcome.ALREADY_DOWNLOADED,
+                            contentUri = published.first,
+                            bytes = published.second
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.w("PlaylistDownload", "Pre-resolve publish failed for ${track.title}: ${e.message}")
+                    }
+                }
+            }
         }
-        val folderName = existing?.folderName ?: uniqueFolderName(playlistName, playlistId)
+
+        val resultsList = snapshot.mapNotNull { existingResultsMap[it.id] }
+        val completedCount = resultsList.count { it.outcome in SUCCESS_OUTCOMES }
+        val isAllCompleted = snapshot.isNotEmpty() && completedCount == snapshot.size
+        val status = if (isAllCompleted) {
+            PlaylistDownloadStatus.COMPLETE.name
+        } else {
+            existing?.status?.takeIf { it in ACTIVE_STATES } ?: PlaylistDownloadStatus.DOWNLOADING.name
+        }
+
         val job = PlaylistDownloadJobEntity(
             jobId = existing?.jobId ?: stableJobId(playlistId),
             playlistId = playlistId,
@@ -43,14 +75,14 @@ class PlaylistDownloadRepository(private val context: Context) {
             folderName = folderName,
             backend = backend,
             trackSnapshotJson = json.encodeToString(snapshot),
-            resultsJson = json.encodeToString(existingResults),
-            status = existing?.status?.takeIf { it in ACTIVE_STATES } ?: PlaylistDownloadStatus.DOWNLOADING.name,
-            completedCount = existingResults.count { it.outcome in SUCCESS_OUTCOMES },
+            resultsJson = json.encodeToString(resultsList),
+            status = status,
+            completedCount = completedCount,
             failedCount = 0,
-            skippedCount = existingResults.count { it.outcome in setOf(DownloadOutcome.ALREADY_DOWNLOADED, DownloadOutcome.SKIPPED) },
+            skippedCount = resultsList.count { it.outcome in setOf(DownloadOutcome.ALREADY_DOWNLOADED, DownloadOutcome.SKIPPED) },
             currentTrackId = null,
             cancelRequested = false,
-            offlineEnabled = existing?.offlineEnabled == true,
+            offlineEnabled = isAllCompleted || existing?.offlineEnabled == true,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now
         )

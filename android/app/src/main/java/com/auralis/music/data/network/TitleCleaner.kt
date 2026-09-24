@@ -43,6 +43,33 @@ object TitleCleaner {
     private val WITH_ARTIST_BRACKET_REGEX_FEATURE = Regex("""(?i)[\(\[\{]\s*with\s+([^()\[\]{}]+)[\)\]\}]""")
     private val FEAT_ARTIST_TRAILING_REGEX = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring)\s+(.+)$""")
 
+    private val VERSION_REGEX_PAIRS = VERSION_KEYWORDS.map { kw ->
+        val canonical = when {
+            kw.startsWith("live") -> "Live"
+            kw.startsWith("acoustic") -> "Acoustic"
+            kw.startsWith("remix") || kw.endsWith("remix") -> "Remix"
+            kw.startsWith("instrumental") -> "Instrumental"
+            kw.startsWith("taylor") -> "Taylor's Version"
+            kw == "tv" -> "Taylor's Version"
+            kw.startsWith("part 1") -> "Part 1"
+            kw.startsWith("part 2") -> "Part 2"
+            kw.startsWith("part 3") -> "Part 3"
+            else -> kw.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+        }
+        Regex("""(?i)(?:^|[\(\[\{/\-\s])(${Regex.escape(kw)})(?:[\)\]\}/\-\s]|$)""") to canonical
+    }
+
+    private val P1_PURE_NOISE_REGEX = Regex("""(?i)^(?:official\s*(?:video|audio|music\s*video)|music\s*video|lyric\s*video|video\s*song|audio\s*song|full\s*(?:video|audio|song)|4k|hd|hq|visualizer)$""")
+    private val P0_PURE_NOISE_REGEX = Regex("""(?i)^(?:official\s*(?:video|audio|music\s*video)|new\s*(?:bhojpuri|hindi|punjabi)?\s*song(?:\s*\d{4})?|new\s*song\s*\d{4})$""")
+    private val LIVE_IN_AT_REGEX = Regex("""(?i)\s*[\(\[]\s*live\s*(?:in|at)\s*[^)\]]+[\)\]]""")
+    private val ACOUSTIC_VERSION_REGEX = Regex("""(?i)\s*[\(\[]\s*acoustic\s*version\s*[\)\]]""")
+    private val ARTIST_TOPIC_REGEX = Regex("""(?i)\s*-\s*Topic$""")
+    private val ARTIST_OFFICIAL_REGEX = Regex("""(?i)\s*Official$""")
+    private val ARTIST_VEVO_REGEX = Regex("""(?i)\s*VEVO$""")
+    private val ARTIST_MUSIC_REGEX = Regex("""(?i)\s*Music$""")
+    private val ARTIST_SPLIT_REGEX = Regex("""(?i)[,&/|]|\s+and\s+""")
+    private val TRIM_NON_ALPHA_REGEX = Regex("""^[^\p{L}\p{Nd}]+|[^\p{L}\p{Nd}]+$""")
+
     /**
      * Extracts guest or featured artists from title or artist credits.
      * e.g. "Levitating (feat. DaBaby)" -> setOf("dababy")
@@ -68,8 +95,8 @@ object TitleCleaner {
     }
 
     private fun splitArtistNames(raw: String): List<String> {
-        return raw.split(Regex("""(?i)[,&/|]|\s+and\s+"""))
-            .map { it.trim().lowercase().replace(Regex("""^[^\p{L}\p{Nd}]+|[^\p{L}\p{Nd}]+$"""), "") }
+        return raw.split(ARTIST_SPLIT_REGEX)
+            .map { it.trim().lowercase().replace(TRIM_NON_ALPHA_REGEX, "") }
             .filter { it.isNotBlank() && it != "the" }
     }
 
@@ -89,22 +116,8 @@ object TitleCleaner {
      */
     fun extractVersion(rawTitle: String): String? {
         val lower = rawTitle.lowercase()
-        for (kw in VERSION_KEYWORDS) {
-            val regex = Regex("""(?i)(?:^|[\(\[\{/\-\s])(${Regex.escape(kw)})(?:[\)\]\}/\-\s]|$)""")
-            val match = regex.find(lower)
-            if (match != null) {
-                val canonical = when {
-                    kw.startsWith("live") -> "Live"
-                    kw.startsWith("acoustic") -> "Acoustic"
-                    kw.startsWith("remix") || kw.endsWith("remix") -> "Remix"
-                    kw.startsWith("instrumental") -> "Instrumental"
-                    kw.startsWith("taylor") -> "Taylor's Version"
-                    kw == "tv" -> "Taylor's Version"
-                    kw.startsWith("part 1") -> "Part 1"
-                    kw.startsWith("part 2") -> "Part 2"
-                    kw.startsWith("part 3") -> "Part 3"
-                    else -> kw.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-                }
+        for ((regex, canonical) in VERSION_REGEX_PAIRS) {
+            if (regex.containsMatchIn(lower)) {
                 return canonical
             }
         }
@@ -149,12 +162,8 @@ object TitleCleaner {
                 val p0Lower = part0.lowercase()
                 val p1Lower = part1.lowercase()
 
-                val isPart1PureNoise = p1Lower.matches(
-                    Regex("""(?i)^(?:official\s*(?:video|audio|music\s*video)|music\s*video|lyric\s*video|video\s*song|audio\s*song|full\s*(?:video|audio|song)|4k|hd|hq|visualizer)$""")
-                )
-                val isPart0PureNoise = p0Lower.matches(
-                    Regex("""(?i)^(?:official\s*(?:video|audio|music\s*video)|new\s*(?:bhojpuri|hindi|punjabi)?\s*song(?:\s*\d{4})?|new\s*song\s*\d{4})$""")
-                )
+                val isPart1PureNoise = p1Lower.matches(P1_PURE_NOISE_REGEX)
+                val isPart0PureNoise = p0Lower.matches(P0_PURE_NOISE_REGEX)
 
                 if (isPart1PureNoise) {
                     title = part0
@@ -169,8 +178,8 @@ object TitleCleaner {
 
         // 5. Clean live/version bracket expansions if simplified version is captured
         if (preservedVersion != null) {
-            title = title.replace(Regex("""(?i)\s*[\(\[]\s*live\s*(?:in|at)\s*[^)\]]+[\)\]]"""), " ($preservedVersion)")
-            title = title.replace(Regex("""(?i)\s*[\(\[]\s*acoustic\s*version\s*[\)\]]"""), " ($preservedVersion)")
+            title = title.replace(LIVE_IN_AT_REGEX, " ($preservedVersion)")
+            title = title.replace(ACOUSTIC_VERSION_REGEX, " ($preservedVersion)")
         }
 
         // 6. Clean dangling edge punctuation without stripping legitimate quotes or balanced brackets
@@ -205,10 +214,10 @@ object TitleCleaner {
     fun cleanArtist(rawArtist: String): String {
         var artist = IndicScriptNormalizer.normalizeIndicText(rawArtist).trim()
         artist = artist
-            .replace(Regex("""(?i)\s*-\s*Topic$"""), "")
-            .replace(Regex("""(?i)\s*Official$"""), "")
-            .replace(Regex("""(?i)\s*VEVO$"""), "")
-            .replace(Regex("""(?i)\s*Music$"""), "")
+            .replace(ARTIST_TOPIC_REGEX, "")
+            .replace(ARTIST_OFFICIAL_REGEX, "")
+            .replace(ARTIST_VEVO_REGEX, "")
+            .replace(ARTIST_MUSIC_REGEX, "")
             .trim(' ', '-', '|', ':', '_')
 
         if (artist.startsWith("\"") && artist.endsWith("\"")) artist = artist.removeSurrounding("\"").trim()

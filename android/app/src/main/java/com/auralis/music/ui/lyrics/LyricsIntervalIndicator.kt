@@ -3,13 +3,8 @@ package com.auralis.music.ui.lyrics
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,174 +12,86 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import com.auralis.music.ui.lyrics.wavy.CircularWavyProgressIndicator
+import com.auralis.music.ui.lyrics.wavy.WavyProgressIndicator
+import com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.sin
 
-/**
- * Expressive fluid/wavy progress indicator matching Metrolist & Material 3 Expressive.
- *
- * Renders an organic, fluid wavy progress arc sweeping clockwise from top (12 o'clock),
- * accompanied by a dim circular track indicating remaining time, both with smooth rounded stroke caps.
- * The active stroke undulates seamlessly while cosine tapering at both endpoints anchors the moving
- * tip concentric to the circular track without bobbing.
- */
+/** Alias providing clear semantic naming while maintaining backwards compatibility */
 @Composable
-fun WavyProgressIndicator(
+fun CircularIntervalIndicator(
     progress: Float,
     modifier: Modifier = Modifier,
     color: Color = Color.White,
     trackColor: Color = Color.White.copy(alpha = 0.18f),
-    strokeWidth: Dp = 3.0.dp,
-    gapSize: Dp = 3.0.dp,
-    lobes: Int = 7,
-    amplitudeRatio: Float = 0.085f
+    strokeWidth: Dp = WavyProgressIndicatorDefaults.StandardStrokeWidth,
+    indicatorSize: Dp = WavyProgressIndicatorDefaults.StandardIndicatorSize
 ) {
-    val clampedProgress = progress.coerceIn(0f, 1f)
-
-    // Wave animation clock matching Material 3 Expressive: 1 cycle per second
-    val infiniteTransition = rememberInfiniteTransition(label = "wavyProgressTransition")
-    val wavePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wavyProgressPhase"
+    val strokeWidthPx = with(LocalDensity.current) { strokeWidth.coerceAtLeast(1.dp).toPx() }
+    val indicatorStroke = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+    CircularWavyProgressIndicator(
+        progress = { progress.coerceIn(0f, 1f) },
+        modifier = modifier.size(indicatorSize),
+        color = color,
+        trackColor = trackColor,
+        stroke = indicatorStroke,
+        trackStroke = indicatorStroke,
+        gapSize = strokeWidth
     )
+}
 
-    // Reusable path across frames to avoid allocations during draw-phase
-    val path = remember { Path() }
-
-    Canvas(modifier = modifier) {
-        val strokeWidthPx = strokeWidth.toPx()
-        val gapPx = gapSize.toPx()
-        val sizePx = min(size.width, size.height)
-        val center = Offset(size.width / 2f, size.height / 2f)
-
-        // Circle radius for track lining and wave baseline (34dp container with 3.0dp stroke)
-        val baseRadius = (sizePx - strokeWidthPx) / 2f
-        if (baseRadius <= 0f) return@Canvas
-        val circumference = 2f * PI.toFloat() * baseRadius
-        val maxAmplitude = baseRadius * amplitudeRatio
-
-        // 1. Calculate track gap spacing (dot-sized gap with rounded caps)
-        val pStopPx = clampedProgress * circumference
-        val currentStrokeCapWidth = strokeWidthPx / 2f
-        val trackGapSize = min(pStopPx, gapPx)
-        val horizontalInsets = min(pStopPx, currentStrokeCapWidth)
-        val trackSpacing = horizontalInsets * 2f + trackGapSize
-        val gapDegrees = if (circumference > 0f) (trackSpacing / circumference) * 360f else 0f
-
-        val activeSweep = clampedProgress * 360f
-
-        // Draw remaining circular track lining (or full circle when idle)
-        if (clampedProgress <= 0.001f) {
-            drawCircle(
-                color = trackColor,
-                radius = baseRadius,
-                center = center,
-                style = Stroke(width = strokeWidthPx)
-            )
-        } else {
-            val trackStartAngle = -90f + activeSweep + gapDegrees
-            val trackSweepAngle = 360f - activeSweep - 2f * gapDegrees
-            if (trackSweepAngle > 0.5f) {
-                drawArc(
-                    color = trackColor,
-                    startAngle = trackStartAngle,
-                    sweepAngle = trackSweepAngle,
-                    useCenter = false,
-                    topLeft = Offset(center.x - baseRadius, center.y - baseRadius),
-                    size = Size(baseRadius * 2f, baseRadius * 2f),
-                    style = Stroke(
-                        width = strokeWidthPx,
-                        cap = StrokeCap.Round
-                    )
-                )
-            }
-        }
-
-        // 2. Draw active fluid wavy progress arc
-        if (activeSweep > 0.8f) {
-            path.rewind()
-
-            // Rapid smooth entry so organic waves undulate immediately from countdown start
-            val ampScale = when {
-                clampedProgress < 0.03f -> (clampedProgress / 0.03f)
-                clampedProgress > 0.97f -> ((1f - clampedProgress) / 0.03f)
-                else -> 1f
-            }
-            val effAmp = maxAmplitude * ampScale
-
-            val steps = (activeSweep * 2.5f).toInt().coerceIn(36, 180)
-            val phaseRad = (wavePhase * 2.0 * PI).toFloat()
-            // Taper angle at both ends (anchor at 12 o'clock and moving tip at activeSweep)
-            // ensures the moving tip never bobs or breaks concentricity with the circular track.
-            val taperAngle = 20f.coerceAtMost(activeSweep / 3f)
-
-            for (i in 0..steps) {
-                val deg = (i.toFloat() / steps.toFloat()) * activeSweep
-                val rad = Math.toRadians((deg - 90.0)).toFloat()
-                val lobeAngle = Math.toRadians((deg * lobes).toDouble()).toFloat() - phaseRad
-
-                val startDist = deg
-                val endDist = activeSweep - deg
-                val startT = if (taperAngle > 0f) (startDist / taperAngle).coerceIn(0f, 1f) else 1f
-                val endT = if (taperAngle > 0f) (endDist / taperAngle).coerceIn(0f, 1f) else 1f
-                // Cosine easing for smooth C1 continuous derivatives at endpoints
-                val startWeight = (1f - cos(startT * PI.toFloat())) / 2f
-                val endWeight = (1f - cos(endT * PI.toFloat())) / 2f
-                val taper = startWeight * endWeight
-
-                val r = baseRadius + effAmp * taper * sin(lobeAngle)
-                val x = center.x + r * cos(rad)
-                val y = center.y + r * sin(rad)
-                if (i == 0) {
-                    path.moveTo(x, y)
-                } else {
-                    path.lineTo(x, y)
-                }
-            }
-
-            drawPath(
-                path = path,
-                color = color,
-                style = Stroke(
-                    width = strokeWidthPx,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round
-                )
-            )
-        }
-    }
+/** Backwards-compatible WavyProgressIndicator function */
+@Composable
+fun WavyProgressIndicator(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    color: Color = WavyProgressIndicatorDefaults.indicatorColor,
+    trackColor: Color = WavyProgressIndicatorDefaults.trackColor,
+    strokeWidth: Dp = WavyProgressIndicatorDefaults.StandardStrokeWidth,
+    gapSize: Dp = WavyProgressIndicatorDefaults.StandardTrackGapSize,
+    @Suppress("UNUSED_PARAMETER") lobes: Int = 7,
+    @Suppress("UNUSED_PARAMETER") amplitudeRatio: Float = 0.055f,
+    amplitude: (progress: Float) -> Float = WavyProgressIndicatorDefaults.indicatorAmplitude,
+    wavelength: Dp = WavyProgressIndicatorDefaults.CircularWavelength,
+    waveSpeed: Dp = wavelength,
+) {
+    com.auralis.music.ui.lyrics.wavy.WavyProgressIndicator(
+        progress = progress,
+        modifier = modifier,
+        color = color,
+        trackColor = trackColor,
+        strokeWidth = strokeWidth,
+        gapSize = gapSize,
+        lobes = lobes,
+        amplitudeRatio = amplitudeRatio,
+        amplitude = amplitude,
+        wavelength = wavelength,
+        waveSpeed = waveSpeed,
+    )
 }
 
 /**
  * Modern lyrics instrumental music filler indicator.
  *
- * Displays a clean, elegant wavy progress ring that fills smoothly clockwise
- * as the instrumental gap between lyrics progresses, matching Metrolist style.
+ * Displays a clean, elegant fluid progress ring that fills smoothly clockwise
+ * as the instrumental gap between lyrics progresses.
+ *
+ * [isMetroLyrics] controls whether the indicator uses the thick Metrolist styling
+ * (40dp size, 5.0dp stroke width) or the classic standard lyrics animation thinness
+ * (34dp size, 3.0dp stroke width) used for Auralis Default, Apple Music, Fade, Glow, etc.
  * Includes smooth entry/exit animations and tap-to-skip support.
  */
 @Composable
@@ -195,6 +102,10 @@ fun LyricsIntervalIndicator(
     visible: Boolean,
     modifier: Modifier = Modifier,
     color: Color = Color.White,
+    isMetroLyrics: Boolean = false,
+    indicatorSize: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroIndicatorSize else WavyProgressIndicatorDefaults.StandardIndicatorSize,
+    strokeWidth: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroStrokeWidth else WavyProgressIndicatorDefaults.StandardStrokeWidth,
+    gapSize: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroTrackGapSize else WavyProgressIndicatorDefaults.StandardTrackGapSize,
     onSkip: (() -> Unit)? = null
 ) {
     val alphaAnim = remember { Animatable(if (visible) 1f else 0f) }
@@ -220,9 +131,14 @@ fun LyricsIntervalIndicator(
         label = "intervalProgress"
     )
 
-    val targetHeight = 48.dp * heightAnim.value
+    val targetHeight = (if (isMetroLyrics || indicatorSize.value >= 40f) 48.dp else 44.dp) * heightAnim.value
+    val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
 
     if (heightAnim.value > 0.01f) {
+        val density = LocalDensity.current
+        val strokeWidthPx = with(density) { strokeWidth.coerceAtLeast(1.dp).toPx() }
+        val stroke = remember(strokeWidthPx) { Stroke(width = strokeWidthPx, cap = StrokeCap.Round) }
+
         Box(
             modifier = modifier
                 .fillMaxWidth()
@@ -237,7 +153,7 @@ fun LyricsIntervalIndicator(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(clickableSize)
                     .clip(CircleShape)
                     .then(
                         if (onSkip != null) {
@@ -245,15 +161,17 @@ fun LyricsIntervalIndicator(
                         } else Modifier
                     )
             ) {
-                WavyProgressIndicator(
-                    progress = animatedProgress,
-                    modifier = Modifier.size(34.dp),
+                CircularWavyProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.size(indicatorSize),
                     color = color.copy(alpha = 0.95f),
                     trackColor = color.copy(alpha = 0.18f),
-                    strokeWidth = 3.0.dp,
-                    gapSize = 3.0.dp,
-                    lobes = 7,
-                    amplitudeRatio = 0.085f
+                    stroke = stroke,
+                    trackStroke = stroke,
+                    gapSize = gapSize,
+                    amplitude = WavyProgressIndicatorDefaults.indicatorAmplitude,
+                    wavelength = WavyProgressIndicatorDefaults.CircularWavelength,
+                    waveSpeed = WavyProgressIndicatorDefaults.CircularWavelength,
                 )
             }
         }

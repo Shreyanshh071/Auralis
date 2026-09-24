@@ -1,5 +1,7 @@
 package com.auralis.music.ui.screens
 
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -531,22 +533,45 @@ fun StatsScreen(
                                     .padding(horizontal = 22.dp, vertical = 20.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val heroArtwork = topArtist?.thumbnailUrl?.takeIf { !it.contains("i.ytimg.com/vi/") }
-                                    ?: topSong?.track?.thumbnail
-                                    ?: ""
-
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(heroArtwork)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
+                                // The Auralis mark, turning slowly and steadily (one turn per 12s).
+                                // Rotation is read in the draw phase, so the spin never recomposes.
+                                val logoSpin = androidx.compose.animation.core.rememberInfiniteTransition(label = "statsLogoSpin")
+                                val logoRotation = logoSpin.animateFloat(
+                                    initialValue = 0f,
+                                    targetValue = 360f,
+                                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                        animation = androidx.compose.animation.core.tween(
+                                            durationMillis = 12_000,
+                                            easing = androidx.compose.animation.core.LinearEasing
+                                        )
+                                    ),
+                                    label = "statsLogoRotation"
+                                )
+                                Box(
                                     modifier = Modifier
                                         .size(100.dp)
                                         .clip(CircleShape)
-                                        .background(surfaceHighestColor)
-                                )
+                                        // Darker well so the mark reads cleanly against the card.
+                                        .background(Color.Black.copy(alpha = 0.38f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    androidx.compose.foundation.Image(
+                                        painter = androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_header_logo),
+                                        contentDescription = "Auralis",
+                                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(textPrimary),
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .graphicsLayer {
+                                                // The mark's visual centre (alpha centroid of the three
+                                                // lobes) sits 7.3% below the PNG's centre. Spinning about
+                                                // the PNG centre made it wobble off-centre, so rotate
+                                                // about the centroid and lift it into the circle's middle.
+                                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, LOGO_VISUAL_CENTER_Y)
+                                                translationY = -(LOGO_VISUAL_CENTER_Y - 0.5f) * size.height
+                                                rotationZ = logoRotation.value
+                                            }
+                                    )
+                                }
 
                                 Spacer(modifier = Modifier.width(22.dp))
 
@@ -976,3 +1001,6 @@ fun makeDurationString(millis: Long): String {
         String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
     }
 }
+
+/** Vertical position of the Auralis mark's visual centre within ic_auralis_header_logo (measured). */
+private const val LOGO_VISUAL_CENTER_Y = 0.573f
