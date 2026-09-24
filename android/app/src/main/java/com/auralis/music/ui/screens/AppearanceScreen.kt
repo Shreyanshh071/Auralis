@@ -1161,53 +1161,52 @@ private fun PlayerSliderStyleChooserDialog(
         listOf("Slim", "Squiggly")
     )
 
-    AlertDialog(
+    // Wide sheet-like dialog (16dp side margins) with large outlined tiles, each showing the
+    // real, live-animating seekbar so the preview is exactly what the player will draw.
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.dynamicSurface,
-        shape = RoundedCornerShape(28.dp),
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                styles.forEach { rowStyles ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        rowStyles.forEach { style ->
-                            val isSelected = style.equals(normalizedSelected, ignoreCase = true)
-                            SliderStylePreviewCard(
-                                style = style,
-                                isSelected = isSelected,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    onSelect(style)
-                                    onDismiss()
-                                }
-                            )
-                        }
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(MaterialTheme.dynamicSurface)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            styles.forEach { rowStyles ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    rowStyles.forEach { style ->
+                        SliderStylePreviewCard(
+                            style = style,
+                            isSelected = style.equals(normalizedSelected, ignoreCase = true),
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                onSelect(style)
+                                onDismiss()
+                            }
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Cancel",
-                    color = MaterialTheme.dynamicPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) {
+                    Text(
+                        text = "Cancel",
+                        color = MaterialTheme.dynamicPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -1218,259 +1217,61 @@ private fun SliderStylePreviewCard(
     onClick: () -> Unit
 ) {
     val primaryColor = MaterialTheme.dynamicPrimary
-    val cardBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
-    val borderColor = if (isSelected) primaryColor else Color.White.copy(alpha = 0.12f)
-    val borderWidth = if (isSelected) 1.5.dp else 1.dp
-    val activeTrackColor = primaryColor
-    val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-
-    // Gentle wave phase animation for live moving preview
-    val infiniteTransition = rememberInfiniteTransition(label = "previewWaveTransition")
-    val wavePhaseFraction by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "previewWavePhase"
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) primaryColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+        label = "sliderStyleBorder"
     )
+    val shape = RoundedCornerShape(20.dp)
 
-    Box(
+    Column(
         modifier = modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(20.dp))
-            .background(cardBg)
-            .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(20.dp))
+            .clip(shape)
+            .border(BorderStroke(1.dp, borderColor), shape)
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 14.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
-            // Miniature Slider Preview Canvas
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                val width = size.width
-                val height = size.height
-                val centerY = height / 2f
-                val startX = 6.dp.toPx()
-                val endX = width - 6.dp.toPx()
-
-                when (style) {
-                    "Default" -> {
-                        val trackH = 13.dp.toPx()
-                        val r = trackH / 2f
-                        val gapPx = 5.dp.toPx()
-                        val thumbX = startX + (endX - startX) * 0.44f
-                        val pillW = 4.5.dp.toPx()
-                        val pillH = 32.dp.toPx()
-                        val pillR = pillW / 2f
-
-                        // Active Track (thick pill on the left)
-                        val activeRight = (thumbX - gapPx).coerceAtLeast(startX)
-                        if (activeRight > startX) {
-                            drawRoundRect(
-                                color = activeTrackColor,
-                                topLeft = Offset(startX, centerY - r),
-                                size = Size(activeRight - startX, trackH),
-                                cornerRadius = CornerRadius(r, r)
-                            )
-                        }
-
-                        // Vertical Playhead Pill Thumb
-                        drawRoundRect(
-                            color = activeTrackColor,
-                            topLeft = Offset(thumbX - pillR, centerY - pillH / 2f),
-                            size = Size(pillW, pillH),
-                            cornerRadius = CornerRadius(pillR, pillR)
+            // The real slider, playing, at a fixed position. Touch is blocked so tapping the
+            // preview selects the style instead of seeking.
+            Box(modifier = Modifier.fillMaxWidth()) {
+                com.auralis.music.ui.components.AuralisPlayerSlider(
+                    value = 0.45f,
+                    onValueChange = {},
+                    onValueChangeFinished = {},
+                    isPlaying = true,
+                    currentPosMs = 0L,
+                    totalDurationMs = 1L,
+                    sliderStyle = style,
+                    activeTrackColor = primaryColor,
+                    inactiveTrackColor = primaryColor.copy(alpha = 0.28f),
+                    thumbColor = primaryColor,
+                    showTimestamps = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                            onClick = onClick
                         )
-
-                        // Inactive Track (thick pill on the right)
-                        val inactiveLeft = (thumbX + gapPx).coerceAtMost(endX)
-                        if (inactiveLeft < endX) {
-                            drawRoundRect(
-                                color = inactiveTrackColor,
-                                topLeft = Offset(inactiveLeft, centerY - r),
-                                size = Size(endX - inactiveLeft, trackH),
-                                cornerRadius = CornerRadius(r, r)
-                            )
-                            // Endpoint Dot centered inside right cap
-                            drawCircle(
-                                color = activeTrackColor,
-                                radius = 2.dp.toPx(),
-                                center = Offset(endX - r, centerY)
-                            )
-                        }
-                    }
-                    "Wavy" -> {
-                        val thumbRadius = 7.dp.toPx()
-                        val thumbX = startX + (endX - startX) * 0.48f
-                        val stroke = 3.2.dp.toPx()
-                        val wavelength = 46.dp.toPx()
-                        val amp = 5.dp.toPx()
-                        val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
-                        val waveEndX = thumbX - thumbRadius + 1.dp.toPx()
-                        val totalSpan = (waveEndX - startX).coerceAtLeast(1f)
-
-                        // Inactive track (straight line with gap from thumb)
-                        val inactiveStartX = thumbX + thumbRadius + 4.dp.toPx()
-                        if (inactiveStartX < endX) {
-                            drawLine(
-                                color = inactiveTrackColor,
-                                start = Offset(inactiveStartX, centerY),
-                                end = Offset(endX, centerY),
-                                strokeWidth = 2.8.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
-                            // Endpoint Dot
-                            drawCircle(
-                                color = activeTrackColor,
-                                radius = 2.dp.toPx(),
-                                center = Offset(endX, centerY)
-                            )
-                        }
-
-                        // Active track (Smooth gentle sine wave ~1.2 cycles)
-                        val wavePath = Path().apply {
-                            var x = startX
-                            val step = 1.0f
-                            var first = true
-                            while (x <= waveEndX) {
-                                val progress = (x - startX) / totalSpan
-                                val endEnvelope = if (progress > 0.7f) {
-                                    0.5f * (1f + kotlin.math.cos(((progress - 0.7f) / 0.3f) * PI.toFloat()))
-                                } else 1.0f
-                                val angle = ((x - startX) / wavelength) * (2 * PI).toFloat() + startAngle
-                                val y = centerY + sin(angle) * amp * endEnvelope
-                                if (first) {
-                                    moveTo(x, y)
-                                    first = false
-                                } else {
-                                    lineTo(x, y)
-                                }
-                                x += step
-                            }
-                            lineTo(waveEndX, centerY)
-                        }
-                        drawPath(
-                            path = wavePath,
-                            color = activeTrackColor,
-                            style = Stroke(
-                                width = stroke,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
-                            )
-                        )
-
-                        // Circle Thumb
-                        drawCircle(
-                            color = activeTrackColor,
-                            radius = thumbRadius,
-                            center = Offset(thumbX, centerY)
-                        )
-                    }
-                    "Slim" -> {
-                        val trackH = 7.dp.toPx()
-                        val r = trackH / 2f
-                        val splitX = startX + (endX - startX) * 0.60f
-                        val trackRect = Rect(startX, centerY - r, endX, centerY + r)
-                        val trackPath = Path().apply {
-                            addRoundRect(RoundRect(trackRect, CornerRadius(r, r)))
-                        }
-
-                        // Inactive full pill
-                        drawPath(trackPath, inactiveTrackColor)
-
-                        // Active portion clipped to rounded pill shape
-                        clipPath(trackPath) {
-                            drawRect(
-                                color = activeTrackColor,
-                                topLeft = Offset(startX, centerY - r),
-                                size = Size((splitX - startX).coerceAtLeast(0f), trackH)
-                            )
-                        }
-                    }
-                    "Squiggly" -> {
-                        val pillW = 4.dp.toPx()
-                        val pillH = 22.dp.toPx()
-                        val pillR = pillW / 2f
-                        val thumbX = startX + (endX - startX) * 0.48f
-                        val stroke = 3.dp.toPx()
-                        val waveEndX = thumbX - pillR - 1.dp.toPx()
-                        val inactiveStartX = thumbX + pillR + 1.dp.toPx()
-                        val totalSpan = (waveEndX - startX).coerceAtLeast(1f)
-                        val wavelength = totalSpan / 2.0f // exactly 2 wave cycles
-                        val amp = 4.2.dp.toPx()
-                        val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
-
-                        // Inactive track (straight line with rounded cap)
-                        if (inactiveStartX < endX) {
-                            drawLine(
-                                color = inactiveTrackColor,
-                                start = Offset(inactiveStartX, centerY),
-                                end = Offset(endX, centerY),
-                                strokeWidth = stroke,
-                                cap = StrokeCap.Round
-                            )
-                        }
-
-                        // Active track (Smooth animated squiggly wave - 2 cycles)
-                        val wavePath = Path().apply {
-                            var x = startX
-                            val step = 1.0f
-                            var first = true
-                            while (x <= waveEndX) {
-                                val progress = (x - startX) / totalSpan
-                                val endEnvelope = if (progress > 0.75f) {
-                                    0.5f * (1f + kotlin.math.cos(((progress - 0.75f) / 0.25f) * PI.toFloat()))
-                                } else 1.0f
-                                val angle = ((x - startX) / wavelength) * (2 * PI).toFloat() + startAngle
-                                val y = centerY + sin(angle) * amp * endEnvelope
-                                if (first) {
-                                    moveTo(x, y)
-                                    first = false
-                                } else {
-                                    lineTo(x, y)
-                                }
-                                x += step
-                            }
-                            lineTo(waveEndX, centerY)
-                        }
-                        drawPath(
-                            path = wavePath,
-                            color = activeTrackColor,
-                            style = Stroke(
-                                width = stroke,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
-                            )
-                        )
-
-                        // Pill Thumb
-                        drawRoundRect(
-                            color = activeTrackColor,
-                            topLeft = Offset(thumbX - pillR, centerY - pillH / 2f),
-                            size = Size(pillW, pillH),
-                            cornerRadius = CornerRadius(pillR, pillR)
-                        )
-                    }
-                }
+                )
             }
-
-            Text(
-                text = style,
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.85f),
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                fontSize = 13.sp
-            )
         }
+        Text(
+            text = style,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isSelected) 1f else 0.8f)
+        )
     }
 }
 

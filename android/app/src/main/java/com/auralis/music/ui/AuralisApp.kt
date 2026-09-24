@@ -1686,112 +1686,131 @@ fun AuralisApp(
                                 val velocityTracker = VelocityTracker()
                                 var currentProgress = 0f
                                 var isDraggingUp = false
+                                // Drag-down-to-close state, tracked locally: reading the Animatable
+                                // lagged a frame behind the snaps and dropped movement.
+                                var dismissY = 0f
+                                var isDismissDrag = false
 
-                                detectVerticalDragGestures(
-                                    onDragStart = {
-                                        focusManager.clearFocus(force = true)
-                                        keyboardController?.hide()
-                                        sheetAnimationJob?.cancel()
-                                        dismissAnimationJob?.cancel()
-                                        currentProgress = playerSheetProgress.value
-                                        isDraggingUp = false
-                                    },
-                                    onVerticalDrag = { change, dragAmount ->
-                                        change.consume()
-                                        velocityTracker.addPointerInputChange(change)
-
-                                        if (dragAmount < 0 || playerSheetProgress.value > 0f) {
-                                            isDraggingUp = true
-                                            val deltaProgress = -dragAmount / travelDistance
-                                            currentProgress = (currentProgress + deltaProgress).coerceIn(0f, 1f)
-                                            sheetAnimationJob?.cancel()
-                                            sheetAnimationJob = coroutineScope.launch {
-                                                playerSheetProgress.snapTo(currentProgress)
-                                            }
-                                        } else {
-                                            isDraggingUp = false
-                                            val currentY = dismissOffsetY.value
-                                            val newY = (currentY + dragAmount).coerceAtLeast(0f)
-                                            dismissAnimationJob?.cancel()
-                                            dismissAnimationJob = coroutineScope.launch {
-                                                dismissOffsetY.snapTo(newY)
-                                            }
+                                // Always leave the mini player either closed or back in place.
+                                fun settleDismiss(rawVelocityY: Float) {
+                                    if (!isDismissDrag && dismissOffsetY.value <= 0f) return
+                                    isDismissDrag = false
+                                    if (dismissY > dismissThresholdPx || rawVelocityY > dismissVelocityThreshold) {
+                                        dismissAnimationJob = coroutineScope.launch {
+                                            dismissOffsetY.animateTo(fullHeightPx, tween(180))
+                                            activePV.closePlayer()
+                                            dismissOffsetY.snapTo(0f)
                                         }
-                                    },
-                                    onDragCancel = {
-                                        velocityTracker.resetTracking()
-                                        if (isDraggingUp) {
-                                            val target = if (currentProgress < 0.5f) 0f else 1f
-                                            sheetAnimationJob = coroutineScope.launch {
-                                                try {
-                                                    playerSheetProgress.animateTo(
-                                                        targetValue = target,
-                                                        animationSpec = if (reducedMotion) snap() else spring(
-                                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                                            stiffness = Spring.StiffnessLow
-                                                        )
-                                                    )
-                                                } finally {
-                                                    isNowPlayingOpen = (target == 1f)
-                                                    if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                        playerSheetProgress.snapTo(0f)
-                                                    } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                        playerSheetProgress.snapTo(1f)
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            dismissAnimationJob = coroutineScope.launch {
-                                                dismissOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                            }
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        val rawVelocityY = velocityTracker.calculateVelocity().y
-                                        val velocity = -rawVelocityY
-                                        velocityTracker.resetTracking()
-
-                                        if (isDraggingUp) {
-                                            val target = when {
-                                                velocity < -300f -> 0f
-                                                velocity > 300f -> 1f
-                                                currentProgress < 0.5f -> 0f
-                                                else -> 1f
-                                            }
-                                            sheetAnimationJob = coroutineScope.launch {
-                                                try {
-                                                    playerSheetProgress.animateTo(
-                                                        targetValue = target,
-                                                        animationSpec = if (reducedMotion) snap() else spring(
-                                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                                            stiffness = Spring.StiffnessLow
-                                                        )
-                                                    )
-                                                } finally {
-                                                    isNowPlayingOpen = (target == 1f)
-                                                    if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                        playerSheetProgress.snapTo(0f)
-                                                    } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                        playerSheetProgress.snapTo(1f)
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            val currentY = dismissOffsetY.value
-                                            if (currentY > dismissThresholdPx || rawVelocityY > dismissVelocityThreshold) {
-                                                dismissAnimationJob = coroutineScope.launch {
-                                                    dismissOffsetY.animateTo(fullHeightPx, tween(180))
-                                                    activePV.closePlayer()
-                                                    dismissOffsetY.snapTo(0f)
-                                                }
-                                            } else {
-                                                dismissAnimationJob = coroutineScope.launch {
-                                                    dismissOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                                }
-                                            }
+                                    } else {
+                                        dismissAnimationJob = coroutineScope.launch {
+                                            dismissOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                                         }
                                     }
-                                )
+                                    dismissY = 0f
+                                }
+
+                                try {
+                                    detectVerticalDragGestures(
+                                        onDragStart = {
+                                            focusManager.clearFocus(force = true)
+                                            keyboardController?.hide()
+                                            sheetAnimationJob?.cancel()
+                                            dismissAnimationJob?.cancel()
+                                            currentProgress = playerSheetProgress.value
+                                            isDraggingUp = false
+                                            dismissY = dismissOffsetY.value
+                                            isDismissDrag = dismissY > 0f
+                                        },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            velocityTracker.addPointerInputChange(change)
+
+                                            // Once a drag-to-close has started it stays one: moving back up
+                                            // only pulls the mini player back. Previously a tiny upward jitter
+                                            // at release flipped into "expand" mode and left it stuck halfway.
+                                            if (isDismissDrag || (dragAmount > 0 && playerSheetProgress.value <= 0f)) {
+                                                isDismissDrag = true
+                                                isDraggingUp = false
+                                                dismissY = (dismissY + dragAmount).coerceAtLeast(0f)
+                                                val target = dismissY
+                                                dismissAnimationJob?.cancel()
+                                                dismissAnimationJob = coroutineScope.launch {
+                                                    dismissOffsetY.snapTo(target)
+                                                }
+                                            } else if (dragAmount < 0 || playerSheetProgress.value > 0f) {
+                                                isDraggingUp = true
+                                                val deltaProgress = -dragAmount / travelDistance
+                                                currentProgress = (currentProgress + deltaProgress).coerceIn(0f, 1f)
+                                                sheetAnimationJob?.cancel()
+                                                sheetAnimationJob = coroutineScope.launch {
+                                                    playerSheetProgress.snapTo(currentProgress)
+                                                }
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            velocityTracker.resetTracking()
+                                            if (isDraggingUp) {
+                                                val target = if (currentProgress < 0.5f) 0f else 1f
+                                                sheetAnimationJob = coroutineScope.launch {
+                                                    try {
+                                                        playerSheetProgress.animateTo(
+                                                            targetValue = target,
+                                                            animationSpec = if (reducedMotion) snap() else spring(
+                                                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                                                stiffness = Spring.StiffnessLow
+                                                            )
+                                                        )
+                                                    } finally {
+                                                        isNowPlayingOpen = (target == 1f)
+                                                        if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                            playerSheetProgress.snapTo(0f)
+                                                        } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                            playerSheetProgress.snapTo(1f)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            settleDismiss(0f)
+                                        },
+                                        onDragEnd = {
+                                            val rawVelocityY = velocityTracker.calculateVelocity().y
+                                            val velocity = -rawVelocityY
+                                            velocityTracker.resetTracking()
+
+                                            if (isDraggingUp) {
+                                                val target = when {
+                                                    velocity < -300f -> 0f
+                                                    velocity > 300f -> 1f
+                                                    currentProgress < 0.5f -> 0f
+                                                    else -> 1f
+                                                }
+                                                sheetAnimationJob = coroutineScope.launch {
+                                                    try {
+                                                        playerSheetProgress.animateTo(
+                                                            targetValue = target,
+                                                            animationSpec = if (reducedMotion) snap() else spring(
+                                                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                                                stiffness = Spring.StiffnessLow
+                                                            )
+                                                        )
+                                                    } finally {
+                                                        isNowPlayingOpen = (target == 1f)
+                                                        if (target == 0f && playerSheetProgress.value < 0.05f) {
+                                                            playerSheetProgress.snapTo(0f)
+                                                        } else if (target == 1f && playerSheetProgress.value > 0.95f) {
+                                                            playerSheetProgress.snapTo(1f)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            settleDismiss(rawVelocityY)
+                                        }
+                                    )
+                                } finally {
+                                    // Gesture torn down mid-drag (pointerInput restarted) without
+                                    // end/cancel callbacks: never leave the mini player half-closed.
+                                    if (isDismissDrag || dismissOffsetY.value > 0f) settleDismiss(0f)
+                                }
                             },
                         contentAlignment = Alignment.BottomCenter
                     ) {
