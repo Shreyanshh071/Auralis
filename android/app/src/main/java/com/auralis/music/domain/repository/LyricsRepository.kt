@@ -27,10 +27,8 @@ interface LyricsRepository {
     ): LyricsData? = null
 
     /**
-     * [getLyrics], but [onInterim] may be called (on any thread) with a displayable result while
-     * the search is still waiting for something better — line sync while word-sync sources are
-     * still answering, or plain text while a slow source is still fetching — so the screen isn't
-     * empty for the whole search. The returned value is always the final answer.
+     * [getLyrics], but [onInterim] may be called (on any thread) with synced lyrics while
+     * the search is still waiting for a better source. The returned value is the final answer.
      */
     suspend fun getLyricsWithInterim(
         title: String,

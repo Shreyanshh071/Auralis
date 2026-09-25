@@ -30,8 +30,6 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.PlaylistResult
 
-private val CARD_CONTAINER_COLOR = Color(0xFF262021)
-
 /**
  * YouTube Music & Spotify style Modal Bottom Sheet for Album / Single Options,
  * matching Image 2 reference pixel-for-pixel:
@@ -68,6 +66,7 @@ fun AlbumOptionsMenu(
     val context = LocalContext.current
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
+    val actionCardColor = MaterialTheme.colorScheme.surfaceVariant
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -102,7 +101,7 @@ fun AlbumOptionsMenu(
                         .width(36.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.35f))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f))
                 )
             }
 
@@ -119,7 +118,7 @@ fun AlbumOptionsMenu(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
                         cornerRadius = 10.dp,
                         contentDescription = album.title
                     )
@@ -131,7 +130,7 @@ fun AlbumOptionsMenu(
                             text = album.title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -142,7 +141,7 @@ fun AlbumOptionsMenu(
                         Text(
                             text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -166,14 +165,14 @@ fun AlbumOptionsMenu(
                         Icon(
                             imageVector = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (localIsFavorite) "Saved" else "Save",
-                            tint = if (localIsFavorite) Color(0xFFFF4081) else Color.White.copy(alpha = 0.75f),
+                            tint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                             modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
                 HorizontalDivider(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     modifier = Modifier.padding(top = 8.dp, bottom = 14.dp)
                 )
 
@@ -195,7 +194,7 @@ fun AlbumOptionsMenu(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                                 .clickable {
                                     onShuffle()
                                     onDismiss()
@@ -209,13 +208,13 @@ fun AlbumOptionsMenu(
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = "Shuffle",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Shuffle",
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
                                 )
@@ -228,7 +227,7 @@ fun AlbumOptionsMenu(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                                 .clickable {
                                     onShare()
                                     onDismiss()
@@ -242,13 +241,13 @@ fun AlbumOptionsMenu(
                                 Icon(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = "Share",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Share",
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
                                 )
@@ -263,7 +262,7 @@ fun AlbumOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         AlbumOptionRow(
                             icon = Icons.AutoMirrored.Filled.QueueMusic,
@@ -276,7 +275,7 @@ fun AlbumOptionsMenu(
                         )
 
                         HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.05f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
@@ -291,7 +290,7 @@ fun AlbumOptionsMenu(
                         )
 
                         HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.05f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
@@ -306,7 +305,7 @@ fun AlbumOptionsMenu(
                         )
 
                         HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.05f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
@@ -325,7 +324,7 @@ fun AlbumOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         AlbumOptionRow(
                             icon = if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add,
@@ -343,7 +342,7 @@ fun AlbumOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         AlbumOptionRow(
                             icon = Icons.Default.Download,
@@ -363,7 +362,7 @@ fun AlbumOptionsMenu(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                         ) {
                             AlbumOptionRow(
                                 icon = Icons.Default.Person,
@@ -392,14 +391,14 @@ fun AlbumOptionsMenu(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Text(
                         text = "Add album to playlist",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     IconButton(onClick = { showCreatePlaylistDialog = true }) {
                         Icon(
@@ -423,14 +422,14 @@ fun AlbumOptionsMenu(
                             Text(
                                 text = "No custom playlists yet.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = { showCreatePlaylistDialog = true },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = dynamicPrimary,
-                                    contentColor = Color.Black
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -470,14 +469,14 @@ fun AlbumOptionsMenu(
                                         text = playlist.title,
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "${playlist.tracks.size} songs",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -536,8 +535,8 @@ fun AlbumOptionsMenu(
                 }
             },
             containerColor = dynamicSurface,
-            titleContentColor = Color.White,
-            textContentColor = Color.White
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurface
         )
     }
 }
@@ -559,7 +558,7 @@ private fun AlbumOptionRow(
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = Color.White.copy(alpha = 0.9f),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
@@ -568,7 +567,7 @@ private fun AlbumOptionRow(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -578,7 +577,7 @@ private fun AlbumOptionRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     fontSize = 12.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

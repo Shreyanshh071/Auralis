@@ -655,7 +655,6 @@ class LyricsClient(
             var bestMasterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             var completedCount = 0
             var graceDeadlineMs = Long.MAX_VALUE
-            var plainInterimStarted = false
 
             val allValidCandidates = mutableListOf<LyricsCandidate>()
 
@@ -703,29 +702,9 @@ class LyricsClient(
                     // While YouLy+ is still on a cold fetch it's often the only source with the song,
                     // so keep waiting for it; otherwise stop at the normal per-source budget.
                     val deadlineMs = if (youLyPlusActive) YouLyPlusLyricsSource.RACE_BUDGET_MS + 500L else PROVIDER_TIMEOUT_MS + 500L
-                    // Past the normal budget we're only waiting on a cold YouLy+ fetch: show the plain
-                    // text meanwhile so the screen isn't empty, and swap in sync if YouLy+ delivers.
-                    if (onInterim != null && youLyPlusActive && !plainInterimStarted &&
-                        System.currentTimeMillis() - t0 >= PROVIDER_TIMEOUT_MS
-                    ) {
-                        plainInterimStarted = true
-                        raceScope.launch {
-                            val plain = listOfNotNull(
-                                runCatching { withTimeoutOrNull(3000L) { ytMusicSource.search(query) } }.getOrNull(),
-                                runCatching { withTimeoutOrNull(3000L) { geniusSource.search(query) } }.getOrNull()
-                            ).firstOrNull { it.lyricsData.lines.isNotEmpty() }
-                            plain?.let { onInterim(it.lyricsData) }
-                        }
-                    }
                     val remainingMs = (t0 + deadlineMs) - System.currentTimeMillis()
                     if (remainingMs <= 0L) break
-                    // Wake at the normal budget mark if the plain interim still needs starting;
-                    // that wake-up isn't the deadline, so loop round instead of ending the race.
-                    val untilInterimMs = (t0 + PROVIDER_TIMEOUT_MS) - System.currentTimeMillis()
-                    val interimPending = onInterim != null && youLyPlusActive && !plainInterimStarted && untilInterimMs > 0L
-                    val waitMs = if (interimPending) minOf(remainingMs, untilInterimMs) else remainingMs
-                    withTimeoutOrNull(waitMs) { resultChannel.receive() }
-                        ?: if (interimPending && waitMs < remainingMs) continue else break
+                    withTimeoutOrNull(remainingMs) { resultChannel.receive() } ?: break
                 }
 
                 if (candidate.confidence == -1) {

@@ -2,6 +2,7 @@ package com.auralis.music.ui.lyrics
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShapingClustersTest {
@@ -36,5 +37,13 @@ class ShapingClustersTest {
     @Test
     fun `latin text is split per character exactly as before`() {
         assertEquals(listOf("L", "o", "v", "e", " ", "m", "e"), "Love me".toShapingClusters())
+    }
+
+    @Test
+    fun `indic lyrics use whole run shaping`() {
+        assertTrue("इश्क़ की धुनी रोज़ जलाए".requiresWholeRunShaping())
+        assertTrue("तेरे इश्क़ में हद से गुज़र जाऊँ".requiresWholeRunShaping())
+        assertTrue("Love ਇਸ਼ਕ".requiresWholeRunShaping())
+        assertFalse("Oh Girl You Are Mine".requiresWholeRunShaping())
     }
 }
