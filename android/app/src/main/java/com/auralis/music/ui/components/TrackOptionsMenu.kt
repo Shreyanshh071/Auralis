@@ -35,8 +35,6 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.launch
 
-private val CARD_CONTAINER_COLOR = Color(0xFF262021)
-
 /**
  * YouTube Music style Modal Bottom Sheet for Track Options:
  * - Compact drag handle
@@ -76,6 +74,7 @@ fun TrackOptionsMenu(
     val coroutineScope = rememberCoroutineScope()
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
+    val actionCardColor = MaterialTheme.colorScheme.surfaceVariant
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -248,7 +247,7 @@ fun TrackOptionsMenu(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                                 .clickable {
                                     if (queueReferenceStyle) onStartRadio?.invoke() else onPlayNext()
                                     onDismiss()
@@ -262,13 +261,13 @@ fun TrackOptionsMenu(
                                 Icon(
                                     imageVector = if (queueReferenceStyle) Icons.Default.Sensors else Icons.AutoMirrored.Filled.PlaylistPlay,
                                     contentDescription = if (queueReferenceStyle) "Radio" else "Play next",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (queueReferenceStyle) "Radio" else "Play next",
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
                                 )
@@ -281,7 +280,7 @@ fun TrackOptionsMenu(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                                 .clickable {
                                     showPlaylistPicker = true
                                 },
@@ -294,13 +293,13 @@ fun TrackOptionsMenu(
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
                                     contentDescription = "Add",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "Add",
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
                                 )
@@ -313,7 +312,7 @@ fun TrackOptionsMenu(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                                 .clickable {
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
@@ -335,13 +334,13 @@ fun TrackOptionsMenu(
                                 Icon(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = "Share",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "Share",
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
                                 )
@@ -356,7 +355,7 @@ fun TrackOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         TrackOptionRow(
                             icon = if (queueReferenceStyle) Icons.AutoMirrored.Filled.PlaylistPlay else Icons.Default.Sensors,
@@ -369,7 +368,7 @@ fun TrackOptionsMenu(
                         )
 
                         HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.05f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
@@ -389,7 +388,7 @@ fun TrackOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         TrackOptionRow(
                             icon = if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add,
@@ -411,14 +410,14 @@ fun TrackOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         TrackOptionRow(
                             icon = if (localIsFavorite) Icons.Default.LibraryAddCheck else Icons.Default.LibraryAdd,
                             title = if (localIsFavorite) "Remove from library" else "Add to library",
                             subtitle = if (localIsFavorite) "Remove from your library" else "Save to your library",
-                            iconTint = if (localIsFavorite) Color(0xFFFF4081) else Color.White.copy(alpha = 0.9f),
-                            titleColor = if (localIsFavorite) Color(0xFFFF4081) else Color.White,
+                            iconTint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                            titleColor = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface,
                             onClick = {
                                 val newFav = !localIsFavorite
                                 localIsFavorite = newFav
@@ -441,14 +440,14 @@ fun TrackOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         TrackOptionRow(
                             icon = if (isDownloaded) Icons.Default.DownloadDone else if (isDownloading) Icons.Default.CloudDownload else Icons.Default.Download,
                             title = if (isDownloaded) "Remove download" else if (isDownloading) "Downloading..." else "Download",
                             subtitle = if (isDownloaded) "Downloaded to device" else if (isDownloading) "Saving for offline playback" else "Make available for offline playback",
-                            iconTint = if (isDownloaded) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f),
-                            titleColor = if (isDownloaded) Color(0xFF4CAF50) else Color.White,
+                            iconTint = if (isDownloaded) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                            titleColor = if (isDownloaded) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface,
                             onClick = {
                                 if (isDownloaded) {
                                     AuralisDownloadManager.removeDownload(track.id)
@@ -465,7 +464,7 @@ fun TrackOptionsMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(CARD_CONTAINER_COLOR)
+                            .background(actionCardColor)
                     ) {
                         TrackOptionRow(
                             icon = Icons.Default.Person,
@@ -478,7 +477,7 @@ fun TrackOptionsMenu(
                         )
 
                         HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.05f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
@@ -506,7 +505,7 @@ fun TrackOptionsMenu(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(CARD_CONTAINER_COLOR)
+                                .background(actionCardColor)
                         ) {
                             TrackOptionRow(
                                 icon = Icons.Default.Group,
@@ -535,14 +534,14 @@ fun TrackOptionsMenu(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Text(
                         text = "Save to playlist",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     IconButton(onClick = { showCreatePlaylistDialog = true }) {
                         Icon(
@@ -566,14 +565,14 @@ fun TrackOptionsMenu(
                             Text(
                                 text = "No custom playlists yet.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = { showCreatePlaylistDialog = true },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = dynamicPrimary,
-                                    contentColor = Color.Black
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -613,20 +612,20 @@ fun TrackOptionsMenu(
                                         text = playlist.title,
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "${playlist.tracks.size} songs",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                                 Icon(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = "Add",
-                                    tint = Color.White.copy(alpha = 0.5f),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -697,8 +696,8 @@ private fun TrackOptionRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
-    iconTint: Color = Color.White.copy(alpha = 0.9f),
-    titleColor: Color = Color.White,
+    iconTint: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+    titleColor: Color = MaterialTheme.colorScheme.onSurface,
     onClick: () -> Unit
 ) {
     Row(
@@ -730,7 +729,7 @@ private fun TrackOptionRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     fontSize = 12.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

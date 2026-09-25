@@ -1864,12 +1864,13 @@ private fun LyricLineRow(
                 line.translatedText.replace(Regex("""[\u0300-\u036F\u25CC\u093C\u093D]"""), "").trim()
             }
             if (cleanTranslation.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = cleanTranslation,
-                    fontSize = (fontSize.value * 0.52f).coerceAtLeast(14f).sp,
-                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isCurrent) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.40f),
+                    fontSize = (fontSize.value * 0.44f).coerceIn(12f, 16f).sp,
+                    fontStyle = FontStyle.Italic,
+                    fontWeight = FontWeight.Normal,
+                    color = Color.White.copy(alpha = if (isCurrent) 0.66f else 0.32f),
                     textAlign = textAlign,
                     modifier = Modifier.fillMaxWidth()
                 )

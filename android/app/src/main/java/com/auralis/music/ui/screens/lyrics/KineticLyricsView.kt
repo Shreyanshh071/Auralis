@@ -32,6 +32,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -356,15 +357,16 @@ fun KineticLyricsView(
                             }
 
                             if (!line.translatedText.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = line.translatedText,
-                                    fontSize = 15.sp,
+                                    fontSize = 12.sp,
+                                    fontStyle = FontStyle.Italic,
                                     fontWeight = FontWeight.Normal,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isActive) 0.66f else 0.36f),
                                     textAlign = textAlign,
                                     modifier = Modifier.fillMaxWidth(),
-                                    lineHeight = 20.sp
+                                    lineHeight = 16.sp
                                 )
                             }
                         }

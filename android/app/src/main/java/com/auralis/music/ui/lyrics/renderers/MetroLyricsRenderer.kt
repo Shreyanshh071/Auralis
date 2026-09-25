@@ -7,6 +7,7 @@
 package com.auralis.music.ui.lyrics.renderers
 
 import com.auralis.music.ui.lyrics.toShapingClusters
+import com.auralis.music.ui.lyrics.requiresWholeRunShaping
 import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -219,6 +220,7 @@ private fun MetroWordLevelCanvas(
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val drawAsShapedRun = remember(mainText) { mainText.requiresWholeRunShaping() }
     val glowPaint = remember {
         android.graphics.Paint().apply {
             isAntiAlias = true
@@ -356,6 +358,36 @@ private fun MetroWordLevelCanvas(
             if (!isActiveLine) {
                 drawText(layoutResult, color = lineColor)
             } else {
+                if (drawAsShapedRun) {
+                    // Drawing isolated characters detaches matras and conjuncts from their base.
+                    // Repaint word regions from the same fully shaped line instead.
+                    drawText(layoutResult, color = lineColor.copy(alpha = focusedAlpha))
+                    val wordIdxMap = charToWordData.first
+                    words.forEachIndexed { wordIndex, word ->
+                        val startMs = (word.startTime * 1000).toLong()
+                        val durationMs = ((word.endTime - word.startTime) * 1000).toLong().coerceAtLeast(1L)
+                        val progress = ((smoothPosition - startMs).toFloat() / durationMs).coerceIn(0f, 1f)
+                        if (progress <= 0f) return@forEachIndexed
+                        var left = Float.MAX_VALUE
+                        var right = Float.MIN_VALUE
+                        var top = Float.MAX_VALUE
+                        var bottom = Float.MIN_VALUE
+                        for (i in 0 until clusterCount) {
+                            if (wordIdxMap[i] != wordIndex) continue
+                            val bounds = layoutResult.getBoundingBox(clusterCharOffsets[i])
+                            left = minOf(left, bounds.left)
+                            right = maxOf(right, bounds.right)
+                            top = minOf(top, bounds.top)
+                            bottom = maxOf(bottom, bounds.bottom)
+                        }
+                        if (left < right && top < bottom) {
+                            clipRect(left = left, top = top, right = right, bottom = bottom) {
+                                drawText(layoutResult, color = accentColor.copy(alpha = focusedAlpha + (1f - focusedAlpha) * progress))
+                            }
+                        }
+                    }
+                    return@Canvas
+                }
                 val (wordIdxMap, charInWordMap, wordLenMap) = charToWordData
                 val areAllWordsSung = words.isNotEmpty() && words.all { smoothPosition > (it.endTime * 1000).toLong() }
                 val wordFactors = words.map { word ->

@@ -1419,7 +1419,8 @@ internal fun ExperimentalLyricsLine(
                             }
                         }.trim().let { if (line.isBackground) it.removePrefix("(").removeSuffix(")") else it }
 
-                        if (wordConcat.isNotBlank() && (raw.isBlank() || (wordConcat.contains(" ") && !raw.contains(" ")) || wordConcat.count { it == ' ' } > raw.count { it == ' ' })) {
+                        if (wordConcat.isNotBlank() && (raw.isBlank() || (!raw.requiresWholeRunShaping() &&
+                                ((wordConcat.contains(" ") && !raw.contains(" ")) || wordConcat.count { it == ' ' } > raw.count { it == ' ' })))) {
                             wordConcat
                         } else {
                             raw
@@ -1499,11 +1500,12 @@ internal fun ExperimentalLyricsLine(
                 line.translatedText?.let { trans ->
                     Text(
                         text = trans,
-                        fontSize = 16.sp,
-                        color = expressiveAccent.copy(alpha = 0.5f),
+                        fontSize = 13.sp,
+                        fontStyle = FontStyle.Italic,
+                        color = expressiveAccent.copy(alpha = 0.55f),
                         textAlign = agentTextAlign,
                         fontWeight = FontWeight.Normal,
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                 }
             }
@@ -1689,7 +1691,7 @@ private fun ExperimentalWordLevelLyrics(
             graphemeClusters.map { cluster -> textMeasurer.measure(cluster, lyricStyle) }
         }
 
-        val isRtlText = remember(mainText) { mainText.containsRtl() }
+        val drawAsShapedRun = remember(mainText) { mainText.containsRtl() || mainText.requiresWholeRunShaping() }
 
         Canvas(
             modifier = Modifier
@@ -1700,7 +1702,7 @@ private fun ExperimentalWordLevelLyrics(
             if (!isActiveLine) {
                 drawText(layoutResult, color = lineColor)
             } else {
-                if (isRtlText) {
+                if (drawAsShapedRun) {
                     val (wordIdxMap, _, _) = charToWordData
                     val wordFactors = effectiveWords.map { word ->
                         val wStartMs = (word.startTime * 1000).toLong()
@@ -1964,4 +1966,3 @@ private fun ExperimentalWordLevelLyrics(
         }
     }
 }
-

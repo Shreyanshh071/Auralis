@@ -21,6 +21,25 @@ private val VIRAMAS = setOf(
     '្'  // Khmer
 )
 
+/** Indic letters must be shaped with their surrounding text, not drawn as isolated glyphs. */
+internal fun String.requiresWholeRunShaping(): Boolean = any { char ->
+    when (Character.UnicodeScript.of(char.code)) {
+        Character.UnicodeScript.DEVANAGARI,
+        Character.UnicodeScript.BENGALI,
+        Character.UnicodeScript.GURMUKHI,
+        Character.UnicodeScript.GUJARATI,
+        Character.UnicodeScript.ORIYA,
+        Character.UnicodeScript.TAMIL,
+        Character.UnicodeScript.TELUGU,
+        Character.UnicodeScript.KANNADA,
+        Character.UnicodeScript.MALAYALAM,
+        Character.UnicodeScript.SINHALA,
+        Character.UnicodeScript.MYANMAR,
+        Character.UnicodeScript.KHMER -> true
+        else -> false
+    }
+}
+
 /**
  * Splits text into the smallest pieces that can each be measured and drawn on their own without
  * breaking how the font shapes them.

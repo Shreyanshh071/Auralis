@@ -71,7 +71,7 @@ fun ProfileSettingsView(
 
         SettingsSwitchCard(
             title = "3D Spatial Soundstage",
-            subtitle = "Virtualize wide 3D surround sound on headphones (Dolby Atmos simulation)",
+            subtitle = "Android audio virtualization when supported",
             icon = Icons.Default.SurroundSound,
             isChecked = settings.spatialAudio,
             onCheckedChange = onToggleSpatialAudio
@@ -82,7 +82,7 @@ fun ProfileSettingsView(
 
         SettingsSwitchCard(
             title = "Gapless Playback",
-            subtitle = "Zero-delay instant transitions between songs without pauses or silence",
+            subtitle = "Preload the next track for smoother transitions",
             icon = Icons.Default.SyncAlt,
             isChecked = settings.gaplessPlayback,
             onCheckedChange = onToggleGaplessPlayback
@@ -90,7 +90,7 @@ fun ProfileSettingsView(
 
         SettingsSwitchCard(
             title = "Remove Silence",
-            subtitle = "Automatically skip dead air and silent intros/outros",
+            subtitle = "Skip quiet passages during playback",
             icon = Icons.Default.VolumeOff,
             isChecked = settings.skipSilence,
             onCheckedChange = onToggleSkipSilence
