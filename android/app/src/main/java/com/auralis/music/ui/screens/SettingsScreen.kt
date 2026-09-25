@@ -20,7 +20,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.auralis.music.ui.theme.AuralisPushedPage
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.rememberPushProgress
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.material.icons.filled.*
@@ -87,6 +90,10 @@ fun SettingsScreen(
     val cardPrimary = themePrimary
     val cardIconBg = themePrimary.copy(alpha = if (isDark) 0.12f else 0.16f)
 
+    // Full-page sections push over the list; Player & audio stays a dialog.
+    val pagedSection = activeDialog?.takeIf { it != SettingsDialogType.PLAYER_AUDIO }
+    val sectionPush = rememberPushProgress(pagedSection != null)
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -94,7 +101,7 @@ fun SettingsScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().auralisPushParent(sectionPush)) {
                 // ── TOP APP BAR ──
                 Row(
                     modifier = Modifier
@@ -253,14 +260,55 @@ fun SettingsScreen(
                 }
             }
 
+            // ── FULL-PAGE SECTIONS ──
+            AuralisPushedPage(page = pagedSection) { section ->
+                when (section) {
+                    SettingsDialogType.APPEARANCE -> {
+                        AppearanceScreen(
+                            onDismiss = { activeDialog = null }
+                        )
+                    }
+
+                    SettingsDialogType.STORAGE -> {
+                        StorageSettingsScreen(
+                            onDismiss = { activeDialog = null }
+                        )
+                    }
+
+                    SettingsDialogType.LYRICS_TRANSLATION -> {
+                        AiLyricsTranslationScreen(
+                            onDismiss = { activeDialog = null }
+                        )
+                    }
+
+                    SettingsDialogType.PRIVACY -> {
+                        PrivacySettingsScreen(
+                            onDismiss = { activeDialog = null },
+                            historyRepository = historyRepository,
+                            searchRepository = searchRepository
+                        )
+                    }
+
+                    SettingsDialogType.ABOUT -> {
+                        AboutScreen(
+                            onNavigateToUpdater = { activeDialog = SettingsDialogType.UPDATER },
+                            hasActiveTrack = hasActiveTrack,
+                            onDismiss = { activeDialog = null }
+                        )
+                    }
+
+                    SettingsDialogType.UPDATER -> {
+                        UpdaterScreen(
+                            onDismiss = { activeDialog = null }
+                        )
+                    }
+
+                    else -> {}
+                }
+            }
+
             // ── DIALOG HANDLER ──
             when (activeDialog) {
-                SettingsDialogType.APPEARANCE -> {
-                    AppearanceScreen(
-                        onDismiss = { activeDialog = null }
-                    )
-                }
-
             SettingsDialogType.PLAYER_AUDIO -> {
                 var showQualityPicker by remember { mutableStateOf(false) }
 
@@ -460,41 +508,7 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsDialogType.STORAGE -> {
-                StorageSettingsScreen(
-                    onDismiss = { activeDialog = null }
-                )
-            }
-
-            SettingsDialogType.LYRICS_TRANSLATION -> {
-                AiLyricsTranslationScreen(
-                    onDismiss = { activeDialog = null }
-                )
-            }
-
-            SettingsDialogType.PRIVACY -> {
-                PrivacySettingsScreen(
-                    onDismiss = { activeDialog = null },
-                    historyRepository = historyRepository,
-                    searchRepository = searchRepository
-                )
-            }
-
-            SettingsDialogType.ABOUT -> {
-                AboutScreen(
-                    onNavigateToUpdater = { activeDialog = SettingsDialogType.UPDATER },
-                    hasActiveTrack = hasActiveTrack,
-                    onDismiss = { activeDialog = null }
-                )
-            }
-
-            SettingsDialogType.UPDATER -> {
-                UpdaterScreen(
-                    onDismiss = { activeDialog = null }
-                )
-            }
-
-            null -> {}
+            else -> {}
         }
     }
 }
