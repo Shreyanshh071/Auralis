@@ -170,7 +170,7 @@ fun generateDynamicPalette(
 // ============================================================================
 // 🌓 MATERIAL 3 COLOR SCHEMES
 // ============================================================================
-// 🎨 CURATED COLOR PALETTES (METROLIST & MATERIAL YOU SPEC)
+// 🎨 CURATED COLOR PALETTES (MATERIAL YOU SPEC)
 // ============================================================================
 
 @Immutable
@@ -542,7 +542,7 @@ private fun paletteStyleFor(chroma: Double): PaletteStyle {
 
 /**
  * Synthesizes a balanced, authentic Material 3 ColorScheme from an extracted artwork seed color.
- * Matches ViVi Music and standard Material 3 architecture:
+ * Matches standard Material 3 architecture:
  * - Uses MaterialKolor's dynamicColorScheme with HCT tonal palette generation.
  * - Primary accent carries the genuine artwork hue and chroma (Tone 80 in dark mode).
  * - Secondary accent reflects extracted distinct secondary harmonic artwork tones.

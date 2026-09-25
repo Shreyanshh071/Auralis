@@ -1,0 +1,52 @@
+{
+ "gerua": {
+  "artist": "Pritam, Arijit Singh & Antara Mitra",
+  "effectiveDurationSec": 346,
+  "trackId": "reBEkYrqMhA",
+  "album": "Dilwale (Original Motion Picture Soundtrack)",
+  "title": "Gerua",
+  "durationSec": 346,
+  "effectiveVideoId": "reBEkYrqMhA",
+  "slug": "gerua_v0"
+ },
+ "samjhawan": {
+  "artist": "Jawad Ahmed, Sharib Toshi, Arijit Singh & Shreya Ghoshal",
+  "effectiveDurationSec": 270,
+  "trackId": "pUwpLoLlzNQ",
+  "album": "Samjhawan",
+  "title": "Samjhawan",
+  "durationSec": 270,
+  "effectiveVideoId": "pUwpLoLlzNQ",
+  "slug": "samjhawan_v0"
+ },
+ "agar_tum_saath_ho": {
+  "artist": "Arijit Singh & Alka Yagnik",
+  "effectiveDurationSec": 342,
+  "trackId": "FOA9iyxsW_A",
+  "album": "TAMASHA",
+  "title": "AGAR TUM SAATH HO",
+  "durationSec": 342,
+  "effectiveVideoId": "FOA9iyxsW_A",
+  "slug": "agar_tum_saath_ho_v0"
+ },
+ "feel_good_inc": {
+  "artist": "Gorillaz & De La Soul",
+  "effectiveDurationSec": 223,
+  "trackId": "NxxjLD2pmlk",
+  "album": "Demon Days",
+  "title": "Feel Good Inc.",
+  "durationSec": 223,
+  "effectiveVideoId": "NxxjLD2pmlk",
+  "slug": "feel_good_inc_v0"
+ },
+ "tere_liye": {
+  "artist": "Lata Mangeshkar & Roop Kumar Rathod",
+  "effectiveDurationSec": 332,
+  "trackId": "8m1E-RF3Yz4",
+  "album": "Veer-Zaara",
+  "title": "Tere Liye",
+  "durationSec": 332,
+  "effectiveVideoId": "8m1E-RF3Yz4",
+  "slug": "tere_liye_v0"
+ }
+}

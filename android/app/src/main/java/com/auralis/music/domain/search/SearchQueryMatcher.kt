@@ -86,6 +86,22 @@ object SearchQueryMatcher {
     }
 
     /**
+     * Folds common Latin romanizations of Hindi/Urdu (and similar) words onto one spelling, for
+     * comparing already-[normalize]d text: w/v, ph/f, q/k, and doubled vowels (aa, ee, oo, ii).
+     */
+    fun romanizationKey(normalized: String): String {
+        if (normalized.isBlank()) return normalized
+        return normalized
+            .replace("ph", "f")
+            .replace('w', 'v')
+            .replace('q', 'k')
+            .replace("aa", "a")
+            .replace("ee", "i")
+            .replace("ii", "i")
+            .replace("oo", "u")
+    }
+
+    /**
      * Identifies spam, WhatsApp status clips, reels clickbait, or non-song noise uploads on YouTube.
      */
     fun isJunkOrSpam(title: String, artist: String, query: String = ""): Boolean {
@@ -153,6 +169,13 @@ object SearchQueryMatcher {
 
             // Title without parenthetical extras (e.g. "Dracula (feat. JENNIE)" -> "Dracula")
             cleanTitle == normQuery -> ScoredTrack(track, MatchTier.EXACT_TITLE, 95.0)
+
+            // Same title in another romanization ("Kya Hua Tera Vada" for "kya hua tera wada",
+            // "Pyaar" / "Pyar", "Phir" / "Fir"). Hindi/Urdu titles have no single Latin spelling, so
+            // these are the same title, not typos; they used to fall into TYPO_MATCH, below every
+            // exact-spelling upload however obscure. A true exact spelling still scores higher.
+            romanizationKey(normTitle) == romanizationKey(normQuery) -> ScoredTrack(track, MatchTier.EXACT_TITLE, 97.0)
+            romanizationKey(cleanTitle) == romanizationKey(normQuery) -> ScoredTrack(track, MatchTier.EXACT_TITLE, 92.0)
 
             // Singular/plural stemming match (e.g. "flashing light" matching "flashing lights")
             normQuery.length >= 3 && (normTitle.removeSuffix("s") == normQuery.removeSuffix("s") || cleanTitle.removeSuffix("s") == normQuery.removeSuffix("s")) -> {

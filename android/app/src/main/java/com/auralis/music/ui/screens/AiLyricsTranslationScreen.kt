@@ -35,6 +35,7 @@ import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
+import com.auralis.music.ui.components.bottomChromePadding
 
 private enum class AiTranslationDialog {
     PROVIDER,
@@ -103,7 +104,7 @@ fun AiLyricsTranslationScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(bottom = 120.dp),
+                contentPadding = bottomChromePadding(includeNavigationBar = false),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // ════ 1. PROVIDER ════

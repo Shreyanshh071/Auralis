@@ -48,6 +48,7 @@ import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.components.bottomChromePadding
 
 private val LIME_ACCENT: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -118,7 +119,6 @@ fun ArtistScreen(
             .fillMaxSize()
             .background(DARK_BG)
     ) {
-        val artistBottomPad = if (currentTrackId != null) 240.dp else 140.dp
         val stableTopSongKeys = remember(artistPage.topSongs) {
             val counts = HashMap<String, Int>()
             artistPage.topSongs.map { track ->
@@ -129,7 +129,7 @@ fun ArtistScreen(
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = artistBottomPad)
+            contentPadding = bottomChromePadding()
         ) {
             // ================================================================
             // 1. IMMERSIVE HERO HEADER (Artist Portrait Photo + Dark Scrim)

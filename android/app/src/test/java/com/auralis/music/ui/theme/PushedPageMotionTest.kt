@@ -91,7 +91,7 @@ class PushedPageMotionTest {
             repeat(20) { h.frame() }
             assertEquals(0f, h.value())
 
-            // A full push lands in ~200ms (VIVI's page transition), well within 20 frames.
+            // A full push lands in ~200ms (the reference page transition), well within 20 frames.
             h.pushed.value = true
             repeat(16) { h.frame() }
             assertEquals(1f, h.value())

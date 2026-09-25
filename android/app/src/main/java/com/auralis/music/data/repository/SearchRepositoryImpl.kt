@@ -354,7 +354,7 @@ class SearchRepositoryImpl(
                 }
             }
 
-            // Resolve Primary Album (Metrolist / InnerTube get_queue / Apple Music specification)
+            // Resolve Primary Album (InnerTube get_queue / Apple Music specification)
             var primaryAlbum: PlaylistResult? = when {
                 resolvedTopResult is SearchTopResult.AlbumResult -> resolvedTopResult.album
                 resolvedTopResult is SearchTopResult.SongResult -> {
@@ -389,7 +389,7 @@ class SearchRepositoryImpl(
                                 author = targetArtist
                             )
                         } else {
-                            // 3. Fetch authentic album metadata via getSongDetails (matching Metrolist YouTube.queue)
+                            // 3. Fetch authentic album metadata via getSongDetails (InnerTube get_queue)
                             val detailedTrack = try {
                                 innerTubeClient.getSongDetails(track.id)
                             } catch (_: Exception) { null }
@@ -580,7 +580,7 @@ class SearchRepositoryImpl(
                 title.contains("(Acapella", ignoreCase = true)
 
             !isInstrumental && !isLiveCut && !isCommentaryOrDemo
-        }
+        }.let { if (isExplicitRemixAlbum) it else withoutRemixesOfAlbumSongs(it) }
 
         // Outro / Closing track detection for albums with expanded bonus tracks appended at end
         val outroIndex = cleanTracks.indexOfFirst {

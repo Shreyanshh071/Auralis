@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -22,7 +24,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 //
 // Profile -> Settings, Settings -> a section, Appearance -> Theme & colours.
 // These pages are drawn over their parent rather than routed through a NavHost,
-// so they used to swap in and out on a single frame. This applies VIVI's NavHost
+// so they used to swap in and out on a single frame. This applies NavHost-style
 // push/pop to them with the same tokens the Explore/Library detail stack uses:
 // the page slides in from +1/8 width while the parent drifts to -1/8, both
 // fading over 200ms; back reverses it.
@@ -50,7 +52,7 @@ fun Modifier.auralisPushParent(progress: State<Float>): Modifier = graphicsLayer
 }
 
 /**
- * Page side: hosts the pushed page ([page] null = none) with VIVI's forward-enter
+ * Page side: hosts the pushed page ([page] null = none) with the forward-enter
  * and backward-exit. Page -> page (About -> Updater) is a forward push.
  */
 @Composable
@@ -62,6 +64,10 @@ fun <T : Any> AuralisPushedPage(
     val forwardEnter = auralisDetailForwardEnter()
     val forwardExit = auralisDetailForwardExit()
     val backwardExit = auralisDetailBackwardExit()
+    // AnimatedContent caches one content lambda per state for as long as that page stays
+    // visible, so a directly-captured `content` would keep the arguments (e.g. settings)
+    // from when the page opened. Reading through State always renders the latest ones.
+    val currentContent by rememberUpdatedState(content)
     AnimatedContent(
         targetState = page,
         modifier = modifier.fillMaxSize(),
@@ -85,7 +91,7 @@ fun <T : Any> AuralisPushedPage(
                         awaitPointerEventScope { while (true) awaitPointerEvent() }
                     }
             ) {
-                content(current)
+                currentContent(current)
             }
         }
     }

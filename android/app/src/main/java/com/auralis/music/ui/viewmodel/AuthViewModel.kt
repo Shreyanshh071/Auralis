@@ -19,7 +19,9 @@ data class AuthUiState(
     val selectedPlaylistIds: Set<String> = emptySet(),
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
-    val showPlaylistSelectDialog: Boolean = false
+    val showPlaylistSelectDialog: Boolean = false,
+    val isSendingPasswordReset: Boolean = false,
+    val passwordResetMessage: String? = null
 )
 
 class AuthViewModel(
@@ -90,6 +92,32 @@ class AuthViewModel(
                 _uiState.update { it.copy(isSyncing = false, syncMessage = e.localizedMessage ?: "Failed to sign in") }
             }
         }
+    }
+
+    fun sendPasswordResetEmail(email: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSendingPasswordReset = true, passwordResetMessage = null) }
+            try {
+                syncManager.sendPasswordResetEmail(email)
+                _uiState.update {
+                    it.copy(
+                        isSendingPasswordReset = false,
+                        passwordResetMessage = "If an account exists for that email, a reset link is on its way. Check your spam/junk folder if it doesn't show up in a minute or two."
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSendingPasswordReset = false,
+                        passwordResetMessage = e.localizedMessage ?: "Couldn't send the reset email. Try again."
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearPasswordResetMessage() {
+        _uiState.update { it.copy(passwordResetMessage = null) }
     }
 
     fun openPlaylistSelectDialog() {

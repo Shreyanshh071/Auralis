@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
 private val CARD_CONTAINER_COLOR = Color(0xFF262021)
 
 /**
- * YouTube Music & ViVi style Modal Bottom Sheet for Track Options:
+ * YouTube Music style Modal Bottom Sheet for Track Options:
  * - Compact drag handle
  * - Artwork, Title, Subtitle (Artist), Favorite heart
  * - Quick Action Buttons: [ Play next ], [ Add ], [ Share ]
@@ -83,7 +83,7 @@ fun TrackOptionsMenu(
     var localIsFavorite by remember(isFavorite) { mutableStateOf(isFavorite) }
     var localIsPinned by remember(track.id, isPinned) { mutableStateOf(isPinned) }
 
-    // Authentic Album Resolution (mirrors ViVi / Apple Music / iTunes query for true parent album)
+    // Authentic Album Resolution (Apple Music / iTunes query for true parent album)
     val cachedAlbum = remember(track.id, track.title, track.artist) {
         AlbumMetadataResolver.getCached(track.title, track.artist)
     }
@@ -158,7 +158,7 @@ fun TrackOptionsMenu(
                         .width(36.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.35f))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f))
                 )
             }
 
@@ -175,7 +175,7 @@ fun TrackOptionsMenu(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
                         cornerRadius = 10.dp,
                         contentDescription = track.title
                     )
@@ -187,7 +187,7 @@ fun TrackOptionsMenu(
                             text = track.title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -195,7 +195,7 @@ fun TrackOptionsMenu(
                         Text(
                             text = track.artist.ifBlank { "Unknown Artist" },
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -219,14 +219,14 @@ fun TrackOptionsMenu(
                         Icon(
                             imageVector = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (localIsFavorite) "Saved" else "Save",
-                            tint = if (localIsFavorite) Color(0xFFFF4081) else Color.White.copy(alpha = 0.75f),
+                            tint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                             modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
                 HorizontalDivider(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     modifier = Modifier.padding(top = 8.dp, bottom = 14.dp)
                 )
 
@@ -686,8 +686,8 @@ fun TrackOptionsMenu(
                 }
             },
             containerColor = dynamicSurface,
-            titleContentColor = Color.White,
-            textContentColor = Color.White
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurface
         )
     }
 }

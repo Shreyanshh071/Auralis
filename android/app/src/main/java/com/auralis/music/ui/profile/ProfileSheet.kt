@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.AuthUiState
+import com.auralis.music.ui.components.bottomChromePadding
 
 val PROFILE_LIME: Color
     @Composable get() = MaterialTheme.colorScheme.primary
@@ -804,7 +805,7 @@ fun ProfileSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(if (hasActiveTrack) 120.dp else 24.dp))
+            Spacer(modifier = Modifier.padding(bottomChromePadding(includeNavigationBar = false)))
         }
     }
 

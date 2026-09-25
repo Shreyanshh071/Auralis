@@ -31,7 +31,7 @@ object WordTiming {
      * Two, not one: a lone timed word among untimed ones is a parser artefact
      * (a stray `end` attribute, a single `d` field), not word sync.
      *
-     * Mirrors braccato's `parts?.some(p => p.durationMs > 0)` and Metrolist's
+     * Mirrors braccato's `parts?.some(p => p.durationMs > 0)` and the common
      * TTML rule of recording a span only when both `begin` and `end` are present.
      */
     fun hasGenuineWordTiming(lines: List<LyricLine>): Boolean =
@@ -82,8 +82,7 @@ object WordTiming {
      * Legitimate because it invents no new interval — it subdivides one the
      * provider measured. Apple Music and AMLL TTML exports do emit multi-word
      * spans (`<span begin="16s" end="17.5s">can try</span>`), and braccato
-     * subdivides them the same way (`inject.ts:231-244`), as does Metrolist for
-     * hyphenated words (`LyricsLine.kt:474+`).
+     * subdivides them the same way (`inject.ts:231-244`).
      *
      * Returns the input unchanged when there is nothing to split or no genuine
      * duration to split — never widens the span, never emits a zero-length piece.
@@ -548,7 +547,7 @@ object WordTiming {
 
     /**
      * Merges contiguous syllable spans belonging to the same visual word into a single
-     * [LyricWord], matching Metrolist, Echo, and NomaTune behavior.
+     * [LyricWord].
      *
      * In TTML and similar providers, multi-syllable words (such as "beauti" + "ful") are
      * emitted as separate spans without whitespace between them.

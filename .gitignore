@@ -37,7 +37,6 @@ secrets.properties
 *.ogg
 *.tar.gz
 shazam_pkg/
-nomatune_src/
 scratch/
 *.db
 *.sqlite

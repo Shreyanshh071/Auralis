@@ -1460,7 +1460,7 @@ private fun MiniPlayerArtworkDisc(
                 onClick = onPlayPauseClick
             )
     ) {
-        // Inner Circular Artwork Disc (40dp matches Metrolist, giving clear clearance from 3dp ring)
+        // Inner Circular Artwork Disc (40dp, giving clear clearance from 3dp ring)
         Box(
             modifier = Modifier
                 .size(40.dp)

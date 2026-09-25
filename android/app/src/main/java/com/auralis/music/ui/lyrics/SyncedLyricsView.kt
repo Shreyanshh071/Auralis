@@ -85,7 +85,7 @@ import com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine
 import com.auralis.music.ui.lyrics.renderers.BasicWordLyricsLine
 import com.auralis.music.ui.lyrics.renderers.LyricsV2FluidLine
 import com.auralis.music.ui.lyrics.renderers.MetroLyricsLine
-import com.auralis.music.ui.lyrics.renderers.ViviMusicLyricsLine
+import com.auralis.music.ui.lyrics.renderers.OceanWaveLyricsLine
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
@@ -537,23 +537,9 @@ fun SyncedLyricsView(
                 if (index < effectiveLines.size - 1) {
                     val nextLine = effectiveLines[index + 1]
                     val nextStart = nextLine.time
-                    val effEnd = line.effectiveEndTime
-                    // Genuine instrumental break verification:
-                    // - Word-synced lyrics with known end time: requires >= 5.0s of genuine vocal silence.
-                    // - Line-synced lyrics without end times: requires >= 10.0s between line starts to avoid
-                    //   false-triggering during normal conversational lyric line cadences (4-8s).
-                    val isGenuineBreak = if (effEnd != null) {
-                        (nextStart - effEnd) >= 5_000L
-                    } else {
-                        (nextStart - line.time) >= 10_000L
-                    }
-                    if (isGenuineBreak) {
-                        // Count-in indicator strictly counts down the last 4.5 seconds into the upcoming vocal line.
-                        // Coerced at least after the previous line has completely finished singing.
-                        val indicatorStart = (nextStart - 4_500L).coerceAtLeast(effEnd ?: (line.time + 3_000L))
-                        if (nextStart > indicatorStart) {
-                            items.add(SyncedLyricsItem.Indicator(index, indicatorStart, nextStart))
-                        }
+                    // Circle appears when the singing stops and fills the whole break.
+                    instrumentalBreakWindow(line, nextStart)?.let { (start, end) ->
+                        items.add(SyncedLyricsItem.Indicator(index, start, end))
                     }
                 }
             }
@@ -1441,9 +1427,9 @@ internal fun computeClassicLyricsTextAlpha(
 }
 
 /**
- * Universal lyric line row supporting Auralis native canvas sweep + 10 VIVI animation styles.
+ * Universal lyric line row supporting Auralis native canvas sweep + 10 animation styles.
  *
- * Preserves pre-VIVI Auralis typography hierarchy:
+ * Preserves the original Auralis typography hierarchy:
  * - Active: 22sp ExtraBold, alpha 1.0f (or 28sp in Cinema mode).
  * - Inactive: 20sp SemiBold, alpha 0.38f upcoming, 0.58f past (or 22sp in Cinema mode).
  * - Scale falloff: 0.98f, 0.96f, 0.94f for past lines.
@@ -1896,7 +1882,7 @@ private fun LyricLineRow(
 /**
  * Modern circular progress countdown during song instrumental intros.
  *
- * For MetroLyrics, displays the thicker 40dp / 5.0dp Metrolist style.
+ * For MetroLyrics, displays the thicker 40dp / 5.0dp MetroLyrics style.
  * For all other animation modes (Auralis Default, Apple Music, Fade, Glow, etc.),
  * displays the classic thin 34dp / 3.0dp style.
  */

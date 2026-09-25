@@ -274,7 +274,7 @@ fun <T> motionSpring(
 // Overlays and pushed pages pull their transitions from here so that every
 // surface in the app enters and leaves the same way.
 
-/** Full-height surface rising from the bottom (Now Playing) matching VIVI low-stiffness spring. */
+/** Full-height surface rising from the bottom (Now Playing) on a low-stiffness spring. */
 @Composable
 fun auralisSheetEnter(): EnterTransition {
     if (LocalReducedMotion.current) return EnterTransition.None
@@ -287,7 +287,7 @@ fun auralisSheetEnter(): EnterTransition {
     ) + fadeIn(tween(PlayerMotion.EnterDuration, easing = AuralisEasing.Standard))
 }
 
-/** Counterpart to [auralisSheetEnter] — full-height slide-out to the bottom matching VIVI low-stiffness spring. */
+/** Counterpart to [auralisSheetEnter] — full-height slide-out to the bottom on a low-stiffness spring. */
 @Composable
 fun auralisSheetExit(): ExitTransition {
     if (LocalReducedMotion.current) return ExitTransition.None
@@ -357,7 +357,7 @@ fun auralisDetailForwardEnter(): EnterTransition {
 
 /**
  * Forward exit for the parent screen when a detail is opening over it.
- * Slides slightly to the left and fades, matching VIVI.
+ * Slides slightly to the left and fades.
  */
 @Composable
 fun auralisDetailForwardExit(): ExitTransition {
@@ -370,7 +370,7 @@ fun auralisDetailForwardExit(): ExitTransition {
 
 /**
  * Backward entrance for the parent screen when closing a detail (Album → Artist pop).
- * Slides back from the left, matching VIVI.
+ * Slides back from the left.
  */
 @Composable
 fun auralisDetailBackwardEnter(): EnterTransition {
@@ -383,7 +383,7 @@ fun auralisDetailBackwardEnter(): EnterTransition {
 
 /**
  * Backward exit for the detail screen being closed.
- * Slides out to the right, matching VIVI.
+ * Slides out to the right.
  */
 @Composable
 fun auralisDetailBackwardExit(): ExitTransition {

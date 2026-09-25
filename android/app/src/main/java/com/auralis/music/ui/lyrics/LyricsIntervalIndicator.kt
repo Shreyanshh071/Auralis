@@ -30,6 +30,37 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/**
+ * The instrumental break after [line], as the (start, end) the interval circle should span, or
+ * null when the gap before [nextStart] isn't a genuine break.
+ *
+ * The circle appears as soon as the singing stops and fills across the whole break, rather than
+ * only counting down the last few seconds.
+ * - Word-synced lines know when the singing ends ([LyricLine.effectiveEndTime]); a break needs
+ *   >= 5s of silence after it.
+ * - Line-synced lines have no end time, so a break needs >= 10s between line starts, and the end
+ *   of the singing is estimated from the line's word count (display only, never lyric timing).
+ */
+internal fun instrumentalBreakWindow(line: com.auralis.music.domain.model.LyricLine, nextStart: Long): Pair<Long, Long>? {
+    val knownEnd = line.effectiveEndTime
+    val isGenuineBreak = if (knownEnd != null) {
+        nextStart - knownEnd >= 5_000L
+    } else {
+        nextStart - line.time >= 10_000L
+    }
+    if (!isGenuineBreak) return null
+    val singingEnd = knownEnd ?: (line.time + estimatedSungLengthMs(line.text))
+    // Always leave at least a second of visible countdown before the next line.
+    val start = singingEnd.coerceIn(line.time, nextStart - 1_000L)
+    return if (nextStart > start) start to nextStart else null
+}
+
+/** Rough sung length of a line with no end time: ~0.45s a word, 2.5–7s. */
+internal fun estimatedSungLengthMs(text: String): Long {
+    val words = text.split(Regex("""\s+""")).count { it.isNotBlank() }
+    return (words * 450L + 800L).coerceIn(2_500L, 7_000L)
+}
+
 /** Alias providing clear semantic naming while maintaining backwards compatibility */
 @Composable
 fun CircularIntervalIndicator(
@@ -89,7 +120,7 @@ fun WavyProgressIndicator(
  * Displays a clean, elegant fluid progress ring that fills smoothly clockwise
  * as the instrumental gap between lyrics progresses.
  *
- * [isMetroLyrics] controls whether the indicator uses the thick Metrolist styling
+ * [isMetroLyrics] controls whether the indicator uses the thick MetroLyrics styling
  * (40dp size, 5.0dp stroke width) or the classic standard lyrics animation thinness
  * (34dp size, 3.0dp stroke width) used for Auralis Default, Apple Music, Fade, Glow, etc.
  * Includes smooth entry/exit animations and tap-to-skip support.

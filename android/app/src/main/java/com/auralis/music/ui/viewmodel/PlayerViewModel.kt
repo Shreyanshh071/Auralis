@@ -1153,6 +1153,36 @@ class PlayerViewModel(
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
                 }
+                // MetroLyrics speaker layout (7.7): a cached word-sync entry written without
+                // line-level speakers (older cache rows, or a speaker-less source that won the
+                // race) gets one background look per session for a speaker-tagged copy. The
+                // cached lyrics stay on screen; they are only replaced if one is found.
+                val enrichKey = (effectiveVideoId.takeIf { it.isNotBlank() } ?: "${track.title}::${track.artist}::$effectiveDurationSec").lowercase()
+                if (!com.auralis.music.data.network.LyricsClient.hasSpeakerMetadata(cached) &&
+                    isMetroLyricsMode() && lyricsUpgradeAttempted.add(enrichKey)
+                ) {
+                    val enriched = try {
+                        withContext(Dispatchers.IO) {
+                            lyricsRepository.enrichSpeakerMetadata(
+                                title = track.title,
+                                artist = track.artist,
+                                durationSec = effectiveDurationSec,
+                                videoId = effectiveVideoId,
+                                album = track.album,
+                                channelTitle = track.channelTitle,
+                                durationMs = exactDurationMs,
+                                audioLeadingSilenceMs = audioPlayer?.audioLeadingSilenceMs?.value ?: currentSilence
+                            )
+                        }
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        null
+                    }
+                    if (enriched != null && requestId == currentPlaybackRequestId.get()) {
+                        _uiState.update { it.copy(lyrics = enriched, isLoadingLyrics = false) }
+                        triggerAiTranslation(track, enriched, requestId)
+                    }
+                }
                 return@launch
             }
 
@@ -1174,8 +1204,12 @@ class PlayerViewModel(
 
             try {
                 // 2. Background network cascade (LRCLIB, JioSaavn, NetEase, KuGou, Musixmatch, etc.)
+                // Early results from the search (line sync while word-sync sources are still
+                // answering; plain text while a slow source fetches) are shown only if they beat
+                // what's on screen, and never after the final answer has landed.
+                val finalDelivered = java.util.concurrent.atomic.AtomicBoolean(false)
                 val data = withContext(Dispatchers.IO) {
-                    lyricsRepository.getLyrics(
+                    lyricsRepository.getLyricsWithInterim(
                         title = track.title,
                         artist = track.artist,
                         durationSec = effectiveDurationSec,
@@ -1186,9 +1220,24 @@ class PlayerViewModel(
                         audioLeadingSilenceMs = audioPlayer?.audioLeadingSilenceMs?.value ?: currentSilence,
                         // The caches were already consulted above; without this the
                         // upgrade query would just return the same cached row.
-                        forceRefresh = true
+                        forceRefresh = true,
+                        onInterim = { interim ->
+                            // Plain text (tier 1) is not shown here: it flashed the "Unsynced
+                            // Lyrics" screen while the search was still running, which then
+                            // jumped to synced lyrics a few seconds later and read as broken.
+                            // The spinner stays up until something synced arrives or the search
+                            // itself ends (then the plain fallback below shows normally).
+                            if (!finalDelivered.get() && lyricsTier(interim) >= 2 && requestId == currentPlaybackRequestId.get()) {
+                                _uiState.update { state ->
+                                    if (!finalDelivered.get() && lyricsTier(interim) > lyricsTier(state.lyrics)) {
+                                        state.copy(lyrics = interim, isLoadingLyrics = false)
+                                    } else state
+                                }
+                            }
+                        }
                     )
                 }
+                finalDelivered.set(true)
 
                 if (requestId == currentPlaybackRequestId.get()) {
                     val keepNetwork = data != null && (!cachedIsUsable || lyricsTier(data) > lyricsTier(cached))
@@ -1196,7 +1245,9 @@ class PlayerViewModel(
                         _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
                         triggerAiTranslation(track, data, requestId)
                     } else {
-                        _uiState.update { it.copy(lyrics = cached ?: data, isLoadingLyrics = false) }
+                        // `it.lyrics` last: an interim shown during this search beats blanking the
+                        // screen when the search ends with nothing better.
+                        _uiState.update { it.copy(lyrics = cached ?: data ?: it.lyrics, isLoadingLyrics = false) }
                     }
                 }
                 if (data == null || lyricsTier(data) <= lyricsTier(cached)) {
@@ -1221,6 +1272,19 @@ class PlayerViewModel(
         com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(data.lines) -> 3
         data.syncType != com.auralis.music.domain.model.SyncType.PLAIN && data.lines.any { it.time > 0L } -> 2
         else -> 1
+    }
+
+    /** Whether MetroLyrics (the only view with a speaker-aware layout) is the active lyrics style. */
+    private suspend fun isMetroLyricsMode(): Boolean {
+        val ctx = context ?: return false
+        return try {
+            val settings = com.auralis.music.data.datastore.AppearanceSettingsDataStore(ctx).settingsFlow.first()
+            com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation) ==
+                com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            false
+        }
     }
 
     private fun triggerAiTranslation(track: Track, lyricsData: LyricsData?, requestId: Long) {

@@ -12,10 +12,17 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.auth.GoogleAccountSyncManager
 import com.google.firebase.auth.FirebaseAuth
+import com.auralis.music.data.service.AuralisAudioPlayer
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -62,11 +69,49 @@ class ListenTogetherViewModel(
     private var searchJob: Job? = null
     private var pillDismissJob: Job? = null
 
+    private var heartbeatJob: Job? = null
+
     private var previousMembers: List<RoomMember> = emptyList()
+
+    /** Latest roster from the members subcollection, before stale members are filtered out. */
+    private var rosterSnapshot: List<RoomMember>? = null
+
+    /** Recent (server clock - local clock) measurements; the most precise one is used. */
+    private val clockOffsetSamples = ArrayDeque<com.auralis.music.data.sync.ClockOffsetSample>()
 
     private var lastSyncedTrackId: String? = null
     private var lastSyncedIsPlaying: Boolean? = null
     private var lastSeekTimestampMs: Long = 0L
+    private var lastAppliedSeekVersion: Long = 0L
+    private var hostSeekVersion: Long = 0L
+
+    private val clockOffsetMs: Long?
+        get() = ListenTogetherSyncMath.bestClockOffset(clockOffsetSamples.toList())?.offsetMs
+
+    private fun recordClockOffset(sample: com.auralis.music.data.sync.ClockOffsetSample?) {
+        sample ?: return
+        clockOffsetSamples.addLast(sample)
+        while (clockOffsetSamples.size > 5) clockOffsetSamples.removeFirst()
+        Log.d("ListenTogether", "[Clock] offset=${sample.offsetMs}ms ±${sample.uncertaintyMs}ms, using=${clockOffsetMs}ms")
+    }
+
+    private fun serverNowMs(): Long = System.currentTimeMillis() + (clockOffsetMs ?: 0L)
+
+    /** The roster minus members whose heartbeat has gone stale. You always count yourself. */
+    private fun liveMembers(roster: List<RoomMember>): List<RoomMember> {
+        val myUid = _uiState.value.currentUserId
+        val now = serverNowMs()
+        return roster
+            .filter { it.id == myUid || clockOffsetMs == null || !ListenTogetherSyncMath.isPresenceStale(it.lastSeenServerMs, now) }
+            .sortedWith(compareByDescending<RoomMember> { it.isHost }.thenBy { it.joinedAt })
+    }
+
+    private fun applyRoster(roster: List<RoomMember>) {
+        rosterSnapshot = roster
+        val live = liveMembers(roster)
+        handleMembersDelta(live)
+        _uiState.update { it.copy(members = live) }
+    }
 
     fun showPill(message: String, type: PillType = PillType.INFO) {
         pillDismissJob?.cancel()
@@ -108,7 +153,7 @@ class ListenTogetherViewModel(
         previousMembers = newMembers
     }
 
-    var onSyncTrackChange: ((track: Track, queue: List<Track>, initialPositionMs: Long) -> Unit)? = null
+    var onSyncTrackChange: ((track: Track, queue: List<Track>, queueIndex: Int, initialPositionMs: Long) -> Unit)? = null
     var onSyncResume: (() -> Unit)? = null
     var onSyncPause: (() -> Unit)? = null
     var onSyncSeek: ((positionMs: Long) -> Unit)? = null
@@ -196,6 +241,7 @@ class ListenTogetherViewModel(
     fun createRoom(
         initialTrack: Track?,
         queue: List<Track> = emptyList(),
+        queueIndex: Int = 0,
         isPlaying: Boolean = false,
         positionMs: Long = 0L
     ) {
@@ -207,9 +253,13 @@ class ListenTogetherViewModel(
                     hostDisplayName = effectiveName,
                     initialTrack = initialTrack,
                     queue = queue,
+                    queueIndex = queueIndex,
                     isPlaying = isPlaying,
                     playbackPositionMs = positionMs
                 )
+                clockOffsetSamples.clear()
+                recordClockOffset(manager.lastJoinClockOffset)
+                hostSeekVersion = 0L
                 lastSyncedTrackId = initialTrack?.id
                 lastSyncedIsPlaying = isPlaying
                 val hostMember = RoomMember(
@@ -245,9 +295,15 @@ class ListenTogetherViewModel(
             try {
                 val initialRoomState = manager.joinRoom(roomCode, effectiveName)
                 val uid = manager.ensureAuthenticated()
+                clockOffsetSamples.clear()
+                recordClockOffset(manager.lastJoinClockOffset)
                 lastSyncedTrackId = null
                 lastSyncedIsPlaying = null
-                previousMembers = initialRoomState.membersList
+                lastAppliedSeekVersion = initialRoomState.seekVersion
+                // The first roster snapshot becomes the baseline, so existing members don't
+                // all show up as "joined".
+                previousMembers = emptyList()
+                rosterSnapshot = null
                 _uiState.update {
                     it.copy(
                         activeRoom = initialRoomState,
@@ -272,18 +328,76 @@ class ListenTogetherViewModel(
         currentTrack: Track?,
         isPlaying: Boolean,
         playbackPositionMs: Long,
-        queue: List<Track> = emptyList()
+        queue: List<Track> = emptyList(),
+        queueIndex: Int = -1,
+        isSeek: Boolean = false
     ) {
         val roomCode = _uiState.value.activeRoom?.code ?: return
         if (!_uiState.value.isHost) return
+        val seekVersion = if (isSeek) ++hostSeekVersion else null
 
         viewModelScope.launch {
             try {
-                manager.updateHostPlayback(roomCode, currentTrack, isPlaying, playbackPositionMs, queue)
+                manager.updateHostPlayback(roomCode, currentTrack, isPlaying, playbackPositionMs, queue, queueIndex, seekVersion)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Broadcast Host Error]: ${e.message}", e)
             }
         }
+    }
+
+    private var hostPlayerJob: Job? = null
+
+    /**
+     * Broadcasts the host's playback straight from the player's state, so a song change, pause
+     * or seek reaches the room immediately however it happened (in app, notification, lock screen,
+     * headset buttons, a song ending) and whether or not the app is on screen.
+     */
+    fun bindHostPlayer(player: AuralisAudioPlayer) {
+        hostPlayerJob?.cancel()
+        hostPlayerJob = viewModelScope.launch {
+            uiState
+                .map { state -> state.activeRoom?.code.takeIf { state.isHost } }
+                .distinctUntilChanged()
+                .collectLatest { hostedRoomCode ->
+                    if (hostedRoomCode == null) return@collectLatest
+                    coroutineScope {
+                        launch {
+                            combine(player.currentTrack, player.isPlaying, player.queueState) { track, playing, queue ->
+                                Triple(track?.id, playing, queue.currentIndex to queue.queue.size)
+                            }
+                                .distinctUntilChanged()
+                                .collectLatest { (_, playing, _) ->
+                                    broadcastFromPlayer(player)
+                                    // Keep listeners' drift estimate fresh while playing.
+                                    while (playing) {
+                                        delay(5000L)
+                                        broadcastFromPlayer(player)
+                                    }
+                                }
+                        }
+                        launch {
+                            player.userSeekEvents.collectLatest { seekMs ->
+                                // A drag can emit several seeks in a row; only broadcast where it settles.
+                                delay(150L)
+                                broadcastFromPlayer(player, seekPositionMs = seekMs)
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun broadcastFromPlayer(player: AuralisAudioPlayer, seekPositionMs: Long? = null) {
+        val track = player.currentTrack.value ?: return
+        val queue = player.queueState.value
+        broadcastHostPlayback(
+            currentTrack = track,
+            isPlaying = player.isPlaying.value,
+            playbackPositionMs = seekPositionMs ?: player.playbackPositionMs.value,
+            queue = queue.queue,
+            queueIndex = queue.currentIndex,
+            isSeek = seekPositionMs != null
+        )
     }
 
     fun leaveRoom() {
@@ -297,10 +411,12 @@ class ListenTogetherViewModel(
         roomJob?.cancel()
         membersJob?.cancel()
         recommendationsJob?.cancel()
+        heartbeatJob?.cancel()
         searchJob?.cancel()
         lastSyncedTrackId = null
         lastSyncedIsPlaying = null
         previousMembers = emptyList()
+        rosterSnapshot = null
         _uiState.update {
             it.copy(
                 activeRoom = null,
@@ -405,14 +521,17 @@ class ListenTogetherViewModel(
         roomJob?.cancel()
         membersJob?.cancel()
         recommendationsJob?.cancel()
+        heartbeatJob?.cancel()
 
         roomJob = viewModelScope.launch {
             manager.observeRoomState(roomCode).collect { state ->
                 if (state == null || state.status == "closed") {
                     val wasGuest = !_uiState.value.isHost && _uiState.value.activeRoom != null
+                    heartbeatJob?.cancel()
                     lastSyncedTrackId = null
                     lastSyncedIsPlaying = null
                     previousMembers = emptyList()
+                    rosterSnapshot = null
                     _uiState.update {
                         it.copy(
                             activeRoom = null,
@@ -427,17 +546,12 @@ class ListenTogetherViewModel(
                     }
                 } else {
                     _uiState.update { current ->
-                        val updatedMembers = if (state.membersList.isNotEmpty()) {
-                            val map = current.members.associateBy { it.id }.toMutableMap()
-                            state.membersList.forEach { m -> map[m.id] = m }
-                            map.values.sortedWith(compareByDescending<RoomMember> { it.isHost }.thenBy { it.joinedAt })
-                        } else current.members
-
-                        handleMembersDelta(updatedMembers)
-
+                        // The members subcollection is the roster. The room document's
+                        // membersList only ever holds the host, so it is just a placeholder
+                        // until the first roster snapshot arrives.
                         current.copy(
                             activeRoom = state,
-                            members = updatedMembers
+                            members = if (rosterSnapshot == null && current.members.isEmpty()) state.membersList else current.members
                         )
                     }
 
@@ -450,16 +564,8 @@ class ListenTogetherViewModel(
         }
 
         membersJob = viewModelScope.launch {
-            manager.observeRoomMembers(roomCode).collect { membersList ->
-                if (membersList.isNotEmpty()) {
-                    _uiState.update { current ->
-                        val map = current.members.associateBy { it.id }.toMutableMap()
-                        membersList.forEach { m -> map[m.id] = m }
-                        val sorted = map.values.sortedWith(compareByDescending<RoomMember> { it.isHost }.thenBy { it.joinedAt })
-                        handleMembersDelta(sorted)
-                        current.copy(members = sorted)
-                    }
-                }
+            manager.observeRoomMembers(roomCode).collect { roster ->
+                applyRoster(roster)
             }
         }
 
@@ -468,13 +574,41 @@ class ListenTogetherViewModel(
                 _uiState.update { it.copy(recommendations = recs) }
             }
         }
+
+        heartbeatJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(ListenTogetherSyncMath.HEARTBEAT_INTERVAL_MS)
+                recordClockOffset(manager.heartbeat(roomCode))
+                // Time passing can make members stale without any new snapshot.
+                rosterSnapshot?.let { applyRoster(it) }
+                if (!_uiState.value.isHost && isHostGone()) {
+                    Log.w("ListenTogether", "[Presence] Host stopped checking in -> leaving room $roomCode")
+                    leaveRoom()
+                    _uiState.update { it.copy(errorMessage = "Host has disconnected") }
+                    showPill("Host has disconnected", PillType.HOST_DISCONNECTED)
+                    break
+                }
+            }
+        }
+    }
+
+    /** True once the roster shows the host gone or silent for longer than the presence timeout. */
+    private fun isHostGone(): Boolean {
+        val roster = rosterSnapshot ?: return false
+        if (roster.isEmpty() || clockOffsetMs == null) return false
+        val host = roster.firstOrNull { it.isHost } ?: return true
+        return ListenTogetherSyncMath.isPresenceStale(host.lastSeenServerMs, serverNowMs())
     }
 
     private fun syncGuestWithRoomState(state: NativeRoomState, isInitialJoin: Boolean) {
         val hostTrack = state.currentTrack ?: return
         val estimatedHostPos = ListenTogetherSyncMath.calculateEstimatedHostPosition(
             broadcastPositionMs = state.playbackPosition,
-            broadcastTimestampMs = state.updatedAt,
+            broadcastTimestampMs = ListenTogetherSyncMath.hostBroadcastLocalTime(
+                serverUpdatedAtMs = state.serverUpdatedAt,
+                hostWallClockUpdatedAtMs = state.updatedAt,
+                localClockOffsetMs = clockOffsetMs
+            ),
             isPlaying = state.isPlaying,
             playbackRate = state.playbackRate
         )
@@ -488,9 +622,11 @@ class ListenTogetherViewModel(
         if (trackChanged) {
             lastSyncedTrackId = hostTrack.id
             lastSyncedIsPlaying = state.isPlaying
+            lastAppliedSeekVersion = state.seekVersion
             lastSeekTimestampMs = System.currentTimeMillis()
-            Log.d("ListenTogether", "[Guest Sync] Track change -> ${hostTrack.title} (${hostTrack.id}) at ${estimatedHostPos}ms, isPlaying=${state.isPlaying}")
-            onSyncTrackChange?.invoke(hostTrack, state.queue, estimatedHostPos)
+            val queueIndex = ListenTogetherSyncMath.resolveQueueIndex(state.queue, state.queueIndex, hostTrack.id)
+            Log.d("ListenTogether", "[Guest Sync] Track change -> ${hostTrack.title} (${hostTrack.id}) at ${estimatedHostPos}ms, queueIndex=$queueIndex, isPlaying=${state.isPlaying}")
+            onSyncTrackChange?.invoke(hostTrack, state.queue, queueIndex, estimatedHostPos)
             if (!state.isPlaying) {
                 onSyncPause?.invoke()
             }
@@ -510,6 +646,15 @@ class ListenTogetherViewModel(
         } else if (!state.isPlaying && localIsPlaying == true) {
             Log.d("ListenTogether", "[Guest Sync] Host is paused but guest is active -> force pausing guest")
             onSyncPause?.invoke()
+        }
+
+        // The host seeked: follow immediately instead of waiting for the drift check.
+        if (state.seekVersion != lastAppliedSeekVersion) {
+            lastAppliedSeekVersion = state.seekVersion
+            lastSeekTimestampMs = System.currentTimeMillis()
+            Log.d("ListenTogether", "[Guest Sync] Host seek v${state.seekVersion} -> seekTo $estimatedHostPos")
+            onSyncSeek?.invoke(estimatedHostPos)
+            return
         }
 
         // Drift check and seek resync (only when playing, debounced to 5s to prevent audio stutter)

@@ -6,6 +6,10 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -17,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -258,12 +263,55 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.dynamicBackground,
                     contentColor = MaterialTheme.dynamicOnBackground
                 ) {
-                    AuralisApp(
-                        viewModelProvider = viewModelProvider,
-                        appearanceSettings = appearanceSettings,
-                        googleAccountSyncManager = googleAccountSyncManager,
-                        initialNavDestination = liveNavDestination.value
-                    )
+                    // Same "signed in" check AuralisApp makes for its own welcome/app switch.
+                    // Duplicated (not hoisted) so a drift between the two only ever mistimes this
+                    // veil by a frame; it can never block or skew the real gate inside AuralisApp.
+                    val authVM = remember { viewModelProvider.getAuthViewModel() }
+                    val authUiState by authVM.uiState.collectAsState()
+                    val isFirebaseUserActiveHere = try {
+                        val fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                        fbUser != null && !fbUser.isAnonymous
+                    } catch (_: Exception) { false }
+                    val isAppUnlockedHere = isFirebaseUserActiveHere ||
+                        (authUiState.profile.isGoogleConnected && authUiState.profile.uid.isNotBlank())
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AuralisApp(
+                            viewModelProvider = viewModelProvider,
+                            appearanceSettings = appearanceSettings,
+                            googleAccountSyncManager = googleAccountSyncManager,
+                            initialNavDestination = liveNavDestination.value
+                        )
+
+                        // Soft veil masking the moment sign-in hands off to the app: the welcome
+                        // screen is mid-dissolve (see AuralisApp) while the app underneath still
+                        // pops onto screen with no animation of its own, so this holds a covering
+                        // fade across that handoff and then lifts, reading as one smooth motion
+                        // rather than a dissolve immediately followed by a hard cut.
+                        var showUnlockVeil by remember { mutableStateOf(false) }
+                        val veilAlpha = remember { Animatable(0f) }
+                        LaunchedEffect(isAppUnlockedHere) {
+                            if (isAppUnlockedHere) {
+                                showUnlockVeil = true
+                                veilAlpha.snapTo(0f)
+                                veilAlpha.animateTo(1f, tween(150))
+                                kotlinx.coroutines.delay(420L)
+                                veilAlpha.animateTo(0f, tween(320))
+                                showUnlockVeil = false
+                            } else {
+                                showUnlockVeil = false
+                                veilAlpha.snapTo(0f)
+                            }
+                        }
+                        if (showUnlockVeil) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .alpha(veilAlpha.value)
+                                    .background(MaterialTheme.dynamicBackground)
+                            )
+                        }
+                    }
                 }
             }
         }

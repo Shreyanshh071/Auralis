@@ -86,6 +86,7 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.viewmodel.ListenTogetherUiState
+import com.auralis.music.ui.components.bottomChromePadding
 
 private val LISTEN_LIME = Color(0xFFD4E157)
 private val LISTEN_CARD_BG = Color(0xFF1B1D16)
@@ -609,7 +610,7 @@ fun ListenTogetherSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.padding(bottomChromePadding()))
         }
     }
 }
