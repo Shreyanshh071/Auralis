@@ -3,12 +3,9 @@ package com.auralis.music.ui.screens
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -224,19 +221,13 @@ fun ThemeAndColorsScreen(
         }
     }
 
-    val targetPreviewPrimary = activePreviewScheme.primary
-    val targetPreviewSecondary = activePreviewScheme.secondary
-    val targetPreviewTertiary = activePreviewScheme.tertiary
-    val targetPreviewBg = activePreviewScheme.background
-    val targetPreviewSurfaceContainer = activePreviewScheme.surfaceContainer
-
-    // Smooth color transitions in the live preview card when the user switches themes or palettes
-    val colorTween = remember { tween<Color>(durationMillis = 350, easing = FastOutSlowInEasing) }
-    val animPreviewBg by animateColorAsState(targetPreviewBg, colorTween, label = "animPreviewBg")
-    val animPreviewPrimary by animateColorAsState(targetPreviewPrimary, colorTween, label = "animPreviewPrimary")
-    val animPreviewSecondary by animateColorAsState(targetPreviewSecondary, colorTween, label = "animPreviewSecondary")
-    val animPreviewTertiary by animateColorAsState(targetPreviewTertiary, colorTween, label = "animPreviewTertiary")
-    val animPreviewSurfaceContainer by animateColorAsState(targetPreviewSurfaceContainer, colorTween, label = "animPreviewSurfaceContainer")
+    // The app theme switches light/dark immediately. Draw the mockup from the same
+    // target scheme so its pieces cannot trail behind with an intermediate gray state.
+    val animPreviewBg = activePreviewScheme.background
+    val animPreviewPrimary = activePreviewScheme.primary
+    val animPreviewSecondary = activePreviewScheme.secondary
+    val animPreviewTertiary = activePreviewScheme.tertiary
+    val animPreviewSurfaceContainer = activePreviewScheme.surfaceContainer
 
     val backgroundColor = MaterialTheme.dynamicBackground
     val surfaceColor = MaterialTheme.dynamicSurface

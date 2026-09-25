@@ -110,14 +110,14 @@ class LyricsRaceLatencyTest {
     }
 
     @Test
-    fun `plain text is shown while a cold YouLy+ fetch is still running`() = runBlocking {
+    fun `plain text is not offered while a cold YouLy+ fetch is still running`() = runBlocking {
         val interims = java.util.Collections.synchronizedList(mutableListOf<LyricsData>())
         val plain = LyricsData(syncType = SyncType.PLAIN, lines = (0 until 10).map { LyricLine(time = 0L, text = "plain $it") }, provider = LyricsProvider.YOUTUBE)
         val c = client(youLyPlus = wordLyrics(LyricsProvider.YOULYPLUS), youLyPlusBlockMs = 9_000L, youTubePlain = plain)
         val result = c.getLyrics("Song", "Artist", durationSec = 60L, durationMs = 60_000L, videoId = "abc", onInterim = { interims.add(it) })
         assertEquals(LyricsProvider.YOULYPLUS, result!!.provider)
-        assertTrue("plain text wasn't shown during the wait: ${interims.map { it.provider }}",
-            interims.any { it.provider == LyricsProvider.YOUTUBE })
+        assertTrue("untimed lyrics were offered during the wait: ${interims.map { it.provider }}",
+            interims.none { it.syncType == SyncType.PLAIN })
     }
 
     @Test

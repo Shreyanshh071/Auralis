@@ -23,9 +23,11 @@ import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -190,6 +192,65 @@ class SpeakerDataFlowRegressionTest {
             // The provider race takes seconds on a phone; the cached copy is translated long before.
             kotlinx.coroutines.delay(1_500L)
             return network
+        }
+    }
+
+    @Test
+    fun `plain interim stays behind loading until synced lyrics arrive`() = runBlocking {
+        val t = track("gerua")
+        val synced = untagged(songs.first { it.slug == "gerua" })
+        val plain = LyricsData(
+            syncType = SyncType.PLAIN,
+            lines = synced.lines.map { LyricLine(time = 0L, text = it.text) },
+            provider = LyricsProvider.GENIUS
+        )
+        val plainDelivered = CompletableDeferred<Unit>()
+        val allowSynced = CompletableDeferred<Unit>()
+        val syncedDelivered = CompletableDeferred<Unit>()
+        val allowFinal = CompletableDeferred<Unit>()
+        val repo = object : LyricsRepository {
+            override suspend fun getLyricsWithInterim(
+                title: String, artist: String, durationSec: Long?, videoId: String?,
+                forceRefresh: Boolean, album: String?, channelTitle: String?, durationMs: Long?,
+                audioLeadingSilenceMs: Long?, onInterim: (LyricsData) -> Unit
+            ): LyricsData? {
+                onInterim(plain)
+                plainDelivered.complete(Unit)
+                allowSynced.await()
+                onInterim(synced)
+                syncedDelivered.complete(Unit)
+                allowFinal.await()
+                return plain
+            }
+        }
+
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val store = ViewModelStore()
+        try {
+            val vm = ViewModelProvider(store, object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = PlayerViewModel(
+                    libraryRepository = NoLibrary(), historyRepository = NoHistory(),
+                    lyricsRepository = repo, settingsRepository = NoSettings(),
+                    audioPlayer = null, innerTubeClient = NoRadioInnerTube()
+                ) as T
+            })[PlayerViewModel::class.java]
+
+            vm.playTrack(t, listOf(t), 0)
+            withTimeout(5_000L) { plainDelivered.await() }
+            assertTrue("plain interim must leave the spinner visible", vm.uiState.value.isLoadingLyrics)
+            assertNull("plain interim must not be shown", vm.uiState.value.lyrics)
+
+            allowSynced.complete(Unit)
+            withTimeout(5_000L) { syncedDelivered.await() }
+            assertSame(synced, vm.uiState.value.lyrics)
+            assertFalse(vm.uiState.value.isLoadingLyrics)
+
+        } finally {
+            allowSynced.complete(Unit)
+            allowFinal.complete(Unit)
+            store.clear()
+            Dispatchers.resetMain()
         }
     }
 

@@ -843,6 +843,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     }
 
                     exoPlayer.setMediaItem(mediaItem)
+                    // The saved preference can arrive before native playback begins, when
+                    // setSkipSilenceEnabled has no active ExoPlayer to update yet.
+                    exoPlayer.skipSilenceEnabled = runtimeSettings.skipSilence
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && _isSpeakerForced.value && preferredAudioDevice != null) {
                         exoPlayer.setPreferredAudioDevice(preferredAudioDevice)
                     }
@@ -1099,6 +1102,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun setGaplessEnabled(enabled: Boolean) {
+        val wasEnabled = isGaplessEnabled
         isGaplessEnabled = enabled
         Log.d("AuralisPlayback", "[Settings] Gapless playback set to: $enabled")
         if (!enabled && isUsingExoPlayer) {
@@ -1106,6 +1110,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 exoPlayer.removeMediaItem(1)
                 enqueuedNextTrack = null
             }
+        }
+        if (enabled && !wasEnabled && isUsingExoPlayer) {
+            syncUpcomingGaplessTrack()
         }
     }
 

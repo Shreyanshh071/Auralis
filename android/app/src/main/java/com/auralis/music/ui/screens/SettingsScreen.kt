@@ -382,7 +382,7 @@ fun SettingsScreen(
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("3D Spatial Soundstage", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                            Text("Dolby Atmos simulation for headphones", color = onSurfaceVariant, fontSize = 11.sp)
+                                            Text("Android audio virtualization when supported", color = onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Switch(
                                             checked = settings.spatialAudio,
@@ -421,7 +421,7 @@ fun SettingsScreen(
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("Gapless Playback", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                            Text("Zero-delay instant track transitions", color = onSurfaceVariant, fontSize = 11.sp)
+                                            Text("Preload the next track for smoother transitions", color = onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Switch(
                                             checked = settings.gaplessPlayback,
@@ -460,7 +460,7 @@ fun SettingsScreen(
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("Remove Silence", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                            Text("Skip dead air at track boundaries", color = onSurfaceVariant, fontSize = 11.sp)
+                                            Text("Skip quiet passages during playback", color = onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Switch(
                                             checked = settings.skipSilence,

@@ -42,6 +42,52 @@ data class PlayerUiState(
     val audioLeadingSilenceMs: Long? = null
 )
 
+/** Keep the best timed lyrics already displayed when the search settles. */
+internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, result: LyricsData?): LyricsData? {
+    val cachedTier = lyricsTier(cached)
+    val displayedTier = lyricsTier(displayed)
+    val resultTier = lyricsTier(result)
+    val winner = when {
+        result != null && resultTier > cachedTier && resultTier >= displayedTier -> result
+        displayedTier > cachedTier -> displayed
+        else -> cached ?: result ?: displayed
+    }
+    // Automatic playback never exposes plain text as a temporary lyric screen.
+    return winner?.takeIf { lyricsTier(it) >= 2 }
+}
+
+/** Genuine word starts beat line timestamps beat untimed text. */
+internal fun lyricsTier(data: LyricsData?): Int = when {
+    data == null || data.lines.isEmpty() -> 0
+    com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(data.lines) -> 3
+    data.syncType != SyncType.PLAIN && data.lines.any { it.time > 0L } -> 2
+    else -> 1
+}
+
+/** A plain or empty first lookup can precede a timed result while providers warm up. */
+internal suspend fun searchForTimedLyrics(
+    maxAttempts: Int = 3,
+    retryDelayMs: Long = 500L,
+    timedLyricsVisible: () -> Boolean,
+    search: suspend (attempt: Int) -> LyricsData?
+): LyricsData? {
+    require(maxAttempts > 0)
+    var best: LyricsData? = null
+    repeat(maxAttempts) { attempt ->
+        val result = try {
+            search(attempt)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (lyricsTier(result) > lyricsTier(best)) best = result
+        if (lyricsTier(best) >= 2 || timedLyricsVisible()) return best
+        if (attempt < maxAttempts - 1) delay(retryDelayMs)
+    }
+    return best
+}
+
 internal fun resolveQueueSourceTitle(
     queueSize: Int,
     sourcePlaylistTitle: String?,
@@ -1120,7 +1166,7 @@ class PlayerViewModel(
         lyricsJob?.cancel()
         _uiState.update {
             it.copy(
-                lyrics = if (it.lyrics?.trackName?.equals(track.title, ignoreCase = true) == true) it.lyrics else null,
+                lyrics = it.lyrics?.takeIf { lyricsTier(it) >= 2 && it.trackName?.equals(track.title, ignoreCase = true) == true },
                 isLoadingLyrics = true
             )
         }
@@ -1148,7 +1194,7 @@ class PlayerViewModel(
             }
             // A cached RICHSYNC entry is already the best tier available; nothing to
             // upgrade to, so it settles here.
-            if (cached != null && cached.syncType == com.auralis.music.domain.model.SyncType.RICHSYNC) {
+            if (cached != null && lyricsTier(cached) == 3) {
                 if (requestId == currentPlaybackRequestId.get()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
@@ -1189,9 +1235,9 @@ class PlayerViewModel(
             // Otherwise, show whatever we have (even LINE_SYNC) while background upgrade runs.
             // A network upgrade is only attempted once per unique (title, artist, duration)
             // track per session, and the result is kept only if it ranks higher.
-            val cachedIsUsable = cached != null && cached.syncType != com.auralis.music.domain.model.SyncType.PLAIN
+            val cachedIsUsable = lyricsTier(cached) >= 2
             if (requestId == currentPlaybackRequestId.get()) {
-                _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = !cachedIsUsable) }
+                _uiState.update { it.copy(lyrics = cached.takeIf { cachedIsUsable }, isLoadingLyrics = !cachedIsUsable) }
                 if (cachedIsUsable) {
                     triggerAiTranslation(track, cached, requestId)
                 }
@@ -1204,74 +1250,71 @@ class PlayerViewModel(
 
             try {
                 // 2. Background network cascade (LRCLIB, JioSaavn, NetEase, KuGou, Musixmatch, etc.)
-                // Early results from the search (line sync while word-sync sources are still
-                // answering; plain text while a slow source fetches) are shown only if they beat
-                // what's on screen, and never after the final answer has landed.
+                // Early synced results are shown only if they beat what's on screen,
+                // and never after the final answer has landed.
                 val finalDelivered = java.util.concurrent.atomic.AtomicBoolean(false)
-                val data = withContext(Dispatchers.IO) {
-                    lyricsRepository.getLyricsWithInterim(
-                        title = track.title,
-                        artist = track.artist,
-                        durationSec = effectiveDurationSec,
-                        videoId = effectiveVideoId,
-                        album = track.album,
-                        channelTitle = track.channelTitle,
-                        durationMs = exactDurationMs,
-                        audioLeadingSilenceMs = audioPlayer?.audioLeadingSilenceMs?.value ?: currentSilence,
-                        // The caches were already consulted above; without this the
-                        // upgrade query would just return the same cached row.
-                        forceRefresh = true,
-                        onInterim = { interim ->
-                            // Plain text (tier 1) is not shown here: it flashed the "Unsynced
-                            // Lyrics" screen while the search was still running, which then
-                            // jumped to synced lyrics a few seconds later and read as broken.
-                            // The spinner stays up until something synced arrives or the search
-                            // itself ends (then the plain fallback below shows normally).
-                            if (!finalDelivered.get() && lyricsTier(interim) >= 2 && requestId == currentPlaybackRequestId.get()) {
-                                _uiState.update { state ->
-                                    if (!finalDelivered.get() && lyricsTier(interim) > lyricsTier(state.lyrics)) {
-                                        state.copy(lyrics = interim, isLoadingLyrics = false)
-                                    } else state
+                val data = searchForTimedLyrics(
+                    timedLyricsVisible = {
+                        requestId == currentPlaybackRequestId.get() && lyricsTier(_uiState.value.lyrics) >= 2
+                    },
+                    search = { attempt ->
+                        if (attempt > 0) Log.d("AuralisLyrics", "Retrying timed lyrics lookup: attempt ${attempt + 1}")
+                        // Audio resolution can finish after the first lyrics request starts.
+                        // Refresh its matched ID, duration and leading silence on every pass.
+                        val resolvedVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+                        val resolvedDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
+                        val resolvedDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
+                            ?: _uiState.value.durationMs.takeIf { it > 0L }
+                            ?: (resolvedDurationSec * 1000L)
+                        withContext(Dispatchers.IO) {
+                            lyricsRepository.getLyricsWithInterim(
+                                title = track.title,
+                                artist = track.artist,
+                                durationSec = resolvedDurationSec,
+                                videoId = resolvedVideoId,
+                                album = track.album,
+                                channelTitle = track.channelTitle,
+                                durationMs = resolvedDurationMs,
+                                audioLeadingSilenceMs = audioPlayer?.audioLeadingSilenceMs?.value ?: currentSilence,
+                                // A prior plain/empty result may be cached; retry the sources.
+                                forceRefresh = true,
+                                onInterim = { interim ->
+                                    if (!finalDelivered.get() && lyricsTier(interim) >= 2 && requestId == currentPlaybackRequestId.get()) {
+                                        _uiState.update { state ->
+                                            if (!finalDelivered.get() && lyricsTier(interim) > lyricsTier(state.lyrics)) {
+                                                state.copy(lyrics = interim, isLoadingLyrics = false)
+                                            } else state
+                                        }
+                                    }
                                 }
-                            }
+                            )
                         }
-                    )
-                }
+                    }
+                )
                 finalDelivered.set(true)
 
                 if (requestId == currentPlaybackRequestId.get()) {
-                    val keepNetwork = data != null && (!cachedIsUsable || lyricsTier(data) > lyricsTier(cached))
-                    if (keepNetwork) {
-                        _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
+                    _uiState.update { state ->
+                        state.copy(
+                            lyrics = selectSettledLyrics(cached, state.lyrics, data),
+                            isLoadingLyrics = false
+                        )
+                    }
+                    if (data != null && _uiState.value.lyrics === data) {
                         triggerAiTranslation(track, data, requestId)
-                    } else {
-                        // `it.lyrics` last: an interim shown during this search beats blanking the
-                        // screen when the search ends with nothing better.
-                        _uiState.update { it.copy(lyrics = cached ?: data ?: it.lyrics, isLoadingLyrics = false) }
                     }
                 }
                 if (data == null || lyricsTier(data) <= lyricsTier(cached)) {
                     lyricsUpgradeAttempted.remove(trackKey)
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 lyricsUpgradeAttempted.remove(trackKey)
                 if (requestId == currentPlaybackRequestId.get()) {
-                    _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
+                    _uiState.update { it.copy(lyrics = cached.takeIf { lyricsTier(cached) >= 2 }, isLoadingLyrics = false) }
                 }
             }
         }
-    }
-
-    /**
-     * Ranks a lyrics result the same way the provider race does: genuine word
-     * starts beat line timestamps beat unsynced text. Used to decide whether a
-     * network answer is actually an upgrade over what is already on screen.
-     */
-    private fun lyricsTier(data: LyricsData?): Int = when {
-        data == null || data.lines.isEmpty() -> 0
-        com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(data.lines) -> 3
-        data.syncType != com.auralis.music.domain.model.SyncType.PLAIN && data.lines.any { it.time > 0L } -> 2
-        else -> 1
     }
 
     /** Whether MetroLyrics (the only view with a speaker-aware layout) is the active lyrics style. */
