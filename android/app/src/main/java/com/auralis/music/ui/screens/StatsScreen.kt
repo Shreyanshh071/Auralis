@@ -33,7 +33,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Headphones
@@ -83,10 +82,12 @@ import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.dynamicPalette
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.StatsViewModel
 import java.util.Locale
+import com.auralis.music.ui.components.bottomChromePadding
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -160,18 +161,6 @@ fun StatsScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = textPrimary
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { showOptionDropdown = true },
-                        modifier = Modifier.tactileBounce(0.88f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.CalendarMonth,
-                            contentDescription = "Calendar",
                             tint = textPrimary
                         )
                     }
@@ -295,10 +284,9 @@ fun StatsScreen(
             }
 
             // Main Stats Content
-            val bottomPadding = if (hasActiveMiniPlayer) 120.dp else 40.dp
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomPadding),
+                contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
                 // Section: Your Highlights (if any top artist or song)
@@ -547,12 +535,16 @@ fun StatsScreen(
                                     ),
                                     label = "statsLogoRotation"
                                 )
+                                // A well so the mark reads cleanly against the card: darker than the
+                                // card in dark theme, lighter than it in light theme (a dark well on
+                                // a light card read as a plain grey blob, not a well).
+                                val isDarkTheme = MaterialTheme.dynamicPalette.isDark
+                                val logoWellColor = if (isDarkTheme) Color.Black.copy(alpha = 0.38f) else Color.White.copy(alpha = 0.55f)
                                 Box(
                                     modifier = Modifier
                                         .size(100.dp)
                                         .clip(CircleShape)
-                                        // Darker well so the mark reads cleanly against the card.
-                                        .background(Color.Black.copy(alpha = 0.38f)),
+                                        .background(logoWellColor),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     androidx.compose.foundation.Image(

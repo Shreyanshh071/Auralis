@@ -55,7 +55,42 @@ class LyricsRepositoryImpl(
          * 11 = Phase 5.5: master-aware audio leading silence alignment & resilient NetEase DNS.
          * 12 = Phase 5.6: Float PCM leading silence processor & studio audio duration mapping.
          */
-        const val LYRICS_PIPELINE_VERSION = 13 // 13: same-timestamp LRC translations paired; cache keeps translatedText
+        const val LYRICS_PIPELINE_VERSION = 14 // 14: CJK fan annotations stripped + fuzzy gap-fill dedupe; drops rows cached with them
+        // 13: same-timestamp LRC translations paired; cache keeps translatedText
+
+        /**
+         * Speaker enrichment acceptance: the network result may replace a cached entry only
+         * when it keeps the timing tier (genuine word sync), matches the playback master and
+         * actually carries line-level speaker metadata. Otherwise null — nothing changes.
+         */
+        internal fun acceptSpeakerEnrichment(
+            networkResult: LyricsData,
+            title: String,
+            artist: String,
+            channelTitle: String?,
+            videoId: String?,
+            playbackMs: Long,
+            audioLeadingSilenceMs: Long?
+        ): LyricsData? {
+            if (networkResult.lines.isEmpty()) return null
+            if (!LyricsClient.hasSpeakerMetadata(networkResult)) return null
+            if (!com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(networkResult.lines)) return null
+            val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                lyrics = networkResult,
+                playbackDurationMs = playbackMs,
+                playbackTitle = title,
+                candidateTitle = networkResult.trackName ?: title,
+                playbackChannelTitle = channelTitle,
+                playbackVideoId = videoId,
+                audioLeadingSilenceMs = audioLeadingSilenceMs,
+                playbackArtist = artist,
+                candidateArtist = networkResult.artistName ?: artist
+            )
+            if (!isAcceptable) return null
+            return if (playbackMs > 0L) {
+                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(networkResult, playbackMs, audioLeadingSilenceMs)
+            } else networkResult
+        }
 
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
@@ -196,17 +231,22 @@ class LyricsRepositoryImpl(
                     provider == LyricsProvider.UNISON &&
                     entity.hasWordTiming
 
-                return LyricsData(
-                    syncType = resolvedSyncType,
-                    lines = resolvedLines,
-                    plainLyrics = entity.plainLyrics,
-                    provider = provider,
-                    trackName = candTitle,
-                    artistName = candArtist,
-                    durationMs = entity.durationMs,
-                    leadingSilenceMs = entity.leadingSilenceMs,
-                    isExactVideoMatch = isExactVideo,
-                    matchedVideoId = if (isGenuineVideoKey) entity.trackId else null
+                // Rows cached before the display cleanup existed still carry credits, "🎵" marker
+                // lines and "Artists - Title" headers; clean them the same way as fresh results.
+                return com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(
+                    LyricsData(
+                        syncType = resolvedSyncType,
+                        lines = resolvedLines,
+                        plainLyrics = entity.plainLyrics,
+                        provider = provider,
+                        trackName = candTitle,
+                        artistName = candArtist,
+                        durationMs = entity.durationMs,
+                        leadingSilenceMs = entity.leadingSilenceMs,
+                        isExactVideoMatch = isExactVideo,
+                        matchedVideoId = if (isGenuineVideoKey) entity.trackId else null
+                    ),
+                    title = com.auralis.music.data.network.TitleCleaner.cleanCoreSongTitle(queryTitle)
                 )
             } catch (_: Exception) {
                 return null
@@ -397,6 +437,40 @@ class LyricsRepositoryImpl(
         return null
     }
 
+    override suspend fun enrichSpeakerMetadata(
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?,
+        album: String?,
+        channelTitle: String?,
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?
+    ): LyricsData? {
+        val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
+        val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
+        val networkResult = lyricsClient.getLyrics(
+            title = title,
+            artist = artist,
+            durationSec = durationSec,
+            videoId = videoId,
+            album = album,
+            channelTitle = channelTitle,
+            durationMs = playbackMs,
+            audioLeadingSilenceMs = audioLeadingSilenceMs
+        ) ?: return null
+        return acceptSpeakerEnrichment(networkResult, title, artist, channelTitle, videoId, playbackMs, audioLeadingSilenceMs)
+            ?.also { enriched ->
+                android.util.Log.d("AuralisLyrics", "[enrichSpeakerMetadata] Speaker-tagged ${enriched.provider} replaces cached entry for '$trackKey'")
+                memoryCache[trackKey] = enriched
+                try {
+                    lyricsDao?.insertLyrics(domainToEntity(trackKey, enriched, title, artist))
+                } catch (e: Exception) {
+                    android.util.Log.w("AuralisLyrics", "[enrichSpeakerMetadata] Error writing to DB: ${e.message}")
+                }
+            }
+    }
+
     override suspend fun getLyrics(
         title: String,
         artist: String,
@@ -407,8 +481,34 @@ class LyricsRepositoryImpl(
         channelTitle: String?,
         durationMs: Long?,
         audioLeadingSilenceMs: Long?
+    ): LyricsData? = getLyricsInternal(title, artist, durationSec, videoId, forceRefresh, album, channelTitle, durationMs, audioLeadingSilenceMs, null)
+
+    override suspend fun getLyricsWithInterim(
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?,
+        forceRefresh: Boolean,
+        album: String?,
+        channelTitle: String?,
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?,
+        onInterim: (LyricsData) -> Unit
+    ): LyricsData? = getLyricsInternal(title, artist, durationSec, videoId, forceRefresh, album, channelTitle, durationMs, audioLeadingSilenceMs, onInterim)
+
+    private suspend fun getLyricsInternal(
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?,
+        forceRefresh: Boolean,
+        album: String?,
+        channelTitle: String?,
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?,
+        onInterim: ((LyricsData) -> Unit)?
     ): LyricsData? {
-        val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
+        val trackKey =(videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
         android.util.Log.d("AuralisLyrics", "[getLyrics] Request for '$title' by '$artist' (key=$trackKey, forceRefresh=$forceRefresh, album=$album, durMs=$playbackMs)")
 
@@ -536,7 +636,18 @@ class LyricsRepositoryImpl(
             album = album,
             channelTitle = channelTitle,
             durationMs = playbackMs,
-            audioLeadingSilenceMs = audioLeadingSilenceMs
+            audioLeadingSilenceMs = audioLeadingSilenceMs,
+            // Interim results get the same playback alignment as the final one; they're shown
+            // only, never cached — the final answer is what's written below.
+            onInterim = onInterim?.let { deliver ->
+                { interim: LyricsData ->
+                    deliver(
+                        if (playbackMs > 0L) {
+                            com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(interim, playbackMs, audioLeadingSilenceMs)
+                        } else interim
+                    )
+                }
+            }
         )
         if (networkResult != null && networkResult.lines.isNotEmpty()) {
             val alignedNetwork = if (playbackMs > 0L) {

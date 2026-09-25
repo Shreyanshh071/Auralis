@@ -158,13 +158,17 @@ class BetterLyricsSource(
 
             if (lyricsContent.isBlank()) return null
 
-            val candTitle = json.optString("trackName").ifBlank { json.optString("name").ifBlank { cleanTitle } }
+            val sourceTitle = json.optString("trackName").ifBlank { json.optString("name") }
+            val candTitle = sourceTitle.ifBlank { cleanTitle }
             val candArtist = json.optString("artistName").ifBlank { json.optString("artist").ifBlank { artistToUse } }
 
             val rawParsed = BetterLyricsParser.parse(
                 content = lyricsContent,
                 provider = LyricsProvider.BETTER_LYRICS,
-                trackName = candTitle,
+                // The server matches by title and length, and can answer a remix query with the
+                // album cut. Only the server's own title may claim a version; an unnamed answer
+                // gets the untagged title, so "(Hyper Mix)" in our query can't vouch for it.
+                trackName = sourceTitle.ifBlank { TitleCleaner.withoutBracketedTags(cleanTitle) },
                 artistName = candArtist
             ) ?: return null
 
@@ -236,6 +240,7 @@ class BetterLyricsSource(
 
             var bestUrl: String? = null
             var candTitle = cleanTitle
+            var candSourceTitle = ""
             var candArtist = artistToUse
             var candDuration: Long? = null
             var bestDurDiff = Long.MAX_VALUE
@@ -292,6 +297,7 @@ class BetterLyricsSource(
                     if (isBetter) {
                         bestUrl = lUrl
                         candTitle = itemTitle
+                        candSourceTitle = item.optString("track_name")
                         candArtist = itemArtist
                         candDuration = itemDur
                         bestDurDiff = durDiff
@@ -312,7 +318,8 @@ class BetterLyricsSource(
             val rawParsed = BetterLyricsParser.parse(
                 content = ttmlContent,
                 provider = LyricsProvider.BETTER_LYRICS,
-                trackName = candTitle,
+                // Same rule as above: an unnamed result never inherits our query's version tags.
+                trackName = candSourceTitle.ifBlank { TitleCleaner.withoutBracketedTags(cleanTitle) },
                 artistName = candArtist
             ) ?: return null
 

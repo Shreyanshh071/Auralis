@@ -148,14 +148,14 @@ class LyricsIntervalIndicatorTest {
 
     @Test
     fun `test 10 - container layout dimensions contracts for MetroLyrics and Standard`() {
-        // MetroLyrics specification (thick / Metrolist)
+        // MetroLyrics specification (thick)
         val metroContainerHeightDp = 48
         val metroClickableSizeDp = 44
         val metroIndicatorSizeDp = 40
 
         assertTrue("Metro indicator must fit inside clickable area", metroIndicatorSizeDp <= metroClickableSizeDp)
         assertTrue("Metro clickable area must fit inside container height", metroClickableSizeDp <= metroContainerHeightDp)
-        assertEquals("Metro indicator size matches Metrolist specification", 40, metroIndicatorSizeDp)
+        assertEquals("Metro indicator size matches MetroLyrics specification", 40, metroIndicatorSizeDp)
 
         // Standard lyrics specification (thin / Auralis default, Apple Music, Fade, Glow)
         val standardContainerHeightDp = 44
@@ -279,7 +279,7 @@ class LyricsIntervalIndicatorTest {
         assertTrue("7-vertex min distance must be > 0.35", minMorphDist7 > 0.35)
         assertTrue("7-vertex max distance must be < 0.55", maxMorphDist7 < 0.55)
 
-        // Verify wave height at DefaultWaveAmplitude (0.55f) produces subtle ~1.0dp peak-to-trough ripple matching ViVi
+        // Verify wave height at DefaultWaveAmplitude (0.55f) produces subtle ~1.0dp peak-to-trough ripple
         val defaultMorph = androidx.graphics.shapes.Morph(start = trackPolygon7, end = activeIndicatorPolygon7)
         var minAmpDist = 100.0
         var maxAmpDist = 0.0

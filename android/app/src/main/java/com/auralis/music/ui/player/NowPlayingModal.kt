@@ -1611,7 +1611,7 @@ fun NowPlayingModal(
                                             .coerceIn(0f, 1f)
                                         if (pageOffset > 0.001f) {
                                             // Draw-time scrim overlay: dims the outgoing card as it recedes,
-                                            // preserving the VIVI depth visual language without forcing an offscreen FBO.
+                                            // preserving the depth visual language without forcing an offscreen FBO.
                                             drawRoundRect(
                                                 color = Color.Black,
                                                 alpha = (pageOffset * 0.75f).coerceIn(0f, 0.75f),

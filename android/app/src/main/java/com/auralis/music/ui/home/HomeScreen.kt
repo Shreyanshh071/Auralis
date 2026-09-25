@@ -76,6 +76,7 @@ import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.HomeUiState
 import com.auralis.music.ui.viewmodel.SpeedDialItem
 import com.auralis.music.ui.viewmodel.SpeedDialType
+import com.auralis.music.ui.components.bottomChromePadding
 
 val MOOD_FILTER_PILLS = listOf(
     "Podcasts", "Romance", "Feel good", "Workout", "Relax", "Energize", "Focus", "Party", "Lo-Fi", "Rock"
@@ -85,7 +86,7 @@ val LIME_ACCENT = Color(0xFFD4E157)
 val OLIVE_CARD_BG = Color(0xFF4A502E)
 
 /**
- * Enhanced Jetpack Compose Home Screen incorporating the complete Metrolist 2-Phase Recommendation Engine:
+ * Enhanced Jetpack Compose Home Screen incorporating the 2-Phase Recommendation Engine:
  * - Top App Bar (Title + Utility Action Icons)
  * - Interactive Mood & YouTube Music Chips
  * - 3x3 Speed Dial Carousel with 3-dot pagination & 9th "Surprise Me" tile
@@ -158,11 +159,10 @@ fun HomeScreen(
         CompositionLocalProvider(
             LocalContentColor provides themeOnBackground
         ) {
-            val bottomPad = if (currentTrack != null) 240.dp else 140.dp
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize(),
-                contentPadding = PaddingValues(top = 0.dp, bottom = bottomPad)
+                contentPadding = bottomChromePadding()
             ) {
                 // ================================================================
                 // 1. TOP APP BAR: "Home" Title + Action Icons

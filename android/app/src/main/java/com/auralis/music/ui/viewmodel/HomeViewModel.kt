@@ -250,7 +250,7 @@ class HomeViewModel(
     }
 
     /**
-     * Complete Metrolist Recommendation Engine:
+     * Recommendation Engine:
      * Phase 1: Local database queries (Speed Dial, Forgotten Favorites, Heavy Rotation)
      *          plus primary YouTube Music Home feed.
      * Phase 2: Asynchronous background coroutines for heavy discovery algorithms
@@ -499,14 +499,15 @@ class HomeViewModel(
                 return@withContext
             }
 
-            val topArtists = history
-                .map { it.artist }
-                .filter { !isInvalidArtistName(it) }
-                .distinct()
-                .take(4)
+            // Individual artists (a credit line like "Pritam, Arijit Singh & Antara Mitra" is split),
+            // ranked by how often the user plays them.
+            val topArtists = com.auralis.music.domain.recommendations.SimilarSeedPlanner
+                .rankArtistSeeds(history, topPlayed, limit = 4)
 
             val topTracks = history.take(3)
             val similarList = Collections.synchronizedList(mutableListOf<SimilarRecommendation>())
+            val artistShelves = java.util.concurrent.ConcurrentHashMap<String, SimilarRecommendation>()
+            val songShelves = java.util.concurrent.ConcurrentHashMap<String, SimilarRecommendation>()
 
             coroutineScope {
                 // 1. Artist-based recommendations from user's authentic favorite artists (parallel)
@@ -514,14 +515,17 @@ class HomeViewModel(
                     launch(Dispatchers.IO) {
                         try {
                             val searchResult = searchRepository.search(artistName)
-                            val matchedArtist = searchResult.artists.firstOrNull { it.name.equals(artistName, ignoreCase = true) }
-                                ?: searchResult.artists.firstOrNull()
+                            // Only a real artist match makes an artist shelf (a badly split duo name
+                            // such as "Simon" from "Simon & Garfunkel" is skipped, not guessed).
+                            val matchedArtist = searchResult.artists.firstOrNull {
+                                com.auralis.music.domain.recommendations.SimilarSeedPlanner.isSameArtist(it.name, artistName)
+                            }
                             val artistTracks = searchResult.songs.take(10)
                             val sampleThumb = matchedArtist?.thumbnail
                                 ?: artistTracks.firstOrNull()?.thumbnail
 
-                            if (artistTracks.isNotEmpty()) {
-                                similarList.add(
+                            if (matchedArtist != null && artistTracks.isNotEmpty()) {
+                                artistShelves[artistName] = (
                                     SimilarRecommendation(
                                         seedTitle = artistName,
                                         seedThumbnail = sampleThumb,
@@ -543,7 +547,7 @@ class HomeViewModel(
                             val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(track.id)
                             val related = innerTubeClient.getRelated(browseId, params).take(10)
                             if (related.isNotEmpty()) {
-                                similarList.add(
+                                songShelves[track.id] = (
                                     SimilarRecommendation(
                                         seedTitle = track.title,
                                         seedThumbnail = track.thumbnail,
@@ -557,6 +561,15 @@ class HomeViewModel(
                     }
                 }
             }
+
+            // Stable order: artist and song shelves alternate, each in seed order, instead of
+            // whichever network call happened to finish first.
+            similarList.addAll(
+                com.auralis.music.domain.recommendations.SimilarSeedPlanner.interleave(
+                    topArtists.mapNotNull { artistShelves[it] },
+                    topTracks.mapNotNull { songShelves[it.id] }
+                )
+            )
 
             // 3. Fallback popular recommendations if history is sparse (dynamic trending discovery)
             if (similarList.isEmpty()) {

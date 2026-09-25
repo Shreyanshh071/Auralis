@@ -3,6 +3,7 @@ package com.auralis.music.data.sync
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.TrackSource
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -15,14 +16,16 @@ import kotlin.random.Random
 
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.MetadataChanges
-import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 
 data class RoomMember(
     val id: String = "",
     val name: String = "",
     val isHost: Boolean = false,
     val joinedAt: Long = System.currentTimeMillis(),
-    val avatarColorHex: String = "#7C4DFF"
+    val avatarColorHex: String = "#7C4DFF",
+    /** Server time of the member's last heartbeat; null for records written by older app versions. */
+    val lastSeenServerMs: Long? = null
 )
 
 data class RoomRecommendation(
@@ -48,6 +51,10 @@ data class NativeRoomState(
     val playbackPosition: Long = 0,
     val playbackRate: Float = 1.0f,
     val updatedAt: Long = System.currentTimeMillis(),
+    /** Server time of the host's last broadcast; null until the server has stamped it. */
+    val serverUpdatedAt: Long? = null,
+    /** Bumped by the host on every seek so listeners jump immediately. */
+    val seekVersion: Long = 0,
     val status: String = "active",
     val membersList: List<RoomMember> = emptyList()
 )
@@ -72,20 +79,10 @@ class ListenTogetherManager(
             try {
                 val db = FirebaseFirestore.getInstance()
                 val roomDoc = db.collection("rooms").document(roomCode)
+                // Guests only remove their member record: the room document is host-only.
                 roomDoc.collection("members").document(uid).delete()
                 if (isHost) {
                     roomDoc.update("status", "closed")
-                } else {
-                    db.runTransaction { transaction ->
-                        val snap = transaction.get(roomDoc)
-                        val rawList = snap.get("membersList") as? List<*>
-                        val memberToRemove = rawList?.find { (it as? Map<*, *>)?.get("id") == uid }
-                        if (memberToRemove != null) {
-                            transaction.update(roomDoc, "membersList", FieldValue.arrayRemove(memberToRemove))
-                            transaction.update(roomDoc, "memberCount", FieldValue.increment(-1))
-                            transaction.update(roomDoc, "updatedAt", System.currentTimeMillis())
-                        }
-                    }
                 }
                 android.util.Log.d("ListenTogether", "[TaskRemoved Cleanup] Successfully cleaned up room=$roomCode, isHost=$isHost")
             } catch (e: Exception) {
@@ -100,6 +97,11 @@ class ListenTogetherManager(
     private var roomListener: ListenerRegistration? = null
     private var membersListener: ListenerRegistration? = null
     private var recommendationsListener: ListenerRegistration? = null
+
+    /** Clock offset measured by the most recent [joinRoom] or [createRoom]. */
+    @Volatile
+    var lastJoinClockOffset: ClockOffsetSample? = null
+        private set
 
     suspend fun ensureAuthenticated(): String {
         val currentUser = auth.currentUser
@@ -135,6 +137,7 @@ class ListenTogetherManager(
         hostDisplayName: String,
         initialTrack: Track?,
         queue: List<Track> = emptyList(),
+        queueIndex: Int = 0,
         isPlaying: Boolean = false,
         playbackPositionMs: Long = 0L
     ): Pair<String, String> {
@@ -147,27 +150,8 @@ class ListenTogetherManager(
         val roomDoc = firestore.collection("rooms").document(roomCode)
         val now = System.currentTimeMillis()
 
-        val trackMap: Map<String, Any?>? = initialTrack?.let {
-            mapOf(
-                "id" to it.id,
-                "title" to it.title,
-                "artist" to it.artist,
-                "album" to it.album,
-                "thumbnail" to it.thumbnail,
-                "duration" to it.duration
-            )
-        }
-
-        val queueList = queue.take(50).map { t ->
-            mapOf(
-                "id" to t.id,
-                "title" to t.title,
-                "artist" to t.artist,
-                "album" to t.album,
-                "thumbnail" to t.thumbnail,
-                "duration" to t.duration
-            )
-        }
+        val trackMap = initialTrack?.let(::trackToMap)
+        val (queueWindow, windowIndex) = ListenTogetherSyncMath.queueWindow(queue, queueIndex)
 
         val hostMemberMap = mapOf(
             "id" to uid,
@@ -184,12 +168,14 @@ class ListenTogetherManager(
             "hostId" to uid,
             "hostName" to displayName,
             "currentTrack" to trackMap,
-            "queue" to queueList,
-            "queueIndex" to 0,
+            "queue" to queueWindow.map(::trackToMap),
+            "queueIndex" to windowIndex,
             "isPlaying" to isPlaying,
             "playbackPosition" to playbackPositionMs,
             "playbackRate" to 1.0,
             "updatedAt" to now,
+            "serverUpdatedAt" to FieldValue.serverTimestamp(),
+            "seekVersion" to 0L,
             "status" to "active",
             "membersList" to listOf(hostMemberMap),
             "memberCount" to 1
@@ -203,10 +189,14 @@ class ListenTogetherManager(
             "name" to displayName,
             "isHost" to true,
             "lastSeen" to now,
+            "serverSeen" to FieldValue.serverTimestamp(),
             "joinedAt" to now,
             "avatarColorHex" to "#D4E157"
         )
-        roomDoc.collection("members").document(uid).set(memberData).await()
+        val memberDoc = roomDoc.collection("members").document(uid)
+        val sentAt = System.currentTimeMillis()
+        memberDoc.set(memberData).await()
+        lastJoinClockOffset = readClockOffset(memberDoc, sentAt, System.currentTimeMillis())
         activeRoomCode = roomCode
         isHostUser = true
 
@@ -239,33 +229,73 @@ class ListenTogetherManager(
             "name" to displayName,
             "isHost" to false,
             "lastSeen" to now,
-            "joinedAt" to now,
-            "avatarColorHex" to "#D4E157"
-        )
-        val memberMap = mapOf(
-            "id" to uid,
-            "name" to displayName,
-            "isHost" to false,
+            "serverSeen" to FieldValue.serverTimestamp(),
             "joinedAt" to now,
             "avatarColorHex" to "#D4E157"
         )
 
-        // 1. Write member to subcollection
-        roomDoc.collection("members").document(uid).set(memberData).await()
+        // The members subcollection is the roster. The room document is host-only in the
+        // security rules, so guests never write to it.
+        val memberDoc = roomDoc.collection("members").document(uid)
+        val sentAt = System.currentTimeMillis()
+        memberDoc.set(memberData).await()
+        val offset = readClockOffset(memberDoc, sentAt, System.currentTimeMillis())
 
-        // 2. Real-time update to parent room document so host roomListener fires immediately (<50ms)
-        try {
-            roomDoc.update(
-                "membersList", FieldValue.arrayUnion(memberMap),
-                "memberCount", FieldValue.increment(1),
-                "updatedAt", now
-            ).await()
-        } catch (_: Exception) {}
+        // A host whose app died without closing the room stops checking in; don't join a dead room.
+        val hostId = snapshot.getString("hostId").orEmpty()
+        if (offset != null && hostId.isNotBlank()) {
+            val hostDoc = try {
+                roomDoc.collection("members").document(hostId).get(Source.SERVER).await()
+            } catch (_: Exception) { null }
+            val hostGone = hostDoc != null && (!hostDoc.exists() ||
+                ListenTogetherSyncMath.isPresenceStale(
+                    lastSeenServerMs = hostDoc.getTimestamp("serverSeen")?.toDate()?.time,
+                    nowServerMs = System.currentTimeMillis() + offset.offsetMs
+                ))
+            if (hostGone) {
+                try { memberDoc.delete().await() } catch (_: Exception) {}
+                throw IllegalStateException("This room is no longer active.")
+            }
+        }
 
+        lastJoinClockOffset = offset
         activeRoomCode = normalizedCode
         isHostUser = false
 
         return parseRoomState(snapshot)
+    }
+
+    /**
+     * Refreshes this participant's presence record and measures the local clock against the server.
+     * Returns null when the write or the read-back fails (e.g. offline).
+     */
+    suspend fun heartbeat(roomCode: String): ClockOffsetSample? {
+        val uid = auth.currentUser?.uid ?: return null
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val memberDoc = firestore.collection("rooms").document(normalizedCode)
+            .collection("members").document(uid)
+        return try {
+            val sentAt = System.currentTimeMillis()
+            memberDoc.update(
+                "lastSeen", sentAt,
+                "serverSeen", FieldValue.serverTimestamp()
+            ).await()
+            readClockOffset(memberDoc, sentAt, System.currentTimeMillis())
+        } catch (e: Exception) {
+            android.util.Log.w("ListenTogether", "[Heartbeat] failed for room=$normalizedCode: ${e.message}")
+            null
+        }
+    }
+
+    /** Reads back the server stamp of a write acknowledged at [ackAt] to measure the clock offset. */
+    private suspend fun readClockOffset(memberDoc: DocumentReference, sentAt: Long, ackAt: Long): ClockOffsetSample? {
+        return try {
+            val serverStamp = memberDoc.get(Source.SERVER).await()
+                .getTimestamp("serverSeen")?.toDate()?.time ?: return null
+            ListenTogetherSyncMath.clockOffsetSample(sentAt, ackAt, serverStamp)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     suspend fun updateHostPlayback(
@@ -273,45 +303,35 @@ class ListenTogetherManager(
         currentTrack: Track?,
         isPlaying: Boolean,
         playbackPositionMs: Long,
-        queue: List<Track> = emptyList()
+        queue: List<Track> = emptyList(),
+        queueIndex: Int = -1,
+        seekVersion: Long? = null
     ) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
-        val trackMap: Map<String, Any?>? = currentTrack?.let {
-            mapOf(
-                "id" to it.id,
-                "title" to it.title,
-                "artist" to it.artist,
-                "album" to it.album,
-                "thumbnail" to it.thumbnail,
-                "duration" to it.duration
-            )
-        }
-
         val updates = hashMapOf<String, Any?>(
-            "currentTrack" to trackMap,
+            "currentTrack" to currentTrack?.let(::trackToMap),
             "isPlaying" to isPlaying,
             "playbackPosition" to playbackPositionMs,
-            "updatedAt" to System.currentTimeMillis()
+            "updatedAt" to System.currentTimeMillis(),
+            "serverUpdatedAt" to FieldValue.serverTimestamp()
         )
 
         if (queue.isNotEmpty()) {
-            updates["queue"] = queue.take(50).map { t ->
-                mapOf(
-                    "id" to t.id,
-                    "title" to t.title,
-                    "artist" to t.artist,
-                    "album" to t.album,
-                    "thumbnail" to t.thumbnail,
-                    "duration" to t.duration
-                )
-            }
+            val hostIndex = if (queue.getOrNull(queueIndex)?.id == currentTrack?.id) queueIndex
+                else queue.indexOfFirst { it.id == currentTrack?.id }.coerceAtLeast(0)
+            val (window, windowIndex) = ListenTogetherSyncMath.queueWindow(queue, hostIndex)
+            updates["queue"] = window.map(::trackToMap)
+            updates["queueIndex"] = windowIndex
+        }
+        if (seekVersion != null) {
+            updates["seekVersion"] = seekVersion
         }
 
         try {
             roomDoc.update(updates).await()
-            android.util.Log.d("ListenTogether", "[Host Broadcast OK] room=$normalizedCode, isPlaying=$isPlaying, pos=${playbackPositionMs}ms, track=${currentTrack?.title}")
+            android.util.Log.d("ListenTogether", "[Host Broadcast OK] room=$normalizedCode, isPlaying=$isPlaying, pos=${playbackPositionMs}ms, track=${currentTrack?.title}, seekVersion=$seekVersion")
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "[Host Broadcast Error] failed updating room $normalizedCode: ${e.message}", e)
         }
@@ -323,17 +343,8 @@ class ListenTogetherManager(
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
         try {
+            // Guests only remove their member record: the room document is host-only.
             roomDoc.collection("members").document(uid).delete().await()
-            val snapshot = roomDoc.get().await()
-            val rawList = snapshot.get("membersList") as? List<*>
-            val memberToRemove = rawList?.find { (it as? Map<*, *>)?.get("id") == uid }
-            if (memberToRemove != null) {
-                roomDoc.update(
-                    "membersList", FieldValue.arrayRemove(memberToRemove),
-                    "memberCount", FieldValue.increment(-1),
-                    "updatedAt", System.currentTimeMillis()
-                ).await()
-            }
             if (isHost) {
                 roomDoc.update("status", "closed").await()
             }
@@ -371,7 +382,7 @@ class ListenTogetherManager(
 
         val registration = membersCol.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (error != null || snapshot == null) {
-                trySend(emptyList())
+                // Keep the last good roster instead of wiping everyone on a transient error.
                 return@addSnapshotListener
             }
             val members = snapshot.documents.mapNotNull { doc ->
@@ -380,7 +391,11 @@ class ListenTogetherManager(
                 val isHost = doc.getBoolean("isHost") ?: false
                 val joinedAt = doc.getLong("joinedAt") ?: doc.getLong("lastSeen") ?: System.currentTimeMillis()
                 val color = doc.getString("avatarColorHex") ?: "#D4E157"
-                RoomMember(id, name, isHost, joinedAt, color)
+                val lastSeenServer = doc.getTimestamp(
+                    "serverSeen",
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )?.toDate()?.time
+                RoomMember(id, name, isHost, joinedAt, color, lastSeenServer)
             }
             trySend(members)
         }
@@ -405,18 +420,9 @@ class ListenTogetherManager(
         val now = System.currentTimeMillis()
         val displayName = recommenderName.ifBlank { "Guest_${uid.take(4)}" }
 
-        val trackMap = mapOf(
-            "id" to track.id,
-            "title" to track.title,
-            "artist" to track.artist,
-            "album" to track.album,
-            "thumbnail" to track.thumbnail,
-            "duration" to track.duration
-        )
-
         val recData = hashMapOf(
             "id" to docId,
-            "track" to trackMap,
+            "track" to trackToMap(track),
             "recommendedByUid" to uid,
             "recommendedByName" to displayName,
             "note" to note.trim(),
@@ -513,6 +519,15 @@ class ListenTogetherManager(
         recommendationsListener = null
     }
 
+    private fun trackToMap(track: Track): Map<String, Any?> = mapOf(
+        "id" to track.id,
+        "title" to track.title,
+        "artist" to track.artist,
+        "album" to track.album,
+        "thumbnail" to track.thumbnail,
+        "duration" to track.duration
+    )
+
     private fun parseRecommendation(doc: DocumentSnapshot): RoomRecommendation? {
         val id = doc.getString("id") ?: doc.id
         val recommendedByUid = doc.getString("recommendedByUid") ?: ""
@@ -555,6 +570,8 @@ class ListenTogetherManager(
         val playbackPosition = doc.getLong("playbackPosition") ?: 0L
         val playbackRate = (doc.getDouble("playbackRate") ?: 1.0).toFloat()
         val updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+        val serverUpdatedAt = doc.getTimestamp("serverUpdatedAt")?.toDate()?.time
+        val seekVersion = doc.getLong("seekVersion") ?: 0L
         val status = doc.getString("status") ?: "active"
 
         val trackRaw = doc.get("currentTrack") as? Map<*, *>
@@ -607,6 +624,8 @@ class ListenTogetherManager(
             playbackPosition = playbackPosition,
             playbackRate = playbackRate,
             updatedAt = updatedAt,
+            serverUpdatedAt = serverUpdatedAt,
+            seekVersion = seekVersion,
             status = status,
             membersList = membersList
         )

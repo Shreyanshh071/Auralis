@@ -3,7 +3,7 @@ package com.auralis.music.domain.model
 import kotlinx.serialization.Serializable
 
 /**
- * Model definitions for Home recommendations matching Metrolist architecture.
+ * Model definitions for Home recommendations.
  */
 @Serializable
 data class SpeedDialItem(

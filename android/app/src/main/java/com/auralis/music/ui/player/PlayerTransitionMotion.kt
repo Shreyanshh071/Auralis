@@ -10,7 +10,7 @@ internal object PlayerTransitionMotion {
     // Starts moving on the first frame, with a short settle and no spring overshoot.
     val queuePlacement = tween<IntOffset>(160, easing = LinearOutSlowInEasing)
 
-    // Song-change background blend. VIVI's crossfade runs ~400-600ms; 240ms with a
+    // Song-change background blend. Reference crossfades run ~400-600ms; 240ms with a
     // full-speed start (LinearOutSlowIn) read as a colour snap rather than a flow.
     const val paletteDurationMillis = 500
 

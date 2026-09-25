@@ -14,7 +14,7 @@ class ClassicPlayerViewportMotionTest {
 
     @Test
     fun `hero flight outlasts the content crossfade and targets compact for both secondary tabs`() {
-        // VIVI: 500ms cover morph, 350ms fade-in, 250ms fade-out (exit finishes first).
+        // Reference: 500ms cover morph, 350ms fade-in, 250ms fade-out (exit finishes first).
         assertEquals(500, ClassicPlayerViewportMotion.HeroDurationMillis)
         assertTrue(ClassicPlayerViewportMotion.HeroDurationMillis > ClassicPlayerViewportMotion.ContentEnterDurationMillis)
         assertTrue(ClassicPlayerViewportMotion.ContentExitDurationMillis < ClassicPlayerViewportMotion.ContentEnterDurationMillis)
@@ -45,7 +45,7 @@ class ClassicPlayerViewportMotionTest {
     }
 
     @Test
-    fun `cover uses VIVI's soft start curve`() {
+    fun `cover uses the soft start curve`() {
         // FastOutSlowIn: gentle first frames, then a long glide (not an instant jump).
         val early = ClassicPlayerViewportMotion.HeroEasing.transform(0.1f)
         assertTrue(early < 0.1f)

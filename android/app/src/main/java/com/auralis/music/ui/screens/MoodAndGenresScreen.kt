@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.auralis.music.domain.model.Track
+import com.auralis.music.ui.components.bottomChromePadding
 
 data class MoodGenreItem(
     val title: String,
@@ -172,7 +173,7 @@ fun MoodAndGenresScreen(
         // ── 2-COLUMN MOOD CARDS GRID ──
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp, top = 4.dp),
+            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()

@@ -37,7 +37,18 @@ object AiLyricsTranslator {
         if (lyrics.lines.isEmpty()) return@withContext null
 
         val cacheKey = "${trackId}::${settings.targetLanguage}::${settings.translationMode}::${settings.provider}"
-        translationCache[cacheKey]?.let { return@withContext it }
+        // A track's lyrics can change within a session (cached copy first, then a network
+        // upgrade). Reuse the cached translation only for the same line texts, and always put
+        // it onto the lyrics being translated now, never return the earlier lyrics themselves.
+        translationCache[cacheKey]?.let { cached ->
+            if (cached.lines.size == lyrics.lines.size && cached.lines.indices.all { cached.lines[it].text == lyrics.lines[it].text }) {
+                return@withContext lyrics.copy(
+                    lines = lyrics.lines.mapIndexed { i, line -> line.copy(translatedText = cached.lines[i].translatedText) },
+                    translatedPlainLyrics = cached.translatedPlainLyrics,
+                    translatedLanguage = cached.translatedLanguage
+                )
+            }
+        }
 
         try {
             val originalLines = lyrics.lines
@@ -130,15 +141,9 @@ object AiLyricsTranslator {
                 val orig = originalLines[i]
                 val transText = if (i < translatedLines.size) translatedLines[i] else null
                 val isDifferent = !transText.isNullOrBlank() && !transText.equals(orig.text, ignoreCase = true)
-                resultLines.add(
-                    LyricLine(
-                        time = orig.time,
-                        text = orig.text,
-                        translatedText = if (isDifferent) transText else null,
-                        words = orig.words,
-                        isInstrumental = orig.isInstrumental
-                    )
-                )
+                // Only the translation is added; every other field (agent, background role,
+                // end time) is the provider's and must survive translation untouched.
+                resultLines.add(orig.copy(translatedText = if (isDifferent) transText else null))
             }
 
             val translatedLyrics = lyrics.copy(

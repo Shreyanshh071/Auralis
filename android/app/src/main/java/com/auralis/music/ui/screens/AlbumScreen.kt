@@ -47,6 +47,7 @@ import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.components.bottomChromePadding
 
 private val LIME_ACCENT: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -110,11 +111,10 @@ fun AlbumScreen(
             .fillMaxSize()
             .background(DARK_BG)
     ) {
-        val bottomPadding = if (currentTrackId != null) 240.dp else 140.dp
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = bottomPadding)
+            contentPadding = bottomChromePadding()
         ) {
             // ================================================================
             // 1. TOP APP BAR (Back Button + Title + Share Button)

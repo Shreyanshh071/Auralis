@@ -188,6 +188,25 @@ class GoogleAccountSyncManager(
     }
 
     /**
+     * Sends a Firebase password reset email. Firebase does not report whether the address
+     * has an account (to avoid leaking which emails are registered), so callers should show
+     * the same confirmation regardless of the outcome, except for a malformed address.
+     */
+    suspend fun sendPasswordResetEmail(email: String) = withContext(Dispatchers.IO) {
+        val trimmed = email.trim()
+        if (trimmed.isBlank()) {
+            throw IllegalArgumentException("Enter your email address first.")
+        }
+        try {
+            FirebaseAuth.getInstance().sendPasswordResetEmail(trimmed).await()
+        } catch (e: com.google.firebase.auth.FirebaseAuthInvalidCredentialsException) {
+            throw IllegalArgumentException("That doesn't look like a valid email address.", e)
+        }
+        // FirebaseAuthInvalidUserException (no account for this email) and any other
+        // failure are swallowed here on purpose: the UI shows one neutral message either way.
+    }
+
+    /**
      * Signs in with Email & Password via Firebase Auth.
      */
     suspend fun signInWithEmail(email: String, password: String) = withContext(Dispatchers.IO) {

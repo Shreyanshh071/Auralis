@@ -118,6 +118,7 @@ import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import com.auralis.music.ui.components.bottomChromePadding
 
 private val APPEARANCE_BG = Color(0xFF13110E)
 private val CARD_BG = Color(0xFF201B17)
@@ -225,7 +226,7 @@ fun AppearanceScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(bottom = 96.dp),
+                contentPadding = bottomChromePadding(includeNavigationBar = false),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // ════ 1. THEME ════
@@ -605,7 +606,6 @@ fun AppearanceScreen(
                     )
                 }
 
-                item { Spacer(modifier = Modifier.height(32.dp)) }
             }
         }
     }

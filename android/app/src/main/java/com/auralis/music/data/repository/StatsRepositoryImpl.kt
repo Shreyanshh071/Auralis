@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
@@ -55,7 +56,9 @@ class StatsRepositoryImpl(
                     e.track.album?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
                 }.distinct().size
             )
-        }
+        }.flowOn(Dispatchers.Default)
+        // The ViewModel collects via stateIn(viewModelScope, ...), which defaults to the main
+        // thread; without flowOn this grouping ran there on every pill switch, stuttering the UI.
     }
 
     override fun observeTopSongs(
@@ -80,7 +83,7 @@ class StatsRepositoryImpl(
                 .filter { it.timeListenedMs > 0 }
                 .sortedByDescending { it.timeListenedMs }
                 .take(limit)
-        }
+        }.flowOn(Dispatchers.Default)
     }
 
     override fun observeTopArtists(
@@ -105,7 +108,7 @@ class StatsRepositoryImpl(
                 }
                 .sortedByDescending { it.timeListenedMs }
                 .take(limit)
-        }
+        }.flowOn(Dispatchers.Default)
     }
 
     private fun songKey(track: Track): String {

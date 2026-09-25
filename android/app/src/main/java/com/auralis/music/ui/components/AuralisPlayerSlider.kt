@@ -1,3 +1,10 @@
+/**
+ * Squiggly slider style (SquigglySlider) adapted from vivimusic (GPL-3.0).
+ * vivimusic Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ * Adapted for Auralis under GNU General Public License v3.0
+ */
+
 package com.auralis.music.ui.components
 
 import android.view.HapticFeedbackConstants
@@ -51,7 +58,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Authentic AOSP/Metrolist-Grade Multi-Mode Player Slider Engine:
+ * Multi-Mode Player Slider Engine:
  * 1. "Default": Thick solid pill bar with vertical divider playhead, symmetric gap, and endpoint dot.
  * 2. "Wavy": Native AOSP Cubic Bézier sinusoidal wave with circular thumb, seamless clipping, and pause flattening.
  * 3. "Slim": Continuous ultra-sleek minimalist rounded bar without protruding thumb.
@@ -123,7 +130,7 @@ fun AuralisPlayerSlider(
         label = "thumbRadiusAnim"
     )
 
-    // ViVi squiggly drift: 24px per second, advanced frame by frame only while playing,
+    // Squiggly drift: 24px per second, advanced frame by frame only while playing,
     // wrapping every wavelength. Separate from the Wavy style's faster Bézier cycle.
     var squigglyPhasePx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     if (normalizedStyle == "Squiggly") {
@@ -296,7 +303,7 @@ fun AuralisPlayerSlider(
                     }
 
                     "Wavy" -> {
-                        // ── 2. WAVY STYLE (Metrolist-Identical Silky Wave + 8.5dp Circle Thumb + 3dp Accent Dot) ──
+                        // ── 2. WAVY STYLE (Silky Wave + 8.5dp Circle Thumb + 3dp Accent Dot) ──
                         val strokePx = with(density) { 5.dp.toPx() }
                         val r = strokePx / 2f
                         val startX = r
@@ -422,7 +429,7 @@ fun AuralisPlayerSlider(
                     }
 
                     "Squiggly" -> {
-                        // ── 4. SQUIGGLY STYLE — ViVi Music's SquigglySlider, value for value ──
+                        // ── 4. SQUIGGLY STYLE — adapted SquigglySlider, value for value (see file header) ──
                         // Pixel-based like the original: 80px wavelength, 6px amplitude, drifting 24px/s
                         // (squigglyPhasePx), height fading linearly over 1.5 wavelengths centred on the
                         // playhead so the wave is half-height at the bar and seeps flat just past it.
@@ -472,7 +479,7 @@ fun AuralisPlayerSlider(
                             drawPath(cachedWavePath, activeTrackColor, style = waveStroke)
                         }
 
-                        // Vertical bar playhead: 5dp wide, spanning ±(amplitude + stroke) like ViVi.
+                        // Vertical bar playhead: 5dp wide, spanning ±(amplitude + stroke).
                         val barHalfHeight = lineAmplitude + strokePx + if (isDragging) with(density) { 2.dp.toPx() } else 0f
                         drawLine(
                             color = thumbColor,
@@ -522,7 +529,7 @@ private fun formatDuration(millis: Long): String {
     return String.format("%d:%02d", minutes, seconds)
 }
 
-// ViVi Music SquigglySlider constants (raw pixels, as in the original).
+// SquigglySlider constants (raw pixels, as in the original; see file header).
 private const val SQUIGGLY_WAVELENGTH_PX = 80f
 private const val SQUIGGLY_AMPLITUDE_PX = 6f
 private const val SQUIGGLY_PHASE_SPEED_PX = 24f

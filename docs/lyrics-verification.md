@@ -621,10 +621,10 @@ separately from device verification.
 | 3 | Genuine word/syllable timestamps prioritised over generated ones | **PASS (live data) / NOT VERIFIED ON DEVICE** | 6/9 probe tracks return Better Lyrics RICHSYNC with 100 % provider-stated durations; syllable split observed (`"be"+"fore"`) (§1.7.2) |
 | 4 | Robust provider priority / fallback, existing providers preserved | **PASS (unit + live) / NOT VERIFIED ON DEVICE** | `ProviderTierTest` 9/9; live: Better Lyrics wins where it has data, LRCLIB fallback where it does not, no provider removed (§1.7) |
 | 5 | Smooth timing engine: accurate, no jitter, no delay, pauses preserved, seek/buffer/pause/track-change handled, uses the native clock | **PARTIAL — math PASS, device NOT VERIFIED** | `LyricsClockTest` 8/8 covers carry, clamp, rate, freeze-while-paused, snap-on-change, no-backwards. `PlaybackClockSource` reads `exoPlayer.currentPosition` directly. **Real smoothness, jitter and latency are inherently visual and were not observed on hardware.** |
-| 6 | Architecture compared against Metrolist / Better Lyrics actual implementations | **PASS (code review)** | Clock is a port of braccato `#carriedClock` incl. the 100 ms clamp; tier ordering mirrors braccato `ProviderChain.defaultPriority()`; subdivision mirrors `inject.ts:231-244` |
+| 6 | Architecture compared against Better Lyrics actual implementations | **PASS (code review)** | Clock is a port of braccato `#carriedClock` incl. the 100 ms clamp; tier ordering mirrors braccato `ProviderChain.defaultPriority()`; subdivision mirrors `inject.ts:231-244` |
 | 7 | Android performance: no unnecessary recompositions / allocations / requests / playback-thread work | **PARTIAL — structure PASS, device NOT VERIFIED** | `State<Long>` plumbing + `derivedStateOf` replace the 62 Hz `Long` parameter; frame loop runs only while playing; ExoPlayer read guarded by `applicationLooper == Looper.getMainLooper()`. **Recomposition count was not measured with Layout Inspector.** |
 | 8 | Error handling, caching, provider failure, missing timestamps, malformed lyrics, duration mismatch, fallback | **PASS (unit) / cache-across-launch NOT VERIFIED ON DEVICE** | `WordTimingContractTest`, `LyricsValidatorTest` 3/3, `NetworkFailoverTest` 4/4, `MultiProviderCascadeTest` 3/3; Room `version = 7` with a one-shot `pipelineVersion` purge replacing the per-launch wipe |
-| — | **Metrolist-level on-screen word-by-word rendering** | **NOT IMPLEMENTED** | Phase 3 not started. `SyncedLyricsView.LyricLineRow` still ignores `line.words`; no word highlight exists to verify |
+| — | **On-screen word-by-word rendering** | **NOT IMPLEMENTED** | Phase 3 not started. `SyncedLyricsView.LyricLineRow` still ignores `line.words`; no word highlight exists to verify |
 
 ### ExoPlayer result
 
@@ -685,7 +685,7 @@ What this report does **not** establish, and cannot until a device is attached: 
 highlight freezes on pause, snaps on seek, holds within 100 ms through a buffering stall,
 survives a track change, tracks a speed change, and does all of it without dropping frames or
 recomposing the modal 62 times a second. Those are the criteria that decide whether this feels
-like Metrolist, and every one of them is currently **unverified**.
+finished, and every one of them is currently **unverified**.
 
 Tests pass, build succeeded, APK at `android/app/build/outputs/apk/debug/app-debug.apk`
 (32,614,582 bytes) — **not confirmed fixed until you test it on device.**

@@ -31,6 +31,27 @@ class LrcParserTest {
     }
 
     @Test
+    fun `translation pairs a few ms off the sung line still fold instead of becoming duplicate sung lines`() {
+        // Reproduces a real Bollywood LRC where the romanized line lands a handful of ms after
+        // its Hindi counterpart instead of at the identical millisecond stamp.
+        val lrc = """
+            [00:10.00]बनाती है जो तू वो यादें जाने संग मेरे कब तक चलें
+            [00:10.03]Banaati hai jo tu wo yaadein jaane sang mere kab tak chalein
+            [00:14.00]उठता धुआ तोह
+            [00:14.02]Uthata Dhua Toh
+            [00:18.00]इश्क़ की धुनी रोज़ जलाए
+            [00:18.05]Ishk Ki Dhuni Roj Jalae
+            [00:22.00]solo line with no translation
+        """.trimIndent()
+        val lines = com.auralis.music.data.parser.LrcParser.parse(lrc).lines
+        assertEquals(4, lines.size)
+        assertEquals("Banaati hai jo tu wo yaadein jaane sang mere kab tak chalein", lines[0].translatedText)
+        assertEquals("Uthata Dhua Toh", lines[1].translatedText)
+        assertEquals("Ishk Ki Dhuni Roj Jalae", lines[2].translatedText)
+        assertNull(lines[3].translatedText)
+    }
+
+    @Test
     fun `a single coincidental timestamp collision is not treated as a translation`() {
         val lrc = """
             [00:10.00]first line

@@ -42,7 +42,7 @@ import com.auralis.music.domain.model.LyricWord
 import kotlinx.coroutines.delay
 
 /**
- * Flagship VIVI Ocean Wave Fluid Lyrics Renderer — Vivimusic (Fluid).
+ * Ocean Wave Fluid Lyrics Renderer.
  * Features:
  * - Continuous global wave progress (0->1) sweeping from first word to last.
  * - Trailing-feather gradient brush for soft oceanic edge.
@@ -54,7 +54,7 @@ import kotlinx.coroutines.delay
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ViviMusicLyricsLine(
+fun OceanWaveLyricsLine(
     line: LyricLine,
     nextLineTime: Long?,
     words: List<LyricWord>?,
@@ -160,7 +160,8 @@ fun ViviMusicLyricsLine(
             this.scaleY = scale
         }
         .padding(vertical = (4 * lineSpacingMultiplier).dp)
-        .then(if (enableStandardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier)
+        // Unbounded: the default clips the blur to the line's box, drawing hard-edged rectangles.
+        .then(if (enableStandardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)
 
     Column(
         modifier = itemModifier,

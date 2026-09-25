@@ -36,6 +36,9 @@ object TtmlParser {
     private const val ROLE_ROMAN = "x-roman"
     private const val ROLE_BACKGROUND = "x-bg"
 
+    /** Canonical "all vocalists" agent id (Apple Music / AMLL convention). */
+    const val ENSEMBLE_AGENT_ID = "v1000"
+
     private val NON_LEAD_ROLES = setOf(ROLE_TRANSLATION, ROLE_ROMAN, ROLE_BACKGROUND)
 
     private class Syllable(
@@ -135,10 +138,14 @@ object TtmlParser {
                 }
             }
 
+            // Agents declared as a group (`<ttm:agent type="group" xml:id="v4"/>`) sing
+            // together; Apple uses v1000 for this, but other ids occur (e.g. "STAY": v4).
+            val groupAgentIds = collectGroupAgentIds(doc)
+
             val pNodes = doc.getElementsByTagName("p")
             for (i in 0 until pNodes.length) {
                 val pElem = pNodes.item(i) as? Element ?: continue
-                val parsedLines = parseParagraph(pElem)
+                val parsedLines = parseParagraph(pElem, groupAgentIds)
                 lines.addAll(parsedLines)
             }
         } catch (_: Exception) {
@@ -178,7 +185,24 @@ object TtmlParser {
         )
     }
 
-    private fun parseParagraph(p: Element): List<LyricLine> {
+    /**
+     * Ids of agents the file itself declares as `type="group"`. Their lines are reported
+     * under the canonical ensemble id [ENSEMBLE_AGENT_ID] so every consumer treats them as
+     * "all vocalists", not as one more individual singer.
+     */
+    private fun collectGroupAgentIds(doc: org.w3c.dom.Document): Set<String> {
+        val ids = mutableSetOf<String>()
+        val all = doc.getElementsByTagName("*")
+        for (i in 0 until all.length) {
+            val el = all.item(i) as? Element ?: continue
+            if (el.nodeName.substringAfterLast(':') != "agent") continue
+            if (!attr(el, "type").trim().equals("group", ignoreCase = true)) continue
+            attr(el, "id").trim().takeIf { it.isNotEmpty() }?.let { ids.add(it) }
+        }
+        return ids
+    }
+
+    private fun parseParagraph(p: Element, groupAgentIds: Set<String> = emptySet()): List<LyricLine> {
         val resultLines = mutableListOf<LyricLine>()
         val currentSyllables = mutableListOf<Syllable>()
         val currentBgSyllables = mutableListOf<Syllable>()
@@ -188,6 +212,7 @@ object TtmlParser {
         val pBegin = attr(p, "begin").takeIf { it.isNotBlank() }?.let { parseTimestamp(it) }
         val pEnd = attr(p, "end").takeIf { it.isNotBlank() }?.let { parseTimestamp(it) }
         val pAgent = attr(p, "agent").takeIf { it.isNotBlank() }
+            ?.let { if (it.trim() in groupAgentIds) ENSEMBLE_AGENT_ID else it }
 
         fun flushLine() {
             val hasLead = currentSyllables.isNotEmpty() || currentPlainText.isNotBlank()
@@ -312,7 +337,7 @@ object TtmlParser {
         }
 
         // Merge contiguous syllable spans belonging to the same word (e.g. "beauti" + "ful" -> "beautiful")
-        // matching Metrolist, Echo, and NomaTune behavior without altering provider timing intervals.
+        // without altering provider timing intervals.
         val mergedWords = WordTiming.mergeContiguousSyllables(rawWords) ?: rawWords
         val wordList = mergedWords.toMutableList()
 

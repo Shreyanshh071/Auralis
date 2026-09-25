@@ -460,14 +460,14 @@ fun DiscordIntegrationScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column {
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.Refresh,
                                 title = "Activity Status",
                                 value = settings.activityStatus,
                                 onClick = { showStatusDialog = true }
                             )
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.Timer,
                                 title = "Update Interval",
                                 value = when (settings.updateIntervalSeconds) {
@@ -479,7 +479,7 @@ fun DiscordIntegrationScreen(
                                 onClick = { showIntervalDialog = true }
                             )
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.Laptop,
                                 title = "Platform",
                                 value = settings.platform,
@@ -508,7 +508,7 @@ fun DiscordIntegrationScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column {
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
                                 title = "Activity name",
                                 value = settings.activityName,
@@ -518,14 +518,14 @@ fun DiscordIntegrationScreen(
                                 }
                             )
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
                                 title = "Activity details",
                                 value = settings.activityDetails,
                                 onClick = { showActivityDetailsDialog = true }
                             )
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
                                 title = "Activity state",
                                 value = settings.activityState,
@@ -576,7 +576,7 @@ fun DiscordIntegrationScreen(
                                 )
                             }
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.Headphones,
                                 title = "Activity type",
                                 value = settings.activityType,
@@ -605,21 +605,21 @@ fun DiscordIntegrationScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column {
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.Image,
                                 title = "Large Image",
                                 value = settings.largeImage,
                                 onClick = { showLargeImageDialog = true }
                             )
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
                                 title = "Large Text",
                                 value = settings.largeText,
                                 onClick = { showLargeTextDialog = true }
                             )
 
-                            NomaSettingRowItem(
+                            DiscordSettingRowItem(
                                 icon = Icons.Default.Image,
                                 title = "Small Image",
                                 value = settings.smallImage,
@@ -883,9 +883,9 @@ fun DiscordIntegrationScreen(
         )
     }
 
-    // Pickers with NomaOptionPickerBottomSheet
+    // Pickers with DiscordOptionPickerBottomSheet
     if (showStatusDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Activity Status",
             options = listOf("Online", "Idle", "Do Not Disturb", "Invisible"),
             selected = settings.activityStatus,
@@ -953,7 +953,7 @@ fun DiscordIntegrationScreen(
                 }
             )
         } else {
-            NomaOptionPickerBottomSheet(
+            DiscordOptionPickerBottomSheet(
                 title = "Update Interval",
                 options = intervalOptions,
                 selected = currentSelected,
@@ -998,7 +998,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showPlatformDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Platform",
             options = listOf("Android", "Desktop", "iOS", "Web"),
             selected = settings.platform,
@@ -1049,7 +1049,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showActivityDetailsDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Activity details",
             options = listOf("Artist name", "Album name", "Song title", "Auralis"),
             selected = settings.activityDetails,
@@ -1061,7 +1061,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showActivityStateDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Activity state",
             options = listOf("Artist name", "Album name", "Song title", "Auralis"),
             selected = settings.activityState,
@@ -1073,7 +1073,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showActivityTypeDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Activity type",
             options = listOf("Listening", "Playing", "Streaming", "Competing"),
             selected = settings.activityType,
@@ -1085,7 +1085,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showLargeImageDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Large Image",
             options = listOf("Album artwork", "App icon", "None"),
             selected = settings.largeImage,
@@ -1097,7 +1097,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showLargeTextDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Large Text",
             options = listOf("Album name", "Song title", "Auralis", "None"),
             selected = settings.largeText,
@@ -1109,7 +1109,7 @@ fun DiscordIntegrationScreen(
     }
 
     if (showSmallImageDialog) {
-        NomaOptionPickerBottomSheet(
+        DiscordOptionPickerBottomSheet(
             title = "Small Image",
             options = listOf("Artist artwork", "Play state", "App logo", "None"),
             selected = settings.smallImage,
@@ -1122,7 +1122,7 @@ fun DiscordIntegrationScreen(
 }
 
 @Composable
-private fun NomaSettingRowItem(
+private fun DiscordSettingRowItem(
     icon: ImageVector,
     title: String,
     value: String,
@@ -1180,7 +1180,7 @@ private fun NomaSettingRowItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NomaOptionPickerBottomSheet(
+private fun DiscordOptionPickerBottomSheet(
     title: String,
     options: List<String>,
     selected: String,

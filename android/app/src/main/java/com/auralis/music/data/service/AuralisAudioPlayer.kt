@@ -1337,12 +1337,17 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
+    /** Seeks the user made on this device (not ones applied from a Listen Together room). */
+    private val _userSeekEvents = MutableSharedFlow<Long>(extraBufferCapacity = 8)
+    val userSeekEvents: SharedFlow<Long> = _userSeekEvents.asSharedFlow()
+
     fun seekTo(positionMs: Long) {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo() blocked - user is listener in Listen Together room")
             return
         }
         val bounded = positionMs.coerceAtLeast(0L)
+        _userSeekEvents.tryEmit(bounded)
         _playbackPositionMs.value = bounded
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo(${bounded}ms)")
         if (isUsingExoPlayer) {

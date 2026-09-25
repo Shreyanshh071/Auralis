@@ -15,7 +15,7 @@ import org.junit.Test
 
 /**
  * Unit tests verifying:
- * 1. All 10 VIVI lyrics animation styles exist, have unique identities, and map cleanly.
+ * 1. All 10 lyrics animation styles exist, have unique identities, and map cleanly.
  * 2. AppearanceSettings carries all required lyrics customization fields with authentic defaults.
  * 3. Timing-honesty contract: resolveEffectiveWords preserves genuine RICHSYNC word timing
  *    and strictly returns null for LINE_SYNC/PLAIN lyrics (zero fabricated word timestamps).
@@ -79,7 +79,8 @@ class LyricsAnimationModesTest {
         val defaultSettings = AppearanceSettings()
 
         assertFalse("experimentalLyrics defaults to false", defaultSettings.experimentalLyrics)
-        assertEquals(LyricsAnimationMode.AURALIS.displayName, defaultSettings.lyricsAnimation)
+        // New installs start on MetroLyrics (product decision, 2026-09-25).
+        assertEquals(LyricsAnimationMode.METRO_LYRICS.displayName, defaultSettings.lyricsAnimation)
         assertFalse("enableGlowingLyricsEffect defaults to false", defaultSettings.enableGlowingLyricsEffect)
         assertTrue("standardLyricsBlur defaults to true", defaultSettings.standardLyricsBlur)
         assertEquals(22f, defaultSettings.lyricsTextSize, 0.001f)
@@ -287,9 +288,9 @@ class LyricsAnimationModesTest {
     }
 
     @Test
-    fun experimentalLyrics_presentationRouting_onUsesMetrolistMultiActiveLayout() {
+    fun experimentalLyrics_presentationRouting_onUsesMultiActiveLayout() {
         // Contract verification: ON
-        // Metrolist presentation:
+        // Multi-active presentation:
         // - Multiple active lyric lines simultaneously
         // - v1 -> Start (Left), v2 -> End (Right), v1000 -> Center, isBackground -> Center
         // - Background vocals smaller (70%), italic, centered
