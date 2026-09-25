@@ -8,7 +8,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.auralis.music.ui.theme.AuralisPushedPage
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.rememberPushProgress
 import com.auralis.music.ui.theme.dynamicPrimary
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -141,30 +144,13 @@ fun ProfileSheet(
         }
     }
 
-    if (isDiscordIntegrationOpen) {
-        com.auralis.music.ui.screens.DiscordIntegrationScreen(
-            onDismiss = { isDiscordIntegrationOpen = false }
-        )
-        return
+    // Settings and Discord push over the profile instead of replacing it on one frame.
+    val subPage = when {
+        isDiscordIntegrationOpen -> ProfileSubPage.DISCORD
+        isSettingsOpen -> ProfileSubPage.SETTINGS
+        else -> null
     }
-
-    if (isSettingsOpen) {
-        com.auralis.music.ui.screens.SettingsScreen(
-            settings = playerSettings,
-            onThemeModeChange = onThemeModeChange,
-            onAudioQualityChange = onAudioQualityChange,
-            onToggleGaplessPlayback = onToggleGaplessPlayback,
-            onToggleSkipSilence = onToggleSkipSilence,
-            onToggleSpatialAudio = onToggleSpatialAudio,
-            onClearCache = onClearCache,
-            onNavigateToAccount = { isSettingsOpen = false },
-            onDismiss = { isSettingsOpen = false },
-            historyRepository = historyRepository,
-            searchRepository = searchRepository,
-            hasActiveTrack = hasActiveTrack
-        )
-        return
-    }
+    val subPagePush = rememberPushProgress(subPage != null)
 
     val themePrimary = MaterialTheme.dynamicPrimary
     val themeBackground = MaterialTheme.dynamicBackground
@@ -173,6 +159,7 @@ fun ProfileSheet(
         modifier = modifier
             .fillMaxSize()
             .background(themeBackground)
+            .auralisPushParent(subPagePush)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -820,7 +807,33 @@ fun ProfileSheet(
             Spacer(modifier = Modifier.height(if (hasActiveTrack) 120.dp else 24.dp))
         }
     }
+
+    AuralisPushedPage(page = subPage) { page ->
+        when (page) {
+            ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
+                onDismiss = { isDiscordIntegrationOpen = false }
+            )
+            ProfileSubPage.SETTINGS -> {
+                com.auralis.music.ui.screens.SettingsScreen(
+                    settings = playerSettings,
+                    onThemeModeChange = onThemeModeChange,
+                    onAudioQualityChange = onAudioQualityChange,
+                    onToggleGaplessPlayback = onToggleGaplessPlayback,
+                    onToggleSkipSilence = onToggleSkipSilence,
+                    onToggleSpatialAudio = onToggleSpatialAudio,
+                    onClearCache = onClearCache,
+                    onNavigateToAccount = { isSettingsOpen = false },
+                    onDismiss = { isSettingsOpen = false },
+                    historyRepository = historyRepository,
+                    searchRepository = searchRepository,
+                    hasActiveTrack = hasActiveTrack
+                )
+            }
+        }
+    }
 }
+
+private enum class ProfileSubPage { SETTINGS, DISCORD }
 
 @Composable
 private fun GoogleLogoIcon(modifier: Modifier = Modifier) {

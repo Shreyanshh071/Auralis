@@ -65,8 +65,8 @@ import com.auralis.music.ui.theme.LocalReducedMotion
 import com.auralis.music.ui.theme.PlayerMotion
 import com.auralis.music.ui.theme.auralisFadeEnter
 import com.auralis.music.ui.theme.auralisFadeExit
-import com.auralis.music.ui.theme.auralisNavigationEnter
-import com.auralis.music.ui.theme.auralisNavigationExit
+import com.auralis.music.ui.theme.auralisDetailBackwardExit
+import com.auralis.music.ui.theme.auralisDetailForwardEnter
 import com.auralis.music.ui.theme.auralisPushEnter
 import com.auralis.music.ui.theme.auralisPushExit
 import com.auralis.music.ui.theme.auralisSheetEnter
@@ -1204,8 +1204,8 @@ fun AuralisApp(
         // Listen Together Sheet with unified navigation transition
         AnimatedVisibility(
             visible = isListenTogetherOpen,
-            enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit(),
+            enter = auralisDetailForwardEnter(),
+            exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val ltVM = obtainListenTogetherViewModel()
@@ -1253,8 +1253,8 @@ fun AuralisApp(
         // Profile & YouTube Music Account Sync Modal Sheet
         AnimatedVisibility(
             visible = isProfileOpen,
-            enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit(),
+            enter = auralisDetailForwardEnter(),
+            exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val authVM = obtainAuthViewModel()
@@ -1304,8 +1304,8 @@ fun AuralisApp(
         // Listening History Modal Sheet
         AnimatedVisibility(
             visible = isHistoryOpen,
-            enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit(),
+            enter = auralisDetailForwardEnter(),
+            exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val listeningHistory by viewModelProvider.historyRepository.getHistory().collectAsState(initial = emptyList())
@@ -1334,8 +1334,8 @@ fun AuralisApp(
         // Listening Stats Modal Sheet
         AnimatedVisibility(
             visible = isStatsOpen,
-            enter = auralisNavigationEnter(),
-            exit = auralisNavigationExit(),
+            enter = auralisDetailForwardEnter(),
+            exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
         ) {
             val statsVM = obtainStatsViewModel()

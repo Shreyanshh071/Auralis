@@ -110,7 +110,10 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.player.PlayerBackgroundStyle
+import com.auralis.music.ui.theme.AuralisPushedPage
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.rememberPushProgress
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
@@ -181,19 +184,14 @@ fun AppearanceScreen(
     val outline = MaterialTheme.colorScheme.outline
     val onPrimary = MaterialTheme.colorScheme.onPrimary
 
-    if (showThemeAndColors) {
-        ThemeAndColorsScreen(
-            settings = settings,
-            onUpdateSettings = { newS -> update { newS } },
-            onBack = { showThemeAndColors = false }
-        )
-        return
-    }
+    // Theme & colours pushes over this page instead of replacing it on one frame.
+    val themePush = rememberPushProgress(showThemeAndColors)
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
+            .auralisPushParent(themePush)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -610,6 +608,14 @@ fun AppearanceScreen(
                 item { Spacer(modifier = Modifier.height(32.dp)) }
             }
         }
+    }
+
+    AuralisPushedPage(page = if (showThemeAndColors) Unit else null) {
+        ThemeAndColorsScreen(
+            settings = settings,
+            onUpdateSettings = { newS -> update { newS } },
+            onBack = { showThemeAndColors = false }
+        )
     }
 
     // ── OPTION SELECTION DIALOGS ──
