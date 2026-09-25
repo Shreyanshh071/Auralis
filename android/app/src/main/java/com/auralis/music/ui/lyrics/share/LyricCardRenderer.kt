@@ -44,7 +44,7 @@ object LyricCardRenderer {
     private const val CARD_SIZE = 1080
 
     /**
-     * Renders a 1080x1080 high-definition lyric card bitmap with rich Apple Music / Metrolist aesthetics.
+     * Renders a 1080x1080 high-definition lyric card bitmap with rich Apple Music-style aesthetics.
      */
     fun renderCard(
         context: Context,
@@ -196,7 +196,7 @@ object LyricCardRenderer {
         ).toString()
         canvas.drawText(artistText, textStartX, margin + 144f, artistPaint)
 
-        // ── 3. CENTER: MASSIVE PUNCHY LYRIC TEXT (METROLIST STYLE) ──
+        // ── 3. CENTER: MASSIVE PUNCHY LYRIC TEXT ──
         val lyricAreaTop = margin + artSize + 64f
         val lyricAreaBottom = CARD_SIZE - margin - 100f
         val lyricAreaHeight = lyricAreaBottom - lyricAreaTop
@@ -365,7 +365,7 @@ object LyricCardRenderer {
     }
 
     private fun createBlurredBackground(src: Bitmap, targetW: Int, targetH: Int): Bitmap {
-        // Downscale to 200x200 for a perfectly balanced medium frosted blur (Metrolist style)
+        // Downscale to 200x200 for a perfectly balanced medium frosted blur
         val downscaled = Bitmap.createScaledBitmap(src, 200, 200, true)
 
         // Vibrant saturation boost for rich glowing ambiance

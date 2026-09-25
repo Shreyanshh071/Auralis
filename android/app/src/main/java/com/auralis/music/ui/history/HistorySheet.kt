@@ -70,6 +70,7 @@ import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.domain.recommendations.TrackDeduplicator
+import com.auralis.music.ui.components.bottomChromePadding
 
 val HISTORY_LIME: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -232,10 +233,9 @@ fun HistorySheet(
                 val trackList = history.map { it.track }
                 val currentTrackFp = remember(currentTrack) { currentTrack?.let { TrackDeduplicator.getSongFingerprint(it) } }
 
-                val historyBottomPad = if (currentTrackId != null) 120.dp else 32.dp
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = historyBottomPad),
+                    contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {

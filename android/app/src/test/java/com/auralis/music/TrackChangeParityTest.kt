@@ -492,7 +492,7 @@ class TrackChangeParityTest {
         assertEquals("track_0", queueTab.id)
     }
 
-    // ── VIVI-PARITY DEPTH PAGER MOTION TESTS ──
+    // ── DEPTH PAGER MOTION TESTS ──
 
     private fun computePageOffset(currentPage: Int, page: Int, pageOffsetFraction: Float): Float {
         return kotlin.math.abs((currentPage - page) + pageOffsetFraction).coerceIn(0f, 1f)
@@ -534,12 +534,12 @@ class TrackChangeParityTest {
     }
 
     @Test
-    fun `test depth scale matches VIVI 0_85 to 1_0 scale range`() {
+    fun `test depth scale spans 0_85 to 1_0`() {
         // Center: exactly 1.0f (full size)
         val scaleCenter = computeDepthScale(pageOffset = 0f)
         assertEquals(1.0f, scaleCenter, 0.001f)
 
-        // Edge (1 page away): exactly 0.85f (VIVI scaleIn / scaleOut reference)
+        // Edge (1 page away): exactly 0.85f (scaleIn / scaleOut reference)
         val scaleEdge = computeDepthScale(pageOffset = 1.0f)
         assertEquals(0.85f, scaleEdge, 0.001f)
 

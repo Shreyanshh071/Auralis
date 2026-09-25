@@ -45,6 +45,7 @@ import com.auralis.music.util.StorageUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.auralis.music.ui.components.bottomChromePadding
 
 @Composable
 fun StorageSettingsScreen(
@@ -85,7 +86,7 @@ fun StorageSettingsScreen(
     val backgroundColor = MaterialTheme.dynamicBackground
     val surfaceColor = MaterialTheme.dynamicSurface
 
-    // Song cache steps matching Metrolist: 512 MB, 1.1 GB, 2.2 GB, 5.5 GB, 11 GB, Unlimited (22 GB)
+    // Song cache steps: 512 MB, 1.1 GB, 2.2 GB, 5.5 GB, 11 GB, Unlimited (22 GB)
     val songCacheOptions = remember {
         listOf(
             512 to "512 MB",
@@ -97,7 +98,7 @@ fun StorageSettingsScreen(
         )
     }
 
-    // Image cache steps matching Metrolist: 128 MB, 256 MB, 537 MB, 1.0 GB, 2.0 GB
+    // Image cache steps: 128 MB, 256 MB, 537 MB, 1.0 GB, 2.0 GB
     val imageCacheOptions = remember {
         listOf(
             128 to "128 MB",
@@ -156,7 +157,7 @@ fun StorageSettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(bottom = 120.dp),
+                contentPadding = bottomChromePadding(includeNavigationBar = false),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // 1. STORAGE (DOWNLOADS)
@@ -558,7 +559,7 @@ private fun StorageStepSliderCard(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // ── METROLIST STEP SEGMENTED SLIDER CANVAS (BUTTER-SMOOTH) ──
+        // ── STEP SEGMENTED SLIDER CANVAS (BUTTER-SMOOTH) ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()

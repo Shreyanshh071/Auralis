@@ -45,27 +45,27 @@ internal data class ClassicPlayerViewportMotionValues(
 )
 
 internal object ClassicPlayerViewportMotion {
-    // Timings mirror VIVI Music's Player_v2: the cover flies into the header on a 500ms
+    // Timings: the cover flies into the header on a 500ms
     // FastOutSlowIn tween, and the body crossfades with the exit (250ms) finishing before the
     // enter (350ms) so the two never visibly overlap. No spring overshoot anywhere.
     const val HeroDurationMillis = 500
-    // VIVI's cover curve: soft start, fast middle, long glide into the header ("liquid").
+    // Cover curve: soft start, fast middle, long glide into the header ("liquid").
     // An instant-start curve made the collapse look abrupt.
     val HeroEasing = androidx.compose.animation.core.FastOutSlowInEasing
     const val ContentEnterDurationMillis = 350
     const val ContentExitDurationMillis = 250
-    // Measured from the VIVI reference video: the incoming Lyrics glide up ~110dp and the
+    // Measured from a reference recording: the incoming Lyrics glide up ~110dp and the
     // incoming Queue ~40dp, decelerating into place; the outgoing layer only fades.
     const val LyricsEntryTravelDp = 110f
     const val QueueEntryTravelDp = 40f
-    // The compact row follows VIVI's measured header/content split; values are adapted to Auralis.
+    // The compact row follows the measured header/content split, adapted to Auralis.
     const val CompactArtworkSizeDp = 64f
     const val CompactHeaderSideInsetDp = 16f
     const val CompactArtworkTextGapDp = 12f
     const val CompactActionSizeDp = 40f
     const val LyricsControlsTimeoutMillis = 2_000L
     const val TimelineContentGapDp = 8f
-    // VIVI's controls: fade + slide by a third of their height; no expand/shrink relayout.
+    // Controls: fade + slide by a third of their height; no expand/shrink relayout.
     const val ControlsEnterDurationMillis = 400
     const val ControlsExitDurationMillis = 300
     const val ControlsSlideFraction = 3
@@ -74,7 +74,7 @@ internal object ClassicPlayerViewportMotion {
     fun heroProgressTarget(tab: NowPlayingTab): Float =
         if (tab == NowPlayingTab.PLAYER) 0f else 1f
 
-    // VIVI keeps the title in place: the large title/♥/⋮ fade out as soon as the cover starts to
+    // The title stays in place: the large title/♥/⋮ fade out as soon as the cover starts to
     // move, and the compact title/♥/⋮ fade in at their final spot only once the cover has mostly
     // landed on top of them. Nothing travels, so no text is exposed mid-flight.
     private const val ExpandedFadeEnd = 0.2f

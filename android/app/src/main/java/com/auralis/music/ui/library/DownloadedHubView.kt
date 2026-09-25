@@ -37,6 +37,7 @@ import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
+import com.auralis.music.ui.components.bottomChromePadding
 
 private data class DownloadFolderItem(
     val id: String,
@@ -290,7 +291,7 @@ fun DownloadedHubView(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                    contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {

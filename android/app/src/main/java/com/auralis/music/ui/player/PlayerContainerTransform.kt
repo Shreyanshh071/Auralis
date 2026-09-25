@@ -70,7 +70,7 @@ fun playerSharedArtwork(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     enabled: Boolean
 ): Modifier {
-    // MiniPlayer <-> Full Player uses unified sheet translation and opacity crossfade (matching VIVI).
+    // MiniPlayer <-> Full Player uses unified sheet translation and opacity crossfade.
     // SharedElement overlay flight across this boundary causes double-displacement and trajectory jumping.
     return Modifier
 }
@@ -85,7 +85,7 @@ fun playerSharedTrackInfo(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     enabled: Boolean
 ): Modifier {
-    // Title/artist uses unified sheet translation and opacity crossfade (matching VIVI).
+    // Title/artist uses unified sheet translation and opacity crossfade.
     return Modifier
 }
 

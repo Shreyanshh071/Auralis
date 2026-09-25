@@ -5,6 +5,13 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
@@ -44,6 +51,7 @@ import com.auralis.music.domain.model.AudioQuality
 import com.auralis.music.domain.model.PlayerSettings
 import com.auralis.music.domain.model.ThemeMode
 import com.auralis.music.ui.profile.AuralisHubView
+import com.auralis.music.ui.components.bottomChromePadding
 
 @Composable
 fun SettingsScreen(
@@ -90,8 +98,8 @@ fun SettingsScreen(
     val cardPrimary = themePrimary
     val cardIconBg = themePrimary.copy(alpha = if (isDark) 0.12f else 0.16f)
 
-    // Full-page sections push over the list; Player & audio stays a dialog.
-    val pagedSection = activeDialog?.takeIf { it != SettingsDialogType.PLAYER_AUDIO }
+    // Every section is a full page that pushes over the list.
+    val pagedSection = activeDialog
     val sectionPush = rememberPushProgress(pagedSection != null)
 
     Box(
@@ -128,7 +136,6 @@ fun SettingsScreen(
                 }
 
                 // ── SETTINGS LIST ──
-                val listBottomPadding = if (hasActiveTrack) 130.dp else 16.dp
                 val listState = rememberLazyListState()
                 androidx.compose.runtime.key(currentThemeKey) {
                     LazyColumn(
@@ -136,7 +143,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(bottom = listBottomPadding),
+                        contentPadding = bottomChromePadding(includeNavigationBar = false),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // ── INTERFACE ──
@@ -269,6 +276,241 @@ fun SettingsScreen(
                         )
                     }
 
+                    SettingsDialogType.PLAYER_AUDIO -> {
+                        var showQualityPicker by remember { mutableStateOf(false) }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(themeBackground)
+                        ) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // ── TOP APP BAR ──
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(onClick = { activeDialog = null }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Back",
+                                            tint = onBackground
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Player and audio",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = onBackground,
+                                        fontSize = 22.sp
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    SettingsCategoryHeader("Player", primaryColor)
+                                    // Quality
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(surfaceColor)
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                            .clickable { showQualityPicker = !showQualityPicker }
+                                            .padding(12.dp)
+                                    ) {
+                                        Text("Streaming Quality", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                        Text(settings.audioQuality.displayName, color = primaryColor, fontSize = 12.sp)
+
+                                        AnimatedVisibility(
+                                            visible = showQualityPicker,
+                                            enter = fadeIn(animationSpec = tween(220)) + expandVertically(
+                                                animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                                expandFrom = Alignment.Top
+                                            ),
+                                            exit = fadeOut(animationSpec = tween(160)) + shrinkVertically(
+                                                animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                                shrinkTowards = Alignment.Top
+                                            )
+                                        ) {
+                                            Column {
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                AudioQuality.values().forEach { q ->
+                                                    val isSel = settings.audioQuality == q
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(if (isSel) primaryColor.copy(alpha = 0.15f) else Color.Transparent)
+                                                            .clickable {
+                                                                onAudioQualityChange(q)
+                                                                showQualityPicker = false
+                                                            }
+                                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        RadioButton(selected = isSel, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = primaryColor))
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Column {
+                                                            Text(q.displayName, color = if (isSel) primaryColor else onBackground, fontSize = 13.sp)
+                                                            Text(q.description, color = onSurfaceVariant, fontSize = 10.sp)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Spatial Audio
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(surfaceColor)
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                            .clickable { onToggleSpatialAudio(!settings.spatialAudio) }
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("3D Spatial Soundstage", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text("Dolby Atmos simulation for headphones", color = onSurfaceVariant, fontSize = 11.sp)
+                                        }
+                                        Switch(
+                                            checked = settings.spatialAudio,
+                                            onCheckedChange = onToggleSpatialAudio,
+                                            thumbContent = if (settings.spatialAudio) {
+                                                {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                }
+                                            } else null,
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = primaryColor,
+                                                checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                                                checkedBorderColor = primaryColor,
+                                                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                            )
+                                        )
+                                    }
+
+                                    // Gapless Playback
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(surfaceColor)
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                            .clickable { onToggleGaplessPlayback(!settings.gaplessPlayback) }
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Gapless Playback", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text("Zero-delay instant track transitions", color = onSurfaceVariant, fontSize = 11.sp)
+                                        }
+                                        Switch(
+                                            checked = settings.gaplessPlayback,
+                                            onCheckedChange = onToggleGaplessPlayback,
+                                            thumbContent = if (settings.gaplessPlayback) {
+                                                {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                }
+                                            } else null,
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = primaryColor,
+                                                checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                                                checkedBorderColor = primaryColor,
+                                                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                            )
+                                        )
+                                    }
+
+                                    // Skip Silence
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(surfaceColor)
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                            .clickable { onToggleSkipSilence(!settings.skipSilence) }
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Remove Silence", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text("Skip dead air at track boundaries", color = onSurfaceVariant, fontSize = 11.sp)
+                                        }
+                                        Switch(
+                                            checked = settings.skipSilence,
+                                            onCheckedChange = onToggleSkipSilence,
+                                            thumbContent = if (settings.skipSilence) {
+                                                {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                }
+                                            } else null,
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = primaryColor,
+                                                checkedTrackColor = primaryColor.copy(alpha = 0.45f),
+                                                checkedBorderColor = primaryColor,
+                                                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                            )
+                                        )
+                                    }
+                                    SettingsCategoryHeader("Queue", primaryColor)
+                                    PlayerPreferenceToggle("Persistent queue", "Restore your queue and position after restarting", settings.persistentQueue) {
+                                        settingsScope.launch { settingsStore.setPersistentQueue(it) }
+                                    }
+                                    PlayerPreferenceToggle("Auto load more songs", "Add recommendations as your radio queue runs low", settings.autoLoadMore) {
+                                        settingsScope.launch { settingsStore.setAutoLoadMore(it) }
+                                    }
+                                    SettingsCategoryHeader("Misc", primaryColor)
+                                    PlayerPreferenceToggle("Stop music on task clear", "Stop playback when Auralis is swiped away from recent apps", settings.stopMusicOnTaskClear) {
+                                        settingsScope.launch { settingsStore.setStopMusicOnTaskClear(it) }
+                                    }
+                                    PlayerPreferenceToggle("Pause music when media is muted", "Pause when device media volume reaches zero", settings.pauseOnMediaMute) {
+                                        settingsScope.launch { settingsStore.setPauseOnMediaMute(it) }
+                                    }
+                                    PlayerPreferenceToggle("Resume on Bluetooth connect", "Resume the current song when Bluetooth audio connects", settings.resumeOnBluetoothConnect) {
+                                        settingsScope.launch { settingsStore.setResumeOnBluetoothConnect(it) }
+                                    }
+                                    PlayerPreferenceToggle("Keep screen on when player is expanded", "Keep the display awake while the expanded player is playing", settings.keepScreenOn) {
+                                        settingsScope.launch { settingsStore.setKeepScreenOn(it) }
+                                    }
+                                    Spacer(modifier = Modifier.padding(bottomChromePadding(gap = 2.dp, includeNavigationBar = false)))
+                                }
+                            }
+                        }
+                    }
+
                     SettingsDialogType.STORAGE -> {
                         StorageSettingsScreen(
                             onDismiss = { activeDialog = null }
@@ -302,214 +544,8 @@ fun SettingsScreen(
                             onDismiss = { activeDialog = null }
                         )
                     }
-
-                    else -> {}
                 }
             }
-
-            // ── DIALOG HANDLER ──
-            when (activeDialog) {
-            SettingsDialogType.PLAYER_AUDIO -> {
-                var showQualityPicker by remember { mutableStateOf(false) }
-
-                AlertDialog(
-                    onDismissRequest = { activeDialog = null },
-                    containerColor = surfaceColor,
-                    title = { Text("Player and audio", fontWeight = FontWeight.Bold, color = onBackground) },
-                    text = {
-                        Column(
-                            modifier = Modifier.verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            SettingsCategoryHeader("Player", primaryColor)
-                            // Quality
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceColor)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                    .clickable { showQualityPicker = !showQualityPicker }
-                                    .padding(12.dp)
-                            ) {
-                                Text("Streaming Quality", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text(settings.audioQuality.displayName, color = primaryColor, fontSize = 12.sp)
-
-                                if (showQualityPicker) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    AudioQuality.values().forEach { q ->
-                                        val isSel = settings.audioQuality == q
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(if (isSel) primaryColor.copy(alpha = 0.15f) else Color.Transparent)
-                                                .clickable {
-                                                    onAudioQualityChange(q)
-                                                    showQualityPicker = false
-                                                }
-                                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            RadioButton(selected = isSel, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = primaryColor))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
-                                                Text(q.displayName, color = if (isSel) primaryColor else onBackground, fontSize = 13.sp)
-                                                Text(q.description, color = onSurfaceVariant, fontSize = 10.sp)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Spatial Audio
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceColor)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                    .clickable { onToggleSpatialAudio(!settings.spatialAudio) }
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("3D Spatial Soundstage", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Dolby Atmos simulation for headphones", color = onSurfaceVariant, fontSize = 11.sp)
-                                }
-                                Switch(
-                                    checked = settings.spatialAudio,
-                                    onCheckedChange = onToggleSpatialAudio,
-                                    thumbContent = if (settings.spatialAudio) {
-                                        {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                        }
-                                    } else null,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = primaryColor,
-                                        checkedTrackColor = primaryColor.copy(alpha = 0.45f),
-                                        checkedBorderColor = primaryColor,
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                                    )
-                                )
-                            }
-
-                            // Gapless Playback
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceColor)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                    .clickable { onToggleGaplessPlayback(!settings.gaplessPlayback) }
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Gapless Playback", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Zero-delay instant track transitions", color = onSurfaceVariant, fontSize = 11.sp)
-                                }
-                                Switch(
-                                    checked = settings.gaplessPlayback,
-                                    onCheckedChange = onToggleGaplessPlayback,
-                                    thumbContent = if (settings.gaplessPlayback) {
-                                        {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                        }
-                                    } else null,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = primaryColor,
-                                        checkedTrackColor = primaryColor.copy(alpha = 0.45f),
-                                        checkedBorderColor = primaryColor,
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                                    )
-                                )
-                            }
-
-                            // Skip Silence
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceColor)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                    .clickable { onToggleSkipSilence(!settings.skipSilence) }
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Remove Silence", color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Skip dead air at track boundaries", color = onSurfaceVariant, fontSize = 11.sp)
-                                }
-                                Switch(
-                                    checked = settings.skipSilence,
-                                    onCheckedChange = onToggleSkipSilence,
-                                    thumbContent = if (settings.skipSilence) {
-                                        {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                        }
-                                    } else null,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = primaryColor,
-                                        checkedTrackColor = primaryColor.copy(alpha = 0.45f),
-                                        checkedBorderColor = primaryColor,
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                                    )
-                                )
-                            }
-                            SettingsCategoryHeader("Queue", primaryColor)
-                            PlayerPreferenceToggle("Persistent queue", "Restore your queue and position after restarting", settings.persistentQueue) {
-                                settingsScope.launch { settingsStore.setPersistentQueue(it) }
-                            }
-                            PlayerPreferenceToggle("Auto load more songs", "Add recommendations as your radio queue runs low", settings.autoLoadMore) {
-                                settingsScope.launch { settingsStore.setAutoLoadMore(it) }
-                            }
-                            SettingsCategoryHeader("Misc", primaryColor)
-                            PlayerPreferenceToggle("Stop music on task clear", "Stop playback when Auralis is swiped away from recent apps", settings.stopMusicOnTaskClear) {
-                                settingsScope.launch { settingsStore.setStopMusicOnTaskClear(it) }
-                            }
-                            PlayerPreferenceToggle("Pause music when media is muted", "Pause when device media volume reaches zero", settings.pauseOnMediaMute) {
-                                settingsScope.launch { settingsStore.setPauseOnMediaMute(it) }
-                            }
-                            PlayerPreferenceToggle("Resume on Bluetooth connect", "Resume the current song when Bluetooth audio connects", settings.resumeOnBluetoothConnect) {
-                                settingsScope.launch { settingsStore.setResumeOnBluetoothConnect(it) }
-                            }
-                            PlayerPreferenceToggle("Keep screen on when player is expanded", "Keep the display awake while the expanded player is playing", settings.keepScreenOn) {
-                                settingsScope.launch { settingsStore.setKeepScreenOn(it) }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { activeDialog = null }) {
-                            Text("Done", color = primaryColor)
-                        }
-                    }
-                )
-            }
-
-            else -> {}
-        }
     }
 }
 

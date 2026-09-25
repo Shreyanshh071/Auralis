@@ -54,7 +54,7 @@ open class InnerTubeClient(
     }
 
     /**
-     * Fetches the YouTube Music Home page (FEmusic_home) matching Metrolist.
+     * Fetches the YouTube Music Home page (FEmusic_home).
      * Returns paired HomeChips (Moods & moments) and Carousel HomeSections.
      */
     open suspend fun getHome(params: String? = null, continuation: String? = null): Pair<List<HomeChip>, List<HomeSection>> = withContext(Dispatchers.IO) {
@@ -121,7 +121,7 @@ open class InnerTubeClient(
     }
 
     /**
-     * Calls YouTube Music get_queue endpoint (matching Metrolist YouTube.queue)
+     * Calls YouTube Music get_queue endpoint
      * to fetch verified authentic track metadata including real album, artist, and duration.
      */
     open suspend fun getQueue(videoIds: List<String>): List<Track> = withContext(Dispatchers.IO) {

@@ -259,9 +259,30 @@ class Phase4BCWordSyncAcquisitionTest {
             }
             .build()
 
+        // Keep the other speaker-capable providers off the live network: the real Apple
+        // TTML for STAY is speaker-tagged (v1/v2) and would rightly outrank this untagged
+        // fixture, which is not what this test is about.
+        val emptyClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(404)
+                    .message("Not Found")
+                    .body("{}".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+
         val lyricsClient = LyricsClient(
             betterLyricsSource = BetterLyricsSource(client = blClient),
-            lrcLibSource = LrcLibLyricsSource(client = lrcClient)
+            lrcLibSource = LrcLibLyricsSource(client = lrcClient),
+            paxsenixSource = PaxsenixLyricsSource(client = emptyClient),
+            unisonSource = com.auralis.music.data.network.provider.UnisonLyricsSource(client = emptyClient),
+            amllSource = com.auralis.music.data.network.provider.AmllLyricsSource(client = emptyClient),
+            youLyPlusSource = com.auralis.music.data.network.provider.YouLyPlusLyricsSource(client = emptyClient),
+            simpMusicSource = com.auralis.music.data.network.provider.SimpMusicLyricsSource(client = emptyClient),
+            captionsSource = com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource(client = emptyClient)
         )
 
         val winner = lyricsClient.getLyrics("STAY", "The Kid LAROI", durationSec = 142L)

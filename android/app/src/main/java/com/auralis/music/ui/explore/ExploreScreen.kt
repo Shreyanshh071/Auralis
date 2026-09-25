@@ -106,6 +106,7 @@ import com.auralis.music.ui.theme.auralisIconSwapEnter
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.viewmodel.SearchUiState
+import com.auralis.music.ui.components.bottomChromePadding
 
 private enum class SearchBodyState { SEARCHING, RESULTS, SUGGESTIONS }
 
@@ -567,7 +568,7 @@ fun ExploreScreen(
                         val animateItems = !LocalReducedMotion.current
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 160.dp),
+                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
@@ -822,7 +823,7 @@ private fun SearchResultsView(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = if (currentTrackId != null) 240.dp else 140.dp, start = 16.dp, end = 16.dp, top = 8.dp),
+        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ====================================================================

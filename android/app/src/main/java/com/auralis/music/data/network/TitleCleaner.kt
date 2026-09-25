@@ -111,6 +111,16 @@ object TitleCleaner {
         return core.ifBlank { cleaned }
     }
 
+    private val BRACKETED_TAG_REGEX = Regex("""\s*[\(\[（【][^\)\]）】]*[\)\]）】]""")
+
+    /**
+     * The title with every bracketed tag removed: "Anarkali Disco Chali (Hyper Mix)[Remix By Dj Shiva]"
+     * -> "Anarkali Disco Chali". Used to label a lyrics answer whose source didn't name the track,
+     * so it can't inherit the version tags of the title we searched with.
+     */
+    fun withoutBracketedTags(title: String): String =
+        BRACKETED_TAG_REGEX.replace(title, " ").replace(MULTI_SPACE, " ").trim().ifBlank { title.trim() }
+
     /**
      * Extracts version information (e.g. "Remix", "Acoustic", "Live", "Taylor's Version") from a raw title string.
      */

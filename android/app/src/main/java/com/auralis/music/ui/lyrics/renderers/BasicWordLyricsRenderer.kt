@@ -40,7 +40,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Renderer for VIVI animation modes:
+ * Renderer for the word-based animation modes:
  * - [LyricsAnimationMode.FADE]: Smooth cubic-eased alpha fade (0.40f..1.0f) with subtle soft shadow.
  */
 @Composable

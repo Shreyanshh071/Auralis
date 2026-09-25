@@ -129,18 +129,48 @@ service cloud.firestore {
 
       // ---- Room Recommendations Subcollection ----
       match /recommendations/{recommendationId} {
-        // Members in the room can read recommendations.
-        allow get, list: if isAuthenticated();
+        function isRoomMember() {
+          return isAuthenticated()
+            && exists(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid));
+        }
 
-        // Any authenticated room participant can submit a recommendation.
-        allow create: if isAuthenticated()
-          && request.resource.data.recommendedByUid == request.auth.uid;
+        function isRoomHost() {
+          return isAuthenticated()
+            && get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid;
+        }
 
-        // Any authenticated participant can update (e.g. upvoting or host changing status).
-        allow update: if isAuthenticated();
+        function onlyChanges(keys) {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+        }
+
+        // The upvote list may only gain or lose the caller's own uid, and never holds duplicates.
+        function togglesOwnUpvoteOnly() {
+          let before = resource.data.upvotes.toSet();
+          let after = request.resource.data.upvotes.toSet();
+          return request.resource.data.upvotes is list
+            && request.resource.data.upvotes.size() == after.size()
+            && after.difference(before).union(before.difference(after)) == [request.auth.uid].toSet();
+        }
+
+        // Only people in the room can read recommendations.
+        allow get, list: if isRoomMember() || isRoomHost();
+
+        // Room members recommend as themselves, starting pending with only their own upvote.
+        allow create: if isRoomMember()
+          && request.resource.data.recommendedByUid == request.auth.uid
+          && request.resource.data.status == 'pending'
+          && request.resource.data.upvotes == [request.auth.uid]
+          && request.resource.data.keys().hasOnly(
+               ['id', 'track', 'recommendedByUid', 'recommendedByName', 'note', 'upvotes', 'createdAt', 'status']);
+
+        // Members toggle their own upvote; only the host changes the status.
+        allow update: if (isRoomMember() && onlyChanges(['upvotes']) && togglesOwnUpvoteOnly())
+          || (isRoomHost() && onlyChanges(['status'])
+              && request.resource.data.status in ['pending', 'accepted', 'played', 'declined']);
 
         // The recommender or the room host can delete/dismiss recommendations.
-        allow delete: if isAuthenticated();
+        allow delete: if isAuthenticated()
+          && (resource.data.recommendedByUid == request.auth.uid || isRoomHost());
       }
     }
 

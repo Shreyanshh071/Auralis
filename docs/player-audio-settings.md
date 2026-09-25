@@ -12,15 +12,15 @@ The existing scrollable AlertDialog contains Player, Queue, and Misc sections. S
 - Bluetooth resume uses `AudioDeviceCallback` for new A2DP/LE output devices. The initial device inventory is suppressed. It resumes the existing current song through the shared resume path, excluding muted output, forced speaker routing, active buffering/playback, and Listen Together guests. It does not start a separate receiver/service to launch a force-stopped app.
 - The existing expanded-player state controls `View.keepScreenOn` while playing. A `DisposableEffect` restores the previous flag when the player collapses, pauses, or leaves composition.
 
-## VIVI source inspected before implementation
+## Reference implementation inspected before implementation
 
-Reference: https://github.com/vivizzz007/vivi-music (main, inspected 2026-09-24).
+Reference: an open-source GPL-3.0 music player (inspected 2026-09-24).
 
-- [MusicService.kt](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/playback/MusicService.kt): preference-gated save/restore, near-end queue pagination, device-volume callbacks, audio-device callbacks, and callback cleanup.
-- [PersistQueue.kt](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/models/PersistQueue.kt): saved queue items, index, position, and queue metadata.
-- [MainActivity.kt](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/MainActivity.kt): finishing-Activity check for stop-on-task-clear. Auralis uses its existing service task-removal hook instead.
-- [Player.kt](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/ui/player/Player.kt): expanded + playing + preference wake condition and effect cleanup.
-- [PlayerSettings.kt](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/ui/screens/settings/PlayerSettings.kt): preference-backed controls.
+- Playback service: preference-gated save/restore, near-end queue pagination, device-volume callbacks, audio-device callbacks, and callback cleanup.
+- Persisted queue model: saved queue items, index, position, and queue metadata.
+- Main activity: finishing-Activity check for stop-on-task-clear. Auralis uses its existing service task-removal hook instead.
+- Expanded player: expanded + playing + preference wake condition and effect cleanup.
+- Player settings screen: preference-backed controls.
 
 These were architecture references; Auralis retains its DataStore queue format, dual engines, queue manager, notification service, and Compose player state.
 

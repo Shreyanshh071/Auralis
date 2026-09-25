@@ -167,6 +167,7 @@ import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.LibraryFilter
 import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.SmartCollectionType
+import com.auralis.music.ui.components.bottomChromePadding
 
 val CREAM_ICON_COLOR: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
 val CARD_DARK_BG: Color @Composable get() = MaterialTheme.dynamicSurface
@@ -635,7 +636,6 @@ fun LibraryScreen(
                 else -> 160.dp
             }
 
-            val libraryBottomPad = if (currentTrackId != null) 240.dp else 140.dp
 
             AnimatedContent(
                 targetState = isGridView,
@@ -648,7 +648,7 @@ fun LibraryScreen(
                 if (gridMode) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = minGridSize),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = libraryBottomPad),
+                        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxSize()
@@ -729,7 +729,7 @@ fun LibraryScreen(
                     // ============================================================
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = libraryBottomPad),
+                        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (searchQuery.isBlank()) {
@@ -1723,7 +1723,11 @@ private fun PlaylistDetailView(
             .map { PlaylistReorderItemInfo(key = it.key, offset = it.offset, size = it.size) }
         if (visibleSongItems.isEmpty()) return
 
-        applyTargetSwap(
+        val firstVisibleIndex = playlistListState.firstVisibleItemIndex
+        val firstVisibleOffset = playlistListState.firstVisibleItemScrollOffset
+        val firstVisibleKey = playlistListState.layoutInfo.visibleItemsInfo.firstOrNull()?.key
+
+        val swapped = applyTargetSwap(
             currentId = currentId,
             localItems = localItems,
             idSelector = { it.instanceId },
@@ -1735,6 +1739,13 @@ private fun PlaylistDetailView(
             reorderState = reorderState,
             onHaptic = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
         )
+        // LazyColumn keeps the first visible item's *key* on screen. When that item is one of the
+        // swapped pair (dragging near the top), the whole list shifts a row instead, every row's
+        // placement animation restarts, and during auto-scroll they never catch up: rows overlap
+        // and bounce. Pin the index instead, as the queue's reorder library does.
+        if (swapped && (firstVisibleKey == currentId || firstVisibleKey == reorderState.lastSwappedItemId)) {
+            playlistListState.requestScrollToItem(firstVisibleIndex, firstVisibleOffset)
+        }
     }
 
     // Frame-synced auto-scroll: uses withFrameNanos (Choreographer/vsync) for 120fps smooth scrolling
@@ -1944,7 +1955,6 @@ private fun PlaylistDetailView(
         // ================================================================
         // 2. MAIN SCROLLABLE BODY
         // ================================================================
-        val playlistBottomPad = if (currentTrackId != null) 240.dp else 140.dp
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 state = playlistListState,
@@ -2016,7 +2026,7 @@ private fun PlaylistDetailView(
                             }
                         )
                     },
-                contentPadding = PaddingValues(bottom = playlistBottomPad)
+                contentPadding = bottomChromePadding()
             ) {
                 // Header Content
                 item(key = "playlist_header", contentType = "header") {
@@ -3410,7 +3420,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                     text = track.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (isCurrent) LIME_TEXT else Color.White,
+                    color = if (isCurrent) LIME_TEXT else MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

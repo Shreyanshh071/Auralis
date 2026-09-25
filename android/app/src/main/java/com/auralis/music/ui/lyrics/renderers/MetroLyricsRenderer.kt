@@ -6,6 +6,7 @@
 
 package com.auralis.music.ui.lyrics.renderers
 
+import com.auralis.music.ui.lyrics.toShapingClusters
 import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -50,7 +51,6 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
 import kotlinx.coroutines.isActive
-import java.text.BreakIterator
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -71,20 +71,8 @@ private data class MetroHyphenGroup(
     val groupEndMs: Long
 )
 
-private fun String.toGraphemeClusters(): List<String> {
-    if (isEmpty()) return emptyList()
-    val result = mutableListOf<String>()
-    val it = BreakIterator.getCharacterInstance()
-    it.setText(this)
-    var start = it.first()
-    var end = it.next()
-    while (end != BreakIterator.DONE) {
-        result.add(substring(start, end))
-        start = end
-        end = it.next()
-    }
-    return result
-}
+// Conjunct-safe split (see toShapingClusters): plain grapheme clusters broke Indic conjuncts.
+private fun String.toGraphemeClusters(): List<String> = toShapingClusters()
 
 /**
  * MetroLyrics Canvas-based Karaoke Renderer ported from VIVI's MetroLyrics.kt.

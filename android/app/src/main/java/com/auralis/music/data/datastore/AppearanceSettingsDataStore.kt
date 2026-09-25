@@ -113,7 +113,7 @@ class AppearanceSettingsDataStore(
             val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
                 LyricsAnimationMode.METRO_LYRICS.displayName
             } else {
-                storedAnimation ?: LyricsAnimationMode.AURALIS.displayName
+                storedAnimation ?: LyricsAnimationMode.METRO_LYRICS.displayName
             }
 
             AppearanceSettings(
@@ -129,10 +129,10 @@ class AppearanceSettingsDataStore(
                 },
                 pureBlackMiniPlayer = preferences[PURE_BLACK_MINI_PLAYER] ?: false,
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
-                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
+                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Live Mesh",
 
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
-                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Gradient",
+                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",

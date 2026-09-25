@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -85,6 +86,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -143,7 +145,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.text.BreakIterator
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -161,7 +162,7 @@ private const val LYRICS_STAGGER_DELAY_MAX_MS = 200
 private const val LYRICS_PREVIEW_TIME = 8000L
 
 /**
- * Top and bottom fading edge modifier to give the Metrolist floating depth aesthetic.
+ * Top and bottom fading edge modifier for a floating depth effect.
  */
 fun Modifier.fadingEdge(
     top: Dp = LYRICS_FADE_TOP_DP,
@@ -342,20 +343,8 @@ private fun String.containsRtl(): Boolean {
     return false
 }
 
-private fun String.toGraphemeClusters(): List<String> {
-    if (isEmpty()) return emptyList()
-    val result = mutableListOf<String>()
-    val it = BreakIterator.getCharacterInstance()
-    it.setText(this)
-    var start = it.first()
-    var end = it.next()
-    while (end != BreakIterator.DONE) {
-        result.add(substring(start, end))
-        start = end
-        end = it.next()
-    }
-    return result
-}
+// Conjunct-safe split (see toShapingClusters): plain grapheme clusters broke Indic conjuncts.
+private fun String.toGraphemeClusters(): List<String> = toShapingClusters()
 
 sealed class ExperimentalLyricsListItem {
     data class Line(val index: Int, val line: LyricLine) : ExperimentalLyricsListItem()
@@ -384,7 +373,7 @@ internal data class ExperimentalPendingSeekTarget(
 )
 
 /**
- * Genuine Metrolist-style Experimental Lyrics presentation.
+ * Experimental Lyrics presentation.
  *
  * Distinct from standard Auralis MetroLyrics:
  * - Employs a custom floating Box layout with independent staggered coordinate animations.
@@ -392,7 +381,7 @@ internal data class ExperimentalPendingSeekTarget(
  * - Respects vocal agent positioning: v1 -> Left, v2 -> Right, v1000 -> Center.
  * - Positions background vocals centered, italicized, and scaled to 70% of base typography.
  * - Applies soft progressive dimming falloff away from active lines.
- * - Uses Metrolist kinetic word typography on genuine RichSync tracks.
+ * - Uses kinetic word typography on genuine RichSync tracks.
  * - Preserves strict line illumination on LINE_SYNC without synthetic word pacing.
  */
 @SuppressLint("UnusedBoxWithConstraintsScope")
@@ -457,27 +446,19 @@ fun ExperimentalLyricsView(
             list.add(ExperimentalLyricsListItem.Line(index, line))
             if (index < effectiveLines.size - 1) {
                 val nextStart = effectiveLines[index + 1].time
-                val effEnd = line.effectiveEndTime
-                // Genuine instrumental break verification:
-                // - Word-synced lyrics with known end time: requires >= 5.0s of genuine vocal silence.
-                // - Line-synced lyrics without end times: requires >= 10.0s between line starts to avoid
-                //   false-triggering during normal conversational lyric line cadences (4-8s).
-                val isGenuineBreak = if (effEnd != null) {
-                    (nextStart - effEnd) >= 5_000L
-                } else {
-                    (nextStart - line.time) >= 10_000L
-                }
-                if (isGenuineBreak) {
-                    // Count-in indicator strictly counts down the last 4.5 seconds into the upcoming vocal line.
-                    // Coerced at least after the previous line has completely finished singing.
-                    val indicatorStart = (nextStart - 4_500L).coerceAtLeast(effEnd ?: (line.time + 3_000L))
-                    if (nextStart > indicatorStart) {
-                        list.add(ExperimentalLyricsListItem.Indicator(index, indicatorStart, nextStart))
-                    }
+                // Circle appears when the singing stops and fills the whole break.
+                instrumentalBreakWindow(line, nextStart)?.let { (start, end) ->
+                    list.add(ExperimentalLyricsListItem.Indicator(index, start, end))
                 }
             }
         }
         list
+    }
+
+    // MetroLyrics speaker-aware layout (7.7): engaged only for MetroLyrics and only when the
+    // source names two or more vocalists; otherwise null and every line renders as before.
+    val speakerStyles = remember(effectiveLines, appearance.lyricsAnimation) {
+        MetroSpeakerLayout.forAppearance(effectiveLines, appearance)
     }
 
     // Interactive & selection state
@@ -937,6 +918,7 @@ fun ExperimentalLyricsView(
                                 currentPositionState >= paired.time && currentPositionState <= line.time
                             } else false
 
+                            val speakerStyle = speakerStyles?.getOrNull(index)
                             val bgVisible = !isAutoScrollEnabled || (line.isBackground && (activeLineIndices.contains(pairedMainLineIndex) || activeLineIndices.contains(index) || isInGapWithMain))
                             val blurGeometry by remember(listIndex, listState, activeListIndexState) {
                                 derivedStateOf {
@@ -1012,6 +994,7 @@ fun ExperimentalLyricsView(
                                     activeLineCenterPx = blurGeometry.activeLineCenterPx,
                                     viewportStartPx = blurGeometry.viewportStartPx,
                                     viewportEndPx = blurGeometry.viewportEndPx,
+                                    speakerStyle = speakerStyle,
                                     onSizeChanged = { },
                                     onClick = {
                                         if (isSelectionModeActive) {
@@ -1212,8 +1195,11 @@ fun ExperimentalLyricsView(
     }
 }
 
+private val MetroSpeakerChangeGap = 6.dp
+private val MetroSpeakerFarSidePadding = 48.dp
+
 /**
- * Individual line presentation adhering to Metrolist vocal positioning & hierarchy.
+ * Individual line presentation following vocal positioning & hierarchy.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1240,11 +1226,23 @@ internal fun ExperimentalLyricsLine(
     activeLineCenterPx: Float = Float.NaN,
     viewportStartPx: Float = Float.NaN,
     viewportEndPx: Float = Float.NaN,
+    speakerStyle: MetroSpeakerStyle? = null,
     onSizeChanged: (Int) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Speaker-aware MetroLyrics layout (7.7). Only lines the source attributed to a vocalist in
+    // a multi-speaker song carry a side; every other line (and every line of a song without
+    // multi-speaker metadata) keeps the original positioning below, unchanged.
+    val speakerSide = speakerStyle?.side
+    val baseTopPadding = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp
+    val baseBottomPadding = if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp
+    // A little extra air where the singer changes, so each speaker's lines read as one group.
+    val speakerChangeGap = if (speakerSide != null && speakerStyle.isRunStart && index > 0 && !line.isBackground && isSynced) {
+        MetroSpeakerChangeGap
+    } else 0.dp
+
     val itemModifier = modifier
         .fillMaxWidth()
         .onSizeChanged { onSizeChanged(it.height) }
@@ -1256,24 +1254,47 @@ internal fun ExperimentalLyricsLine(
         .background(
             if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.Transparent
         )
-        .padding(
-            start = when {
-                line.agent == "v1" -> 16.dp
-                line.agent == "v2" -> 16.dp
-                lyricsTextPosition.lowercase() in listOf("left", "right") -> 16.dp
-                else -> 24.dp
-            },
-            end = when {
-                line.agent == "v1" -> 16.dp
-                line.agent == "v2" -> 16.dp
-                lyricsTextPosition.lowercase() in listOf("left", "right") -> 16.dp
-                else -> 24.dp
-            },
-            top = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp,
-            bottom = if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp
+        .then(
+            if (speakerSide != null) {
+                // Keep the far side clear so a long line still visibly hugs its speaker's edge.
+                Modifier.absolutePadding(
+                    left = when (speakerSide) {
+                        MetroSpeakerSide.START -> 16.dp
+                        MetroSpeakerSide.END -> MetroSpeakerFarSidePadding
+                        MetroSpeakerSide.CENTER -> 24.dp
+                    },
+                    right = when (speakerSide) {
+                        MetroSpeakerSide.START -> MetroSpeakerFarSidePadding
+                        MetroSpeakerSide.END -> 16.dp
+                        MetroSpeakerSide.CENTER -> 24.dp
+                    },
+                    top = baseTopPadding + speakerChangeGap,
+                    bottom = baseBottomPadding
+                )
+            } else {
+                Modifier.padding(
+                    start = when {
+                        line.agent == "v1" -> 16.dp
+                        line.agent == "v2" -> 16.dp
+                        lyricsTextPosition.lowercase() in listOf("left", "right") -> 16.dp
+                        else -> 24.dp
+                    },
+                    end = when {
+                        line.agent == "v1" -> 16.dp
+                        line.agent == "v2" -> 16.dp
+                        lyricsTextPosition.lowercase() in listOf("left", "right") -> 16.dp
+                        else -> 24.dp
+                    },
+                    top = baseTopPadding,
+                    bottom = baseBottomPadding
+                )
+            }
         )
 
     val agentAlignment = when {
+        speakerSide == MetroSpeakerSide.START -> AbsoluteAlignment.Left
+        speakerSide == MetroSpeakerSide.END -> AbsoluteAlignment.Right
+        speakerSide == MetroSpeakerSide.CENTER -> Alignment.CenterHorizontally
         line.agent == "v1" -> Alignment.Start
         line.agent == "v2" -> Alignment.End
         line.agent == "v1000" -> Alignment.CenterHorizontally
@@ -1286,6 +1307,9 @@ internal fun ExperimentalLyricsLine(
     }
 
     val agentTextAlign = when {
+        speakerSide == MetroSpeakerSide.START -> TextAlign.Left
+        speakerSide == MetroSpeakerSide.END -> TextAlign.Right
+        speakerSide == MetroSpeakerSide.CENTER -> TextAlign.Center
         line.agent == "v1" -> TextAlign.Left
         line.agent == "v2" -> TextAlign.Right
         line.agent == "v1000" -> TextAlign.Center
@@ -1300,6 +1324,9 @@ internal fun ExperimentalLyricsLine(
     Box(
         modifier = itemModifier,
         contentAlignment = when {
+            speakerSide == MetroSpeakerSide.START -> AbsoluteAlignment.CenterLeft
+            speakerSide == MetroSpeakerSide.END -> AbsoluteAlignment.CenterRight
+            speakerSide == MetroSpeakerSide.CENTER -> Alignment.Center
             line.agent == "v1" -> Alignment.CenterStart
             line.agent == "v2" -> Alignment.CenterEnd
             line.agent == "v1000" -> Alignment.Center
@@ -1336,7 +1363,11 @@ internal fun ExperimentalLyricsLine(
                 label = "expLineBlur"
             )
 
-            val blurModifier = if (standardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp) else Modifier
+            // Unbounded: the default (Rectangle) clips each line's blur to its own box, so every
+            // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
+            val blurModifier = if (standardBlur && animatedBlur > 0.1f) {
+                Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
+            } else Modifier
 
             Column(
                 modifier = Modifier
@@ -1349,7 +1380,9 @@ internal fun ExperimentalLyricsLine(
                 val focusedAlpha = if (line.isBackground) 0.50f else 0.30f
                 val targetAlpha = if (!isSynced) {
                     0.85f
-                } else if (line.isBackground || isActiveLine) {
+                } else if (isActiveLine || (line.isBackground && isAutoScrollEnabled)) {
+                    // While following playback a background line only shows beside its lead line.
+                    // During a manual scroll every one is visible, so unsung ones dim like the rest.
                     activeAlpha
                 } else if (isAutoScrollEnabled && displayedCurrentLineIndex >= 0) {
                     when (abs(index - displayedCurrentLineIndex)) {
@@ -1363,7 +1396,7 @@ internal fun ExperimentalLyricsLine(
                 } else inactiveAlpha
 
                 val animatedAlpha by animateFloatAsState(targetAlpha, tween(250), label = "expLineAlpha")
-                val lineColor = expressiveAccent.copy(alpha = if (line.isBackground) focusedAlpha else animatedAlpha)
+                val lineColor = expressiveAccent.copy(alpha = if (line.isBackground) minOf(focusedAlpha, animatedAlpha) else animatedAlpha)
 
                 val resolvedLineText = remember(line.text, line.words) {
                     val raw = if (line.isBackground) line.text.removePrefix("(").removeSuffix(")") else line.text

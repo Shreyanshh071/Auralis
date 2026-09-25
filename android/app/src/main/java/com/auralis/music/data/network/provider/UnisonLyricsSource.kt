@@ -254,7 +254,12 @@ class UnisonLyricsSource(
         if (rawParsed.lines.isEmpty()) return null
 
         val withMetadata = rawParsed.copy(
-            trackName = candTitle,
+            // Lyrics keyed by the playing video are that video's, so our title stands for it.
+            // A search hit that doesn't name its track must not inherit our query's version
+            // tags, or an album-cut answer would pass the remix check for a remix.
+            trackName = data.optString("song").ifBlank {
+                if (isExactVideoMatch) query.title else TitleCleaner.withoutBracketedTags(query.title)
+            },
             artistName = candArtist,
             durationMs = rawParsed.durationMs ?: candDuration?.let { it * 1000L },
             isExactVideoMatch = isExactVideoMatch,

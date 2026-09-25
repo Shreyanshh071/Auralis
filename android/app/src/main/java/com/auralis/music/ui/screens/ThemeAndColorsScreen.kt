@@ -301,7 +301,7 @@ fun ThemeAndColorsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ── 1. LARGE LIVE PREVIEW CARD (VIVI-INSPIRED APP MOCKUP) ──
+            // ── 1. LARGE LIVE PREVIEW CARD (APP MOCKUP) ──
             val isPreviewDark = isDark
             Box(
                 modifier = Modifier
@@ -882,7 +882,7 @@ private fun PaletteOptionItem(
 }
 
 /**
- * Metrolist-Grade Triple-Tone Palette Circle:
+ * Triple-Tone Palette Circle:
  * - Top half (180° sweep from 180° to 360°): Primary shade
  * - Bottom-left quadrant (90° sweep from 90° to 180°): Secondary shade
  * - Bottom-right quadrant (90° sweep from 0° to 90°): Tertiary shade

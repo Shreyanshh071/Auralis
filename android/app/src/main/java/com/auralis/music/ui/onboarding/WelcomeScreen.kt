@@ -43,11 +43,13 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -260,6 +262,8 @@ fun WelcomeScreen(
     onContinueWithGoogle: () -> Unit,
     onSignUpWithEmail: (String, String, String) -> Unit,
     onSignInWithEmail: (String, String) -> Unit,
+    onSendPasswordReset: (String) -> Unit = {},
+    onDismissPasswordResetMessage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isEmailAuthOpen by remember { mutableStateOf(false) }
@@ -276,7 +280,9 @@ fun WelcomeScreen(
                     authUiState = authUiState,
                     onBack = { isEmailAuthOpen = false },
                     onSignUp = onSignUpWithEmail,
-                    onSignIn = onSignInWithEmail
+                    onSignIn = onSignInWithEmail,
+                    onSendPasswordReset = onSendPasswordReset,
+                    onDismissPasswordResetMessage = onDismissPasswordResetMessage
                 )
             } else {
                 // ── MAIN ONBOARDING SCREEN ──
@@ -492,13 +498,16 @@ private fun EmailAuthFullScreen(
     authUiState: AuthUiState,
     onBack: () -> Unit,
     onSignUp: (String, String, String) -> Unit,
-    onSignIn: (String, String) -> Unit
+    onSignIn: (String, String) -> Unit,
+    onSendPasswordReset: (String) -> Unit = {},
+    onDismissPasswordResetMessage: () -> Unit = {}
 ) {
     var authMode by remember { mutableIntStateOf(0) } // 0 = Sign up, 1 = Log in
     var usernameInput by remember { mutableStateOf("") }
     var emailInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
+    var isForgotPasswordOpen by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -653,6 +662,20 @@ private fun EmailAuthFullScreen(
                         isPasswordVisible = isPasswordVisible,
                         onTogglePasswordVisibility = { isPasswordVisible = !isPasswordVisible }
                     )
+
+                    if (authMode == 1) {
+                        Text(
+                            text = "Forgot password?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ONBOARDING_PEACH,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .clickable { isForgotPasswordOpen = true }
+                                .padding(vertical = 4.dp)
+                        )
+                    }
                 }
 
                 if (authUiState.syncMessage != null) {
@@ -718,6 +741,84 @@ private fun EmailAuthFullScreen(
             }
         }
     }
+
+    if (isForgotPasswordOpen) {
+        ForgotPasswordDialog(
+            initialEmail = emailInput,
+            isSending = authUiState.isSendingPasswordReset,
+            message = authUiState.passwordResetMessage,
+            onSend = onSendPasswordReset,
+            onDismiss = {
+                isForgotPasswordOpen = false
+                onDismissPasswordResetMessage()
+            }
+        )
+    }
+}
+
+/**
+ * Small dialog for requesting a Firebase password reset email. Shows one neutral confirmation
+ * regardless of whether the address has an account, matching Firebase's own privacy behavior.
+ */
+@Composable
+private fun ForgotPasswordDialog(
+    initialEmail: String,
+    isSending: Boolean,
+    message: String?,
+    onSend: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var emailInput by remember { mutableStateOf(initialEmail) }
+    val sent = message != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF181818),
+        titleContentColor = Color.White,
+        textContentColor = Color.White.copy(alpha = 0.75f),
+        title = { Text("Reset your password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (sent) {
+                    Text(message.orEmpty())
+                } else {
+                    Text("Enter your account email and we'll send you a link to reset your password.")
+                    DarkInputField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it },
+                        placeholder = "Email",
+                        icon = Icons.Default.Email,
+                        keyboardType = KeyboardType.Email
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (sent) {
+                TextButton(onClick = onDismiss) {
+                    Text("Done", color = ONBOARDING_PEACH, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                TextButton(
+                    enabled = !isSending && emailInput.isNotBlank(),
+                    onClick = { onSend(emailInput.trim()) }
+                ) {
+                    if (isSending) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ONBOARDING_PEACH, strokeWidth = 2.dp)
+                    } else {
+                        Text("Send link", color = ONBOARDING_PEACH, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            if (!sent) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                }
+            }
+        }
+    )
 }
 
 /**

@@ -166,11 +166,17 @@ object LrcParser {
      * A lone coincidental timestamp collision (fewer than 3 pairs) is left untouched.
      */
     internal fun pairTranslationLines(sorted: List<LyricLine>): List<LyricLine> {
+        // Same-line pairs are usually stamped at the exact same millisecond, but some sources
+        // round-trip the two lines through separate parsing/merge steps and land a few ms apart.
+        // A small tolerance still only matches genuinely simultaneous lines: real distinct lyric
+        // lines are essentially never this close together.
+        val pairTimeToleranceMs = 60L
         fun isPairAt(i: Int): Boolean {
             val a = sorted[i]
             val b = sorted.getOrNull(i + 1) ?: return false
             val c = sorted.getOrNull(i + 2)
-            return b.time == a.time && (c == null || c.time != a.time) &&
+            return kotlin.math.abs(b.time - a.time) <= pairTimeToleranceMs &&
+                (c == null || kotlin.math.abs(c.time - a.time) > pairTimeToleranceMs) &&
                 !a.isBackground && !b.isBackground && !a.isInstrumental && !b.isInstrumental &&
                 a.text.isNotBlank() && b.text.isNotBlank() && !a.text.equals(b.text, ignoreCase = true)
         }
@@ -202,7 +208,7 @@ object LrcParser {
 
     /**
      * Intelligently groups rapid 1-3 word phrase fragments into natural, complete poetic lines
-     * with word-level timing preserved, matching Metrolist and Apple Music display style.
+     * with word-level timing preserved, matching the Apple Music display style.
      *
      * Word timing survives a merge only when **every** fragment folded into a line
      * supplied its own. A fragment that arrived with `words == null` states one

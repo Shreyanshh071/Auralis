@@ -21,11 +21,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.session.SessionToken
 import coil.ImageLoader
 import coil.request.ImageRequest
 import com.auralis.music.MainActivity
@@ -57,6 +59,23 @@ import kotlinx.coroutines.withContext
 class AuralisMediaService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+
+    /**
+     * A controller connected to our own session keeps this service *bound* for as long as
+     * the app process lives (the usual Media3 way to keep the media notification
+     * working). Without it, a paused service is only *started*; Android
+     * stops idle background services, onDestroy released the session, and the notification
+     * that stayed behind was re-drawn by System UI from its plain actions and a downscaled
+     * large icon (no seek bar, no repeat, blurrier cover).
+     */
+    private var selfControllerFuture: ListenableFuture<MediaController>? = null
+
+    private fun releaseSelfController() {
+        selfControllerFuture?.let {
+            try { MediaController.releaseFuture(it) } catch (_: Exception) {}
+        }
+        selfControllerFuture = null
+    }
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var lastArtworkUrl: String? = null
     private var currentArtworkBitmap: Bitmap? = null
@@ -304,6 +323,15 @@ class AuralisMediaService : MediaSessionService() {
         mediaSession = session
         addSession(session)
 
+        try {
+            selfControllerFuture = MediaController.Builder(
+                this,
+                SessionToken(this, android.content.ComponentName(this, AuralisMediaService::class.java))
+            ).buildAsync()
+        } catch (e: Exception) {
+            Log.w("AuralisPlayback", "[AuralisMediaService] self controller notice: ${e.message}")
+        }
+
         // Keep MediaSession callback synced with current audio playback states
         serviceScope.launch {
             audioPlayer.isPlaying.collectLatest { isPlaying ->
@@ -485,6 +513,7 @@ class AuralisMediaService : MediaSessionService() {
                     val notifManager = NotificationManagerCompat.from(this)
                     notifManager.cancel(NOTIFICATION_ID)
                 } catch (_: Exception) {}
+                releaseSelfController()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -953,6 +982,7 @@ class AuralisMediaService : MediaSessionService() {
                 }
             } catch (_: Exception) {}
 
+            releaseSelfController()
             stopSelf()
         }
     }
@@ -964,6 +994,7 @@ class AuralisMediaService : MediaSessionService() {
             com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
         } catch (_: Exception) {}
         serviceScope.cancel()
+        releaseSelfController()
         mediaSession?.run {
             try {
                 removeSession(this)
@@ -971,6 +1002,11 @@ class AuralisMediaService : MediaSessionService() {
             release()
             mediaSession = null
         }
+        // The session behind this notification is gone; a notification left in place would be
+        // re-drawn by System UI from its plain actions and large icon instead of the session.
+        try {
+            NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
         super.onDestroy()
     }
 }

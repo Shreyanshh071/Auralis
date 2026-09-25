@@ -1,3 +1,10 @@
+/**
+ * Mini/full player glow motion adapted from vivimusic (GPL-3.0).
+ * vivimusic Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ * Adapted for Auralis under GNU General Public License v3.0
+ */
+
 package com.auralis.music.ui.player
 
 import androidx.compose.animation.Crossfade
@@ -178,7 +185,7 @@ object PlayerGradientPalette {
         val sHue = secondaryHsv[0]
         val sSat = secondaryHsv[1]
 
-        // Boost saturation for vivid, rich appearance like ViVi & Metrolist
+        // Boost saturation for vivid, rich appearance
         val enhancedPSat = (pSat * 1.30f).coerceIn(0.55f, 1.0f)
         val enhancedSSat = (sSat * 1.25f).coerceIn(0.50f, 1.0f)
 
@@ -464,7 +471,7 @@ fun coordinatedArtworkPalette(
  *
  * Implements 6 distinct styles:
  * 1. FOLLOW_THEME: Clean Solid Theme / Surface background
- * 2. GRADIENT: Metrolist & ViVi grade full-bleed gradient derived from artwork's authentic dominant hue
+ * 2. GRADIENT: Full-bleed gradient derived from artwork's authentic dominant hue
  * 3. BLUR: Fullscreen vivid album artwork blur with seamless crossfade & contrast vignette
  * 4. GLOW_MOTION: Animated GPU-drawn ambient radial glowing blobs
  * 5. APPLE_MUSIC: Apple Music-inspired ambient blurred backdrop with cloudy atmospheric fade
@@ -548,7 +555,7 @@ fun PlayerBackground(
                         .background(if (isMiniPlayer) Color.Transparent else MaterialTheme.dynamicBackground)
                 )
 
-                // Seamless Dual-Layer Blurred Artwork (zero black frames while image decodes, matching Metrolist)
+                // Seamless Dual-Layer Blurred Artwork (zero black frames while image decodes)
                 SeamlessArtworkBlurLayer(
                     artworkUrl = artworkUrl,
                     isMiniPlayer = isMiniPlayer,
@@ -562,7 +569,7 @@ fun PlayerBackground(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Legibility Scrim: uniform dark overlay matching Metrolist exactly (30% full player, 35% mini player)
+                // Legibility Scrim: uniform dark overlay (30% full player, 35% mini player)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -571,7 +578,7 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.GLOW_MOTION -> {
-                // ViVi-exact 20-second continuous rotation
+                // 20-second continuous rotation
                 val infiniteTransition = rememberInfiniteTransition(label = "glowMotionTransition")
                 // Kept as State and read only in the draw phase: reading it in composition rebuilt
                 // this whole background on every frame of the never-ending 20s rotation, which
@@ -607,7 +614,7 @@ fun PlayerBackground(
                 }
 
                 if (isMiniPlayer) {
-                    // ViVi's EXACT Mini Player Glow Motion (vivi_MiniPlayer.kt lines 1069-1128)
+                    // Mini Player Glow Motion (adapted, see file header)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -633,7 +640,7 @@ fun PlayerBackground(
                             }
                     )
                 } else {
-                    // ViVi's EXACT Full Player Glow Motion (vivi_Player.kt lines 921-1065)
+                    // Full Player Glow Motion (adapted, see file header)
                     val baseColor = Color(0xFF050505)
                     // (colour index, peak/mid alpha, center x/y ranges + phases, radius range + phase)
                     Box(
@@ -752,7 +759,7 @@ fun PlayerBackground(
             }
 
             PlayerBackgroundStyle.LIVE_MESH -> {
-                // ViVi-inspired Live Mesh Dynamic Background
+                // Live Mesh Dynamic Background
                 // Foundation: Deep vertical gradient anchored to top dominant color
                 fun meshBrush(stops: GradientStops): Brush = Brush.verticalGradient(
                     0.0f to stops.topVibrant.copy(alpha = 0.45f),
@@ -901,10 +908,12 @@ private fun SeamlessArtworkBlurLayer(
     val colorFilter = remember(colorMatrix) {
         colorMatrix?.let { ColorFilter.colorMatrix(it) }
     }
-    // Blur a quarter-size copy (radius / 4) and scale it back up. A 120dp blur over the full
-    // screen, twice during every song-change crossfade, was the heaviest GPU work in the app and
-    // dropped frames; blurred content has no fine detail, so the downscaled result looks the same.
-    val blurDownscale = if (isMiniPlayer) 1f else 4f
+    // Blur a downscaled copy and scale it back up. A full-resolution blur over the full screen,
+    // twice during every song-change crossfade, was the heaviest GPU work in the app and dropped
+    // frames. A quarter-size copy (4x) was cheapest but visibly blocky once stretched back up to
+    // fill the screen; half-size (2x) still cuts the blur's GPU cost by ~75% while holding enough
+    // detail that the upscale doesn't read as pixelated.
+    val blurDownscale = if (isMiniPlayer) 1f else 2f
 
     // Ping-pong layer slots: Slot 0 (base) and Slot 1 (overlay)
     // slot1Alpha: 0f = Slot 0 is fully visible; 1f = Slot 1 is fully visible.
@@ -947,7 +956,7 @@ private fun SeamlessArtworkBlurLayer(
                 val primReq = remember(prim) {
                     ImageRequest.Builder(context)
                         .data(prim)
-                        .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                        .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
                         .allowHardware(true)
                         .crossfade(false)
                         .build()
@@ -974,7 +983,7 @@ private fun SeamlessArtworkBlurLayer(
             val secReq = remember(secondaryArtworkUrl) {
                 ImageRequest.Builder(context)
                     .data(secondaryArtworkUrl)
-                    .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                    .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
                     .allowHardware(true)
                     .crossfade(false)
                     .build()
@@ -1004,7 +1013,7 @@ private fun SeamlessArtworkBlurLayer(
                 val req0 = remember(u0) {
                     ImageRequest.Builder(context)
                         .data(u0)
-                        .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                        .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
                         .allowHardware(true)
                         .crossfade(false)
                         .build()
@@ -1034,7 +1043,7 @@ private fun SeamlessArtworkBlurLayer(
                 val req1 = remember(u1) {
                     ImageRequest.Builder(context)
                         .data(u1)
-                        .size(if (isMiniPlayer) 128 else 256, if (isMiniPlayer) 128 else 256)
+                        .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
                         .allowHardware(true)
                         .crossfade(false)
                         .build()
@@ -1065,7 +1074,7 @@ private fun SeamlessArtworkBlurLayer(
 /**
  * Dual-layer Live Mesh renderer that continuously rotates mesh layers while fluidly cross-fading
  * artwork between track changes without showing black backgrounds.
- * Fully preserves the authentic 3-layer multi-speed blurred ViVi music aesthetic.
+ * Fully preserves the 3-layer multi-speed blurred aesthetic.
  */
 @Composable
 private fun LiveMeshArtworkLayer(
@@ -1236,10 +1245,14 @@ private fun LiveMeshArtworkContent(
     onLoaded: (() -> Unit)?
 ) {
     val context = LocalContext.current
-    val meshReq = remember(url) {
+    // 128px was stretched roughly 7x linearly onto the full-player mesh (quarter-size layer x4,
+    // plus the outer 1.7x scale) and read as visibly blocky. 256px still costs little to decode
+    // and blur, but holds enough detail that the same stretch no longer looks pixelated.
+    val meshReq = remember(url, isMiniPlayer) {
+        val size = if (isMiniPlayer) 128 else 256
         ImageRequest.Builder(context)
             .data(url)
-            .size(128, 128)
+            .size(size, size)
             .allowHardware(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
@@ -1284,15 +1297,17 @@ private fun LiveMeshArtworkContent(
                     this.alpha = alpha()
                 }
         ) {
-            // The three blurred layers render at quarter size (blur radius / 4) and are scaled
-            // back up: six full-screen 100-120dp blurs during a song-change crossfade dropped frames.
+            // The three blurred layers render downscaled and are scaled back up: six full-screen
+            // 100-120dp blurs during a song-change crossfade dropped frames at full resolution.
+            // Half-size (2x) still avoids that cost while not stretching the source thin enough
+            // to look blocky once the outer 1.7x scale is applied on top.
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxSize(0.25f)
+                    .fillMaxSize(0.5f)
                     .graphicsLayer {
-                        scaleX = 4f
-                        scaleY = 4f
+                        scaleX = 2f
+                        scaleY = 2f
                     }
             ) {
                 // Layer 1: The Anchor (Full Image, Counter-Clockwise)
@@ -1341,7 +1356,7 @@ private fun LiveMeshArtworkContent(
                 )
             }
 
-            // Global dark tint + vertical gradient depth matching ViVi
+            // Global dark tint + vertical gradient depth
             Box(
                 modifier = Modifier
                     .fillMaxSize()

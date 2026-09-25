@@ -33,6 +33,7 @@ import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
+import com.auralis.music.ui.components.bottomChromePadding
 
 private const val GITHUB_REPO_URL = "https://github.com/Shreyanshh071/Auralis"
 private const val AURALIS_WEBSITE_URL = "https://auralis-self-nu.vercel.app/"
@@ -97,7 +98,6 @@ fun AboutScreen(
         },
         containerColor = backgroundColor
     ) { paddingValues ->
-        val bottomPad = if (hasActiveTrack) 130.dp else 24.dp
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -105,7 +105,7 @@ fun AboutScreen(
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(22.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = bottomPad)
+            contentPadding = bottomChromePadding(top = 16.dp, includeNavigationBar = false)
         ) {
             // ── 1. APP HERO HEADER ──
             item(key = "about_hero") {

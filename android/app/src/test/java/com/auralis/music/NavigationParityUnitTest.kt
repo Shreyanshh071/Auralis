@@ -185,7 +185,7 @@ class NavigationParityUnitTest {
 
     @Test
     fun testViviSlideDistanceFormula() {
-        // VIVI formula: it / 8
+        // Slide formula: it / 8
         val screenWidths = listOf(720f, 1080f, 1440f)
 
         for (w in screenWidths) {

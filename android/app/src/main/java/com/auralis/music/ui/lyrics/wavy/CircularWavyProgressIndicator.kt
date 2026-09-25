@@ -62,7 +62,7 @@ object WavyProgressIndicatorDefaults {
     val StandardStrokeWidth: Dp = 3.0.dp
     val StandardTrackGapSize: Dp = 3.0.dp
 
-    // MetroLyrics indicator styling (Metrolist)
+    // MetroLyrics indicator styling
     val MetroIndicatorSize: Dp = 40.dp
     val MetroStrokeWidth: Dp = 5.0.dp
     val MetroTrackGapSize: Dp = 4.0.dp
@@ -89,7 +89,7 @@ object WavyProgressIndicatorDefaults {
     val CircularIndicatorTrackGapSize: Dp = 4.dp
 
     /**
-     * Default wave amplitude factor (1.0f) matching ViVi / Material 3 Expressive.
+     * Default wave amplitude factor (1.0f) matching Material 3 Expressive.
      */
     const val DefaultWaveAmplitude: Float = 1.0f
 

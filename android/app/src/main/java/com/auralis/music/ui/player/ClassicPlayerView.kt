@@ -196,7 +196,7 @@ import kotlin.math.roundToInt
 val LocalClassicLyricsHazeState = androidx.compose.runtime.compositionLocalOf<dev.chrisbanes.haze.HazeState?> { null }
 
 /**
- * Classic ViVi Player screen displayed when `appearance.newPlayerDesign == false`.
+ * Classic Player screen displayed when `appearance.newPlayerDesign == false`.
  * Faithful pixel-accurate reproduction of the classic player interface:
  * - Top: Centered "Now Playing" and album title
  * - Center: Square album art with rounded corners and swipe-to-skip pager
@@ -475,7 +475,7 @@ fun ClassicPlayerView(
                 }
                 .then(metadataMotionModifier)
                 .graphicsLayer {
-                    // VIVI: the title never travels. It fades out in place as the cover starts to
+                    // The title never travels. It fades out in place as the cover starts to
                     // move; the compact header's own title is revealed at its final spot, under
                     // the shrinking cover. A travelling title dragged across the incoming content.
                     alpha = controlsAlpha * ClassicPlayerViewportMotion.expandedMetadataAlpha(compactHeaderProgress.value)
@@ -1336,7 +1336,7 @@ private fun rememberClassicPlayerMotion(
     reducedMotion: Boolean
 ): ClassicPlayerMotionHolder {
     // Linear clock: the per-layer FastOutSlowIn curves (and the faster exit) are applied in
-    // ClassicPlayerViewportMotion.entryAlpha/exitAlpha, matching VIVI's crossfade.
+    // ClassicPlayerViewportMotion.entryAlpha/exitAlpha crossfade.
     val motionSpec = remember(reducedMotion) {
         if (reducedMotion) {
             snap<Float>()
@@ -1671,7 +1671,7 @@ private fun ClassicPlayerTabOverlay(
                 track = track,
                 uiState = uiState,
                 queue = queue,
-                // Stay on the queue (as VIVI does): the compact header's artwork/title and the
+                // Stay on the queue: the compact header's artwork/title and the
                 // background swap in place. Jumping to the Player tab here ran the full hero
                 // flight and tore down the queue on the same frames the new song was loading.
                 onSelectQueueTrack = onSelectQueueTrack,
@@ -1852,7 +1852,7 @@ fun ClassicPlayerContainer(
                     renderedContentTabs.forEach { tab ->
                         val isLyrics = tab == NowPlayingTab.LYRICS
                         // Only the tab's content fades/glides; its playback controls stay opaque and
-                        // still so they read as one fixed set across Player/Lyrics/Queue (as in VIVI).
+                        // still so they read as one fixed set across Player/Lyrics/Queue.
                         val layerContent: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {
                             alpha = if (isLyrics) motion.lyricsAlpha.value else motion.queueAlpha.value
                             translationY = (if (isLyrics) motion.lyricsTranslationYDp.value else motion.queueTranslationYDp.value).dp.toPx()
@@ -1953,7 +1953,7 @@ fun ClassicPlayerContainer(
                     // Keep the transformed hero alive at the compact endpoint. The old
                     // full-layer fade forced a late artwork/title handoff and visible pop.
                     // While moving, lift it above both destination screens just like
-                    // VIVI's shared-element overlay (zIndexInOverlay = 1f).
+                    // a shared-element overlay (zIndexInOverlay = 1f).
                     .zIndex(
                         when {
                             heroIsInFlight -> 4f
@@ -2025,7 +2025,7 @@ private fun ClassicLyricsContent(
     contentLayer: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {},
     controlsBottomSpacerDp: androidx.compose.ui.unit.Dp = 0.dp
 ) {
-    // Plain remember: re-entering Lyrics must start with the controls already in place (VIVI),
+    // Plain remember: re-entering Lyrics must start with the controls already in place,
     // not restore a stale "hidden" state and slide them in over the Player's copy.
     var lyricsControlsVisible by remember { mutableStateOf(true) }
     var lyricsInteractionTick by remember { mutableIntStateOf(0) }
@@ -2563,7 +2563,7 @@ private fun ClassicQueueContent(
             }
         }
 
-        // Controls overlay the list (like the lyrics tab / VIVI) instead of sitting below it.
+        // Controls overlay the list (like the lyrics tab) instead of sitting below it.
         // Resizing the list on every frame of the show/hide animation re-laid out its rows and
         // triggered their placement animations, briefly stacking rows on top of each other.
         val queueHazeState = LocalClassicLyricsHazeState.current
@@ -2952,7 +2952,7 @@ private fun ClassicQueueContent(
             // 4. Playback Controls in Queue (Dynamic scroll visibility: hides on scroll down, reappears on scroll up)
             androidx.compose.animation.AnimatedVisibility(
                 visible = queueControlsVisible,
-                // VIVI: draw-layer fade + slide only, no expand/shrink, so the list never relayouts.
+                // Draw-layer fade + slide only, no expand/shrink, so the list never relayouts.
                 enter = fadeIn(tween(ClassicPlayerViewportMotion.ControlsEnterDurationMillis, easing = FastOutSlowInEasing)) +
                     slideInVertically(tween(ClassicPlayerViewportMotion.ControlsEnterDurationMillis, easing = FastOutSlowInEasing)) {
                         it / ClassicPlayerViewportMotion.ControlsSlideFraction

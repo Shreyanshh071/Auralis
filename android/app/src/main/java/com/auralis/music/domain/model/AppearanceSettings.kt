@@ -13,11 +13,11 @@ data class AppearanceSettings(
     val miniPlayerDesign: String = "New mini player",
     val pureBlackMiniPlayer: Boolean = false,
     val newMiniPlayerDesign: Boolean = true,
-    val miniPlayerBackgroundStyle: String = "Blur",
+    val miniPlayerBackgroundStyle: String = "Live Mesh",
 
     // ── Player ──
     val newPlayerDesign: Boolean = true,
-    val playerBackgroundStyle: String = "Gradient",
+    val playerBackgroundStyle: String = "Blur",
     val hidePlayerThumbnail: Boolean = false,
     val cropAlbumArt: Boolean = true,
     val playerButtonColors: String = "Default",
@@ -33,7 +33,7 @@ data class AppearanceSettings(
     val changeLyricsOnTap: Boolean = true,
     val autoScrollLyrics: Boolean = true,
     val hideStatusBarOnFullscreen: Boolean = false,
-    val lyricsAnimation: String = LyricsAnimationMode.AURALIS.displayName,
+    val lyricsAnimation: String = LyricsAnimationMode.METRO_LYRICS.displayName,
     val enableGlowingLyricsEffect: Boolean = false,
     val standardLyricsBlur: Boolean = true,
     val lyricsTextSize: Float = 22f,
