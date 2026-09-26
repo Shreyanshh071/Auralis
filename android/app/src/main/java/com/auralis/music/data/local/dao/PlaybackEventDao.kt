@@ -75,4 +75,16 @@ interface PlaybackEventDao {
 
     @Query("DELETE FROM playback_events")
     suspend fun clearAllEvents()
+
+    /**
+     * Deletes estimated listens: events whose time is exactly the song's full length (or the old
+     * 198s fallback). Older builds wrote these on every song start or fabricated them from play
+     * counts; a measured listen from ListeningTimeTracker never lands on the exact millisecond.
+     */
+    @Query("""
+        DELETE FROM playback_events
+        WHERE playTimeMs = 198000
+           OR playTimeMs = (SELECT tracks.duration * 1000 FROM tracks WHERE tracks.id = playback_events.trackId)
+    """)
+    suspend fun deleteEstimatedEvents(): Int
 }

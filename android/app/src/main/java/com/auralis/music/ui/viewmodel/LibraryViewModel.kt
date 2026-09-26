@@ -49,6 +49,7 @@ data class LibraryUiState(
     val selectedSmartCollection: SmartCollectionType? = null,
     val isGridView: Boolean = true,
     val sortOrder: String = "Date added",
+    val recentPlayedAtByTrackId: Map<String, Long> = emptyMap(),
     val isImporting: Boolean = false,
     val importMessage: String? = null,
     val isImportingSpotify: Boolean = false,
@@ -58,7 +59,9 @@ data class LibraryUiState(
 class LibraryViewModel(
     private val libraryRepository: LibraryRepository,
     private val youtubeImporter: YouTubePlaylistImporter = YouTubePlaylistImporter(),
-    private val spotifyImporter: SpotifyPlaylistImporter = SpotifyPlaylistImporter()
+    private val spotifyImporter: SpotifyPlaylistImporter = SpotifyPlaylistImporter(),
+    private val historyRepository: HistoryRepository? = null,
+    private val matchReviewPrefs: android.content.SharedPreferences? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
@@ -66,6 +69,21 @@ class LibraryViewModel(
     private var selectPlaylistJob: kotlinx.coroutines.Job? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) { reviewSavedRecordingMatchesOnce() }
+        historyRepository?.let { repository ->
+            viewModelScope.launch {
+                repository.getHistory().collect { history ->
+                    _uiState.update { state ->
+                        state.copy(
+                            recentPlayedAtByTrackId = history
+                                .groupBy { it.track.id }
+                                .mapValues { (_, plays) -> plays.maxOf { it.playedAt } }
+                        )
+                    }
+                }
+            }
+        }
+
         // Collect playlists
         viewModelScope.launch {
             libraryRepository.getPlaylists().collect { playlists ->
@@ -197,6 +215,49 @@ class LibraryViewModel(
             } catch (e: Exception) {
                 android.util.Log.w("LibraryViewModel", "enrichPlaylist failed: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * One pass over every saved playlist with the current recording matcher: songs an earlier
+     * matcher bound to another recording (a remix, a re-recording, a feat. release) are moved to
+     * the right one, keeping their place and their Spotify details. Runs once per matcher version.
+     */
+    private suspend fun reviewSavedRecordingMatchesOnce() {
+        val prefs = matchReviewPrefs ?: return
+        if (prefs.getInt(RECORDING_REVIEW_KEY, 0) >= RECORDING_REVIEW_VERSION) return
+        kotlinx.coroutines.delay(8_000) // let startup playback go first
+        try {
+            val playlists = libraryRepository.getPlaylists().firstOrNull() ?: return
+            val saved = playlists.flatMap { it.tracks }.distinctBy { it.id }
+            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            val corrections = java.util.concurrent.ConcurrentHashMap<String, Track>()
+            kotlinx.coroutines.coroutineScope {
+                saved.forEach { track ->
+                    launch {
+                        gate.acquire()
+                        try {
+                            while (com.auralis.music.data.network.AudioStreamResolver.isPlaybackResolving) {
+                                kotlinx.coroutines.delay(1_000)
+                            }
+                            spotifyImporter.correctedMatch(track)?.let { corrections[track.id] = it }
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                        } finally {
+                            gate.release()
+                        }
+                    }
+                }
+            }
+            for (pl in playlists) {
+                if (pl.tracks.none { corrections.containsKey(it.id) }) continue
+                libraryRepository.replacePlaylistTracks(pl.id, pl.tracks.map { corrections[it.id] ?: it })
+            }
+            android.util.Log.i("LibraryViewModel", "Recording review: ${corrections.size} of ${saved.size} saved songs moved to the right recording")
+            prefs.edit().putInt(RECORDING_REVIEW_KEY, RECORDING_REVIEW_VERSION).apply()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.w("LibraryViewModel", "Recording review failed, will retry next launch: ${e.message}")
         }
     }
 
@@ -805,3 +866,6 @@ class LibraryViewModel(
         }
     }
 }
+
+private const val RECORDING_REVIEW_KEY = "recording_review_version"
+private const val RECORDING_REVIEW_VERSION = 1

@@ -75,7 +75,9 @@ class AppViewModelProvider(
                     return LibraryViewModel(
                         libraryRepository,
                         youtubeImporter,
-                        spotifyImporter
+                        spotifyImporter,
+                        historyRepository,
+                        activity.getSharedPreferences("auralis_import_matching", android.content.Context.MODE_PRIVATE)
                     ) as T
                 }
             }
@@ -103,9 +105,13 @@ class AppViewModelProvider(
         )[PlayerViewModel::class.java]
     }
 
+    /**
+     * The room session outlives the screen: with "stop music on task clear" off, music keeps
+     * playing after the app is swiped away, and the room must keep syncing with it.
+     */
     fun getListenTogetherViewModel(): ListenTogetherViewModel {
         return ViewModelProvider(
-            activity,
+            AppScopedViewModels,
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -115,8 +121,11 @@ class AppViewModelProvider(
                     ) as T
                 }
             }
-        )[ListenTogetherViewModel::class.java]
+        )[ListenTogetherViewModel::class.java].also { AppScopedViewModels.listenTogether = it }
     }
+
+    /** The room session if one was already started in this app process (e.g. before the screen was recreated). */
+    fun existingListenTogetherViewModel(): ListenTogetherViewModel? = AppScopedViewModels.listenTogether
 
     fun getAuthViewModel(): AuthViewModel {
         return ViewModelProvider(
@@ -141,4 +150,10 @@ class AppViewModelProvider(
             }
         )[StatsViewModel::class.java]
     }
+}
+
+/** ViewModels that live as long as the app process, not a single screen. */
+object AppScopedViewModels : androidx.lifecycle.ViewModelStoreOwner {
+    override val viewModelStore = androidx.lifecycle.ViewModelStore()
+    @Volatile var listenTogether: ListenTogetherViewModel? = null
 }

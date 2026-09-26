@@ -15,9 +15,10 @@ import com.auralis.music.domain.repository.StatsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class StatsRepositoryImpl(
@@ -26,15 +27,14 @@ class StatsRepositoryImpl(
     private val historyDao: HistoryDao,
     private val playCountDao: PlayCountDao
 ) : StatsRepository {
+    private val statsMutationMutex = Mutex()
 
     override suspend fun logPlaybackEvent(track: Track, playTimeMs: Long) = withContext(Dispatchers.IO) {
         if (track.id.isBlank()) return@withContext
         trackDao.upsertTrackPreservingFavorite(track.toEntity())
-        val effectivePlayTimeMs = if (playTimeMs > 0) {
-            playTimeMs
-        } else {
-            (track.duration.takeIf { it > 0 } ?: 198L) * 1000L
-        }
+        // Only measured time counts; never assume a full-length listen.
+        if (playTimeMs <= 0) return@withContext
+        val effectivePlayTimeMs = playTimeMs
         playbackEventDao.insertEvent(
             PlaybackEventEntity(
                 trackId = track.id,
@@ -136,67 +136,23 @@ class StatsRepositoryImpl(
         return playbackEventDao.getFirstEventTimestamp()
     }
 
-    override suspend fun seedFromHistoryIfNeeded() = withContext(Dispatchers.IO) {
-        val count = playbackEventDao.getEventCount()
-        val playCounts = playCountDao.getAllPlayCounts()
-
-        // Check if we need to seed or re-seed (if existing events were legacy-squeezed into < 48 hours)
-        var needsReseed = count == 0
-        if (!needsReseed && playCounts.any { it.playCount.count >= 4 }) {
-            val minTs = playbackEventDao.getFirstEventTimestamp().firstOrNull()
-            if (minTs != null && (System.currentTimeMillis() - minTs) < 48L * 3600_000L) {
-                needsReseed = true
-            }
+    override suspend fun removeEstimatedListens() = withContext(Dispatchers.IO) {
+        statsMutationMutex.withLock {
+            // Stats shows only measured listening time. This used to rebuild events from play
+            // counts as plays x full length (wiping real events to do it), so a song started five
+            // times showed five complete listens.
+            playbackEventDao.deleteEstimatedEvents()
+            Unit
         }
+    }
 
-        if (!needsReseed) return@withContext
-
-        if (count > 0) {
+    override suspend fun clearListeningStats() = withContext(Dispatchers.IO) {
+        statsMutationMutex.withLock {
+            // The startup seed reads both of these legacy tables. Clear them before events
+            // so opening Stats again cannot restore the old listening data.
+            historyDao.clearHistory()
+            playCountDao.clearPlayCounts()
             playbackEventDao.clearAllEvents()
-        }
-
-        val history = historyDao.getHistoryWithTracks()
-        val historyMap = history.associate { it.track.id to it.history.playedAt }
-
-        val seedEvents = mutableListOf<PlaybackEventEntity>()
-
-        if (playCounts.isNotEmpty()) {
-            playCounts.forEach { pc ->
-                val track = pc.track
-                val durMs = (track.duration.takeIf { it > 0 } ?: 198L) * 1000L
-                val playCount = pc.playCount.count.coerceAtLeast(1)
-                val anchorTime = historyMap[track.id] ?: pc.playCount.lastPlayed
-
-                for (i in 0 until playCount) {
-                    // Spread plays realistically across 1.5 to 2.5 days apart
-                    // so plays naturally distribute across 1 week, 1 month, 3 months
-                    val jitter = (Math.abs(track.id.hashCode().toLong()) % 12L) * 3600_000L
-                    val spreadMs = if (i == 0) 0L else (i * 36L * 3600_000L) + jitter
-                    val ts = anchorTime - spreadMs
-                    seedEvents.add(
-                        PlaybackEventEntity(
-                            trackId = track.id,
-                            timestamp = ts,
-                            playTimeMs = durMs
-                        )
-                    )
-                }
-            }
-        } else if (history.isNotEmpty()) {
-            history.forEach { tuple ->
-                val durMs = (tuple.track.duration.takeIf { it > 0 } ?: 198L) * 1000L
-                seedEvents.add(
-                    PlaybackEventEntity(
-                        trackId = tuple.track.id,
-                        timestamp = tuple.history.playedAt,
-                        playTimeMs = durMs
-                    )
-                )
-            }
-        }
-
-        if (seedEvents.isNotEmpty()) {
-            playbackEventDao.insertEvents(seedEvents)
         }
     }
 }

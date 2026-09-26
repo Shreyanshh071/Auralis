@@ -5,6 +5,7 @@ import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.domain.model.LyricsAnimationMode
 import com.auralis.music.domain.model.SyncType
+import com.auralis.music.ui.lyrics.computeLyricsProgressiveBlur
 import com.auralis.music.ui.lyrics.resolveEffectiveWords
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,6 +23,27 @@ import org.junit.Test
  * 4. Multi-agent vocal positioning and distance-from-current logic.
  */
 class LyricsAnimationModesTest {
+
+    @Test
+    fun progressiveBlur_isSymmetricAroundActiveLine() {
+        fun blurAt(center: Float) = computeLyricsProgressiveBlur(
+            standardBlur = true,
+            isSynced = true,
+            isPlain = false,
+            isSelected = false,
+            isCurrent = false,
+            isUserInteracting = false,
+            lineCenterPx = center,
+            activeLineCenterPx = 450f,
+            viewportStartPx = 0f,
+            viewportEndPx = 1000f
+        )
+
+        assertEquals(blurAt(250f), blurAt(650f), 0.001f)
+        assertTrue("Past lyrics should visibly blur", blurAt(250f) > 6f)
+        assertTrue(blurAt(100f) > blurAt(250f))
+        assertEquals(0f, blurAt(450f), 0f)
+    }
 
     @Test
     fun allAnimationModes_existAndAreDistinct() {

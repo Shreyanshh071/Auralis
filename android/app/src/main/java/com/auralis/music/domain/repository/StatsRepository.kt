@@ -12,5 +12,6 @@ interface StatsRepository {
     fun observeTopSongs(fromTimestamp: Long, toTimestamp: Long, limit: Int = 20): Flow<List<SongStat>>
     fun observeTopArtists(fromTimestamp: Long, toTimestamp: Long, limit: Int = 10): Flow<List<ArtistStat>>
     fun observeFirstEventTimestamp(): Flow<Long?>
-    suspend fun seedFromHistoryIfNeeded()
+    suspend fun removeEstimatedListens()
+    suspend fun clearListeningStats()
 }

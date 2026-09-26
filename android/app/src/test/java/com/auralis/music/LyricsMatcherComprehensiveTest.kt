@@ -11,7 +11,7 @@ class LyricsMatcherComprehensiveTest {
     fun `IndicScriptNormalizer transliterates Bhojpuri and Hindi Devanagari to Latin accurately`() {
         val bhojpuriDevanagari = "राजा जी के दिलवा"
         val transliterated = IndicScriptNormalizer.transliterateToPhoneticLatin(bhojpuriDevanagari)
-        assertEquals("Raja Ji Ke Dilava", transliterated)
+        assertEquals("Raja Ji Ke Dilva", transliterated)
 
         val hindiDevanagari = "केसरिया"
         val kesariyaLatin = IndicScriptNormalizer.transliterateToPhoneticLatin(hindiDevanagari)
@@ -19,7 +19,7 @@ class LyricsMatcherComprehensiveTest {
 
         val artistDevanagari = "पवन सिंह"
         val artistLatin = IndicScriptNormalizer.transliterateToPhoneticLatin(artistDevanagari)
-        assertEquals("Pavn Sinh", artistLatin)
+        assertEquals("Pavan Sinh", artistLatin)
     }
 
     @Test

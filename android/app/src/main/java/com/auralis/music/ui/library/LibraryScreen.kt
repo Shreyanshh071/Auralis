@@ -168,6 +168,7 @@ import com.auralis.music.ui.viewmodel.LibraryFilter
 import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.SmartCollectionType
 import com.auralis.music.ui.components.bottomChromePadding
+import java.util.Locale
 
 val CREAM_ICON_COLOR: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
 val CARD_DARK_BG: Color @Composable get() = MaterialTheme.dynamicSurface
@@ -180,6 +181,48 @@ enum class PlaylistSortOption(val label: String) {
     ALPHABETICAL("Alphabetical (A-Z)"),
     BY_ARTIST("Artist (A-Z)")
 }
+
+internal fun sortLibraryPlaylists(
+    playlists: List<Playlist>,
+    order: String,
+    recentPlayedAtByTrackId: Map<String, Long>
+): List<Playlist> {
+    val byTitle = compareBy<Playlist> { it.title.lowercase(Locale.ROOT) }.thenBy { it.id }
+    return when (order) {
+        "Recently played" -> playlists.sortedWith(
+            compareByDescending<Playlist> { playlist ->
+                playlist.tracks.maxOfOrNull { recentPlayedAtByTrackId[it.id] ?: 0L } ?: 0L
+            }.then(byTitle)
+        )
+        "Alphabetical (A to Z)" -> playlists.sortedWith(byTitle)
+        "Alphabetical (Z to A)" -> playlists.sortedWith(byTitle.reversed())
+        "Track count" -> playlists.sortedWith(
+            compareByDescending<Playlist> { it.tracks.size }.then(byTitle)
+        )
+        else -> playlists.sortedWith(
+            compareByDescending<Playlist> { it.createdAt }.then(byTitle)
+        )
+    }
+}
+
+private fun smartCollectionTypeFor(id: String): SmartCollectionType? = when (id) {
+    "smart_liked" -> SmartCollectionType.LIKED
+    "smart_downloaded" -> SmartCollectionType.DOWNLOADED
+    "smart_top_50" -> SmartCollectionType.MY_TOP_50
+    "smart_cached" -> SmartCollectionType.CACHED
+    else -> null
+}
+
+private fun smartCollectionIconFor(id: String, isJobDownloading: Boolean): ImageVector = when (id) {
+    "smart_liked" -> Icons.Default.FavoriteBorder
+    "smart_downloaded" -> if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone
+    "smart_top_50" -> Icons.Default.Leaderboard
+    else -> Icons.Default.CloudDownload
+}
+
+private fun smartCollectionSubtitleFor(playlist: Playlist, isJobDownloading: Boolean): String =
+    if (playlist.id == "smart_downloaded" && isJobDownloading) "Downloading..."
+    else "${playlist.tracks.size} songs"
 
 /**
  * Pure Jetpack Compose Library Screen with top App Bar (Library title, History, Listen Together, Profile),
@@ -248,18 +291,13 @@ fun LibraryScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
 
-    val displayedPlaylists = if (searchQuery.isBlank()) {
-        uiState.playlists
-    } else {
-        uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) }
-    }
-
     val likedPlaylist = remember(uiState.favorites) {
         Playlist(
             id = "smart_liked",
             title = "Liked",
             description = "Auto-saved tracks",
-            tracks = uiState.favorites
+            tracks = uiState.favorites,
+            createdAt = Long.MAX_VALUE
         )
     }
     val downloadedPlaylist = remember(uiState.downloadedTracks) {
@@ -267,7 +305,8 @@ fun LibraryScreen(
             id = "smart_downloaded",
             title = "Downloaded",
             description = "${uiState.downloadedTracks.size} offline songs",
-            tracks = uiState.downloadedTracks
+            tracks = uiState.downloadedTracks,
+            createdAt = Long.MAX_VALUE - 1
         )
     }
     val activeDownloads by com.auralis.music.data.download.AuralisDownloadManager.activeDownloads.collectAsState()
@@ -278,7 +317,8 @@ fun LibraryScreen(
             id = "smart_top_50",
             title = "Top Most Played",
             description = "Your most played tracks",
-            tracks = uiState.top50Tracks
+            tracks = uiState.top50Tracks,
+            createdAt = Long.MAX_VALUE - 2
         )
     }
     val cachedPlaylist = remember(uiState.cachedTracks) {
@@ -286,7 +326,8 @@ fun LibraryScreen(
             id = "smart_cached",
             title = "Cached Streamed",
             description = "Locally buffered tracks",
-            tracks = uiState.cachedTracks
+            tracks = uiState.cachedTracks,
+            createdAt = Long.MAX_VALUE - 3
         )
     }
 
@@ -420,7 +461,7 @@ fun LibraryScreen(
                     )
                 }
             }
-        } else if (screenKey == "downloaded_hub" || (uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED && uiState.selectedPlaylist == null)) {
+        } else if (screenKey == "downloaded_hub") {
             DownloadedHubView(
                 downloadedTracks = uiState.downloadedTracks,
                 downloadedJobs = uiState.downloadedJobs,
@@ -626,6 +667,19 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+            val displayedPlaylists = sortLibraryPlaylists(
+                playlists = buildList {
+                    if (searchQuery.isBlank()) {
+                        if (appearance.showLikedPlaylist) add(likedPlaylist)
+                        if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
+                        if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
+                        if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
+                    }
+                    addAll(uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) })
+                },
+                order = uiState.sortOrder,
+                recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
+            )
             val gridAnimate = !LocalReducedMotion.current
             val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
             val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
@@ -653,73 +707,26 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        if (searchQuery.isBlank()) {
-                            // 1. Liked Playlist
-                            if (appearance.showLikedPlaylist) {
-                                item(key = "smart_liked", contentType = "smart_card") {
-                                    SmartLibraryCard(
-                                        title = "Liked",
-                                        subtitle = "${uiState.favorites.size} songs",
-                                        icon = Icons.Default.FavoriteBorder,
-                                        tracks = uiState.favorites,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) },
-                                        onLongClick = { selectedPlaylistForMenu = likedPlaylist }
-                                    )
-                                }
-                            }
-
-                            // 2. Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
-                            if (appearance.showDownloadedPlaylist && hasDownloads) {
-                                item(key = "smart_downloaded", contentType = "smart_card") {
-                                    SmartLibraryCard(
-                                        title = "Downloaded",
-                                        subtitle = if (isJobDownloading) "Downloading..." else if (uiState.downloadedTracks.size == 1) "1 song" else "${uiState.downloadedTracks.size} songs",
-                                        icon = if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone,
-                                        tracks = uiState.downloadedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) },
-                                        onLongClick = { selectedPlaylistForMenu = downloadedPlaylist }
-                                    )
-                                }
-                            }
-
-                            // 3. Top Most Played Playlist
-                            if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
-                                item(key = "smart_top_50", contentType = "smart_card") {
-                                    SmartLibraryCard(
-                                        title = "Top Most Played",
-                                        subtitle = "${uiState.top50Tracks.size} songs",
-                                        icon = Icons.Default.Leaderboard,
-                                        tracks = uiState.top50Tracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) },
-                                        onLongClick = { selectedPlaylistForMenu = top50Playlist }
-                                    )
-                                }
-                            }
-
-                            // 4. Cached Playlist
-                            if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
-                                item(key = "smart_cached", contentType = "smart_card") {
-                                    SmartLibraryCard(
-                                        title = "Cached Streamed",
-                                        subtitle = "${uiState.cachedTracks.size} songs",
-                                        icon = Icons.Default.CloudDownload,
-                                        tracks = uiState.cachedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) },
-                                        onLongClick = { selectedPlaylistForMenu = cachedPlaylist }
-                                    )
-                                }
-                            }
-                        }
-
-                        // User & Synced Playlists (Imported or Created)
                         items(displayedPlaylists, key = { it.id }) { playlist ->
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                UserPlaylistGridCard(
-                                    playlist = playlist,
-                                    savedAlbums = uiState.savedAlbums,
-                                    onClick = { onPlaylistSelect(playlist) },
-                                    onLongClick = { selectedPlaylistForMenu = playlist }
-                                )
+                                val smartType = smartCollectionTypeFor(playlist.id)
+                                if (smartType != null) {
+                                    SmartLibraryCard(
+                                        title = playlist.title,
+                                        subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                        icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                        tracks = playlist.tracks,
+                                        onClick = { onSmartCollectionClick(smartType) },
+                                        onLongClick = { selectedPlaylistForMenu = playlist }
+                                    )
+                                } else {
+                                    UserPlaylistGridCard(
+                                        playlist = playlist,
+                                        savedAlbums = uiState.savedAlbums,
+                                        onClick = { onPlaylistSelect(playlist) },
+                                        onLongClick = { selectedPlaylistForMenu = playlist }
+                                    )
+                                }
                             }
                         }
                     }
@@ -732,73 +739,30 @@ fun LibraryScreen(
                         contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (searchQuery.isBlank()) {
-                            if (appearance.showLikedPlaylist) {
-                                item(key = "list_smart_liked", contentType = "smart_row") {
-                                    SmartLibraryListRow(
-                                        title = "Liked",
-                                        subtitle = "${uiState.favorites.size} songs",
-                                        icon = Icons.Default.FavoriteBorder,
-                                        tracks = uiState.favorites,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.LIKED) },
-                                        onLongClick = { selectedPlaylistForMenu = likedPlaylist }
-                                    )
-                                }
-                            }
-
-                            // Downloaded Playlist (Auto appears when enabled in Appearances and downloaded songs exist)
-                            if (appearance.showDownloadedPlaylist && hasDownloads) {
-                                item(key = "list_smart_downloaded", contentType = "smart_row") {
-                                    SmartLibraryListRow(
-                                        title = "Downloaded",
-                                        subtitle = if (isJobDownloading) "Downloading..." else if (uiState.downloadedTracks.size == 1) "1 song" else "${uiState.downloadedTracks.size} songs",
-                                        icon = if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone,
-                                        tracks = uiState.downloadedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.DOWNLOADED) },
-                                        onLongClick = { selectedPlaylistForMenu = downloadedPlaylist }
-                                    )
-                                }
-                            }
-
-                            if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) {
-                                item(key = "list_smart_top_50", contentType = "smart_row") {
-                                    SmartLibraryListRow(
-                                        title = "Top Most Played",
-                                        subtitle = "${uiState.top50Tracks.size} songs",
-                                        icon = Icons.Default.Leaderboard,
-                                        tracks = uiState.top50Tracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.MY_TOP_50) },
-                                        onLongClick = { selectedPlaylistForMenu = top50Playlist }
-                                    )
-                                }
-                            }
-
-                            if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) {
-                                item(key = "list_smart_cached", contentType = "smart_row") {
-                                    SmartLibraryListRow(
-                                        title = "Cached Streamed",
-                                        subtitle = "${uiState.cachedTracks.size} songs",
-                                        icon = Icons.Default.CloudDownload,
-                                        tracks = uiState.cachedTracks,
-                                        onClick = { onSmartCollectionClick(SmartCollectionType.CACHED) },
-                                        onLongClick = { selectedPlaylistForMenu = cachedPlaylist }
-                                    )
-                                }
-                            }
-                        }
-
                         items(
                             items = displayedPlaylists,
                             key = { it.id },
-                            contentType = { "playlist" }
+                            contentType = { if (smartCollectionTypeFor(it.id) != null) "smart_row" else "playlist" }
                         ) { playlist ->
                             Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                UserPlaylistListRow(
-                                    playlist = playlist,
-                                    savedAlbums = uiState.savedAlbums,
-                                    onClick = { onPlaylistSelect(playlist) },
-                                    onLongClick = { selectedPlaylistForMenu = playlist }
-                                )
+                                val smartType = smartCollectionTypeFor(playlist.id)
+                                if (smartType != null) {
+                                    SmartLibraryListRow(
+                                        title = playlist.title,
+                                        subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                        icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                        tracks = playlist.tracks,
+                                        onClick = { onSmartCollectionClick(smartType) },
+                                        onLongClick = { selectedPlaylistForMenu = playlist }
+                                    )
+                                } else {
+                                    UserPlaylistListRow(
+                                        playlist = playlist,
+                                        savedAlbums = uiState.savedAlbums,
+                                        onClick = { onPlaylistSelect(playlist) },
+                                        onLongClick = { selectedPlaylistForMenu = playlist }
+                                    )
+                                }
                             }
                         }
                     }
@@ -2314,7 +2278,7 @@ private fun PlaylistDetailView(
                         Spacer(modifier = Modifier.height(20.dp))
 
                         // ========================================================
-                        // Sort Order Button & Dropdown Menu
+                        // Sort Order Dropdown Menu
                         // ========================================================
                         Row(
                             modifier = Modifier
@@ -2384,18 +2348,6 @@ private fun PlaylistDetailView(
                                 }
                             }
 
-                            // Right side: Filter & Sort icons
-                            IconButton(
-                                onClick = { showSortMenu = true },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Sort,
-                                    contentDescription = "Sort Playlist",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
                         }
                     }
                 }

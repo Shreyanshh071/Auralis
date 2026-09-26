@@ -569,6 +569,12 @@ class PlayerViewModel(
         sourcePlaylistTitle: String? = null,
         preserveQueueSource: Boolean = false
     ) {
+        // A Listen Together guest's pick goes to the room; this phone changes song only when the
+        // host's does. Updating the screen first showed a new cover and lyrics over the old audio.
+        if (audioPlayer?.isGuestListenTogether?.value == true) {
+            audioPlayer.playTrack(track, newQueue, startIndex, isUserQueue, initialPositionMs, preserveQueueSource)
+            return
+        }
         val effectiveIsUserQueue = isUserQueue || (sourcePlaylistTitle != null)
         val reqId = currentPlaybackRequestId.incrementAndGet()
         val isAutoQueue = !effectiveIsUserQueue

@@ -182,8 +182,7 @@ object AudioStreamResolver {
         "BadBAMnPXSc" to "swcCuuQKGJ4", // Pehli Nazar Mein (Official Video -> Studio Audio)
         "cswfR85D7jM" to "HfpR4tAmI7E", // Love Me Not (Official Video -> Studio Audio)
         "tvTRZJ-4EyI" to "18_J_7v0i4k", // HUMBLE. (Official Video -> Studio Audio)
-        "xFYQQPAOz7Y" to "4wOLVrGHiIU", // Lose Yourself (Official Video -> Studio Audio)
-        "10z6-vQm23w" to "3Mr0pDNVms0"  // Heaven Knows I'm Miserable Now (Unofficial Cut -> 2008 Remaster Studio Audio)
+        "xFYQQPAOz7Y" to "4wOLVrGHiIU"  // Lose Yourself (Official Video -> Studio Audio)
     )
 
     val KNOWN_STUDIO_DURATIONS = mapOf(
@@ -354,7 +353,8 @@ object AudioStreamResolver {
                 .sortedByDescending { it.second }
                 .map { it.first }
 
-            val bestCandidate = scoredCandidates.firstOrNull() ?: allCandidates.firstOrNull { it.id != originalVideoId }
+            // No fallback to an unscored candidate: playing some other version desyncs lyrics.
+            val bestCandidate = scoredCandidates.firstOrNull()
 
             if (bestCandidate == null) {
                 diagLog("[Diag-Resolver] No match found for track '$title' by '$artist'")

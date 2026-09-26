@@ -27,6 +27,8 @@ fun NowPlayingSheet(
     onSeekTo: (Long) -> Unit,
     onNextClick: () -> Unit,
     onPreviousClick: () -> Unit,
+    /** Listen Together guest: the song carousel only follows the room (see NowPlayingModal). */
+    followHostOnly: Boolean = false,
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -56,6 +58,7 @@ fun NowPlayingSheet(
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
+        followHostOnly = followHostOnly,
         uiState = uiState,
         playbackPositionState = playbackPositionState,
         lyricsClockSource = lyricsClockSource,

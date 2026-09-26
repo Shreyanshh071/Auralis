@@ -80,7 +80,7 @@ object SearchQueryMatcher {
 
         val nfkd = Normalizer.normalize(preprocessed.lowercase(Locale.ROOT), Normalizer.Form.NFKD)
         return nfkd.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .replace(Regex("[^\\p{L}\\p{M}\\p{Nd}\\s]"), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
     }
@@ -367,6 +367,24 @@ object SearchQueryMatcher {
         }
     }
 
+    /** A cover, slowed, karaoke, remake... version the query didn't ask for. */
+    fun isUnwantedDerivative(track: Track, query: String): Boolean {
+        val lowerTitle = track.title.lowercase(Locale.ROOT)
+        val lowerArtist = track.artist.lowercase(Locale.ROOT)
+        val lowerQuery = query.lowercase(Locale.ROOT)
+        val derivative = listOf("cover", "piano version", "tribute", "karaoke", "slowed", "sped up", "8d audio",
+            "lo-fi", "lofi", "remake", "orchestra", "symphony").any { lowerTitle.contains(it) } ||
+            listOf("tribute", "karaoke", "cover", "orchestra", "symphony").any { lowerArtist.contains(it) }
+        if (!derivative) return false
+        return listOf("cover", "piano", "slowed", "karaoke", "remake", "lofi", "lo-fi", "orchestra", "symphony")
+            .none { lowerQuery.contains(it) }
+    }
+
+    private fun isMusicVideoTitle(title: String): Boolean {
+        val t = title.lowercase(Locale.ROOT)
+        return listOf("official video", "music video", "(video)", "[video]", "official visualizer", "lyric video").any { t.contains(it) }
+    }
+
     private fun adjustScoreForOriginalTrack(track: Track, query: String, baseScore: Double): Double {
         var score = baseScore
         val lowerTitle = track.title.lowercase(Locale.ROOT)
@@ -390,51 +408,16 @@ object SearchQueryMatcher {
             score += 15.0
         }
 
-        // View count / Popularity boost (Most viewed tracks like The Weeknd - Starboy with billions of plays rank #1)
+        // Popularity: +12 per tenfold plays from 1M (1M +5, 10M +17, 100M +29, 1B +41). Smooth, not
+        // stepped: with steps, 727M and 207M plays scored the same and a plain-titled 207M upload
+        // beat the 727M film recording titled "... (part 2)". Now a bracketed suffix (-5) needs
+        // ~2.6x the plays to win, a prefix match (-10) ~7x, a title+lyric match (-20) ~46x.
         val playCount = parsePlayCount(track.views)
-        if (playCount > 0) {
-            when {
-                playCount >= 1_000_000_000L -> score += 35.0 // Billion+ plays
-                playCount >= 100_000_000L   -> score += 25.0 // 100M+ plays
-                playCount >= 10_000_000L    -> score += 15.0 // 10M+ plays
-                playCount >= 1_000_000L     -> score += 5.0  // 1M+ plays
-            }
+        if (playCount >= 1_000_000L) {
+            score += (5.0 + 12.0 * kotlin.math.log10(playCount / 1_000_000.0)).coerceAtMost(45.0)
         }
 
-        val isCoverOrDerivative = lowerTitle.contains("cover") ||
-                lowerTitle.contains("piano version") ||
-                lowerTitle.contains("piano cover") ||
-                lowerTitle.contains("tribute") ||
-                lowerTitle.contains("karaoke") ||
-                lowerTitle.contains("slowed") ||
-                lowerTitle.contains("sped up") ||
-                lowerTitle.contains("8d audio") ||
-                lowerTitle.contains("lo-fi") ||
-                lowerTitle.contains("lofi") ||
-                lowerTitle.contains("guitar cover") ||
-                lowerTitle.contains("remake") ||
-                lowerTitle.contains("orchestra") ||
-                lowerTitle.contains("symphony") ||
-                lowerArtist.contains("tribute") ||
-                lowerArtist.contains("karaoke") ||
-                lowerArtist.contains("cover") ||
-                lowerArtist.contains("orchestra") ||
-                lowerArtist.contains("symphony")
-
-        if (isCoverOrDerivative) {
-            val queryWantsDerivative = lowerQuery.contains("cover") ||
-                    lowerQuery.contains("piano") ||
-                    lowerQuery.contains("slowed") ||
-                    lowerQuery.contains("karaoke") ||
-                    lowerQuery.contains("remake") ||
-                    lowerQuery.contains("lofi") ||
-                    lowerQuery.contains("lo-fi") ||
-                    lowerQuery.contains("orchestra") ||
-                    lowerQuery.contains("symphony")
-            if (!queryWantsDerivative) {
-                score -= 35.0
-            }
-        }
+        if (isUnwantedDerivative(track, query)) score -= 35.0
         return score
     }
 
@@ -469,25 +452,29 @@ object SearchQueryMatcher {
         }
 
         // Sort actual matches:
-        // 1. Match group: every title-based match (exact, prefix, contains, title+lyric words) is one
-        //    group, then typo, artist and loose metadata matches.
-        // 2. Score, which already carries the popularity boost (+35 at 1B plays ... +5 at 1M). Within
-        //    the title group this lets the song everyone means (1.3B plays, title + lyric query) beat
-        //    a 97K-play upload that happens to be titled exactly like the query. Exact titles still
-        //    win whenever popularity is comparable (exact 100 vs prefix ~90 vs title+lyric ~80).
-        // 3. Views, then YouTube Music's own order.
+        // 1. Titles that ARE the query (brackets aside: "... (part 2)"), then titles that start with
+        //    or contain it, then typo, artist and loose metadata matches. A partial title with 100x
+        //    the plays of every exact one counts as exact ("chogada tara" -> Chogada, 1.3B plays,
+        //    over a 97K-play upload titled exactly "Chogada Tara").
+        // 2. Covers / slowed / karaoke versions and music videos the query didn't ask for go below
+        //    the originals.
+        // 3. Most plays first. That is the whole rule inside a group: no point formula.
+        // 4. Score, then YouTube Music's own order, for songs without a play count.
+        val exactPlays = scoredMatches.filter { it.tier == MatchTier.EXACT_TITLE }.maxOfOrNull { parsePlayCount(it.track.views) } ?: 0L
+        fun group(st: ScoredTrack): Int = when (st.tier) {
+            MatchTier.EXACT_TITLE -> 1
+            MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE ->
+                if (parsePlayCount(st.track.views) >= maxOf(exactPlays, 1L) * 100L) 1 else 2
+            MatchTier.TYPO_MATCH -> 3
+            MatchTier.ARTIST_MATCH -> 4
+            MatchTier.METADATA_PARTIAL -> 5
+        }
         val sortedMatchedTracks = scoredMatches
             .sortedWith(
-                compareBy<ScoredTrack> {
-                    when (it.tier) {
-                        MatchTier.EXACT_TITLE, MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE -> 1
-                        MatchTier.TYPO_MATCH -> 3
-                        MatchTier.ARTIST_MATCH -> 4
-                        MatchTier.METADATA_PARTIAL -> 5
-                    }
-                }
-                    .thenByDescending { it.score }
+                compareBy<ScoredTrack> { group(it) }
+                    .thenBy { isUnwantedDerivative(it.track, trimmed) || (isMusicVideoTitle(it.track.title) && !trimmed.contains("video", ignoreCase = true)) }
                     .thenByDescending { parsePlayCount(it.track.views) }
+                    .thenByDescending { it.score }
                     .thenBy { it.originalIndex }
             )
             .map { it.track }
@@ -610,6 +597,10 @@ object SearchQueryMatcher {
 
         if (score < 15.0) return -1.0 // Skip non-matching titles
 
+        // A different recording can never be "close enough": remix / radio edit / part 2 /
+        // an uncredited feature all sing the same words at different times.
+        if (recordingMismatch(target, candidate) != null) return -1.0
+
         // 2. Artist Agreement (0 - 35 points) - Prioritize Primary Artist
         if (primaryArtistTokens.isNotEmpty()) {
             val primaryOverlap = primaryArtistTokens.intersect(candArtistTokens.toSet())
@@ -624,6 +615,7 @@ object SearchQueryMatcher {
                     score += ratio * 30.0
                 }
                 titlePrimaryOverlap.size == primaryArtistTokens.size -> score += 25.0
+                writtenInDifferentScripts(normTargetArtist, normCandArtist) -> score += 15.0 // "Hiroaki Tommy Tominaga" vs "富永TOMMY弘明": can't compare
                 else -> {
                     // Fatal mismatch: candidate artist has zero relation to target artist (e.g. Mau P for Tame Impala)
                     return -1.0
@@ -633,21 +625,46 @@ object SearchQueryMatcher {
             score += 15.0 // Neutral when no target artist
         }
 
+        // 2b. YouTube Music credits someone the source doesn't. Not a rejection: YouTube often adds
+        // real co-singers Spotify omits, or writes names in another script ("富永TOMMY弘明").
+        if (normTargetArtist.isNotBlank() &&
+            hasUncreditedArtist(normalize("${target.artist} ${target.title} ${target.album.orEmpty()}"), candidate.artist)
+        ) {
+            score -= 20.0
+        }
+
         // 3. YouTube Music ML Rank Bonus (0 - 15 points)
         if (index == 0) score += 15.0
         else if (index in 1..2) score += 8.0
 
-        // 4. Duration Proximity (0 - 15 points)
-        if (target.duration > 0 && candidate.duration > 0) {
+        // 4. Duration Proximity (0 - 20 points; beyond MAX_RECORDING_DELTA_SEC was rejected above)
+        val knowsDurations = target.duration > 0 && candidate.duration > 0
+        if (knowsDurations) {
             val delta = kotlin.math.abs(target.duration - candidate.duration)
             when {
+                delta <= 2 -> score += 20.0
                 delta <= 5 -> score += 15.0
-                delta <= 15 -> score += 10.0
-                delta <= 30 -> score += 5.0
-                delta > 60 -> score -= 100.0 // Heavy penalty for long videos/mixes
-                delta > 120 -> score -= 500.0 // Immediate disqualification for full mixes
+                delta <= 10 -> score += 8.0
             }
         }
+
+        // 4b. Same album as the source (e.g. Spotify's "Hatful of Hollow" over a compilation remaster)
+        // Same release, ignoring edition labels only: a prefix match would call
+        // "Dracula (with JENNIE) + Instrumental" the same album as "Dracula".
+        val targetAlbum = albumIdentity(target.album)
+        val candAlbum = albumIdentity(candidate.album)
+        if (targetAlbum.isNotBlank() && targetAlbum == candAlbum) {
+            score += 25.0
+        }
+
+        // 4c. Extra credited artists the source doesn't list (e.g. "Tame Impala & JENNIE" for a
+        // solo "Tame Impala" track) mark a collab/remix release; prefer the clean credit.
+        if (normTargetArtist.isNotBlank() && hasUncreditedArtist("$normTargetArtist $normTargetTitle", candidate.artist)) {
+            score -= 40.0
+        }
+
+        // 4d. Remaster tags don't change the song but do change the master; prefer the one the source names.
+        if (hasRemasterTag(target.title) != hasRemasterTag(candidate.title)) score -= 10.0
 
         // 5. Anti-Derivative & Quality Filtering
         val lowerCandTitle = candidate.title.lowercase(Locale.ROOT)
@@ -667,13 +684,131 @@ object SearchQueryMatcher {
             score += 20.0 // Authentic studio album release bonus
         }
 
-        if (candidate.duration in 90..330) {
+        // Typical-length bonus only when we can't compare lengths: it would otherwise favour a
+        // 4:36 radio edit over a 5:58 album cut.
+        if (!knowsDurations && candidate.duration in 90..330) {
             score += 10.0 // Standard song length bonus
-        } else if (candidate.duration > 330 && isCandVideo) {
+        } else if (candidate.duration > 330 && isCandVideo && !knowsDurations) {
             score -= 25.0
         }
 
         return score
+    }
+
+    /**
+     * The same recording on Spotify and YouTube Music is 0–2 s apart (measured over 150 library
+     * songs: 109 were exactly 1 s, from rounding). Another recording can be only 4–15 s off:
+     * "Mere Mehboob Qayamat Hogi" Revival 243 s vs the 1964 original 229 s, "Moral of the Story"
+     * feat. Niall Horan 198 s vs solo 202 s (YouTube Music often lists only the lead artist on a
+     * featured version, so the length is what tells them apart).
+     */
+    const val MAX_RECORDING_DELTA_SEC = 3L
+
+    // Tags that mean a different recording or arrangement. Matched only inside bracketed or
+    // " - " suffix segments, so a title like "DJ Got Us Fallin' in Love" is safe.
+    private val VERSION_MARKERS = listOf(
+        "remix" to Regex("""\bre-?mix(ed)?\b"""),
+        "mix" to Regex("""\b(mix|mixed)\b"""),
+        "edit" to Regex("""\bedit\b"""),
+        "extended" to Regex("""\bextended\b"""),
+        "live" to Regex("""\blive\b"""),
+        "acoustic" to Regex("""\b(acoustic|unplugged)\b"""),
+        "instrumental" to Regex("""\b(instrumental|karaoke)\b"""),
+        "slowed" to Regex("""\b(slowed|reverb|sped\s*up|speed\s*up|nightcore|lo-?fi|8d|bass\s*boosted)\b"""),
+        "cover" to Regex("""\bcover\b"""),
+        "mashup" to Regex("""\bmash-?up\b"""),
+        "demo" to Regex("""\bdemo\b"""),
+        "reprise" to Regex("""\breprise\b"""),
+        "part" to Regex("""\b(part|pt)\.?\s*\d+\b"""),
+        "dj" to Regex("""\bdj\b"""),
+        "version" to Regex("""\bversion\b""")
+    )
+
+    // "Version" labels that name the original rather than a different cut.
+    private val NEUTRAL_VERSION_REGEX = Regex("""\b(album|original|single|studio|mono|stereo|explicit|clean|main|full)\s+version\b""")
+    private val REMASTER_REGEX = Regex("""(?i)\bremaster(ed)?\b""")
+    private val FEATURE_REGEX = Regex("""(?i)\b(?:feat\.?|ft\.?|featuring|with)\s+([^()\[\]\-]+)""")
+
+    /** Bracketed segments plus any " - suffix": the parts of a title that describe the version. */
+    private fun tagSegments(title: String): String {
+        val lower = title.lowercase(Locale.ROOT)
+        val bracketed = Regex("""[\(\[\{]([^)\]\}]*)[\)\]\}]""").findAll(lower).map { it.groupValues[1] }.toList()
+        val dashSuffix = lower.split(Regex("""\s[-–—]\s""")).drop(1)
+        return (bracketed + dashSuffix).joinToString(" | ")
+    }
+
+    private fun versionMarkers(title: String): Set<String> {
+        val tags = NEUTRAL_VERSION_REGEX.replace(tagSegments(title), " ")
+        return VERSION_MARKERS.filter { (_, regex) -> regex.containsMatchIn(tags) }.map { it.first }.toSet()
+    }
+
+    private fun hasRemasterTag(title: String): Boolean = REMASTER_REGEX.containsMatchIn(tagSegments(title))
+
+    private val ARTIST_SEPARATOR_REGEX = Regex("""(?i)[,&/+]|\b(?:feat\.?|ft\.?|featuring|with|and|x|vs\.?)\s""")
+
+    /** True if raw [candArtists] names someone whose words appear nowhere in the [normalize]d [creditedText]. */
+    private fun writtenInDifferentScripts(a: String, b: String): Boolean {
+        fun nonLatin(t: String) = t.any { it.isLetter() && it.code > 0x024F }
+        return nonLatin(a) != nonLatin(b)
+    }
+
+    private fun hasUncreditedArtist(creditedText: String, candArtists: String): Boolean {
+        if (candArtists.isBlank()) return false
+        val credited = creditedText.split(" ").filter { it.length > 1 }.toSet()
+        return candArtists.split(ARTIST_SEPARATOR_REGEX)
+            .map { normalize(it) }
+            .map { name -> name.split(" ").filter { it.length > 1 } }
+            .filter { it.isNotEmpty() }
+            .any { tokens -> tokens.none { it in credited } }
+    }
+
+    private val EDITION_WORDS = Regex(
+        """\b(deluxe|remaster(ed)?|expanded|edition|anniversary|super|bonus|special|collector'?s|digital|version|tracks?|reissue|\d{2,4}|years?|th|single|ep|mono|stereo)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * An album name reduced to what identifies the release: "Urban Hymns (Remastered 2016)",
+     * "Urban Hymns (Super Deluxe / Remastered 2016)" and "Urban Hymns" are one album, while
+     * "Dracula (with JENNIE) + Instrumental" stays distinct from "Dracula". Bracketed parts are
+     * dropped only when they hold nothing but edition words.
+     */
+    fun albumIdentity(album: String?): String {
+        if (album.isNullOrBlank()) return ""
+        var a = album.replace(Regex("""\s+-\s+(single|ep)\s*$""", RegexOption.IGNORE_CASE), "")
+        a = Regex("""[\(\[]([^\)\]]*)[\)\]]""").replace(a) { m ->
+            val rest = EDITION_WORDS.replace(m.groupValues[1], " ").replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
+            if (rest.isEmpty()) " " else m.value
+        }
+        return normalize(a)
+    }
+
+    /**
+     * Why [candidate] can't be the same recording as [target], or null if it can be.
+     * Hard gates only: a wrong version plays the right words at the wrong times, which
+     * breaks lyric sync no matter which lyrics provider answers.
+     */
+    fun recordingMismatch(target: Track, candidate: Track): String? {
+        if (target.duration > 0 && candidate.duration > 0) {
+            val delta = kotlin.math.abs(target.duration - candidate.duration)
+            if (delta > MAX_RECORDING_DELTA_SEC) return "length ${candidate.duration}s vs ${target.duration}s"
+        }
+
+        val extraMarkers = versionMarkers(candidate.title) - versionMarkers(target.title)
+        if (extraMarkers.isNotEmpty()) return "version tag ${extraMarkers.joinToString()}"
+
+        // Someone the source never credits, named anywhere on the candidate: "(feat. X)" in its
+        // title, its artist list ("Tame Impala & JENNIE"), or its release ("Dracula (with JENNIE)").
+        // YouTube Music lists the JENNIE version as plain "Dracula" by "Tame Impala", same length.
+        val targetArtist = if (target.artist.equals("Spotify Artist", ignoreCase = true)) "" else target.artist
+        if (targetArtist.isNotBlank()) {
+            val credited = normalize("$targetArtist ${target.title} ${target.album.orEmpty()}")
+            val features = (FEATURE_REGEX.findAll(tagSegments(candidate.title)) +
+                FEATURE_REGEX.findAll(tagSegments(candidate.album.orEmpty()))).map { it.groupValues[1] }
+            if (features.any { hasUncreditedArtist(credited, it) }) return "uncredited featured artist"
+
+        }
+        return null
     }
 
     fun findBestCandidateForTrack(

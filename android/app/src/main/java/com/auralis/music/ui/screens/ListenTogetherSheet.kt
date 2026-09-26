@@ -36,6 +36,8 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Groups
@@ -82,6 +84,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.sync.RoomRecommendation
+import com.auralis.music.data.sync.RoomSettings
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.EqualizerBars
@@ -115,6 +120,8 @@ fun ListenTogetherSheet(
     onDismissRecommendation: (String) -> Unit = {},
     onPlayRecommendationNow: (RoomRecommendation) -> Unit = {},
     onAddRecommendationToQueue: (RoomRecommendation) -> Unit = {},
+    onDeclineRecommendation: (RoomRecommendation) -> Unit = {},
+    onHostSettingsChange: (RoomSettings) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -310,6 +317,42 @@ fun ListenTogetherSheet(
                             }
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (uiState.isHost) {
+                    RoomRulesCard(
+                        settings = uiState.hostSettings,
+                        onChange = onHostSettingsChange,
+                        surfaceColor = surfaceColor,
+                        borderColor = cardBorder,
+                        primaryColor = primaryColor,
+                        textColor = onBackground,
+                        secondaryTextColor = onSurfaceVariant
+                    )
+                    val requests = uiState.recommendations.filter { it.status == "pending" }
+                    if (uiState.hostSettings.requireApproval && requests.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        SongRequestsCard(
+                            requests = requests,
+                            onApprove = onAddRecommendationToQueue,
+                            onDecline = onDeclineRecommendation,
+                            surfaceColor = surfaceColor,
+                            borderColor = cardBorder,
+                            primaryColor = primaryColor,
+                            textColor = onBackground,
+                            secondaryTextColor = onSurfaceVariant
+                        )
+                    }
+                } else {
+                    GuestPermissionsCard(
+                        settings = room.settings,
+                        surfaceColor = surfaceColor,
+                        borderColor = cardBorder,
+                        textColor = onBackground,
+                        secondaryTextColor = onSurfaceVariant
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -579,6 +622,16 @@ fun ListenTogetherSheet(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
+                            RoomRuleRows(
+                                settings = uiState.hostSettings,
+                                onChange = onHostSettingsChange,
+                                primaryColor = primaryColor,
+                                textColor = onBackground,
+                                secondaryTextColor = onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
                             Button(
                                 onClick = { onCreateRoom(currentTrack, queue, isPlaying, playbackPositionMs) },
                                 modifier = Modifier.fillMaxWidth(),
@@ -611,6 +664,225 @@ fun ListenTogetherSheet(
             }
 
             Spacer(modifier = Modifier.padding(bottomChromePadding()))
+        }
+    }
+}
+
+/** The three host rules, as switches. "Require approval" only applies while guests can add songs. */
+@Composable
+private fun RoomRuleRows(
+    settings: RoomSettings,
+    onChange: (RoomSettings) -> Unit,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        RoomRuleRow(
+            icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+            title = "Guests can add songs",
+            subtitle = "Songs they add go into your queue",
+            checked = settings.guestsCanAddSongs,
+            enabled = true,
+            onCheckedChange = { onChange(settings.copy(guestsCanAddSongs = it)) },
+            primaryColor = primaryColor, textColor = textColor, secondaryTextColor = secondaryTextColor
+        )
+        RoomRuleRow(
+            icon = Icons.Default.PlayArrow,
+            title = "Guests can control playback",
+            subtitle = "Play, pause and seek for everyone",
+            checked = settings.guestsCanControlPlayback,
+            enabled = true,
+            onCheckedChange = { onChange(settings.copy(guestsCanControlPlayback = it)) },
+            primaryColor = primaryColor, textColor = textColor, secondaryTextColor = secondaryTextColor
+        )
+        RoomRuleRow(
+            icon = Icons.Default.MusicNote,
+            title = "Guests can play songs",
+            subtitle = "Pick any song or skip next/previous, for everyone",
+            checked = settings.guestsCanPlaySongs,
+            enabled = true,
+            onCheckedChange = { onChange(settings.copy(guestsCanPlaySongs = it)) },
+            primaryColor = primaryColor, textColor = textColor, secondaryTextColor = secondaryTextColor
+        )
+        RoomRuleRow(
+            icon = Icons.Default.Lock,
+            title = "Require approval",
+            subtitle = "Guests can ask to add or play any song; you allow or decline each one",
+            checked = settings.requireApproval,
+            enabled = true,
+            onCheckedChange = { onChange(settings.copy(requireApproval = it)) },
+            primaryColor = primaryColor, textColor = textColor, secondaryTextColor = secondaryTextColor
+        )
+    }
+}
+
+@Composable
+private fun RoomRuleRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(primaryColor.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = primaryColor.copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(20.dp))
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor.copy(alpha = if (enabled) 1f else 0.45f)
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryTextColor.copy(alpha = if (enabled) 1f else 0.6f)
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(checkedTrackColor = primaryColor, checkedThumbColor = Color.Black)
+        )
+    }
+}
+
+@Composable
+private fun RoomRulesCard(
+    settings: RoomSettings,
+    onChange: (RoomSettings) -> Unit,
+    surfaceColor: Color,
+    borderColor: Color,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(surfaceColor)
+            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .padding(horizontal = 18.dp, vertical = 14.dp)
+    ) {
+        Column {
+            Text("Room rules", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
+            Spacer(modifier = Modifier.height(6.dp))
+            RoomRuleRows(settings, onChange, primaryColor, textColor, secondaryTextColor)
+        }
+    }
+}
+
+@Composable
+private fun SongRequestsCard(
+    requests: List<RoomRecommendation>,
+    onApprove: (RoomRecommendation) -> Unit,
+    onDecline: (RoomRecommendation) -> Unit,
+    surfaceColor: Color,
+    borderColor: Color,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(surfaceColor)
+            .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+            .padding(18.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "Song requests (${requests.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            )
+            requests.forEach { rec ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ArtworkCard(
+                        url = rec.track.thumbnail,
+                        modifier = Modifier.size(44.dp),
+                        cornerRadius = 8.dp,
+                        contentDescription = rec.track.title
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(rec.track.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${rec.track.artist} · from ${rec.recommendedByName}", style = MaterialTheme.typography.bodySmall, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    TextButton(onClick = { onDecline(rec) }) {
+                        Text("Decline", color = secondaryTextColor, fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = { onApprove(rec) },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text("Allow", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GuestPermissionsCard(
+    settings: RoomSettings,
+    surfaceColor: Color,
+    borderColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color
+) {
+    val lines = listOf(
+        when {
+            settings.requireApproval -> "You can ask to add songs; the host allows them"
+            settings.guestsCanAddSongs -> "You can add songs to the queue (song menu > Add to room queue)"
+            else -> "Only the host adds songs"
+        },
+        if (settings.guestsCanControlPlayback) "You can play, pause and seek for everyone"
+        else "Only the host controls playback",
+        if (settings.requireApproval) "You can ask to play any song; the host allows it"
+        else if (settings.guestsCanPlaySongs) "You can play any song or skip, for everyone"
+        else "Only the host picks what plays next"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(surfaceColor)
+            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .padding(18.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("What you can do", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
+            lines.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = secondaryTextColor) }
         }
     }
 }

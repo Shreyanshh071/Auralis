@@ -17,6 +17,7 @@ import com.auralis.music.domain.model.OptionStats
 import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.ui.viewmodel.StatsViewModel
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -172,103 +173,80 @@ class StatsRegressionTest {
     }
 
     @Test
-    fun testSeedFromHistoryIfNeeded_distributesPlaysAcrossDays() = runBlocking {
+    fun openingStatsNeverFabricatesListensFromPlayCounts() = runBlocking {
         val trackDao = mockk<TrackDao>(relaxed = true)
         val playbackEventDao = mockk<PlaybackEventDao>(relaxed = true)
         val historyDao = mockk<HistoryDao>(relaxed = true)
         val playCountDao = mockk<PlayCountDao>(relaxed = true)
-
-        coEvery { playbackEventDao.getEventCount() } returns 0
-        every { playbackEventDao.getFirstEventTimestamp() } returns flowOf(null)
-
-        val trackEntity = TrackEntity(
-            id = "track_tame_1",
-            title = "New Person, Same Old Mistakes",
-            artist = "Tame Impala",
-            album = "Currents",
-            thumbnail = "https://i.ytimg.com/vi/xyz/hqdefault.jpg",
-            duration = 364L
+        val track = TrackEntity(
+            id = "dil_haara",
+            title = "Dil Haara",
+            artist = "Sukhwinder Singh",
+            album = "Tashan",
+            thumbnail = "",
+            duration = 352L
         )
-
-        val now = System.currentTimeMillis()
-        val playCountTuple = PlayCountWithTrackTuple(
-            playCount = PlayCountEntity(
-                trackId = "track_tame_1",
-                count = 16,
-                lastPlayed = now
-            ),
-            track = trackEntity
+        // Five starts of a 5:52 song used to become 5 x 5:52 = 29:20 "listened", replacing the
+        // real measured events.
+        coEvery { playCountDao.getAllPlayCounts() } returns listOf(
+            PlayCountWithTrackTuple(PlayCountEntity("dil_haara", 5, System.currentTimeMillis()), track)
         )
-
-        coEvery { playCountDao.getAllPlayCounts() } returns listOf(playCountTuple)
-        coEvery { historyDao.getHistoryWithTracks() } returns emptyList()
-
-        val capturedEvents = slot<List<PlaybackEventEntity>>()
-        coEvery { playbackEventDao.insertEvents(capture(capturedEvents)) } returns Unit
+        coEvery { playbackEventDao.getEventCount() } returns 3
+        every { playbackEventDao.getFirstEventTimestamp() } returns flowOf(System.currentTimeMillis() - 3600_000L)
 
         val repo = StatsRepositoryImpl(trackDao, playbackEventDao, historyDao, playCountDao)
-        repo.seedFromHistoryIfNeeded()
+        repo.removeEstimatedListens()
 
-        assertTrue("Events should be inserted", capturedEvents.isCaptured)
-        val events = capturedEvents.captured
-        assertEquals(16, events.size)
-
-        // Verify that events are NOT all placed in the last 16 hours:
-        // First play is recent
-        assertEquals(now, events.first().timestamp)
-        // Last play (i = 15) must be spaced out across multiple weeks (15 * 36h = 540 hours = 22.5 days)
-        val oldestTimestamp = events.last().timestamp
-        val timeSpanDays = (now - oldestTimestamp) / (24L * 3600_000L)
-        assertTrue("Plays should span at least 15 days across weeks/months, got $timeSpanDays days", timeSpanDays >= 15)
+        coVerify(exactly = 1) { playbackEventDao.deleteEstimatedEvents() }
+        coVerify(exactly = 0) { playbackEventDao.clearAllEvents() }
+        coVerify(exactly = 0) { playbackEventDao.insertEvents(any()) }
+        coVerify(exactly = 0) { playbackEventDao.insertEvent(any()) }
     }
 
     @Test
-    fun testSeedFromHistoryIfNeeded_reseedsCompressedLegacyData() = runBlocking {
+    fun loggingWithoutMeasuredTimeDoesNotAssumeFullLength() = runBlocking {
+        val trackDao = mockk<TrackDao>(relaxed = true)
+        val playbackEventDao = mockk<PlaybackEventDao>(relaxed = true)
+        val repo = StatsRepositoryImpl(trackDao, playbackEventDao, mockk(relaxed = true), mockk(relaxed = true))
+        repo.logPlaybackEvent(com.auralis.music.domain.model.Track(id = "t", title = "T", artist = "A", duration = 240L), 0L)
+        coVerify(exactly = 0) { playbackEventDao.insertEvent(any()) }
+    }
+
+    @Test
+    fun clearingStatsDoesNotRestoreOldPlaysOnNextOpen() = runBlocking {
         val trackDao = mockk<TrackDao>(relaxed = true)
         val playbackEventDao = mockk<PlaybackEventDao>(relaxed = true)
         val historyDao = mockk<HistoryDao>(relaxed = true)
         val playCountDao = mockk<PlayCountDao>(relaxed = true)
-
-        val now = System.currentTimeMillis()
-
-        // Simulate legacy database that had 56 events but ALL squeezed into the last 16 hours
-        coEvery { playbackEventDao.getEventCount() } returns 56
-        every { playbackEventDao.getFirstEventTimestamp() } returns flowOf(now - 16L * 3600_000L)
-
-        val trackEntity = TrackEntity(
-            id = "track_tame_1",
-            title = "New Person, Same Old Mistakes",
-            artist = "Tame Impala",
-            album = "Currents",
-            thumbnail = "https://i.ytimg.com/vi/xyz/hqdefault.jpg",
-            duration = 364L
+        val track = TrackEntity(
+            id = "old_track",
+            title = "Old listen",
+            artist = "Artist",
+            album = null,
+            thumbnail = "",
+            duration = 180L
         )
-
-        val playCountTuple = PlayCountWithTrackTuple(
-            playCount = PlayCountEntity(
-                trackId = "track_tame_1",
-                count = 16,
-                lastPlayed = now
-            ),
-            track = trackEntity
+        var playCounts = listOf(
+            PlayCountWithTrackTuple(
+                playCount = PlayCountEntity("old_track", 2, System.currentTimeMillis()),
+                track = track
+            )
         )
-
-        coEvery { playCountDao.getAllPlayCounts() } returns listOf(playCountTuple)
+        var eventCount = 2
+        coEvery { playCountDao.getAllPlayCounts() } coAnswers { playCounts }
         coEvery { historyDao.getHistoryWithTracks() } returns emptyList()
-
-        var clearedEvents = false
-        coEvery { playbackEventDao.clearAllEvents() } answers { clearedEvents = true }
-
-        val capturedEvents = slot<List<PlaybackEventEntity>>()
-        coEvery { playbackEventDao.insertEvents(capture(capturedEvents)) } returns Unit
+        coEvery { playbackEventDao.getEventCount() } coAnswers { eventCount }
+        every { playbackEventDao.getFirstEventTimestamp() } returns flowOf(0L)
+        coEvery { playCountDao.clearPlayCounts() } coAnswers { playCounts = emptyList() }
+        coEvery { playbackEventDao.clearAllEvents() } coAnswers { eventCount = 0 }
 
         val repo = StatsRepositoryImpl(trackDao, playbackEventDao, historyDao, playCountDao)
-        repo.seedFromHistoryIfNeeded()
+        repo.clearListeningStats()
+        repo.removeEstimatedListens()
 
-        assertTrue("Old compressed events should be cleared", clearedEvents)
-        assertTrue("Re-seeded events should be inserted", capturedEvents.isCaptured)
-        val events = capturedEvents.captured
-        val timeSpanDays = (now - events.last().timestamp) / (24L * 3600_000L)
-        assertTrue("Re-seeded plays should span across multiple weeks, got $timeSpanDays days", timeSpanDays >= 15)
+        assertEquals(0, eventCount)
+        assertTrue(playCounts.isEmpty())
+        coVerify(exactly = 1) { historyDao.clearHistory() }
+        coVerify(exactly = 0) { playbackEventDao.insertEvents(any()) }
     }
 }

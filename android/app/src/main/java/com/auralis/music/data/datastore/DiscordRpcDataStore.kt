@@ -20,6 +20,7 @@ class DiscordRpcDataStore(private val context: Context) {
         val DISCORD_DISCRIMINATOR = stringPreferencesKey("discord_discriminator")
         val DISCORD_AVATAR_URL = stringPreferencesKey("discord_avatar_url")
         val DISCORD_TOKEN = stringPreferencesKey("discord_token")
+        private val SOCIAL_SDK_MIGRATED = booleanPreferencesKey("discord_social_sdk_migrated")
         val ENABLE_RICH_PRESENCE = booleanPreferencesKey("discord_enable_rich_presence")
         val ACTIVITY_STATUS = stringPreferencesKey("discord_activity_status")
         val UPDATE_INTERVAL = intPreferencesKey("discord_update_interval")
@@ -42,6 +43,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 throw exception
             }
         }
+
         .map { prefs ->
             DiscordRpcSettings(
                 isLoggedIn = prefs[IS_LOGGED_IN] ?: false,
@@ -63,6 +65,18 @@ class DiscordRpcDataStore(private val context: Context) {
                 smallImage = prefs[SMALL_IMAGE] ?: "Artist artwork"
             )
         }
+
+    suspend fun migrateLegacyAuthentication() {
+        context.discordDataStore.edit { prefs ->
+            if (prefs[SOCIAL_SDK_MIGRATED] != true) {
+                prefs.remove(DISCORD_TOKEN)
+                prefs[IS_LOGGED_IN] = false
+                prefs[ENABLE_RICH_PRESENCE] = false
+                prefs[DISCORD_USERNAME] = ""
+                prefs[SOCIAL_SDK_MIGRATED] = true
+            }
+        }
+    }
 
     suspend fun updateSettings(transform: (DiscordRpcSettings) -> DiscordRpcSettings) {
         context.discordDataStore.edit { prefs ->

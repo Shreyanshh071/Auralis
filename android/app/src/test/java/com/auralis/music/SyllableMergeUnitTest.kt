@@ -13,6 +13,49 @@ import java.io.File
 
 class SyllableMergeUnitTest {
 
+    @Test
+    fun spacedTimedSuffixesAreRejoinedInTextAndTiming() {
+        val samples = listOf(
+            Triple("Hyster ical and useless", "Hyster ", "ical "),
+            Triple("wonder ful and bright", "wonder ", "ful "),
+            Triple("fantas tastic and bright", "fantas ", "tastic ")
+        )
+        for ((source, first, suffix) in samples) {
+            val line = com.auralis.music.domain.model.LyricLine(
+                time = 1000L,
+                text = source,
+                words = listOf(
+                    LyricWord(word = first, time = 1000L, duration = 200L),
+                    LyricWord(word = suffix, time = 1200L, duration = 300L),
+                    LyricWord(word = "and ", time = 1500L, duration = 200L),
+                    LyricWord(word = source.substringAfter("and "), time = 1700L, duration = 300L)
+                )
+            )
+            val repaired = WordTiming.splitMergedWordsInLine(line)
+            assertEquals(first.trim() + suffix.trim() + " and " + source.substringAfter("and "), repaired.text)
+            assertEquals(first.trimEnd() + suffix.trim(), repaired.words!!.first().word.trim())
+            assertEquals(500L, repaired.words!!.first().duration)
+            assertEquals(repaired.text, WordTiming.splitMergedWordsInLine(repaired).text)
+        }
+    }
+
+    @Test
+    fun ordinaryAdjacentWordsKeepTheirSpace() {
+        val line = com.auralis.music.domain.model.LyricLine(
+            time = 1000L,
+            text = "love is real",
+            words = listOf(
+                LyricWord(word = "love ", time = 1000L, duration = 200L),
+                LyricWord(word = "is ", time = 1200L, duration = 200L),
+                LyricWord(word = "real", time = 1400L, duration = 200L)
+            )
+        )
+        val repaired = WordTiming.splitMergedWordsInLine(line)
+        assertEquals("love is real", repaired.text)
+        assertEquals(3, repaired.words!!.size)
+        assertEquals("the less", WordTiming.healSplitWordsInText("the less"))
+    }
+
     // ── 1. CONTIGUOUS SYLLABLES MERGING INTO ONE WORD ──────────────────────────
 
     @Test
@@ -257,44 +300,26 @@ class SyllableMergeUnitTest {
 
     @Test
     fun testFakePlasticTreesMultiWordPreservation() {
-        val input = listOf(
-            LyricWord(word = "A", time = 3346L, duration = 309L),
-            LyricWord(word = "green", time = 3655L, duration = 311L),
-            LyricWord(word = "plastic", time = 3966L, duration = 785L),
-            LyricWord(word = "watering ", time = 4751L, duration = 1529L),
-            LyricWord(word = "can ", time = 6280L, duration = 903L)
-        )
-
-        val merged = WordTiming.mergeContiguousSyllables(input)
-        assertNotNull(merged)
-        assertEquals("Must have 5 separate words with proper spacing preserved", 5, merged!!.size)
-        assertEquals("A ", merged[0].word)
-        assertEquals("green ", merged[1].word)
-        assertEquals("plastic ", merged[2].word)
-        assertEquals("watering ", merged[3].word)
-        assertEquals("can ", merged[4].word)
-
-        // Raw TTML snippet simulation
+        // Shape of the real BetterLyrics file: "plastic" and "watering" (and "Chinese", "rubber",
+        // "plant") lack spaces between them, but the same song writes "plastic" and "rubber" as
+        // whole spaced words elsewhere, which marks those joins as missing spaces, not syllables.
         val ttmlXml = """
             <tt xmlns="http://www.w3.org/ns/ttml">
             <body>
             <div>
-            <p begin="3.346" end="7.183">
-            <span begin="3.346" end="3.655">A</span> <span begin="3.655" end="3.966">green</span> <span begin="3.966" end="4.751">plastic</span><span begin="4.751" end="6.280">watering</span> <span begin="6.280" end="7.183">can</span>
-            </p>
+            <p begin="3.346" end="12.0"><span begin="3.346" end="3.655">A</span> <span begin="3.655" end="3.966">green</span> <span begin="3.966" end="4.751">plastic</span><span begin="4.751" end="6.280">watering</span> <span begin="6.280" end="7.183">can</span> <span begin="7.183" end="7.5">for</span> <span begin="7.5" end="7.7">a</span> <span begin="7.7" end="8.0">fake</span> <span begin="8.0" end="8.6">chinese</span><span begin="8.6" end="9.2">rubber</span><span begin="9.2" end="9.9">plant</span> <span begin="9.9" end="10.1">in</span> <span begin="10.1" end="10.3">the</span> <span begin="10.3" end="10.6">fake</span> <span begin="10.6" end="11.2">plastic</span> <span begin="11.2" end="12.0">earth,</span></p>
+            <p begin="13.0" end="16.0"><span begin="13.0" end="13.4">that</span> <span begin="13.4" end="13.6">she</span> <span begin="13.6" end="14.0">bought</span> <span begin="14.0" end="14.2">from</span> <span begin="14.2" end="14.4">a</span> <span begin="14.4" end="15.0">rubber</span> <span begin="15.0" end="16.0">man</span></p>
             </div>
             </body>
             </tt>
         """.trimIndent()
 
         val parsed = TtmlParser.parse(ttmlXml, LyricsProvider.BETTER_LYRICS)
-        assertEquals(1, parsed.lines.size)
         val line = parsed.lines[0]
-        assertEquals("A green plastic watering can", line.text)
-        assertNotNull(line.words)
-        assertEquals(5, line.words!!.size)
+        assertEquals("A green plastic watering can for a fake chinese rubber plant in the fake plastic earth,", line.text)
         assertEquals("plastic ", line.words!![2].word)
         assertEquals("watering ", line.words!![3].word)
+        assertEquals(4_751L, line.words!![3].time)
     }
 
     // ── 10. TITLE MATCHER SUBTITLE & SOUNDTRACK MATCHING ──────────────────────

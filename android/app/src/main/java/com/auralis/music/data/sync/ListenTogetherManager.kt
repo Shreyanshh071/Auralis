@@ -25,8 +25,93 @@ data class RoomMember(
     val joinedAt: Long = System.currentTimeMillis(),
     val avatarColorHex: String = "#7C4DFF",
     /** Server time of the member's last heartbeat; null for records written by older app versions. */
-    val lastSeenServerMs: Long? = null
+    val lastSeenServerMs: Long? = null,
+    /** The latest playback request this guest sent the host, if any. */
+    val command: GuestCommand? = null,
+    /** This member's playback keeps stalling on a slow connection (see PlaybackStallDetector). */
+    val hasSlowConnection: Boolean = false,
+    /** The room song this member has loaded and is ready to start. */
+    val readyForTrackId: String? = null
 )
+
+/**
+ * A guest's playback request. Guests can't write the room (only the host can), so it travels on
+ * the guest's own member record and the host's app carries it out if the room allows it.
+ */
+data class GuestCommand(
+    val type: String,          // PLAY, PAUSE, TOGGLE, NEXT, PREVIOUS, SEEK, PLAY_TRACK
+    val positionMs: Long = 0L,
+    val seq: Long = 0L,         // increases with every request from the same guest
+    /** The song a guest picked (queue, search, library...) for PLAY_TRACK. */
+    val track: Track? = null
+) {
+    companion object {
+        /**
+         * Play/pause name the state the guest wants, not a flip: when the host and a guest both
+         * press pause at once, a flip would restart the host's already-paused song.
+         */
+        const val PLAY = "play"
+        const val PAUSE = "pause"
+        /** Older app versions only. */
+        const val TOGGLE = "toggle"
+        const val NEXT = "next"
+        const val PREVIOUS = "previous"
+        const val SEEK = "seek"
+        const val PLAY_TRACK = "play_track"
+    }
+
+    /** Requests that change the song; these share the 3-second skip lock. */
+    val changesSong: Boolean get() = type == NEXT || type == PREVIOUS || type == PLAY_TRACK
+}
+
+/** What the host lets guests do. Stored on the room so every member sees the same rules. */
+data class RoomSettings(
+    val guestsCanAddSongs: Boolean = true,
+    /** Play, pause and seek. Next/previous change the song, so they need [guestsCanPlaySongs]. */
+    val guestsCanControlPlayback: Boolean = false,
+    /** Pick any song (home, search, playlists, the queue) or skip next/previous, for everyone. */
+    val guestsCanPlaySongs: Boolean = false,
+    /**
+     * Guests may ask for any song (to add or to play now) and the host allows or declines each
+     * one — whether or not the add/play switches are on. With it off, those switches decide alone.
+     */
+    val requireApproval: Boolean = false
+) {
+    /** Every guest song (added or played) goes to the host as a request. */
+    val approvalApplies: Boolean get() = requireApproval
+
+    /** A guest may pick a song to play: directly, or as a request when approval is on. */
+    val guestsMayPlaySongs: Boolean get() = guestsCanPlaySongs || requireApproval
+
+    /** A guest may add a song to the queue: directly, or as a request when approval is on. */
+    val guestsMayAddSongs: Boolean get() = guestsCanAddSongs || requireApproval
+
+    /** Two people can change the song at once, so the 3-second skip lock applies. */
+    val guestsCanChangeSong: Boolean get() = guestsMayPlaySongs
+
+    /** Whether the room lets a guest do [command] (a song change may still wait for the host). */
+    fun allows(command: GuestCommand): Boolean =
+        if (command.changesSong) guestsMayPlaySongs else guestsCanControlPlayback
+
+    fun toMap(): Map<String, Any> = mapOf(
+        "guestsCanAddSongs" to guestsCanAddSongs,
+        "guestsCanControlPlayback" to guestsCanControlPlayback,
+        "guestsCanPlaySongs" to guestsCanPlaySongs,
+        "requireApproval" to requireApproval
+    )
+
+    companion object {
+        fun from(raw: Any?): RoomSettings {
+            val m = raw as? Map<*, *> ?: return RoomSettings()
+            return RoomSettings(
+                guestsCanAddSongs = m["guestsCanAddSongs"] as? Boolean ?: true,
+                guestsCanControlPlayback = m["guestsCanControlPlayback"] as? Boolean ?: false,
+                guestsCanPlaySongs = m["guestsCanPlaySongs"] as? Boolean ?: false,
+                requireApproval = m["requireApproval"] as? Boolean ?: false
+            )
+        }
+    }
+}
 
 data class RoomRecommendation(
     val id: String = "",
@@ -56,21 +141,71 @@ data class NativeRoomState(
     /** Bumped by the host on every seek so listeners jump immediately. */
     val seekVersion: Long = 0,
     val status: String = "active",
-    val membersList: List<RoomMember> = emptyList()
+    val membersList: List<RoomMember> = emptyList(),
+    val settings: RoomSettings = RoomSettings(),
+    /** The exact video the host is playing for [currentTrack]; null until the host has resolved it. */
+    val currentVideoId: String? = null,
+    /** Host's clock time the room will close, while a closing warning is showing; null otherwise. */
+    val closingAtMs: Long? = null,
+    /** Why it's closing: [ROOM_CLOSING_EMPTY] or [ROOM_CLOSING_IDLE]. */
+    val closingReason: String? = null,
+    /** The host closed their player on [currentTrack] (it's paused there, ready to reopen). */
+    val playerClosed: Boolean = false
 )
+
+const val ROOM_CLOSING_EMPTY = "empty"
+const val ROOM_CLOSING_IDLE = "idle"
+
+/**
+ * Firestore deletes documents whose `expireAt` has passed, once a TTL policy is on for that
+ * collection group (Firebase console → Firestore → TTL policies: "rooms" and "members", field expireAt).
+ * A live room keeps pushing it forward; a closed or abandoned room is cleaned up after this.
+ */
+private const val ROOM_TTL_MS = 24L * 60 * 60 * 1000
+private const val CLOSED_ROOM_TTL_MS = 60L * 60 * 1000
+
+private fun expiresIn(ms: Long) = com.google.firebase.Timestamp(java.util.Date(System.currentTimeMillis() + ms))
 
 class ListenTogetherManager(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
     companion object {
-        @Volatile
-        var activeRoomCode: String? = null
-            private set
+        private val _activeRoomCodeFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        /** The room this phone is in, for the music service (it stays in the foreground while in one). */
+        val activeRoomCodeFlow: kotlinx.coroutines.flow.StateFlow<String?> = _activeRoomCodeFlow
+
+        var activeRoomCode: String?
+            get() = _activeRoomCodeFlow.value
+            private set(value) { _activeRoomCodeFlow.value = value }
 
         @Volatile
         var isHostUser: Boolean = false
             private set
+
+        /**
+         * Leaves (guest) or closes (host) the room and waits for the server to have it, at most
+         * [timeoutMs]. The fire-and-forget version below was killed with the app before the write
+         * went out, so the host kept showing a listener who had swiped the app away.
+         */
+        suspend fun leaveRoomBeforeShutdown(timeoutMs: Long = 2_500L) {
+            val roomCode = activeRoomCode ?: return
+            val isHost = isHostUser
+            val uid = try { FirebaseAuth.getInstance().currentUser?.uid } catch (_: Exception) { null } ?: return
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                    val roomDoc = FirebaseFirestore.getInstance().collection("rooms").document(roomCode)
+                    roomDoc.collection("members").document(uid).delete().await()
+                    if (isHost) roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
+                }
+                android.util.Log.d("ListenTogether", "[Shutdown] Left room=$roomCode (isHost=$isHost)")
+            } catch (e: Exception) {
+                android.util.Log.e("ListenTogether", "[Shutdown] Couldn't leave room=$roomCode: ${e.message}")
+            } finally {
+                activeRoomCode = null
+                isHostUser = false
+            }
+        }
 
         fun performTaskRemovedCleanup() {
             val roomCode = activeRoomCode ?: return
@@ -82,7 +217,7 @@ class ListenTogetherManager(
                 // Guests only remove their member record: the room document is host-only.
                 roomDoc.collection("members").document(uid).delete()
                 if (isHost) {
-                    roomDoc.update("status", "closed")
+                    roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS))
                 }
                 android.util.Log.d("ListenTogether", "[TaskRemoved Cleanup] Successfully cleaned up room=$roomCode, isHost=$isHost")
             } catch (e: Exception) {
@@ -139,7 +274,8 @@ class ListenTogetherManager(
         queue: List<Track> = emptyList(),
         queueIndex: Int = 0,
         isPlaying: Boolean = false,
-        playbackPositionMs: Long = 0L
+        playbackPositionMs: Long = 0L,
+        settings: RoomSettings = RoomSettings()
     ): Pair<String, String> {
         val uid = ensureAuthenticated()
         val roomCode = generateRoomCode()
@@ -150,7 +286,7 @@ class ListenTogetherManager(
         val roomDoc = firestore.collection("rooms").document(roomCode)
         val now = System.currentTimeMillis()
 
-        val trackMap = initialTrack?.let(::trackToMap)
+        val trackMap = initialTrack?.let(::currentTrackToMap)
         val (queueWindow, windowIndex) = ListenTogetherSyncMath.queueWindow(queue, queueIndex)
 
         val hostMemberMap = mapOf(
@@ -178,7 +314,9 @@ class ListenTogetherManager(
             "seekVersion" to 0L,
             "status" to "active",
             "membersList" to listOf(hostMemberMap),
-            "memberCount" to 1
+            "memberCount" to 1,
+            "settings" to settings.toMap(),
+            "expireAt" to expiresIn(ROOM_TTL_MS)
         )
 
         roomDoc.set(roomData).await()
@@ -191,7 +329,8 @@ class ListenTogetherManager(
             "lastSeen" to now,
             "serverSeen" to FieldValue.serverTimestamp(),
             "joinedAt" to now,
-            "avatarColorHex" to "#D4E157"
+            "avatarColorHex" to "#D4E157",
+            "expireAt" to expiresIn(ROOM_TTL_MS)
         )
         val memberDoc = roomDoc.collection("members").document(uid)
         val sentAt = System.currentTimeMillis()
@@ -231,7 +370,8 @@ class ListenTogetherManager(
             "lastSeen" to now,
             "serverSeen" to FieldValue.serverTimestamp(),
             "joinedAt" to now,
-            "avatarColorHex" to "#D4E157"
+            "avatarColorHex" to "#D4E157",
+            "expireAt" to expiresIn(ROOM_TTL_MS)
         )
 
         // The members subcollection is the roster. The room document is host-only in the
@@ -278,7 +418,8 @@ class ListenTogetherManager(
             val sentAt = System.currentTimeMillis()
             memberDoc.update(
                 "lastSeen", sentAt,
-                "serverSeen", FieldValue.serverTimestamp()
+                "serverSeen", FieldValue.serverTimestamp(),
+                "expireAt", expiresIn(ROOM_TTL_MS)
             ).await()
             readClockOffset(memberDoc, sentAt, System.currentTimeMillis())
         } catch (e: Exception) {
@@ -305,17 +446,21 @@ class ListenTogetherManager(
         playbackPositionMs: Long,
         queue: List<Track> = emptyList(),
         queueIndex: Int = -1,
-        seekVersion: Long? = null
+        seekVersion: Long? = null,
+        playerClosed: Boolean = false
     ) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
         val updates = hashMapOf<String, Any?>(
-            "currentTrack" to currentTrack?.let(::trackToMap),
+            "currentTrack" to currentTrack?.let { t ->
+                currentTrackToMap(t).let { if (playerClosed) it + ("closed" to true) else it }
+            },
             "isPlaying" to isPlaying,
             "playbackPosition" to playbackPositionMs,
             "updatedAt" to System.currentTimeMillis(),
-            "serverUpdatedAt" to FieldValue.serverTimestamp()
+            "serverUpdatedAt" to FieldValue.serverTimestamp(),
+            "expireAt" to expiresIn(ROOM_TTL_MS)
         )
 
         if (queue.isNotEmpty()) {
@@ -337,6 +482,57 @@ class ListenTogetherManager(
         }
     }
 
+    /** Host: start (or with nulls, cancel) the room's closing countdown that every member sees. */
+    suspend fun setRoomClosing(roomCode: String, closingAtMs: Long?, reason: String?) {
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        firestore.collection("rooms").document(normalizedCode)
+            // One field: the room record is capped at 20 fields by the security rules.
+            .update("closing", closingAtMs?.let { mapOf("at" to it, "reason" to reason) }).await()
+    }
+
+    suspend fun updateRoomSettings(roomCode: String, settings: RoomSettings) {
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        firestore.collection("rooms").document(normalizedCode)
+            .update("settings", settings.toMap()).await()
+    }
+
+    /** Tells the room whether this member's connection is too slow for smooth playback. */
+    suspend fun setSlowConnection(roomCode: String, slow: Boolean) {
+        val uid = auth.currentUser?.uid ?: return
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        firestore.collection("rooms").document(normalizedCode)
+            .collection("members").document(uid)
+            .update("network.slow", slow).await()
+    }
+
+    /**
+     * Tells the host this guest has [trackId] loaded and ready, so a synchronized start can go.
+     * Kept inside the "network" entry: member records are capped at 10 fields by the rules.
+     */
+    suspend fun setReadyFor(roomCode: String, trackId: String) {
+        val uid = auth.currentUser?.uid ?: return
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        firestore.collection("rooms").document(normalizedCode)
+            .collection("members").document(uid)
+            .update("network.readyFor", trackId).await()
+    }
+
+    /** Sends a guest's playback request to the host through the guest's own member record. */
+    suspend fun sendGuestCommand(roomCode: String, command: GuestCommand) {
+        val uid = auth.currentUser?.uid ?: return
+        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        firestore.collection("rooms").document(normalizedCode)
+            .collection("members").document(uid)
+            .update(
+                "command", mapOf(
+                    "type" to command.type,
+                    "positionMs" to command.positionMs,
+                    "seq" to command.seq,
+                    "track" to command.track?.let(::trackToMap)
+                )
+            ).await()
+    }
+
     suspend fun leaveRoom(roomCode: String, isHost: Boolean) {
         val uid = auth.currentUser?.uid ?: return
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
@@ -346,7 +542,7 @@ class ListenTogetherManager(
             // Guests only remove their member record: the room document is host-only.
             roomDoc.collection("members").document(uid).delete().await()
             if (isHost) {
-                roomDoc.update("status", "closed").await()
+                roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
             }
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "[Leave Room Error] code=$normalizedCode, isHost=$isHost: ${e.message}", e)
@@ -363,7 +559,10 @@ class ListenTogetherManager(
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
         val registration = roomDoc.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-            if (error != null || snapshot == null || !snapshot.exists()) {
+            // A connection hiccup is not the room closing: keep the last known state and wait for
+            // the next update. Only a deleted room document means it's gone.
+            if (error != null || snapshot == null) return@addSnapshotListener
+            if (!snapshot.exists()) {
                 trySend(null)
                 return@addSnapshotListener
             }
@@ -395,7 +594,30 @@ class ListenTogetherManager(
                     "serverSeen",
                     DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
                 )?.toDate()?.time
-                RoomMember(id, name, isHost, joinedAt, color, lastSeenServer)
+                val command = (doc.get("command") as? Map<*, *>)?.let { c ->
+                    val type = c["type"] as? String ?: return@let null
+                    GuestCommand(
+                        type = type,
+                        positionMs = (c["positionMs"] as? Number)?.toLong() ?: 0L,
+                        seq = (c["seq"] as? Number)?.toLong() ?: 0L,
+                        track = (c["track"] as? Map<*, *>)?.let { m ->
+                            val id = m["id"] as? String ?: return@let null
+                            Track(
+                                id = id,
+                                title = m["title"] as? String ?: "",
+                                artist = m["artist"] as? String ?: "",
+                                album = m["album"] as? String,
+                                thumbnail = m["thumbnail"] as? String ?: "",
+                                duration = (m["duration"] as? Number)?.toLong() ?: 0L,
+                                source = TrackSource.YOUTUBE
+                            )
+                        }
+                    )
+                }
+                val network = doc.get("network") as? Map<*, *>
+                val slow = network?.get("slow") as? Boolean ?: false
+                val readyFor = network?.get("readyFor") as? String
+                RoomMember(id, name, isHost, joinedAt, color, lastSeenServer, command, slow, readyFor)
             }
             trySend(members)
         }
@@ -519,6 +741,17 @@ class ListenTogetherManager(
         recommendationsListener = null
     }
 
+    /**
+     * The now-playing track plus the exact YouTube video the host is playing for it. Guests play
+     * that video instead of looking the song up themselves, so everyone hears the same recording
+     * and nobody waits for a second lookup.
+     */
+    private fun currentTrackToMap(track: Track): Map<String, Any?> {
+        val resolved = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id)
+            ?: track.id.takeUnless { it.startsWith("sp_") }
+        return trackToMap(track) + ("videoId" to resolved)
+    }
+
     private fun trackToMap(track: Track): Map<String, Any?> = mapOf(
         "id" to track.id,
         "title" to track.title,
@@ -575,6 +808,7 @@ class ListenTogetherManager(
         val status = doc.getString("status") ?: "active"
 
         val trackRaw = doc.get("currentTrack") as? Map<*, *>
+        val currentVideoId = (trackRaw?.get("videoId") as? String)?.takeIf { it.isNotBlank() }
         val currentTrack = trackRaw?.let {
             Track(
                 id = it["id"] as? String ?: "",
@@ -627,7 +861,51 @@ class ListenTogetherManager(
             serverUpdatedAt = serverUpdatedAt,
             seekVersion = seekVersion,
             status = status,
-            membersList = membersList
+            membersList = membersList,
+            settings = RoomSettings.from(doc.get("settings")),
+            currentVideoId = currentVideoId,
+            closingAtMs = ((doc.get("closing") as? Map<*, *>)?.get("at") as? Number)?.toLong(),
+            closingReason = (doc.get("closing") as? Map<*, *>)?.get("reason") as? String,
+            playerClosed = trackRaw?.get("closed") as? Boolean ?: false
         )
+    }
+}
+
+/** What the host's app does with a song a guest added, under [RoomSettings]. */
+enum class GuestSongDecision { ADD, DECLINE, WAIT_FOR_HOST }
+
+fun RoomSettings.decideGuestSong(): GuestSongDecision = when {
+    requireApproval -> GuestSongDecision.WAIT_FOR_HOST
+    guestsCanAddSongs -> GuestSongDecision.ADD
+    else -> GuestSongDecision.DECLINE
+}
+
+/**
+ * Picks out guests' new playback requests from roster snapshots. A guest first seen already
+ * holding a request (the host's app restarted, say) only sets a baseline; it is never replayed.
+ */
+class GuestCommandTracker {
+    private val lastSeq = mutableMapOf<String, Long>()
+
+    fun reset() = lastSeq.clear()
+
+    fun newCommands(roster: List<RoomMember>, allowed: Boolean): List<Pair<RoomMember, GuestCommand>> =
+        newCommands(roster) { allowed }
+
+    /** As above, deciding per request whether the room allows it. */
+    fun newCommands(roster: List<RoomMember>, allowed: (GuestCommand) -> Boolean): List<Pair<RoomMember, GuestCommand>> {
+        val fresh = mutableListOf<Pair<RoomMember, GuestCommand>>()
+        for (member in roster) {
+            if (member.isHost) continue
+            val command = member.command
+            if (command == null) {
+                lastSeq.putIfAbsent(member.id, 0L)
+                continue
+            }
+            val previous = lastSeq[member.id]
+            lastSeq[member.id] = maxOf(previous ?: 0L, command.seq)
+            if (previous != null && command.seq > previous && allowed(command)) fresh += member to command
+        }
+        return fresh
     }
 }

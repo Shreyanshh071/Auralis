@@ -55,7 +55,7 @@ class LyricsRepositoryImpl(
          * 11 = Phase 5.5: master-aware audio leading silence alignment & resilient NetEase DNS.
          * 12 = Phase 5.6: Float PCM leading silence processor & studio audio duration mapping.
          */
-        const val LYRICS_PIPELINE_VERSION = 14 // 14: CJK fan annotations stripped + fuzzy gap-fill dedupe; drops rows cached with them
+        const val LYRICS_PIPELINE_VERSION = 16 // 16: Indian-language lyrics always in Latin letters (cached Devanagari purged); 15: unspaced syllable spans join into one word ("Disap pointed" was cached split); 14: CJK fan annotations stripped + fuzzy gap-fill dedupe
         // 13: same-timestamp LRC translations paired; cache keeps translatedText
 
         /**

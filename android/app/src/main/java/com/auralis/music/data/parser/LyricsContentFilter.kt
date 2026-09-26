@@ -69,7 +69,9 @@ object LyricsContentFilter {
         }
         val stripped = if (kept.size == annotated.lines.size) annotated
             else annotated.copy(lines = kept, plainLyrics = kept.joinToString("\n") { it.text })
-        return removeTitleHeader(stripped, title)
+        // Indian-language lyrics always display in Latin letters, whichever source answered
+        // (see HinglishScript), so an upgrade never switches the script mid-song.
+        return HinglishScript.toLatin(removeTitleHeader(stripped, title))
     }
 
     /** How deep into the lyrics a "Artists - Title" header can sit. */

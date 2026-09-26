@@ -249,7 +249,8 @@ object WordTiming {
         "ers", "est", "tion", "tions", "sion", "sions", "ment", "ments", "ness",
         "ible", "ity", "ities", "ous", "ious", "ize", "ise",
         "ized", "ised", "izing", "ising", "ings", "pise", "lize", "ther", "vor",
-        "delic", "tastic", "lessly"
+        "delic", "tastic", "lessly", "ical", "ically", "ful", "fully",
+        "less", "able", "ably", "ive", "ative", "ence", "ance", "ary", "ory"
     )
 
     private val NON_STANDALONE_PREFIXES = setOf(
@@ -448,11 +449,16 @@ object WordTiming {
      * Splits accidental merged words across both text and word-synced timestamps of a [LyricLine].
      */
     fun splitMergedWordsInLine(line: LyricLine): LyricLine {
-        val newWords = if (!line.words.isNullOrEmpty()) {
-            line.words.flatMap { splitMergedLyricWord(it) }
-        } else null
-
-        val newText = splitMergedWordsInText(line.text)
+        val mergedWords = mergeContiguousSyllables(line.words)
+        val joinedText = mergedWords?.joinToString("") { it.word }?.trim()
+        // Timed spans can split one written word into syllables. When the spans
+        // and source line have the same characters, use their repaired spacing
+        // for both the text and the word timings.
+        val textWithRepairedSpacing = if (mergedWords != line.words && !joinedText.isNullOrBlank() &&
+            joinedText.filterNot { it.isWhitespace() } == line.text.filterNot { it.isWhitespace() }
+        ) joinedText else line.text
+        val newWords = mergedWords?.flatMap { splitMergedLyricWord(it) }
+        val newText = healSplitWordsInText(textWithRepairedSpacing)
 
         return if (newWords != line.words || newText != line.text) {
             line.copy(text = newText, words = newWords)
@@ -479,7 +485,9 @@ object WordTiming {
         if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
         // If both tokens are standalone English words, whitespace between them is deliberate and must never be stripped
         if (isStandalone(f) && isStandalone(s)) return false
-        if (s in NON_STANDALONE_SUFFIXES) return true
+        // A suffix-shaped token can also be a separate word ("the less").
+        // Only infer a split when the preceding fragment cannot stand alone.
+        if (s in NON_STANDALONE_SUFFIXES && !isStandalone(f)) return true
         if (f in NON_STANDALONE_PREFIXES) return true
         return false
     }
@@ -507,42 +515,55 @@ object WordTiming {
         return out.joinToString(" ")
     }
 
+    // Inflection/derivation tails: a right-hand piece shaped like one of these continues the word.
+    private val SUFFIX_TAIL_REGEX = Regex(
+        "[bcdfghjklmnpqrstvwxz]?(ing|ings|ed|er|ers|est|ly|y|s|es|ies|en|n|d|al|ic|tion|tions|sion|ness|ment|ful|less|able|ible|ical|ity|ous|ive|ure)"
+    )
+
+    private fun letters(text: String): String = text.lowercase().filter { it.isLetter() }
+
     /**
-     * Determines whether two adjacent unspaced spans are genuine syllables belonging to
-     * the same word (e.g. "beauti" + "ful", "well-" + "known") vs distinct independent words
-     * that merely lacked whitespace in provider markup (e.g. "plastic" + "watering").
+     * True when two spans written with no space between them are nonetheless separate words.
+     *
+     * Adjacent unspaced spans are syllables of one word in almost all real data: across 854
+     * such pairs in 37 BetterLyrics/Unison TTML files, 851 were syllables ("Dis|ap|point|ed",
+     * "Hys|ter|i|cal", "a|way", "be|long") and 3 were missing spaces ("plastic|watering",
+     * "Chinese|rubber|plant", all one file). So this only answers "separate" when both pieces
+     * are long, the right one isn't a suffix, and one side is a known word: from the built-in
+     * list or [songVocabulary], words the same song writes elsewhere as a whole spaced span.
+     * [accumulated] is the word built so far, [lastPiece] its final span.
      */
-    fun shouldMergeSyllables(firstWord: String, secondWord: String): Boolean {
-        val f = firstWord.trim()
-        val s = secondWord.trim()
-            .trimEnd(',', '.', '!', '?', ';', ':', '"', '\'', ')', ']', '}')
-            .trimStart('(', '[', '{', '"', '\'')
-        if (f.isEmpty() || s.isEmpty()) return false
+    internal fun isWordBoundaryWithoutSpace(
+        accumulated: String,
+        lastPiece: String,
+        next: String,
+        songVocabulary: Set<String> = emptySet()
+    ): Boolean {
+        val left = letters(lastPiece)
+        val right = letters(next)
+        if (left.length < 5 || right.length < 5) return false
+        if (right in NON_STANDALONE_SUFFIXES || SUFFIX_TAIL_REGEX.matches(right)) return false
+        val combined = letters(accumulated + next)
+        if (combined in KNOWN_COMPOUND_WORDS || isStandalone(combined) || combined in songVocabulary) return false
+        val word = letters(accumulated)
+        return isStandalone(word) || word in songVocabulary || isStandalone(right) || right in songVocabulary
+    }
 
-        // Hyphenated compounds/syllables always merge (e.g. "well-", "re-")
-        if (f.endsWith("-")) return true
-
-        // Trailing punctuation on first word marks a clause or word boundary — never merge
-        if (f.last() in ",.!?;:\"'") return false
-
-        val fLower = f.lowercase().trimEnd('-', '\'', '’')
-        val sLower = s.lowercase().trimStart('-', '\'', '’')
-        val combined = fLower + sLower
-
-        if (KNOWN_COMPOUND_WORDS.contains(combined)) return true
-
-        // Two valid standalone English words NEVER merge unless they form a known compound word
-        if (isStandalone(fLower) && isStandalone(sLower)) return false
-
-        // Recognized sub-word prefixes or suffixes that cannot stand alone
-        if (fLower in NON_STANDALONE_PREFIXES || sLower in NON_STANDALONE_SUFFIXES) return true
-
-        // Unspaced adjacent spans where at least one token is a non-standalone syllable fragment (<= 4 characters)
-        // are syllables of the same visual word (e.g. "ea" + "sy", "vi" + "sage", "de" + "ceive", "beauti" + "ful").
-        if (!isStandalone(fLower) && fLower.length <= 4) return true
-        if (!isStandalone(sLower) && sLower.length <= 4) return true
-
-        return false
+    /**
+     * Words a song writes as a single span with whitespace (or a line edge) on both sides,
+     * from its lines' raw, unmerged word lists. Used by [isWordBoundaryWithoutSpace].
+     */
+    fun wholeWordVocabulary(lines: List<List<LyricWord>>): Set<String> {
+        val vocab = HashSet<String>()
+        for (words in lines) {
+            for (i in words.indices) {
+                val w = words[i].word
+                val spacedBefore = i == 0 || words[i - 1].word.lastOrNull()?.isWhitespace() == true || w.firstOrNull()?.isWhitespace() == true
+                val spacedAfter = i == words.lastIndex || w.lastOrNull()?.isWhitespace() == true || words[i + 1].word.firstOrNull()?.isWhitespace() == true
+                if (spacedBefore && spacedAfter) letters(w).takeIf { it.isNotEmpty() }?.let { vocab.add(it) }
+            }
+        }
+        return vocab
     }
 
     /**
@@ -560,11 +581,20 @@ object WordTiming {
      * When two spans are independent words lacking whitespace (e.g. "plastic" + "watering"),
      * merging is rejected and a proper word-separating space is preserved.
      */
-    fun mergeContiguousSyllables(words: List<LyricWord>?): List<LyricWord>? {
+    fun mergeContiguousSyllables(
+        words: List<LyricWord>?,
+        songVocabulary: Set<String> = emptySet()
+    ): List<LyricWord>? {
         if (words.isNullOrEmpty() || words.size < 2) return words
+
+        // A line of 3+ pieces with no space anywhere came from a source that doesn't encode
+        // spaces (bare word tokens), so "no space" carries no information there.
+        val encodesNoSpaces = words.size >= 3 &&
+            words.none { w -> w.word.any { it.isWhitespace() } }
 
         val merged = ArrayList<LyricWord>(words.size)
         var acc = words[0]
+        var lastPiece = words[0].word
 
         for (i in 1 until words.size) {
             val curr = words[i]
@@ -573,7 +603,8 @@ object WordTiming {
             val canMerge = !isCjk(prevWord) &&
                 !isCjk(curr.word) &&
                 acc.isBackground == curr.isBackground &&
-                ((!hasTrailingSpace && shouldMergeSyllables(prevWord, curr.word)) ||
+                ((!hasTrailingSpace && !encodesNoSpaces && isSameWordAcrossNoSpace(prevWord, lastPiece, curr.word, songVocabulary)) ||
+                 (!hasTrailingSpace && encodesNoSpaces && looksLikeFragmentsOfOneWord(prevWord, curr.word)) ||
                  (hasTrailingSpace && isUnintendedSpaceSplit(prevWord, curr.word)))
 
             if (canMerge) {
@@ -592,6 +623,7 @@ object WordTiming {
                     time = startTime,
                     duration = combinedDuration
                 )
+                lastPiece = curr.word
             } else {
                 // If previous word had no trailing space and current word has no leading space,
                 // preserve normal word boundary space between distinct words.
@@ -603,10 +635,49 @@ object WordTiming {
 
                 merged.add(if (needsSpace) acc.copy(word = "$prevWord ") else acc)
                 acc = curr
+                lastPiece = curr.word
             }
         }
         merged.add(acc)
         return merged
+    }
+
+    /**
+     * For bare word tokens (no spacing information): join only pieces that can't be words on
+     * their own ("beauti" + "ful", "well-" + "known"); two dictionary words stay apart.
+     */
+    private fun looksLikeFragmentsOfOneWord(firstWord: String, secondWord: String): Boolean {
+        val f = firstWord.trim()
+        val s = secondWord.trim()
+            .trimEnd(',', '.', '!', '?', ';', ':', '"', '\'', ')', ']', '}')
+            .trimStart('(', '[', '{', '"', '\'')
+        if (f.isEmpty() || s.isEmpty()) return false
+        if (f.endsWith("-")) return true
+        if (f.last() in ",.!?;:\"'") return false
+        val fLower = f.lowercase().trimEnd('-', '\'', '’')
+        val sLower = s.lowercase().trimStart('-', '\'', '’')
+        if (KNOWN_COMPOUND_WORDS.contains(fLower + sLower)) return true
+        if (isStandalone(fLower) && isStandalone(sLower)) return false
+        if (fLower in NON_STANDALONE_PREFIXES || sLower in NON_STANDALONE_SUFFIXES) return true
+        if (!isStandalone(fLower) && fLower.length <= 4) return true
+        if (!isStandalone(sLower) && sLower.length <= 4) return true
+        return false
+    }
+
+    /** Unspaced spans join into one word unless punctuation or [isWordBoundaryWithoutSpace] says otherwise. */
+    fun isSameWordAcrossNoSpace(
+        accumulated: String,
+        lastPiece: String,
+        next: String,
+        songVocabulary: Set<String> = emptySet()
+    ): Boolean {
+        val piece = lastPiece.trim()
+        if (piece.isEmpty() || next.isBlank()) return false
+        if (piece.endsWith("-")) return true
+        // Clause punctuation or a dropped-g apostrophe ends a word ("so,|so", "feelin'|good");
+        // an apostrophe starting the next piece ("could|n't") doesn't.
+        if (piece.last() in ",.!?;:\"'’") return false
+        return !isWordBoundaryWithoutSpace(accumulated, lastPiece, next, songVocabulary)
     }
 
     /**
