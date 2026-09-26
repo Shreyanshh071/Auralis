@@ -22,6 +22,9 @@ object IndicScriptNormalizer {
         "ঋ" to "ri", "এ" to "e", "ঐ" to "oi", "ও" to "o", "ঔ" to "ou"
     )
 
+    /** Anusvara, chandrabindu and visarga: they follow the vowel, they don't replace it. */
+    private val NASAL_OR_VISARGA = setOf("ं", "ँ", "ः", "ਂ", "ੰ", "ঁ", "ং", "ঃ")
+
     private val MATRA_MAP = mapOf(
         // Devanagari Matras
         "ा" to "a", "ि" to "i", "ी" to "i", "ु" to "u", "ू" to "u",
@@ -121,6 +124,7 @@ object IndicScriptNormalizer {
 
         val normalized = normalizeIndicText(text)
         val sb = StringBuilder()
+        var prevHadVowel = false
 
         var i = 0
         while (i < normalized.length) {
@@ -148,36 +152,48 @@ object IndicScriptNormalizer {
             val vowel = VOWEL_MAP[chStr]
             if (vowel != null) {
                 sb.append(vowel)
+                prevHadVowel = true
                 i++
                 continue
             }
 
-            // 2. Consonant
+            // 2. Consonant, with Hindi schwa deletion: the inherent "a" is dropped at the end of a
+            // word (मन -> man, not mana) and between a vowel and a consonant that carries its own
+            // vowel sign (भरता -> bharta, करना -> karna); it is kept everywhere else (मन -> man, not mn).
             val consonant = CONSONANT_MAP[chStr]
             if (consonant != null) {
                 sb.append(consonant)
                 val nextChar = if (i + 1 < normalized.length) normalized[i + 1] else null
+                val nextStr = nextChar?.toString()
 
-                if (nextChar != null) {
-                    val nextStr = nextChar.toString()
-                    if (isVirama(nextChar)) {
-                        i += 2
-                        continue
-                    } else if (MATRA_MAP.containsKey(nextStr)) {
-                        sb.append(MATRA_MAP[nextStr])
-                        i += 2
-                        continue
-                    } else if (CONSONANT_MAP.containsKey(nextStr)) {
-                        val charAfterNext = if (i + 2 < normalized.length) normalized[i + 2] else null
-                        if (charAfterNext != null && !isVirama(charAfterNext) && (MATRA_MAP.containsKey(charAfterNext.toString()) || CONSONANT_MAP.containsKey(charAfterNext.toString()))) {
-                            sb.append("a")
-                        } else if (charAfterNext == null || charAfterNext.isWhitespace() || charAfterNext in ".,!?:;\"'()[]") {
-                            // Schwa deletion at word final consonant in Hindi/Bhojpuri
-                        } else {
-                            sb.append("a")
-                        }
-                    }
+                if (nextChar != null && isVirama(nextChar)) {
+                    prevHadVowel = false
+                    i += 2
+                    continue
                 }
+                if (nextStr != null && nextStr in NASAL_OR_VISARGA) {
+                    // मं / मँ: the consonant keeps its schwa and the mark nasalises it ("man").
+                    sb.append("a").append(MATRA_MAP[nextStr])
+                    prevHadVowel = true
+                    i += 2
+                    continue
+                }
+                if (nextStr != null && MATRA_MAP.containsKey(nextStr)) {
+                    sb.append(MATRA_MAP[nextStr])
+                    prevHadVowel = true
+                    i += 2
+                    continue
+                }
+
+                val wordFinal = nextChar == null || nextStr!!.let { n -> !CONSONANT_MAP.containsKey(n) && !MATRA_MAP.containsKey(n) && !isVirama(nextChar) }
+                val afterNext = if (i + 2 < normalized.length) normalized[i + 2].toString() else null
+                // A short-i sign keeps the schwa before it (केसरिया -> kesariya, सरिता -> sarita).
+                val nextConsonantHasVowelSign = nextStr != null && CONSONANT_MAP.containsKey(nextStr) &&
+                    afterNext != null && MATRA_MAP.containsKey(afterNext) && afterNext !in NASAL_OR_VISARGA &&
+                    afterNext != "ि" && afterNext != "ਿ"
+                val dropSchwa = wordFinal || (prevHadVowel && nextConsonantHasVowelSign)
+                if (!dropSchwa) sb.append("a")
+                prevHadVowel = !dropSchwa
                 i++
                 continue
             }
@@ -190,6 +206,8 @@ object IndicScriptNormalizer {
                 continue
             }
 
+            // 4. Other character (punctuation, English text, whitespace) ends the word
+            prevHadVowel = false
             // 4. Other character (punctuation, English text, whitespace)
             // Filter out any unmapped Indic characters to prevent dotted circle glyph rendering
             if (ch.code in 0x0900..0x0DFF) {

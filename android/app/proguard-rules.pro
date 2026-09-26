@@ -50,3 +50,10 @@
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
+
+# ── Discord Social SDK / JNI bridge ──
+# The SDK and Auralis bridge invoke these symbols from native code, so their Java names must stay
+# stable in release builds.
+-keep class com.discord.** { *; }
+-keep class org.webrtc.** { *; }
+-keep class com.auralis.music.data.network.discord.DiscordSocialClient { *; }

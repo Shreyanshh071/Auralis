@@ -1,5 +1,6 @@
 package com.auralis.music.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
@@ -32,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +53,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -119,6 +123,9 @@ fun StatsScreen(
     val topArtist = topArtists.firstOrNull()
 
     var showOptionDropdown by remember { mutableStateOf(false) }
+    var showStatsMenu by remember { mutableStateOf(false) }
+    var showClearConfirmation by remember { mutableStateOf(false) }
+    var isClearingStats by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
     val isDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
@@ -163,6 +170,32 @@ fun StatsScreen(
                             contentDescription = "Back",
                             tint = textPrimary
                         )
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showStatsMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Stats options",
+                                tint = textPrimary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showStatsMenu,
+                            onDismissRequest = { showStatsMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Clear listening stats") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = null)
+                                },
+                                onClick = {
+                                    showStatsMenu = false
+                                    showClearConfirmation = true
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -912,6 +945,41 @@ fun StatsScreen(
                 isPinned = isTrackPinned?.invoke(trk.id) == true,
                 onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(trk) },
                 onDismiss = { selectedTrackForMenu = null }
+            )
+        }
+
+        if (showClearConfirmation) {
+            AlertDialog(
+                onDismissRequest = { if (!isClearingStats) showClearConfirmation = false },
+                title = { Text("Clear listening stats?") },
+                text = {
+                    Text("This clears your listening history, play counts, and all Stats data on this device. Saved songs, playlists, and downloads stay. New listens will count from zero.")
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !isClearingStats,
+                        onClick = {
+                            isClearingStats = true
+                            viewModel.clearListeningStats { succeeded ->
+                                isClearingStats = false
+                                if (succeeded) showClearConfirmation = false
+                                Toast.makeText(
+                                    context,
+                                    if (succeeded) "Listening stats cleared" else "Could not clear listening stats",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    ) {
+                        Text("Clear", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = !isClearingStats,
+                        onClick = { showClearConfirmation = false }
+                    ) { Text("Cancel") }
+                }
             )
         }
     }

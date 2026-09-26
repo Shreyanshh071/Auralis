@@ -132,17 +132,17 @@ class ListenTogetherSyncTest {
         val queue = (0 until 200).toList()
 
         val (start, startIdx) = ListenTogetherSyncMath.queueWindow(queue, 3)
-        assertEquals(50, start.size)
+        assertEquals(100, start.size)
         assertEquals(0, start.first())
         assertEquals(3, startIdx)
 
         val (middle, middleIdx) = ListenTogetherSyncMath.queueWindow(queue, 120)
-        assertEquals(50, middle.size)
+        assertEquals(100, middle.size)
         assertEquals(120, middle[middleIdx])
-        assertEquals(110, middle.first())
+        assertEquals(100, middle.first())
 
         val (end, endIdx) = ListenTogetherSyncMath.queueWindow(queue, 199)
-        assertEquals(50, end.size)
+        assertEquals(100, end.size)
         assertEquals(199, end[endIdx])
         assertEquals(199, end.last())
 

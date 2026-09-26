@@ -33,6 +33,7 @@ fun getEnv(key: String, default: String = ""): String {
 android {
     namespace = "com.auralis.music"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.auralis.music"
@@ -95,6 +96,13 @@ android {
         buildConfig = true
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -133,6 +141,11 @@ dependencies {
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.datasource.okhttp)
     implementation("androidx.media:media:1.7.0")
+    implementation("androidx.browser:browser:1.8.0")
+
+    // Discord's official Android Social SDK. Its Prefab package supplies the native
+    // rich-presence client used by DiscordSocialClient.
+    implementation(files("libs/discord_partner_sdk.jar", "libs/libwebrtc.jar"))
 
     // Room Database
     implementation(libs.androidx.room.runtime)

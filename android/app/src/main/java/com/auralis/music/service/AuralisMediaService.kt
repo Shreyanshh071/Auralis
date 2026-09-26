@@ -46,6 +46,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -107,6 +110,14 @@ class AuralisMediaService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         com.auralis.music.data.service.ListeningTimeTracker.start(applicationContext)
+        // Joining or leaving a room changes whether the service must stay in the foreground.
+        serviceScope.launch {
+            com.auralis.music.data.sync.ListenTogetherManager.activeRoomCodeFlow
+                .map { it != null }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { refreshNotification(immediate = true) }
+        }
         // 1. Create notification channel synchronously with low importance and public lockscreen visibility
         createNotificationChannel()
 
@@ -172,11 +183,11 @@ class AuralisMediaService : MediaSessionService() {
             }
 
             override fun play() {
-                audioPlayer.resume()
+                audioPlayer.playFromControls(true)
             }
 
             override fun pause() {
-                audioPlayer.pause()
+                audioPlayer.playFromControls(false)
             }
 
             override fun stop() {
@@ -192,11 +203,7 @@ class AuralisMediaService : MediaSessionService() {
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
-                if (playWhenReady) {
-                    audioPlayer.resume()
-                } else {
-                    audioPlayer.pause()
-                }
+                audioPlayer.playFromControls(playWhenReady)
             }
 
             override fun getPlaybackState(): Int {
@@ -664,7 +671,11 @@ class AuralisMediaService : MediaSessionService() {
             artwork = currentArtworkBitmap
         )
 
-        val shouldRunForeground = isPlaying || isBuffering
+        // In a Listen Together room the service stays in the foreground even while paused.
+        // Otherwise Android stops it (or kills the app outright when it's swiped away) and
+        // onTaskRemoved never runs, so the others kept seeing this phone in the room.
+        val inRoom = com.auralis.music.data.sync.ListenTogetherManager.activeRoomCode != null
+        val shouldRunForeground = isPlaying || isBuffering || inRoom
         if (shouldRunForeground) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -891,19 +902,9 @@ class AuralisMediaService : MediaSessionService() {
             playerCommand: @Player.Command Int
         ): Int {
             val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
-            if (audioPlayer.isGuestListenTogether.value) {
-                when (playerCommand) {
-                    Player.COMMAND_PLAY_PAUSE,
-                    Player.COMMAND_SEEK_TO_NEXT,
-                    Player.COMMAND_SEEK_TO_PREVIOUS,
-                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_BACK,
-                    Player.COMMAND_SEEK_FORWARD -> {
-                        Log.d("AuralisPlayback", "[AuralisMediaService] Blocked controller playerCommand $playerCommand because user is listener in Listen Together room")
-                        return SessionResult.RESULT_ERROR_PERMISSION_DENIED
-                    }
-                }
-            }
+            // Listen Together guests: notification / lock-screen / headset controls are let through
+            // and follow the room's rules exactly like the in-app buttons (the player sends them to
+            // the host when allowed and tells the guest when not).
             return super.onPlayerCommandRequest(session, controller, playerCommand)
         }
 
@@ -954,8 +955,16 @@ class AuralisMediaService : MediaSessionService() {
             val isCurrentlyPlaying = audioPlayer.isPlaying.value
             Log.d("AuralisPlayback", "[AuralisMediaService] onTaskRemoved triggered (isPlaying=$isCurrentlyPlaying) -> performing graceful cleanup")
 
+            // Music stops, so this phone leaves its Listen Together room; wait (briefly) for the
+            // server to have it so everyone else sees it at once. With music still playing the
+            // branch above returned early and the room keeps syncing in the background.
             try {
-                com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
+                com.auralis.music.data.sync.ListenTogetherManager.leaveRoomBeforeShutdown()
+            } catch (_: Exception) {}
+            // The app itself may live on (this service keeps it running while in a room): its
+            // room screen must forget the room too, or reopening showed the room it had left.
+            try {
+                com.auralis.music.ui.viewmodel.AppScopedViewModels.listenTogether?.leaveRoom()
             } catch (_: Exception) {}
 
             try {
@@ -990,9 +999,9 @@ class AuralisMediaService : MediaSessionService() {
     override fun onDestroy() {
         com.auralis.music.data.service.ListeningTimeTracker.flushNow(applicationContext)
         Log.d("AuralisPlayback", "[AuralisMediaService] onDestroy - cleaning up serviceScope and mediaSession")
-        try {
-            com.auralis.music.data.sync.ListenTogetherManager.performTaskRemovedCleanup()
-        } catch (_: Exception) {}
+        // Not leaving the Listen Together room here: Android stops this service on its own about
+        // a minute after music is paused in the background, and that closed the host's room.
+        // Leaving happens on swiping the app away (onTaskRemoved) or through the room's own rules.
         serviceScope.cancel()
         releaseSelfController()
         mediaSession?.run {

@@ -509,8 +509,8 @@ fun TrackOptionsMenu(
                         ) {
                             TrackOptionRow(
                                 icon = Icons.Default.Group,
-                                title = "Recommend to room",
-                                subtitle = "Share track with everyone in the room",
+                                title = "Add to room queue",
+                                subtitle = "Adds it for everyone, or asks the host first",
                                 onClick = {
                                     onRecommendToRoom(track)
                                     onDismiss()

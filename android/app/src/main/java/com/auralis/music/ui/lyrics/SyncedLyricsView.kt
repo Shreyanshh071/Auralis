@@ -240,6 +240,7 @@ fun SyncedLyricsView(
                 .map { LyricLine(time = 0L, text = com.auralis.music.data.parser.WordTiming.healSplitWordsInText(it)) }
         } else emptyList()
     }
+    val hasMultipleVocalists = remember(effectiveLines) { MetroSpeakerLayout.build(effectiveLines) != null }
 
     val isInstrumental = lyrics != null && (
         (effectiveLines.isNotEmpty() && effectiveLines.all { it.isInstrumental }) ||
@@ -878,19 +879,21 @@ fun SyncedLyricsView(
                             }
                         }
 
-                        // Vocal agent & background vocal positioning
+                        // Vocal agent & background vocal positioning: duets only, so a one-singer
+                        // song keeps the text-position setting whether or not its source tagged "v1".
+                        val agent = if (hasMultipleVocalists) line.agent else null
                         val lineAlignment = when {
-                            line.isBackground -> Alignment.CenterHorizontally
-                            line.agent == "v1" -> Alignment.Start
-                            line.agent == "v2" -> Alignment.End
-                            line.agent == "v1000" -> Alignment.CenterHorizontally
+                            line.isBackground && hasMultipleVocalists -> Alignment.CenterHorizontally
+                            agent == "v1" -> Alignment.Start
+                            agent == "v2" -> Alignment.End
+                            agent == "v1000" -> Alignment.CenterHorizontally
                             else -> horizontalAlignment
                         }
                         val lineTextAlign = when {
-                            line.isBackground -> TextAlign.Center
-                            line.agent == "v1" -> TextAlign.Start
-                            line.agent == "v2" -> TextAlign.End
-                            line.agent == "v1000" -> TextAlign.Center
+                            line.isBackground && hasMultipleVocalists -> TextAlign.Center
+                            agent == "v1" -> TextAlign.Start
+                            agent == "v2" -> TextAlign.End
+                            agent == "v1000" -> TextAlign.Center
                             else -> textAlign
                         }
 
@@ -1352,16 +1355,14 @@ internal fun computeLyricsProgressiveBlur(
 
     val lineCenter = lineCenterPx.coerceIn(viewportStartPx, viewportEndPx)
     val activeCenter = activeLineCenterPx.coerceIn(viewportStartPx, viewportEndPx)
-    if (lineCenter <= activeCenter) {
-        val availableAbove = (activeCenter - viewportStartPx).coerceAtLeast(1f)
-        val aboveProgress = ((activeCenter - lineCenter) / availableAbove).coerceIn(0f, 1f)
-        return 2.5f * aboveProgress.pow(1.35f)
-    }
-
-    val availableBelow = (viewportEndPx - activeCenter).coerceAtLeast(1f)
-    val rawProgress = ((lineCenter - activeCenter) / availableBelow).coerceIn(0f, 1f)
-    // A small crisp band around the active line flows continuously into full blur
-    // at the viewport bottom. This is positional, not a line-distance bucket.
+    // Use the same physical distance on both sides of the active line. Scaling each
+    // side separately made past lines almost sharp while future lines blurred deeply.
+    val falloffDistance = minOf(
+        activeCenter - viewportStartPx,
+        viewportEndPx - activeCenter
+    ).coerceAtLeast(1f)
+    val rawProgress = (kotlin.math.abs(lineCenter - activeCenter) / falloffDistance).coerceIn(0f, 1f)
+    // Keep a small crisp band around the active line, then blur toward either edge.
     val blurProgress = ((rawProgress - 0.04f) / 0.96f).coerceIn(0f, 1f)
     return 24f * blurProgress.pow(1.35f)
 }

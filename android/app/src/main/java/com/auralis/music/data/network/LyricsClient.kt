@@ -249,7 +249,9 @@ class LyricsClient(
             maxGapMs: Long = 0L,
             bestMaxGapMs: Long = 0L,
             hasSpeakers: Boolean = false,
-            bestHasSpeakers: Boolean = false
+            bestHasSpeakers: Boolean = false,
+            needsMachineScript: Boolean = false,
+            bestNeedsMachineScript: Boolean = false
         ): Boolean {
             val isAligned = masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             val bestIsAligned = bestMasterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
@@ -263,6 +265,12 @@ class LyricsClient(
                 (maxGapMs - bestMaxGapMs) >= 18_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
                 tier > bestTier -> true
                 tier < bestTier -> false
+                // Same timing tier: lyrics written in Latin letters (or carrying Apple's own
+                // transliteration) beat Indic-script lyrics that need machine transliteration.
+                // Both display in Latin letters (HinglishScript); timing still ranks first, since
+                // a Hinglish copy synced to another cut is worse than a machine-romanized exact one.
+                !needsMachineScript && bestNeedsMachineScript -> true
+                needsMachineScript && !bestNeedsMachineScript -> false
                 tier == TIER_WORD -> {
                     // Exact-video-match genuine word sync takes precedence over metadata-only word sync
                     if (isExactVideoMatch && !bestIsExactVideoMatch) true
@@ -309,11 +317,56 @@ class LyricsClient(
             return 2.0 * shared / ((a.length - 1) + (b.length - 1))
         }
 
+        /**
+         * A secondary may fill gaps only if it's the same transcription on the same clock: enough
+         * of its lines repeat a primary line's text, at nearly the same time. Otherwise every line
+         * of a romanized copy ("Saari raat aahein bharta" vs "सारी रात आहें भरता") or of a sync for
+         * another cut looks "missing", and gets spliced into the primary's intro or gaps while
+         * nothing is being sung.
+         */
+        private fun sharesTextAndClock(
+            primary: LyricsData,
+            primaryNormalized: List<String>,
+            secondary: LyricsData,
+            normalized: (String) -> String,
+            sameLineText: (String, String) -> Boolean
+        ): Boolean {
+            val secLines = secondary.lines.filter { !it.isInstrumental && it.text.isNotBlank() }
+            if (secLines.isEmpty()) return false
+            val offsets = secLines.mapNotNull { sec ->
+                val norm = normalized(sec.text)
+                primary.lines.indices
+                    .filter { sameLineText(primaryNormalized[it], norm) }
+                    .minOfOrNull { kotlin.math.abs(primary.lines[it].time - sec.time) }
+            }
+            val primaryLineCount = primaryNormalized.count { it.isNotBlank() }
+            val required = maxOf(minOf(GAP_FILL_MIN_ANCHORS, primaryLineCount), (secLines.size * 0.3).toInt())
+            if (offsets.size < required) return false
+            // Loose line splits can shift a few matches; most must still sit on the same clock.
+            val onClock = offsets.count { it <= GAP_FILL_MAX_CLOCK_DRIFT_MS }
+            return onClock >= minOf(2, primaryLineCount) && onClock * 2 >= offsets.size
+        }
+
+        private const val GAP_FILL_MIN_ANCHORS = 3
+        private const val GAP_FILL_MAX_CLOCK_DRIFT_MS = 1_500L
+
         internal fun fillLyricsGaps(
             primary: LyricsData,
             secondaryCandidates: List<LyricsData>
         ): LyricsData {
             if (primary.lines.isEmpty() || secondaryCandidates.isEmpty()) return primary
+
+            fun normalized(text: String) = text.lowercase().replace(Regex("[^\\p{L}\\p{Nd}]"), "")
+
+            fun sameLineText(a: String, b: String): Boolean {
+                if (a.isBlank() || b.isBlank()) return false
+                if (a == b) return true
+                if (a.length >= 6 && b.length >= 6 && (a.contains(b) || b.contains(a))) return true
+                // Another transcription of the same line ("thahar" vs "thehar").
+                return a.length >= 8 && b.length >= 8 && bigramSimilarity(a, b) >= 0.8
+            }
+
+            val primaryNormalized = primary.lines.map { normalized(it.text) }
 
             // Master compatibility filter: reject candidates with duration delta > 3.5s
             val compatibleSecondary = secondaryCandidates.filter { sec ->
@@ -322,23 +375,15 @@ class LyricsClient(
                 if (pDur != null && pDur > 0L && sDur != null && sDur > 0L) {
                     kotlin.math.abs(pDur - sDur) <= 3500L
                 } else true
-            }
+            }.filter { sec -> sharesTextAndClock(primary, primaryNormalized, sec, ::normalized, ::sameLineText) }
             if (compatibleSecondary.isEmpty()) return primary
 
-            val existingNormalizedTexts = primary.lines
-                .map { it.text.lowercase().replace(Regex("[^\\p{L}\\p{Nd}]"), "") }
-                .filter { it.isNotBlank() }
-                .toSet()
+            val existingNormalizedTexts = primaryNormalized.filter { it.isNotBlank() }.toSet()
 
             fun isEquivalentToExisting(text: String): Boolean {
-                val norm = text.lowercase().replace(Regex("[^\\p{L}\\p{Nd}]"), "")
+                val norm = normalized(text)
                 if (norm.isBlank()) return true
-                if (existingNormalizedTexts.contains(norm)) return true
-                if (existingNormalizedTexts.any { it.length >= 6 && norm.length >= 6 && (it.contains(norm) || norm.contains(it)) }) return true
-                // Another transcription of the same line ("thahar" vs "thehar") is not a missing line.
-                return norm.length >= 8 && existingNormalizedTexts.any {
-                    it.length >= 8 && bigramSimilarity(it, norm) >= 0.8
-                }
+                return existingNormalizedTexts.any { sameLineText(it, norm) }
             }
 
             val missingLinesToInsert = mutableListOf<LyricLine>()
@@ -653,6 +698,7 @@ class LyricsClient(
             var bestTier = TIER_NONE
             var bestScore = 0.0
             var bestMasterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
+            var bestNeedsMachineScript = false
             var completedCount = 0
             var graceDeadlineMs = Long.MAX_VALUE
 
@@ -715,6 +761,7 @@ class LyricsClient(
                 val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
                 // Clean first (credits, symbol-only marker lines, source headers, CJK annotations),
                 // then count: a result that was only credits must not survive as empty lyrics.
+                val needsMachineScript = com.auralis.music.data.parser.HinglishScript.isMostlyIndic(candidate.lyricsData)
                 val cleanedData = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(candidate.lyricsData, coreTitle)
                 // Fewer than 3 sung lines isn't a song's lyrics: seen live, NetEase answered
                 // "Jadoo Ki Jhappi" with a single line (a credit) and won because nothing else had.
@@ -800,8 +847,11 @@ class LyricsClient(
                             maxGapMs = candMaxGap,
                             bestMaxGapMs = bestCandMaxGap,
                             hasSpeakers = candHasSpeakers,
-                            bestHasSpeakers = bestHasSpeakers
+                            bestHasSpeakers = bestHasSpeakers,
+                            needsMachineScript = needsMachineScript,
+                            bestNeedsMachineScript = bestNeedsMachineScript
                         )) {
+                        bestNeedsMachineScript = needsMachineScript
                         bestTier = tier
                         bestScore = score
                         bestMasterMatch = masterMatch

@@ -141,12 +141,16 @@ object TtmlParser {
             // Agents declared as a group (`<ttm:agent type="group" xml:id="v4"/>`) sing
             // together; Apple uses v1000 for this, but other ids occur (e.g. "STAY": v4).
             val groupAgentIds = collectGroupAgentIds(doc)
+            val songVocabulary = wholeSpanVocabulary(doc)
+
+            val latinByKey = collectLatinTransliterations(doc)
 
             val pNodes = doc.getElementsByTagName("p")
             for (i in 0 until pNodes.length) {
                 val pElem = pNodes.item(i) as? Element ?: continue
-                val parsedLines = parseParagraph(pElem, groupAgentIds)
-                lines.addAll(parsedLines)
+                val parsedLines = parseParagraph(pElem, groupAgentIds, songVocabulary)
+                val latin = latinByKey[attr(pElem, "key")]
+                lines.addAll(if (latin != null) withLatinLead(parsedLines, latin, songVocabulary) else parsedLines)
             }
         } catch (_: Exception) {
             // Keep whatever was collected before the document went bad
@@ -185,6 +189,77 @@ object TtmlParser {
         )
     }
 
+    private class LatinLine(val text: String, val syllables: List<Syllable>)
+
+    /**
+     * Apple's own Latin transliteration of each line (`<transliteration xml:lang="hi-Latn">
+     * <text for="L1">…`), keyed by the paragraph's `itunes:key`. Word-synced files time the
+     * transliteration too, as spans inside `<text>`.
+     */
+    private fun collectLatinTransliterations(doc: org.w3c.dom.Document): Map<String, LatinLine> {
+        val out = HashMap<String, LatinLine>()
+        val all = doc.getElementsByTagName("*")
+        for (i in 0 until all.length) {
+            val block = all.item(i) as? Element ?: continue
+            if (localName(block) != "transliteration") continue
+            if (!attr(block, "lang").trim().lowercase().endsWith("-latn")) continue
+            var child: Node? = block.firstChild
+            while (child != null) {
+                if (child is Element && localName(child) == "text") {
+                    val key = attr(child, "for").trim()
+                    val text = child.textContent.orEmpty().replace(Regex("\\s+"), " ").trim()
+                    if (key.isNotEmpty() && text.isNotEmpty()) {
+                        val syllables = mutableListOf<Syllable>()
+                        var inner: Node? = child.firstChild
+                        while (inner != null) {
+                            when {
+                                inner.nodeType == Node.TEXT_NODE -> appendToLast(syllables, inner.textContent ?: "")
+                                inner is Element && localName(inner) == "span" && role(inner) !in NON_LEAD_ROLES ->
+                                    collectSyllables(inner, syllables)
+                            }
+                            inner = inner.nextSibling
+                        }
+                        out[key] = LatinLine(text, syllables)
+                    }
+                }
+                child = child.nextSibling
+            }
+        }
+        return out
+    }
+
+    /**
+     * Shows an Indic-script lead line in Apple's Latin transliteration ([HinglishScript]). Timing
+     * comes from the transliteration's own spans when it has them, else from the original words
+     * when the word counts agree one to one, else the line is left as one span over the line's
+     * measured interval (split by character count later, as for any multi-word span).
+     */
+    private fun withLatinLead(lines: List<LyricLine>, latin: LatinLine, songVocabulary: Set<String>): List<LyricLine> {
+        val leads = lines.filter { !it.isBackground }
+        if (leads.size != 1) return lines
+        val lead = leads[0]
+        if (!IndicScriptNormalizer.containsIndicScript(lead.text)) return lines
+
+        val (latinText, latinWords) = when {
+            latin.syllables.isNotEmpty() -> buildLineTextAndWords(latin.syllables, latin.text, songVocabulary)
+            lead.words.isNullOrEmpty() -> latin.text to null
+            else -> {
+                val original = lead.words.orEmpty()
+                val tokens = latin.text.split(' ').filter { it.isNotEmpty() }
+                val mapped = if (tokens.size == original.size) {
+                    original.mapIndexed { i, w -> w.copy(word = tokens[i] + if (i < tokens.lastIndex) " " else "") }
+                } else {
+                    val start = original.first().time
+                    val end = lead.endTime ?: original.last().let { w -> w.duration?.let { w.time + it } }
+                    listOf(original.first().copy(word = latin.text, time = start, duration = end?.minus(start)?.takeIf { it > 0L }))
+                }
+                latin.text to mapped
+            }
+        }
+        val replaced = lead.copy(text = latinText.ifBlank { latin.text }, words = latinWords)
+        return lines.map { if (it === lead) replaced else it }
+    }
+
     /**
      * Ids of agents the file itself declares as `type="group"`. Their lines are reported
      * under the canonical ensemble id [ENSEMBLE_AGENT_ID] so every consumer treats them as
@@ -202,7 +277,11 @@ object TtmlParser {
         return ids
     }
 
-    private fun parseParagraph(p: Element, groupAgentIds: Set<String> = emptySet()): List<LyricLine> {
+    private fun parseParagraph(
+        p: Element,
+        groupAgentIds: Set<String> = emptySet(),
+        songVocabulary: Set<String> = emptySet()
+    ): List<LyricLine> {
         val resultLines = mutableListOf<LyricLine>()
         val currentSyllables = mutableListOf<Syllable>()
         val currentBgSyllables = mutableListOf<Syllable>()
@@ -219,7 +298,7 @@ object TtmlParser {
             val hasBackground = currentBgSyllables.isNotEmpty()
             if (!hasLead && !hasBackground) return
 
-            val (lineText, normalizedWords) = buildLineTextAndWords(currentSyllables, currentPlainText.toString())
+            val (lineText, normalizedWords) = buildLineTextAndWords(currentSyllables, currentPlainText.toString(), songVocabulary)
             if (lineText.isNotBlank()) {
                 val lineTime = currentSyllables.minOfOrNull { it.start }
                     ?: (if (resultLines.isEmpty()) pBegin else null)
@@ -242,7 +321,7 @@ object TtmlParser {
             // The ad-lib becomes a sibling line at its own start time, so the lead
             // line above keeps exactly the text and word order the file gave it.
             if (hasBackground) {
-                val (bgText, bgWords) = buildLineTextAndWords(currentBgSyllables, "")
+                val (bgText, bgWords) = buildLineTextAndWords(currentBgSyllables, "", songVocabulary)
                 if (bgText.isNotBlank()) {
                     val bgStart = currentBgSyllables.minOfOrNull { it.start } ?: 0L
                     val bgEnd = currentBgSyllables.mapNotNull { it.end }.maxOrNull() ?: pEnd
@@ -318,7 +397,8 @@ object TtmlParser {
 
     private fun buildLineTextAndWords(
         syllables: List<Syllable>,
-        fallbackPlainText: String
+        fallbackPlainText: String,
+        songVocabulary: Set<String> = emptySet()
     ): Pair<String, List<LyricWord>?> {
         if (syllables.isEmpty()) {
             val text = fallbackPlainText.trim()
@@ -338,7 +418,7 @@ object TtmlParser {
 
         // Merge contiguous syllable spans belonging to the same word (e.g. "beauti" + "ful" -> "beautiful")
         // without altering provider timing intervals.
-        val mergedWords = WordTiming.mergeContiguousSyllables(rawWords) ?: rawWords
+        val mergedWords = WordTiming.mergeContiguousSyllables(rawWords, songVocabulary) ?: rawWords
         val wordList = mergedWords.toMutableList()
 
         // XML pretty-printing puts a newline between the last span and `</p>`,
@@ -371,6 +451,41 @@ object TtmlParser {
      * [background] receives any nested `x-bg` group, so an ad-lib written inside a
      * lead span reaches the background lane instead of being dropped.
      */
+    /**
+     * Words this song writes as a single timed span with whitespace (or a line edge) on both
+     * sides, e.g. "plastic" in "fake plastic earth". Lets [WordTiming] tell a missing space
+     * between two real words from syllables of one word.
+     */
+    private fun wholeSpanVocabulary(doc: org.w3c.dom.Document): Set<String> {
+        fun isBoundary(node: Node?, before: Boolean): Boolean = when {
+            node == null -> true
+            node.nodeType == Node.TEXT_NODE -> {
+                val t = node.textContent.orEmpty()
+                t.isEmpty() || (if (before) t.last() else t.first()).isWhitespace()
+            }
+            node is Element && (localName(node) == "br" || localName(node) == "break") -> true
+            else -> false
+        }
+        val vocab = HashSet<String>()
+        val all = doc.getElementsByTagName("*")
+        for (i in 0 until all.length) {
+            val el = all.item(i) as? Element ?: continue
+            if (localName(el) != "span" || role(el) in NON_LEAD_ROLES || attr(el, "begin").isBlank()) continue
+            var hasChildSpan = false
+            var c: Node? = el.firstChild
+            while (c != null) { if (c is Element) { hasChildSpan = true; break }; c = c.nextSibling }
+            if (hasChildSpan) continue
+            val text = el.textContent.orEmpty()
+            val before = isBoundary(el.previousSibling, before = true) || text.firstOrNull()?.isWhitespace() == true
+            val after = isBoundary(el.nextSibling, before = false) || text.lastOrNull()?.isWhitespace() == true
+            if (before && after) {
+                val word = text.lowercase().filter { it.isLetter() }
+                if (word.isNotEmpty()) vocab.add(word)
+            }
+        }
+        return vocab
+    }
+
     private fun collectSyllables(
         span: Element,
         out: MutableList<Syllable>,

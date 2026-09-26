@@ -8,6 +8,7 @@ import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.StatsOverview
 import com.auralis.music.domain.repository.StatsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +41,7 @@ class StatsViewModel(
 
     init {
         viewModelScope.launch {
-            statsRepository.seedFromHistoryIfNeeded()
+            statsRepository.removeEstimatedListens()
         }
     }
 
@@ -150,6 +151,20 @@ class StatsViewModel(
 
     fun selectChip(index: Int) {
         selectedChipIndex.value = index
+    }
+
+    fun clearListeningStats(onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val succeeded = try {
+                statsRepository.clearListeningStats()
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
+            onComplete(succeeded)
+        }
     }
 
     fun generateDateChips(firstEventTs: Long?): List<Pair<Int, String>> {

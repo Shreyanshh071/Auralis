@@ -732,7 +732,7 @@ class SpotifyPlaylistImporter(
 
             val durationObj = trackData.optJSONObject("trackDuration")
             val durationMs = durationObj?.optLong("totalMilliseconds")
-                ?: trackData.optLong("duration", trackData.optLong("duration_ms", 210000L))
+                ?: trackData.optLong("duration", trackData.optLong("duration_ms", 0L))
 
             outList.add(
                 Track(
@@ -790,7 +790,7 @@ class SpotifyPlaylistImporter(
 
             val durationObj = trackData.optJSONObject("trackDuration")
             val durationMs = durationObj?.optLong("totalMilliseconds")
-                ?: trackData.optLong("duration", trackData.optLong("duration_ms", 210000L))
+                ?: trackData.optLong("duration", trackData.optLong("duration_ms", 0L))
 
             outList.add(
                 Track(
@@ -1012,7 +1012,7 @@ class SpotifyPlaylistImporter(
         val albumObj = root.optJSONObject("album")
         val albumName = albumObj?.optString("name", "Single") ?: "Single"
         val coverUrl = albumObj?.optJSONArray("images")?.optJSONObject(0)?.optString("url")
-        val durationMs = root.optLong("duration_ms", 210000L)
+        val durationMs = root.optLong("duration_ms", 0L)
 
         val track = Track(
             id = "sp_$trackId",
@@ -1076,7 +1076,7 @@ class SpotifyPlaylistImporter(
             val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
             val trackArtwork = albumObj?.optJSONArray("images")?.optJSONObject(0)?.optString("url") ?: ""
 
-            val durationMs = trackObj.optLong("duration_ms", 210000L)
+            val durationMs = trackObj.optLong("duration_ms", 0L)
 
             outList.add(
                 Track(
@@ -1123,7 +1123,7 @@ class SpotifyPlaylistImporter(
                 }
             }
             val artistStr = if (artistsList.isNotEmpty()) artistsList.joinToString(", ") else albumArtist
-            val durationMs = trackObj.optLong("duration_ms", 210000L)
+            val durationMs = trackObj.optLong("duration_ms", 0L)
 
             outList.add(
                 Track(
@@ -1143,6 +1143,73 @@ class SpotifyPlaylistImporter(
      * Enriches imported Spotify tracks with real YouTube Music official artwork and video IDs.
      * Uses controlled concurrency (Semaphore) to prevent network congestion when importing large playlists.
      */
+    /** The YouTube Music song that is the same recording as a Spotify [track], or null when none is confidently the same. */
+    suspend fun matchToYouTube(track: Track, seen: MutableList<Track>? = null): Track? {
+        // A failed request comes back as empty results; during a 16-way parallel import that
+        // happens often enough to leave songs unmatched, so an empty answer is asked once more.
+        suspend fun songs(query: String, filter: String? = InnerTubeClient.FILTER_SONGS): List<Track> {
+            var result = if (filter != null) innerTubeClient.search(query, filter).songs else innerTubeClient.search(query).songs
+            if (result.isEmpty()) {
+                kotlinx.coroutines.delay(400)
+                result = if (filter != null) innerTubeClient.search(query, filter).songs else innerTubeClient.search(query).songs
+            }
+            seen?.addAll(result)
+            return result
+        }
+
+        val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
+        val primaryArtist = if (cleanArtist.isNotBlank()) {
+            cleanArtist.split(Regex("[,&/]|\\b(feat|ft|with)\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanArtist
+        } else ""
+        val cleanedTitle = TitleCleaner.cleanTitle(track.title)
+        val cleanTitle = cleanedTitle.replace(Regex("\\(.*\\)|\\[.*\\]|(?i)- (from|original|remix|audio).*"), "").trim().ifBlank { track.title }
+        val primaryQuery = if (primaryArtist.isNotBlank()) "${cleanTitle} $primaryArtist".trim() else cleanTitle
+
+        // 1. Ultra-fast single-pass search: YouTube Music Songs filter with primary artist
+        val songsResult = songs(primaryQuery)
+        
+        // Every candidate, including YouTube Music's #1, must be the same recording
+        // (length, version tags, credited artists): the top hit is often a radio edit or a feat. release.
+        var topMatch: Track? = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, songsResult)
+
+        // 2. Fallback: Search with full composite artist if multi-artist query
+        if (topMatch == null && cleanArtist != primaryArtist && cleanArtist.isNotBlank()) {
+            val fullArtistQuery = "${cleanTitle} $cleanArtist".trim()
+            val fullArtistSongs = songs(fullArtistQuery)
+            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, fullArtistSongs)
+        }
+
+        // 3. Fallback: Search with cleanTitle alone
+        if (topMatch == null && cleanTitle.isNotBlank()) {
+            val titleSongsResult = songs(cleanTitle)
+            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, titleSongsResult)
+        }
+
+        // 4. Fallback: Search general results if Songs filter didn't produce a high-confidence match
+        if (topMatch == null) {
+            val generalResult = songs(primaryQuery, filter = null)
+            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, generalResult)
+        }
+        return topMatch
+    }
+
+    /**
+     * For a song matched by an earlier, looser matcher: the right recording, but only when the
+     * saved YouTube ID is provably another one (it shows up in the results for the song's own
+     * Spotify title, artist, album and length, and fails [SearchQueryMatcher.recordingMismatch]).
+     * A song added from YouTube carries that video's own metadata, so it always matches itself.
+     */
+    suspend fun correctedMatch(saved: Track): Track? {
+        if (saved.id.isBlank() || saved.id.startsWith("sp_")) return null
+        val seen = mutableListOf<Track>()
+        val pick = matchToYouTube(saved, seen) ?: return null
+        if (pick.id == saved.id) return null
+        val current = seen.firstOrNull { it.id == saved.id } ?: return null
+        val why = com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(saved, current) ?: return null
+        Log.i(TAG, "Re-matched '${saved.title}' (${saved.duration}s): ${saved.id} was $why -> ${pick.id} \"${pick.title}\" (${pick.duration}s)")
+        return saved.copy(id = pick.id, thumbnail = pick.thumbnail.ifBlank { "https://i.ytimg.com/vi/${pick.id}/hqdefault.jpg" })
+    }
+
     suspend fun enrichTracksWithYouTubeData(
         tracks: List<Track>,
         onProgress: ((String) -> Unit)? = null
@@ -1163,51 +1230,7 @@ class SpotifyPlaylistImporter(
                                 kotlinx.coroutines.delay(100)
                             }
 
-                            val cleanArtist = if (track.artist == "Spotify Artist" || track.artist.isBlank()) "" else track.artist
-                            val primaryArtist = if (cleanArtist.isNotBlank()) {
-                                cleanArtist.split(Regex("[,&/]|\\b(feat|ft|with)\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanArtist
-                            } else ""
-                            val cleanedTitle = TitleCleaner.cleanTitle(track.title)
-                            val cleanTitle = cleanedTitle.replace(Regex("\\(.*\\)|\\[.*\\]|(?i)- (from|original|remix|audio).*"), "").trim().ifBlank { track.title }
-                            val primaryQuery = if (primaryArtist.isNotBlank()) "${cleanTitle} $primaryArtist".trim() else cleanTitle
-
-                            // 1. Ultra-fast single-pass search: YouTube Music Songs filter with primary artist
-                            val songsResult = innerTubeClient.search(primaryQuery, InnerTubeClient.FILTER_SONGS).songs
-                            
-                            // Check if candidate #0 is the top official match from YouTube Music
-                            var topMatch: Track? = null
-                            if (songsResult.isNotEmpty()) {
-                                val cand0 = songsResult[0]
-                                val normCand0Title = TitleCleaner.cleanTitle(cand0.title).lowercase()
-                                val normCleanTarget = cleanTitle.lowercase()
-                                val isDerivative = listOf("remix", "lofi", "slowed", "dj", "cover", "status", "ringtone", "mashup").any { normCand0Title.contains(it) && !normCleanTarget.contains(it) }
-                                if (!isDerivative && (normCand0Title.contains(normCleanTarget) || normCleanTarget.contains(normCand0Title) || normCand0Title.split(" ").any { it.length > 2 && normCleanTarget.contains(it) })) {
-                                    topMatch = cand0
-                                }
-                            }
-
-                            if (topMatch == null) {
-                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, songsResult)
-                            }
-
-                            // 2. Fallback: Search with full composite artist if multi-artist query
-                            if (topMatch == null && cleanArtist != primaryArtist && cleanArtist.isNotBlank()) {
-                                val fullArtistQuery = "${cleanTitle} $cleanArtist".trim()
-                                val fullArtistSongs = innerTubeClient.search(fullArtistQuery, InnerTubeClient.FILTER_SONGS).songs
-                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, fullArtistSongs)
-                            }
-
-                            // 3. Fallback: Search with cleanTitle alone
-                            if (topMatch == null && cleanTitle.isNotBlank()) {
-                                val titleSongsResult = innerTubeClient.search(cleanTitle, InnerTubeClient.FILTER_SONGS).songs
-                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, titleSongsResult)
-                            }
-
-                            // 4. Fallback: Search general results if Songs filter didn't produce a high-confidence match
-                            if (topMatch == null) {
-                                val generalResult = innerTubeClient.search(primaryQuery).songs
-                                topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, generalResult)
-                            }
+                            val topMatch = matchToYouTube(track)
 
                             val count = completedCounter.incrementAndGet()
                             if (count % 5 == 0 || count == total) {
@@ -1308,7 +1331,7 @@ class SpotifyPlaylistImporter(
                             artist = if (trArtist.isBlank()) "Spotify Artist" else trArtist,
                             album = "Spotify Playlist",
                             thumbnail = "",
-                            duration = 210L,
+                            duration = 0L, // unknown; filled from the matched YouTube track
                             source = TrackSource.YOUTUBE
                         )
                     )
@@ -1382,7 +1405,7 @@ class SpotifyPlaylistImporter(
                     } else "Spotify Artist"
                 }
 
-                val durationMs = item.optLong("duration", item.optLong("durationMs", 210000L))
+                val durationMs = item.optLong("duration", item.optLong("durationMs", 0L))
                 val durationSec = if (durationMs > 1000L) durationMs / 1000L else durationMs
 
                 val uri = item.optString("uri", "")
@@ -1447,7 +1470,7 @@ class SpotifyPlaylistImporter(
                 val item = trackList.optJSONObject(i) ?: continue
                 val trackTitle = item.optString("title", item.optString("name", ""))
                 val trackArtist = item.optString("subtitle", item.optString("artist", "Spotify Artist"))
-                val durationMs = item.optLong("duration", 210000L)
+                val durationMs = item.optLong("duration", 0L)
                 val trackId = item.optString("id", "track_$i")
 
                 if (trackTitle.isNotBlank()) {

@@ -49,3 +49,10 @@ scratch_yt_res.json
 *.xml.dump
 window_dump.xml
 test_queue.py
+
+# Discord Social SDK (proprietary; not redistributable). Place it locally to build:
+#   android/app/libs/*.jar, android/app/src/main/jniLibs/<abi>/libdiscord_partner_sdk.so,
+#   android/app/src/main/cpp/discord/*.h
+android/app/libs/
+android/app/src/main/jniLibs/
+android/app/src/main/cpp/discord/

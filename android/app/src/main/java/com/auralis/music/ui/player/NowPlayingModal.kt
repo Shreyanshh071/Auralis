@@ -408,6 +408,12 @@ fun NowPlayingModal(
     onSeekTo: (Long) -> Unit,
     onNextClick: () -> Unit,
     onPreviousClick: () -> Unit,
+    /**
+     * Listen Together guest: the song carousel only follows the room. Next/previous are plain
+     * next/previous (the host carries them out) and swiping can't pick a song, which otherwise
+     * moved the carousel to a song the room never played.
+     */
+    followHostOnly: Boolean = false,
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -498,9 +504,14 @@ fun NowPlayingModal(
         deriveActiveTrack(currentTab, pendingTargetIndex, currentTrackIndex, queue, track)
     }
 
+    // A tap during a button slide continues from where that slide is heading, not from the page
+    // still under it, so two quick taps move two songs instead of re-aiming at the same one.
+    fun buttonSkipOrigin(): Int =
+        if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.currentPage
+
     val handleNext: () -> Unit = {
-        if (currentTab == NowPlayingTab.PLAYER && queue.isNotEmpty() && pageCount > 1) {
-            val fromIndex = pagerState.currentPage
+        if (!followHostOnly && currentTab == NowPlayingTab.PLAYER && queue.isNotEmpty() && pageCount > 1) {
+            val fromIndex = buttonSkipOrigin()
             val targetIndex = (fromIndex + 1).coerceAtMost(pageCount - 1)
             if (targetIndex != fromIndex) {
                 userSwipedPager = true
@@ -524,8 +535,8 @@ fun NowPlayingModal(
     }
 
     val handlePrevious: () -> Unit = {
-        if (currentTab == NowPlayingTab.PLAYER && queue.isNotEmpty() && pageCount > 1) {
-            val fromIndex = pagerState.currentPage
+        if (!followHostOnly && currentTab == NowPlayingTab.PLAYER && queue.isNotEmpty() && pageCount > 1) {
+            val fromIndex = buttonSkipOrigin()
             val targetIndex = (fromIndex - 1).coerceAtLeast(0)
             if (targetIndex != fromIndex) {
                 userSwipedPager = true
@@ -1573,7 +1584,7 @@ fun NowPlayingModal(
                             HorizontalPager(
                                 state = pagerState,
                                 key = { page -> queue.getOrNull(page)?.id ?: page },
-                                userScrollEnabled = appearance.enableSwipeToChangeSong,
+                                userScrollEnabled = appearance.enableSwipeToChangeSong && !followHostOnly,
                                 beyondViewportPageCount = 1,
                                 flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                                     state = pagerState,
@@ -2281,6 +2292,12 @@ fun NowPlayingSheet(
     onSeekTo: (Long) -> Unit,
     onNextClick: () -> Unit,
     onPreviousClick: () -> Unit,
+    /**
+     * Listen Together guest: the song carousel only follows the room. Next/previous are plain
+     * next/previous (the host carries them out) and swiping can't pick a song, which otherwise
+     * moved the carousel to a song the room never played.
+     */
+    followHostOnly: Boolean = false,
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -2307,6 +2324,7 @@ fun NowPlayingSheet(
 ) {
     NowPlayingModal(
         uiState = uiState,
+        followHostOnly = followHostOnly,
         playbackPositionState = playbackPositionState,
         lyricsClockSource = lyricsClockSource,
         playbackSpeed = playbackSpeed,

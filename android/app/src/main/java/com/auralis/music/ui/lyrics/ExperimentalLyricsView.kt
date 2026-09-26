@@ -460,6 +460,10 @@ fun ExperimentalLyricsView(
     val speakerStyles = remember(effectiveLines, appearance.lyricsAnimation) {
         MetroSpeakerLayout.forAppearance(effectiveLines, appearance)
     }
+    // Singer sides (v1 left / v2 right) only for real duets. A one-singer song follows the
+    // text-position setting whichever source answered: an untagged interim copy and the tagged
+    // word-synced upgrade must lay out the same, or the view jumps from centre to left mid-song.
+    val hasMultipleVocalists = remember(effectiveLines) { MetroSpeakerLayout.build(effectiveLines) != null }
 
     // Interactive & selection state
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
@@ -995,6 +999,7 @@ fun ExperimentalLyricsView(
                                     viewportStartPx = blurGeometry.viewportStartPx,
                                     viewportEndPx = blurGeometry.viewportEndPx,
                                     speakerStyle = speakerStyle,
+                                    useAgentSides = hasMultipleVocalists,
                                     onSizeChanged = { },
                                     onClick = {
                                         if (isSelectionModeActive) {
@@ -1227,6 +1232,7 @@ internal fun ExperimentalLyricsLine(
     viewportStartPx: Float = Float.NaN,
     viewportEndPx: Float = Float.NaN,
     speakerStyle: MetroSpeakerStyle? = null,
+    useAgentSides: Boolean = false,
     onSizeChanged: (Int) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -1236,6 +1242,8 @@ internal fun ExperimentalLyricsLine(
     // a multi-speaker song carry a side; every other line (and every line of a song without
     // multi-speaker metadata) keeps the original positioning below, unchanged.
     val speakerSide = speakerStyle?.side
+    val agent = if (useAgentSides) line.agent else null
+    val alignBackgroundCentered = line.isBackground && useAgentSides
     val baseTopPadding = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp
     val baseBottomPadding = if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp
     // A little extra air where the singer changes, so each speaker's lines read as one group.
@@ -1274,14 +1282,14 @@ internal fun ExperimentalLyricsLine(
             } else {
                 Modifier.padding(
                     start = when {
-                        line.agent == "v1" -> 16.dp
-                        line.agent == "v2" -> 16.dp
+                        agent == "v1" -> 16.dp
+                        agent == "v2" -> 16.dp
                         lyricsTextPosition.lowercase() in listOf("left", "right") -> 16.dp
                         else -> 24.dp
                     },
                     end = when {
-                        line.agent == "v1" -> 16.dp
-                        line.agent == "v2" -> 16.dp
+                        agent == "v1" -> 16.dp
+                        agent == "v2" -> 16.dp
                         lyricsTextPosition.lowercase() in listOf("left", "right") -> 16.dp
                         else -> 24.dp
                     },
@@ -1295,10 +1303,10 @@ internal fun ExperimentalLyricsLine(
         speakerSide == MetroSpeakerSide.START -> AbsoluteAlignment.Left
         speakerSide == MetroSpeakerSide.END -> AbsoluteAlignment.Right
         speakerSide == MetroSpeakerSide.CENTER -> Alignment.CenterHorizontally
-        line.agent == "v1" -> Alignment.Start
-        line.agent == "v2" -> Alignment.End
-        line.agent == "v1000" -> Alignment.CenterHorizontally
-        line.isBackground -> Alignment.CenterHorizontally
+        agent == "v1" -> Alignment.Start
+        agent == "v2" -> Alignment.End
+        agent == "v1000" -> Alignment.CenterHorizontally
+        alignBackgroundCentered -> Alignment.CenterHorizontally
         else -> when (lyricsTextPosition.lowercase()) {
             "left" -> Alignment.Start
             "right" -> Alignment.End
@@ -1310,10 +1318,10 @@ internal fun ExperimentalLyricsLine(
         speakerSide == MetroSpeakerSide.START -> TextAlign.Left
         speakerSide == MetroSpeakerSide.END -> TextAlign.Right
         speakerSide == MetroSpeakerSide.CENTER -> TextAlign.Center
-        line.agent == "v1" -> TextAlign.Left
-        line.agent == "v2" -> TextAlign.Right
-        line.agent == "v1000" -> TextAlign.Center
-        line.isBackground -> TextAlign.Center
+        agent == "v1" -> TextAlign.Left
+        agent == "v2" -> TextAlign.Right
+        agent == "v1000" -> TextAlign.Center
+        alignBackgroundCentered -> TextAlign.Center
         else -> when (lyricsTextPosition.lowercase()) {
             "left" -> TextAlign.Left
             "right" -> TextAlign.Right
@@ -1327,10 +1335,10 @@ internal fun ExperimentalLyricsLine(
             speakerSide == MetroSpeakerSide.START -> AbsoluteAlignment.CenterLeft
             speakerSide == MetroSpeakerSide.END -> AbsoluteAlignment.CenterRight
             speakerSide == MetroSpeakerSide.CENTER -> Alignment.Center
-            line.agent == "v1" -> Alignment.CenterStart
-            line.agent == "v2" -> Alignment.CenterEnd
-            line.agent == "v1000" -> Alignment.Center
-            line.isBackground -> Alignment.Center
+            agent == "v1" -> Alignment.CenterStart
+            agent == "v2" -> Alignment.CenterEnd
+            agent == "v1000" -> Alignment.Center
+            alignBackgroundCentered -> Alignment.Center
             else -> when (lyricsTextPosition.lowercase()) {
                 "left" -> Alignment.CenterStart
                 "right" -> Alignment.CenterEnd
@@ -1409,7 +1417,7 @@ internal fun ExperimentalLyricsLine(
                                 if (i < words.size - 1 && !w.word.endsWith(" ") && !w.word.endsWith("-")) {
                                     val nextW = words[i + 1]
                                     if (!nextW.word.startsWith(" ") &&
-                                        !com.auralis.music.data.parser.WordTiming.shouldMergeSyllables(w.word, nextW.word) &&
+                                        !com.auralis.music.data.parser.WordTiming.isSameWordAcrossNoSpace(w.word, w.word, nextW.word) &&
                                         !com.auralis.music.data.parser.WordTiming.isCjk(w.word) &&
                                         !com.auralis.music.data.parser.WordTiming.isCjk(nextW.word)
                                     ) {
@@ -1419,8 +1427,9 @@ internal fun ExperimentalLyricsLine(
                             }
                         }.trim().let { if (line.isBackground) it.removePrefix("(").removeSuffix(")") else it }
 
-                        if (wordConcat.isNotBlank() && (raw.isBlank() || (!raw.requiresWholeRunShaping() &&
-                                ((wordConcat.contains(" ") && !raw.contains(" ")) || wordConcat.count { it == ' ' } > raw.count { it == ' ' })))) {
+                        // The line text carries the written word boundaries. Timed syllable
+                        // fragments must not add spaces inside a word (e.g. Hyster + ical).
+                        if (wordConcat.isNotBlank() && raw.isBlank()) {
                             wordConcat
                         } else {
                             raw

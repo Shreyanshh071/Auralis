@@ -249,6 +249,7 @@ fun PrivacySettingsScreen(
                                     val db = com.auralis.music.data.local.AuralisDatabase.getInstance(context)
                                     db.historyDao().clearHistory()
                                     db.playCountDao().clearPlayCounts()
+                                    db.playbackEventDao().clearAllEvents()
                                     historyRepository?.clearHistory()
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         Toast.makeText(context, "Listen history cleared", Toast.LENGTH_SHORT).show()

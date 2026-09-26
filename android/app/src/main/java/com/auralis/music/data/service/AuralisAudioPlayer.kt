@@ -168,11 +168,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             combine(
                 _currentTrack,
                 _isPlaying,
+                _isBuffering,
                 _playbackPositionMs,
                 _durationMs
-            ) { track, isPlaying, pos, duration ->
+            ) { track, isPlaying, isBuffering, pos, duration ->
                 com.auralis.music.data.network.discord.DiscordGatewayManager.getInstance(appContext)
-                    .onPlaybackStateChanged(track, isPlaying, pos, duration)
+                    .onPlaybackStateChanged(track, isPlaying, isBuffering, pos, duration)
             }.collect()
         }
 
@@ -374,6 +375,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem != null) {
+                            if (isGuestListenTogether.value) {
+                                syncPause()
+                                return
+                            }
                             if (stopAtEndOfTrack) {
                                 Log.d("AuralisPlayback", "[SleepTimer] Stop at end of track triggered at gapless boundary. Pausing playback.")
                                 cancelSleepTimer()
@@ -389,6 +394,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 _currentTrack.value = advancedTrack
                                 _durationMs.value = advancedTrack.duration * 1000L
                                 _playbackPositionMs.value = 0L
+                                publishDiscordPresenceNow()
                                 enqueuedNextTrack = null
                                 syncUpcomingGaplessTrack()
                                 persistQueue()
@@ -515,6 +521,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             return
         }
         if (lastCompletedSessionId.getAndSet(completedSessionId) != completedSessionId) {
+            if (isGuestListenTogether.value) {
+                // A Listen Together guest waits at the end for the host's next song instead of
+                // starting its own next queue item (which put guests on a different song).
+                Log.d("AuralisPlayback", "[Track Completed #$completedSessionId] Guest: waiting for the host's next song")
+                _isPlaying.value = false
+                return
+            }
             if (stopAtEndOfTrack) {
                 Log.d("AuralisPlayback", "[SleepTimer] Stop at end of track triggered for #$completedSessionId in dispatchTrackCompleted. Pausing playback.")
                 cancelSleepTimer()
@@ -719,6 +732,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         initialSeekMs: Long = 0L,
         requestId: Long = currentSessionId.incrementAndGet()
     ) {
+        syncWantsPlay = true
+        roomHoldActive = false
+        seekWhileLoadingMs = null
         val tracker = PlaybackTimingTracker(
             requestId = requestId,
             trackTitle = track.title,
@@ -757,6 +773,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         _playbackPositionMs.value = initialSeekMs
         _isBuffering.value = true
         _isPlaying.value = false
+        publishDiscordPresenceNow()
 
         Log.d("AuralisPlayback", "[Play Request #$requestId] id=${track.id}, title='${track.title}', artist='${track.artist}', duration=${track.duration}s, initialSeek=${initialSeekMs}ms")
 
@@ -851,10 +868,19 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     }
                     exoPlayer.prepare()
                     tracker.tMediaItemPreparedMs = System.currentTimeMillis()
-                    if (initialSeekMs > 0) {
-                        exoPlayer.seekTo(initialSeekMs)
+                    // A jump made while the song was loading wins over where it was asked to start.
+                    val startAtMs = seekWhileLoadingMs ?: initialSeekMs
+                    seekWhileLoadingMs = null
+                    if (startAtMs > 0) {
+                        exoPlayer.seekTo(startAtMs)
                     }
-                    exoPlayer.play()
+                    if (syncWantsPlay) {
+                        exoPlayer.play()
+                    } else {
+                        // A Listen Together host paused while this song was loading: stay paused.
+                        exoPlayer.pause()
+                        _isPlaying.value = false
+                    }
                     return@launch
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
@@ -879,7 +905,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 isUsingExoPlayer = false
                 tracker.streamEngine = "YouTube Web Engine"
                 Log.d("AuralisPlayback", "[Audio Engine] Routing to YouTube Web Engine for '${track.title}' ($effectiveId) [reqId=$requestId, initialSeek=${initialSeekMs}ms]")
-                youTubeEngine.loadVideo(effectiveId, initialSeekMs, requestId)
+                val startAtMs = seekWhileLoadingMs ?: initialSeekMs
+                seekWhileLoadingMs = null
+                youTubeEngine.loadVideo(effectiveId, startAtMs, requestId)
+                if (!syncWantsPlay) youTubeEngine.pause()
             } else {
                 Log.e("AuralisPlayback", "[Audio Engine] Failed to resolve playable YouTube stream for Spotify track '${track.title}' (${track.id})")
                 _playbackError.value = "Unable to load stream for '${track.title}'"
@@ -954,7 +983,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun syncUpcomingGaplessTrack() {
-        if (stopAtEndOfTrack) {
+        // Guests never preload the next song: they only ever play what the host plays.
+        if (stopAtEndOfTrack || isGuestListenTogether.value) {
             prefetchJob?.cancel()
             if (isUsingExoPlayer && exoPlayer.mediaItemCount > 1) {
                 try {
@@ -1146,6 +1176,130 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     val isGuestListenTogether = MutableStateFlow(false)
 
+    /**
+     * Whether playback should start once the song now loading is ready. False after a Listen
+     * Together host pauses mid-load, so a guest doesn't start playing on its own when it finishes.
+     */
+    /**
+     * A jump made while the song is still being fetched. Seeking a player that hasn't loaded the
+     * song yet was thrown away when loading finished (it starts at the requested start, usually
+     * 0:00), so a listener played the start while the host had already jumped to the middle.
+     */
+    @Volatile private var seekWhileLoadingMs: Long? = null
+
+    /** True if the song is still loading and [positionMs] was saved to apply once it's ready. */
+    private fun rememberSeekWhileLoading(positionMs: Long): Boolean {
+        if (streamResolveJob?.isActive != true) return false
+        seekWhileLoadingMs = positionMs
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] Song still loading: will start at ${positionMs}ms")
+        return true
+    }
+
+    private val _syncWantsPlay = MutableStateFlow(true)
+    private var syncWantsPlay: Boolean
+        get() = _syncWantsPlay.value
+        set(value) { _syncWantsPlay.value = value }
+
+    /** A Listen Together host is holding this song at the start until the guests have it loaded. */
+    private val _roomHoldActive = MutableStateFlow(false)
+    private var roomHoldActive: Boolean
+        get() = _roomHoldActive.value
+        set(value) { _roomHoldActive.value = value }
+
+    /**
+     * Changes to what the user means playback to do that [isPlaying] alone doesn't show (a hold
+     * released, a pause while a song loads). The Listen Together host re-broadcasts on these;
+     * missing them left guests paused while the host played.
+     */
+    val playIntentChanges: kotlinx.coroutines.flow.Flow<Pair<Boolean, Boolean>> =
+        kotlinx.coroutines.flow.combine(_syncWantsPlay, _roomHoldActive) { wants, held -> wants to held }
+
+    /**
+     * Holds the song that just started at 0:00 instead of playing it, so guests can finish loading
+     * it and everyone starts from the very beginning together. [releaseHeldStart] starts it.
+     */
+    fun holdStartForRoom() {
+        roomHoldActive = true
+        syncWantsPlay = false
+        if (streamResolveJob?.isActive == true) return // it will load paused
+        // Loaded already (a cached song starts at once): stop it at 0:00 even if it hasn't
+        // reported playing yet, or the host plays on while telling the room it's held.
+        if (isUsingExoPlayer) {
+            exoPlayer.pause()
+            exoPlayer.seekTo(0L)
+        } else {
+            youTubeEngine.pause()
+            youTubeEngine.seekTo(0L)
+        }
+        _playbackPositionMs.value = 0L
+        _isPlaying.value = false
+    }
+
+    /**
+     * Play/pause from the notification, lock screen or a headset. For a Listen Together guest it
+     * goes to the room (when the host allows it) like the in-app button; the system's own pauses
+     * (headphones unplugged, a call) don't come through here, so they stay on this phone.
+     */
+    fun playFromControls(play: Boolean) {
+        if (!isGuestListenTogether.value) {
+            if (play) resume() else pause()
+            return
+        }
+        forwardGuestControl(if (play) com.auralis.music.data.sync.GuestCommand.PLAY else com.auralis.music.data.sync.GuestCommand.PAUSE)
+    }
+
+    /** The held song is loaded and can start the instant it's released (not still fetching or buffering). */
+    fun isReadyToStart(): Boolean {
+        if (streamResolveJob?.isActive == true || _isBuffering.value) return false
+        return if (isUsingExoPlayer) exoPlayer.playbackState == Player.STATE_READY else youTubeEngine.hasActiveStream()
+    }
+
+    /** Starts a song held by [holdStartForRoom]; does nothing if the host paused or moved on meanwhile. */
+    fun releaseHeldStart() {
+        if (!roomHoldActive) return
+        roomHoldActive = false
+        syncResume()
+    }
+
+    /**
+     * Set while this user is a guest in a Listen Together room whose host lets guests control
+     * playback: a guest's own taps (play/pause, next, previous, seek) go to the host instead of
+     * being ignored. System pauses (headphones out, a call) never reach it, so they stay local.
+     */
+    @Volatile var guestControlForwarder: ((com.auralis.music.data.sync.GuestCommand) -> Unit)? = null
+
+    /** A guest's "add to queue" / "play next": offered to the room instead of this phone's queue copy. */
+    @Volatile var guestSongSuggester: ((Track) -> Unit)? = null
+
+    /**
+     * Whether the user means playback to be running, even while it briefly rebuffers after a seek.
+     * The room is told this rather than [isPlaying], so a host's rebuffer isn't broadcast as a pause.
+     */
+    fun intendsToPlay(): Boolean = when {
+        roomHoldActive -> false
+        streamResolveJob?.isActive == true -> syncWantsPlay
+        isUsingExoPlayer -> exoPlayer.playWhenReady && exoPlayer.playbackState != Player.STATE_ENDED
+        else -> _isPlaying.value || (_isBuffering.value && syncWantsPlay)
+    }
+
+    private fun forwardGuestControl(type: String, positionMs: Long = 0L) {
+        guestControlForwarder?.invoke(
+            com.auralis.music.data.sync.GuestCommand(type = type, positionMs = positionMs, seq = System.currentTimeMillis())
+        )
+    }
+
+    /** Sends user actions to Discord immediately instead of waiting for the state collector. */
+    private fun publishDiscordPresenceNow() {
+        com.auralis.music.data.network.discord.DiscordGatewayManager.getInstance(appContext)
+            .onPlaybackStateChanged(
+                track = _currentTrack.value,
+                isPlaying = _isPlaying.value,
+                isBuffering = _isBuffering.value,
+                positionMs = _playbackPositionMs.value,
+                durationMs = _durationMs.value
+            )
+    }
+
     fun setGuestListenTogether(isGuest: Boolean) {
         isGuestListenTogether.value = isGuest
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] setGuestListenTogether: $isGuest")
@@ -1167,8 +1321,25 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         play(track, initialSeekMs = initialPositionMs)
     }
 
+    /**
+     * The host's queue changed (a song added, played next, reordered) without a song change:
+     * update this guest's queue in place, keeping the song that's playing untouched.
+     */
+    fun syncQueue(newQueue: List<Track>, currentIndex: Int) {
+        if (newQueue.isEmpty()) return
+        val cur = _currentTrack.value
+        val q = newQueue.toMutableList()
+        // Keep the exact copy playing here (it may be the host's matched video id).
+        if (cur != null && currentIndex in q.indices) q[currentIndex] = cur
+        _queueState.value = queueManager.setQueue(q, currentIndex.coerceIn(0, q.lastIndex), preserveOrderIfSame = false, isUserQueue = true)
+    }
+
     fun syncResume() {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncResume from host")
+        syncWantsPlay = true
+        // Still fetching the song: it starts by itself when ready. Calling play() here would
+        // restart the fetch and put this guest further behind.
+        if (streamResolveJob?.isActive == true) return
         val curTrack = _currentTrack.value ?: return
         if (isUsingExoPlayer && exoPlayer.mediaItemCount > 0) {
             if (exoPlayer.playbackState == Player.STATE_IDLE) {
@@ -1176,9 +1347,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
             exoPlayer.play()
             _isPlaying.value = true
+            publishDiscordPresenceNow()
         } else if (!isUsingExoPlayer && youTubeEngine.hasActiveStream()) {
             youTubeEngine.play()
             _isPlaying.value = true
+            publishDiscordPresenceNow()
         } else {
             val durMs = (curTrack.duration * 1000L).takeIf { it > 0 } ?: _durationMs.value
             val safeSeekMs = if (durMs > 1000L && _playbackPositionMs.value >= durMs - 500L) {
@@ -1192,17 +1365,20 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     fun syncPause() {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncPause from host")
+        syncWantsPlay = false
         if (isUsingExoPlayer) {
             exoPlayer.pause()
         }
         youTubeEngine.pause()
         _isPlaying.value = false
+        publishDiscordPresenceNow()
     }
 
     fun syncSeek(positionMs: Long) {
         val bounded = positionMs.coerceAtLeast(0L)
         _playbackPositionMs.value = bounded
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncSeek from host: ${bounded}ms")
+        if (rememberSeekWhileLoading(bounded)) return
         if (isUsingExoPlayer) {
             val dur = exoPlayer.duration
             val target = if (dur > 0 && bounded >= dur) (dur - 500L).coerceAtLeast(0L) else bounded
@@ -1222,6 +1398,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     ) {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack blocked - user is listener in Listen Together room")
+            guestControlForwarder?.invoke(
+                com.auralis.music.data.sync.GuestCommand(
+                    type = com.auralis.music.data.sync.GuestCommand.PLAY_TRACK,
+                    seq = System.currentTimeMillis(),
+                    track = track
+                )
+            )
             return
         }
         val isSingleSongSelection = !preserveQueueSource && !isUserQueue && (newQueue.isEmpty() || newQueue.size == 1)
@@ -1282,6 +1465,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             return
         }
         val curTrack = _currentTrack.value ?: return
+        // The user pressed play: that overrides a room hold, and a song still loading starts when ready.
+        roomHoldActive = false
+        syncWantsPlay = true
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() called (isUsingExo=$isUsingExoPlayer, mediaItems=${exoPlayer.mediaItemCount}, track=${curTrack.title}, seek=${_playbackPositionMs.value}ms)")
 
         startMediaService(AuralisMediaService.ACTION_START)
@@ -1292,9 +1478,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
             exoPlayer.play()
             _isPlaying.value = true
+            publishDiscordPresenceNow()
         } else if (!isUsingExoPlayer && youTubeEngine.hasActiveStream()) {
             youTubeEngine.play()
             _isPlaying.value = true
+            publishDiscordPresenceNow()
         } else if (streamResolveJob?.isActive == true) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() called while stream resolution is in-flight for '${curTrack.title}', preserving active resolution")
         } else {
@@ -1317,6 +1505,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             return
         }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() called (isUsingExo=$isUsingExoPlayer, track=${_currentTrack.value?.title})")
+        roomHoldActive = false
+        syncWantsPlay = false
         if (isUsingExoPlayer) {
             try {
                 val currentPos = exoPlayer.currentPosition
@@ -1328,6 +1518,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         youTubeEngine.pause()
         _isPlaying.value = false
+        publishDiscordPresenceNow()
         // The running service observes isPlaying; pausing must not start a new foreground service.
         persistQueue()
     }
@@ -1335,6 +1526,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun togglePlayPause() {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] togglePlayPause() blocked - user is listener in Listen Together room")
+            forwardGuestControl(
+                if (intendsToPlay()) com.auralis.music.data.sync.GuestCommand.PAUSE else com.auralis.music.data.sync.GuestCommand.PLAY
+            )
             return
         }
         if (_isPlaying.value) {
@@ -1351,12 +1545,17 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun seekTo(positionMs: Long) {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo() blocked - user is listener in Listen Together room")
+            forwardGuestControl(com.auralis.music.data.sync.GuestCommand.SEEK, positionMs)
             return
         }
         val bounded = positionMs.coerceAtLeast(0L)
         _userSeekEvents.tryEmit(bounded)
         _playbackPositionMs.value = bounded
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo(${bounded}ms)")
+        if (rememberSeekWhileLoading(bounded)) {
+            persistQueue()
+            return
+        }
         if (isUsingExoPlayer) {
             val dur = exoPlayer.duration
             val target = if (dur > 0 && bounded >= dur) (dur - 500L).coerceAtLeast(0L) else bounded
@@ -1479,6 +1678,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun next(): Boolean {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() blocked - user is listener in Listen Together room")
+            forwardGuestControl(com.auralis.music.data.sync.GuestCommand.NEXT)
             return false
         }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() triggered (queueSize=${queueManager.state.queue.size}, currentIndex=${queueManager.state.currentIndex})")
@@ -1507,6 +1707,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun previous() {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] previous() blocked - user is listener in Listen Together room")
+            forwardGuestControl(com.auralis.music.data.sync.GuestCommand.PREVIOUS)
             return
         }
         val now = System.currentTimeMillis()
@@ -1575,6 +1776,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
+        if (isGuestListenTogether.value) {
+            tracks.forEach { guestSongSuggester?.invoke(it) }
+            return
+        }
         val qState = queueManager.addToQueue(tracks)
         _queueState.value = qState
         syncUpcomingGaplessTrack()
@@ -1598,6 +1803,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     fun playNext(tracks: List<Track>) {
         if (tracks.isEmpty()) return
+        if (isGuestListenTogether.value) {
+            tracks.forEach { guestSongSuggester?.invoke(it) }
+            return
+        }
         val qState = queueManager.playNext(tracks)
         _queueState.value = qState
         syncUpcomingGaplessTrack()

@@ -34,8 +34,6 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.AuralisPlayerSlider
 import kotlinx.coroutines.launch
-import android.webkit.*
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.auralis.music.ui.theme.dynamicBackground
@@ -96,14 +94,10 @@ fun DiscordIntegrationScreen(
     val scope = rememberCoroutineScope()
 
     // Dialog States
-    var showAuthDialog by remember { mutableStateOf(false) }
     var isAuthorizing by remember { mutableStateOf(false) }
-    var authUsernameInput by remember { mutableStateOf("") }
-    var authTokenInput by remember { mutableStateOf("") }
 
     var showStatusDialog by remember { mutableStateOf(false) }
     var showIntervalDialog by remember { mutableStateOf(false) }
-    var showPlatformDialog by remember { mutableStateOf(false) }
     var showActivityNameDialog by remember { mutableStateOf(false) }
     var customActivityNameInput by remember { mutableStateOf(settings.activityName) }
     var showActivityDetailsDialog by remember { mutableStateOf(false) }
@@ -115,10 +109,8 @@ fun DiscordIntegrationScreen(
 
     androidx.activity.compose.BackHandler(enabled = true) {
         when {
-            showAuthDialog -> showAuthDialog = false
             showStatusDialog -> showStatusDialog = false
             showIntervalDialog -> showIntervalDialog = false
-            showPlatformDialog -> showPlatformDialog = false
             showActivityNameDialog -> showActivityNameDialog = false
             showActivityDetailsDialog -> showActivityDetailsDialog = false
             showActivityStateDialog -> showActivityStateDialog = false
@@ -328,6 +320,7 @@ fun DiscordIntegrationScreen(
 
                             // Main Auth Button (Solid Accent Pill / Error Red on Disconnect)
                             Button(
+                                enabled = !isAuthorizing,
                                 onClick = {
                                     if (settings.isLoggedIn) {
                                         scope.launch {
@@ -338,8 +331,16 @@ fun DiscordIntegrationScreen(
                                         DiscordGatewayManager.getInstance(context).disconnect()
                                         Toast.makeText(context, "Logged out of Discord", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        isAuthorizing = true
-                                        showAuthDialog = true
+                                isAuthorizing = true
+                                DiscordGatewayManager.getInstance(context).beginAuthorization { success, username, detail ->
+                                    isAuthorizing = false
+                                    val message = if (success) {
+                                        "Connected to Discord as ${username.ifBlank { "your account" }}"
+                                    } else {
+                                        detail
+                                    }
+                                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                }
                                     }
                                 },
                                 shape = RoundedCornerShape(24.dp),
@@ -479,12 +480,6 @@ fun DiscordIntegrationScreen(
                                 onClick = { showIntervalDialog = true }
                             )
 
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.Laptop,
-                                title = "Platform",
-                                value = settings.platform,
-                                onClick = { showPlatformDialog = true }
-                            )
                         }
                     }
                 }
@@ -861,28 +856,6 @@ fun DiscordIntegrationScreen(
 
     // ── CONFIGURATION PICKER DIALOGS ──
 
-    // 1. Auth Dialog (Direct Discord Login WebView + Token Capture)
-    if (showAuthDialog) {
-        DiscordAuthWebViewDialog(
-            onDismiss = { showAuthDialog = false },
-            onTokenCaptured = { token ->
-                scope.launch {
-                    val result = DiscordGatewayManager.getInstance(context).verifyAndSaveToken(token)
-                    if (result.isSuccess) {
-                        val user = result.getOrNull()
-                        Toast.makeText(context, "Connected to Discord as ${user?.username ?: "User"}!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        dataStore.setLoggedIn(true, username = "Discord User", token = token)
-                        dataStore.setEnableRichPresence(true)
-                        DiscordGatewayManager.getInstance(context).connect(token)
-                        Toast.makeText(context, "Connected to Discord!", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                showAuthDialog = false
-            }
-        )
-    }
-
     // Pickers with DiscordOptionPickerBottomSheet
     if (showStatusDialog) {
         DiscordOptionPickerBottomSheet(
@@ -995,18 +968,6 @@ fun DiscordIntegrationScreen(
                 onDismiss = { showIntervalDialog = false }
             )
         }
-    }
-
-    if (showPlatformDialog) {
-        DiscordOptionPickerBottomSheet(
-            title = "Platform",
-            options = listOf("Android", "Desktop", "iOS", "Web"),
-            selected = settings.platform,
-            onSelect = {
-                scope.launch { dataStore.setPlatform(it) }
-            },
-            onDismiss = { showPlatformDialog = false }
-        )
     }
 
     if (showActivityNameDialog) {
@@ -1252,185 +1213,6 @@ private fun DiscordOptionPickerBottomSheet(
                             )
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiscordAuthWebViewDialog(
-    onDismiss: () -> Unit,
-    onTokenCaptured: (String) -> Unit
-) {
-    var showManualTokenInput by remember { mutableStateOf(false) }
-    var manualToken by remember { mutableStateOf("") }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-            color = THEME_BG
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(CARD_BG)
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = TEXT_PRIMARY
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Discord Authorization",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = TEXT_PRIMARY
-                        )
-                    }
-
-                    TextButton(onClick = { showManualTokenInput = !showManualTokenInput }) {
-                        Text(
-                            text = if (showManualTokenInput) "Web Login" else "Paste Token",
-                            color = PEACH_ACCENT,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-
-                if (showManualTokenInput) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Paste Discord User Token",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = TEXT_PRIMARY
-                        )
-                        Text(
-                            text = "If you have your Discord user authorization token, paste it below to connect directly:",
-                            color = TEXT_SECONDARY,
-                            fontSize = 13.sp
-                        )
-                        OutlinedTextField(
-                            value = manualToken,
-                            onValueChange = { manualToken = it },
-                            label = { Text("User Token") },
-                            placeholder = { Text("Paste token here") },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PEACH_ACCENT,
-                                unfocusedBorderColor = TEXT_SECONDARY.copy(alpha = 0.4f),
-                                focusedLabelColor = PEACH_ACCENT,
-                                unfocusedLabelColor = TEXT_SECONDARY,
-                                focusedTextColor = TEXT_PRIMARY,
-                                unfocusedTextColor = TEXT_PRIMARY
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Button(
-                            onClick = {
-                                val token = manualToken.trim()
-                                if (token.isNotBlank()) {
-                                    onTokenCaptured(token)
-                                }
-                            },
-                            shape = RoundedCornerShape(20.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PEACH_ACCENT),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Text("Connect With Token", color = BUTTON_DARK_TEXT, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                } else {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                layoutParams = android.view.ViewGroup.LayoutParams(
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.databaseEnabled = true
-                                settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-
-                                addJavascriptInterface(object {
-                                    @JavascriptInterface
-                                    fun onToken(token: String?) {
-                                        if (!token.isNullOrBlank() && token.length > 20) {
-                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                onTokenCaptured(token)
-                                            }
-                                        }
-                                    }
-                                }, "AuralisBridge")
-
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                        super.onPageFinished(view, url)
-
-                                        // Inject script to monitor authorization headers and extract token
-                                        val script = """
-                                            (function() {
-                                                try {
-                                                    var iframe = document.createElement('iframe');
-                                                    document.body.appendChild(iframe);
-                                                    var token = iframe.contentWindow.localStorage.getItem('token');
-                                                    if (token && token.length > 20) {
-                                                        window.AuralisBridge && window.AuralisBridge.onToken(JSON.parse(token));
-                                                    }
-                                                } catch(e) {}
-                                                try {
-                                                    var token = window.localStorage.getItem('token');
-                                                    if (token && token.length > 20) {
-                                                        window.AuralisBridge && window.AuralisBridge.onToken(JSON.parse(token));
-                                                    }
-                                                } catch(e) {}
-                                                if (!window._auralisHooked) {
-                                                    window._auralisHooked = true;
-                                                    var origOpen = XMLHttpRequest.prototype.open;
-                                                    var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-                                                    XMLHttpRequest.prototype.setRequestHeader = function(h, v) {
-                                                        if (h && h.toLowerCase() === 'authorization' && v && v.length > 20) {
-                                                            window.AuralisBridge && window.AuralisBridge.onToken(v);
-                                                        }
-                                                        return origSetHeader.apply(this, arguments);
-                                                    };
-                                                }
-                                            })();
-                                        """.trimIndent()
-                                        view?.evaluateJavascript(script, null)
-                                    }
-                                }
-                                loadUrl("https://discord.com/login")
-                            }
-                        }
-                    )
                 }
             }
         }
