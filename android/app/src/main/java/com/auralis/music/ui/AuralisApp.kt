@@ -305,11 +305,6 @@ fun AuralisApp(
     val isFullyCollapsed by remember {
         derivedStateOf { playerSheetProgress.value == 0f }
     }
-    // For overlay-pill blur source only: the player's artwork isn't dominant on screen until
-    // the sheet transition is mostly finished (its own fade-in reaches full opacity ~0.6).
-    val pillBlurShowsPlayer by remember {
-        derivedStateOf { isNowPlayingOpen || playerSheetProgress.value > 0.6f }
-    }
     val dismissOffsetY = remember { Animatable(0f) }
     var isStatsOpen by rememberSaveable { mutableStateOf(false) }
     var sheetAnimationJob by remember { mutableStateOf<Job?>(null) }
@@ -710,6 +705,11 @@ fun AuralisApp(
         // player's artwork once it's on screen (else a pill blurs the page hidden behind the
         // player and shows its colours instead of what's actually visible).
         val playerBackdropHazeState = remember { HazeState() }
+        // Blur source only for the overlay pills: every layer that can be on screen behind them,
+        // in drawing order (page 0, open sheet 2, player backdrop 3, player 4), so a pill blurs
+        // exactly what's under it, including the open player's buttons. Separate from hazeState
+        // and playerBackdropHazeState so their own effects keep blurring what they did.
+        val pillHazeState = remember { HazeState() }
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -763,6 +763,7 @@ fun AuralisApp(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .hazeSource(state = hazeState)
+                    .hazeSource(state = pillHazeState, zIndex = 0f)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Active Listen Together Banner (if connected to a room)
@@ -1295,7 +1296,7 @@ fun AuralisApp(
             visible = isListenTogetherOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val ltVM = obtainListenTogetherViewModel()
@@ -1441,7 +1442,7 @@ fun AuralisApp(
             visible = isProfileOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val authVM = obtainAuthViewModel()
@@ -1502,7 +1503,7 @@ fun AuralisApp(
             visible = isHistoryOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val listeningHistory by viewModelProvider.historyRepository.getHistory().collectAsState(initial = emptyList())
@@ -1533,7 +1534,7 @@ fun AuralisApp(
             visible = isStatsOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val statsVM = obtainStatsViewModel()
@@ -1587,6 +1588,8 @@ fun AuralisApp(
             if (isPlayerSheetActive) {
                 Box(
                     modifier = Modifier
+                        // Before graphicsLayer so the pills blur it at its current fade.
+                        .hazeSource(state = pillHazeState, zIndex = 3f)
                         .fillMaxSize()
                         .graphicsLayer {
                             val p = playerSheetProgress.value
@@ -1620,7 +1623,7 @@ fun AuralisApp(
             }
 
             // Single translating container hosting Full Player and MiniPlayer
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            BoxWithConstraints(modifier = Modifier.hazeSource(state = pillHazeState, zIndex = 4f).fillMaxSize()) {
                 val fullHeightPx = constraints.maxHeight.toFloat()
                 val density = LocalDensity.current
                 val isClassicMini = appearanceSettings.miniPlayerDesign == "Classic mini player"
@@ -2323,19 +2326,19 @@ fun AuralisApp(
                                 spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
                             )
                             .clip(topPillShape)
-                            // Blurs whatever's actually on screen behind the pill: the content
-                            // pages normally, or the player's own artwork once it's open (using
-                            // hazeState here regardless blurred the page hidden behind the player
-                            // and showed its colours instead of what's on screen).
+                            // Blurs exactly what's on screen behind the pill (see pillHazeState).
                             .hazeEffect(
-                                state = if (pillBlurShowsPlayer) playerBackdropHazeState else hazeState,
+                                state = pillHazeState,
                                 style = HazeStyle(
                                     backgroundColor = Color.Transparent,
                                     tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.38f else 0.48f)),
                                     blurRadius = 24.dp,
                                     noiseFactor = 0.02f
                                 )
-                            )
+                            ) {
+                                // Haze turns blur off below API 32 and shows a flat scrim instead.
+                                blurEnabled = true
+                            }
                             .border(
                                 width = 1.dp,
                                 brush = Brush.verticalGradient(
@@ -2429,19 +2432,18 @@ fun AuralisApp(
                                 spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
                             )
                             .clip(pillShape)
-                            // Blurs whatever's actually on screen behind the pill: the content
-                            // pages normally, or the player's own artwork once it's open (using
-                            // hazeState here regardless blurred the page hidden behind the player
-                            // and showed its colours instead of what's on screen).
+                            // Blurs exactly what's on screen behind the pill (see pillHazeState).
                             .hazeEffect(
-                                state = if (pillBlurShowsPlayer) playerBackdropHazeState else hazeState,
+                                state = pillHazeState,
                                 style = HazeStyle(
                                     backgroundColor = Color.Transparent,
                                     tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.35f else 0.45f)),
                                     blurRadius = 24.dp,
                                     noiseFactor = 0.02f
                                 )
-                            )
+                            ) {
+                                blurEnabled = true
+                            }
                             .border(
                                 width = 0.75.dp,
                                 color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
