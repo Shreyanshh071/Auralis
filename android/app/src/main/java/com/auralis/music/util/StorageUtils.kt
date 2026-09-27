@@ -40,6 +40,7 @@ object StorageUtils {
         return initialSize
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     fun getSongCacheSizeBytes(context: Context): Long {
         val cacheDirs = listOf(
             File(context.cacheDir, "exoplayer"),
@@ -49,9 +50,12 @@ object StorageUtils {
             File(context.cacheDir, "http_cache"),
             File(context.cacheDir, "audio_cache")
         )
-        return cacheDirs.sumOf { getFolderSizeBytes(it) }
+        // The live cache reports its own size; the other folders are leftovers from older builds.
+        return com.auralis.music.data.service.SongCache.sizeBytes(context) +
+            cacheDirs.drop(1).sumOf { getFolderSizeBytes(it) }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     fun clearSongCache(context: Context): Long {
         val cacheDirs = listOf(
             File(context.cacheDir, "exoplayer"),
@@ -61,7 +65,9 @@ object StorageUtils {
             File(context.cacheDir, "http_cache"),
             File(context.cacheDir, "audio_cache")
         )
-        val freed = cacheDirs.sumOf { clearDirectory(it) }
+        // Never delete the live cache's files from under it; ask it to drop its entries instead.
+        val freed = com.auralis.music.data.service.SongCache.clear(context) +
+            cacheDirs.drop(1).sumOf { clearDirectory(it) }
         AudioStreamResolver.clearCache()
         return freed
     }

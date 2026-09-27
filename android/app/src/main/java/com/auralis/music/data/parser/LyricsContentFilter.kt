@@ -76,7 +76,8 @@ object LyricsContentFilter {
 
     /** How deep into the lyrics a "Artists - Title" header can sit. */
     private const val TITLE_HEADER_SCAN_LINES = 3
-    private val headerSeparator = Regex("""\s+[-–—]\s+""")
+    // A spaced dash on at least one side: "Artist - Title", and sloppy "Artist -<Title>".
+    private val headerSeparator = Regex("""\s+[-–—]\s*|\s*[-–—]\s+""")
 
     private fun normalizeForHeader(text: String): String =
         text.lowercase()
@@ -111,13 +112,39 @@ object LyricsContentFilter {
                 parts.drop(1).joinToString(" ") to parts.first()
             ).map { (other, maybeTitle) -> normalizeForHeader(other) to normalizeForHeader(maybeTitle) }
             val isHeader = splits.any { (other, maybeTitle) ->
-                maybeTitle == normTitle && other.isNotBlank() && other != normTitle
+                isSameTitle(maybeTitle, normTitle) && other.isNotBlank() && !isSameTitle(other, normTitle)
             }
             if (isHeader) dropIndices += i
         }
         if (dropIndices.isEmpty()) return lyrics
         val cleaned = lyrics.lines.filterIndexed { i, _ -> i !in dropIndices }
         return lyrics.copy(lines = cleaned, plainLyrics = cleaned.joinToString("\n") { it.text })
+    }
+
+    /**
+     * Title equality that survives how fan-typed headers are written: spacing ("TheLess") and a
+     * typo or two ("Konw") on a long title. Short titles must match exactly.
+     */
+    private fun isSameTitle(candidate: String, normTitle: String): Boolean {
+        val a = candidate.replace(" ", "")
+        val b = normTitle.replace(" ", "")
+        if (a == b) return true
+        if (b.length < 8) return false
+        return editDistance(a, b) <= b.length / 8
+    }
+
+    private fun editDistance(a: String, b: String): Int {
+        if (kotlin.math.abs(a.length - b.length) > b.length / 8) return Int.MAX_VALUE
+        var prev = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            val cur = IntArray(b.length + 1)
+            cur[0] = i
+            for (j in 1..b.length) {
+                cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1)
+            }
+            prev = cur
+        }
+        return prev[b.length]
     }
 
     fun isNonLyricLine(text: String): Boolean {

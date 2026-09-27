@@ -38,7 +38,7 @@ data class PlayerSettings(
     val volume: Float = 1.0f,
     val isMuted: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val audioQuality: AudioQuality = AudioQuality.AUTO,
+    val audioQuality: AudioQuality = AudioQuality.HIGH,
     val gaplessPlayback: Boolean = true,
     val skipSilence: Boolean = false,
     val spatialAudio: Boolean = false,

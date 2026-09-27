@@ -677,15 +677,16 @@ fun AuralisApp(
         label = "miniPlayerInset"
     )
     val dockInset = rememberUpdatedState(if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp)
+    val miniHeight = rememberUpdatedState(com.auralis.music.ui.player.miniPlayerHeightFor(appearanceSettings.miniPlayerDesign))
     val subScreenMiniGap = rememberUpdatedState(
         if (appearanceSettings.miniPlayerDesign == "Classic mini player") 0.dp else 10.dp
     )
     val mainBottomChrome = remember {
-        BottomChrome { dockInset.value + MiniPlayerHeight * miniPlayerShown.value }
+        BottomChrome { dockInset.value + miniHeight.value * miniPlayerShown.value }
     }
     // Profile / Settings / History / Stats / Listen Together hide the dock.
     val overlayBottomChrome = remember {
-        BottomChrome { (MiniPlayerHeight + subScreenMiniGap.value) * miniPlayerShown.value }
+        BottomChrome { (miniHeight.value + subScreenMiniGap.value) * miniPlayerShown.value }
     }
 
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
@@ -1613,7 +1614,8 @@ fun AuralisApp(
                     if (appearanceSettings.slimBottomNavigationBar) 56.dp else 68.dp
                 }
                 val bottomInset = with(density) { WindowInsets.systemBars.getBottom(density).toDp() }
-                val collapsedBoundDp = MiniPlayerHeight + targetBottomPadding + bottomInset
+                val miniPlayerHeight = com.auralis.music.ui.player.miniPlayerHeightFor(appearanceSettings.miniPlayerDesign)
+                val collapsedBoundDp = miniPlayerHeight + targetBottomPadding + bottomInset
                 val collapsedBoundPx = with(density) { collapsedBoundDp.toPx() }
                 val travelDistance = (fullHeightPx - collapsedBoundPx).coerceAtLeast(0f)
 
@@ -1792,6 +1794,25 @@ fun AuralisApp(
                                             }
                                         }
                                     },
+                                    onRemoveQueueItem = { index ->
+                                        if (guestNow()) {
+                                            notifyGuestControlBlocked()
+                                        } else {
+                                            currentPV.removeQueueItem(index)
+                                            if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
+                                                val updated = currentPV.uiState.value
+                                                updated.currentTrack?.let { trk ->
+                                                    obtainListenTogetherViewModel().broadcastHostPlayback(
+                                                        currentTrack = trk,
+                                                        isPlaying = updated.isPlaying,
+                                                        playbackPositionMs = currentPV.playbackPositionMs.value,
+                                                        queue = updated.queue,
+                                                        queueIndex = updated.currentIndex
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
                                     onReorderQueue = { fromIndex, toIndex ->
                                         if (guestNow()) {
                                             notifyGuestControlBlocked()
@@ -1860,7 +1881,7 @@ fun AuralisApp(
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
                             .padding(bottom = targetBottomPadding + bottomInset)
-                            .height(MiniPlayerHeight)
+                            .height(miniPlayerHeight)
                             .graphicsLayer {
                                 val p = playerSheetProgress.value
                                 val dismissY = dismissOffsetY.value

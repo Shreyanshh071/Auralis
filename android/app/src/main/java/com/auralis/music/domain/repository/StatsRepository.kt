@@ -13,5 +13,7 @@ interface StatsRepository {
     fun observeTopArtists(fromTimestamp: Long, toTimestamp: Long, limit: Int = 10): Flow<List<ArtistStat>>
     fun observeFirstEventTimestamp(): Flow<Long?>
     suspend fun removeEstimatedListens()
+    /** Joins listens that older builds stored as 10s pieces (see ListenChunkMerger). */
+    suspend fun mergeChunkedListens()
     suspend fun clearListeningStats()
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ launch screen: the wallpaper's dark neutral, the same colour the dynamic dark
+         theme builds its background from, so launch blends into Home instead of flashing grey. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/system_neutral1_900</item>
+        <item name="android:windowSplashScreenBackground">@android:color/system_neutral1_900</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>

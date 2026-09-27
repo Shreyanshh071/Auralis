@@ -53,7 +53,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 discordToken = prefs[DISCORD_TOKEN] ?: "",
                 enableRichPresence = prefs[ENABLE_RICH_PRESENCE] ?: false,
                 activityStatus = prefs[ACTIVITY_STATUS] ?: "Online",
-                updateIntervalSeconds = prefs[UPDATE_INTERVAL] ?: 20,
+                updateIntervalSeconds = prefs[UPDATE_INTERVAL] ?: 5,
                 platform = prefs[PLATFORM] ?: "Android",
                 activityName = prefs[ACTIVITY_NAME] ?: "Auralis",
                 activityDetails = prefs[ACTIVITY_DETAILS] ?: "Song title",
@@ -62,7 +62,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 activityType = prefs[ACTIVITY_TYPE] ?: "Listening",
                 largeImage = prefs[LARGE_IMAGE] ?: "Album artwork",
                 largeText = prefs[LARGE_TEXT] ?: "Album name",
-                smallImage = prefs[SMALL_IMAGE] ?: "Artist artwork"
+                smallImage = prefs[SMALL_IMAGE] ?: "App logo"
             )
         }
 
@@ -88,7 +88,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 discordToken = prefs[DISCORD_TOKEN] ?: "",
                 enableRichPresence = prefs[ENABLE_RICH_PRESENCE] ?: false,
                 activityStatus = prefs[ACTIVITY_STATUS] ?: "Online",
-                updateIntervalSeconds = prefs[UPDATE_INTERVAL] ?: 20,
+                updateIntervalSeconds = prefs[UPDATE_INTERVAL] ?: 5,
                 platform = prefs[PLATFORM] ?: "Android",
                 activityName = prefs[ACTIVITY_NAME] ?: "Auralis",
                 activityDetails = prefs[ACTIVITY_DETAILS] ?: "Song title",
@@ -97,7 +97,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 activityType = prefs[ACTIVITY_TYPE] ?: "Listening",
                 largeImage = prefs[LARGE_IMAGE] ?: "Album artwork",
                 largeText = prefs[LARGE_TEXT] ?: "Album name",
-                smallImage = prefs[SMALL_IMAGE] ?: "Artist artwork"
+                smallImage = prefs[SMALL_IMAGE] ?: "App logo"
             )
             val updated = transform(current)
             prefs[IS_LOGGED_IN] = updated.isLoggedIn

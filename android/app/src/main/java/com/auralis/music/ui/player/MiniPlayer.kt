@@ -104,6 +104,16 @@ import com.auralis.music.ui.theme.motionTween
  */
 val MiniPlayerHeight: Dp = 68.dp
 
+/** The expanded design's two rows (song + controls) need more room than the pill. */
+val ExpandedMiniPlayerHeight: Dp = 132.dp
+
+/**
+ * Height the app reserves for the mini-player. One fixed 68dp for every design cut the expanded
+ * design's control row off (regressed in 52f428a, which clamped the host to MiniPlayerHeight).
+ */
+fun miniPlayerHeightFor(design: String): Dp =
+    if (design == MiniPlayerDesign.EXPANDED.displayName) ExpandedMiniPlayerHeight else MiniPlayerHeight
+
 /**
  * Normalizes any stored setting string into one of the selectable Mini-Player themes:
  * 1. Gradient (Vibrant dynamic horizontal gradient matching reference)

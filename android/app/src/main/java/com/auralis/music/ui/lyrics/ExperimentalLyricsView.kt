@@ -470,6 +470,8 @@ fun ExperimentalLyricsView(
     var authoritativeTargetIndex by rememberSaveable { mutableIntStateOf(-1) }
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     var pendingSeekTarget by remember { mutableStateOf<ExperimentalPendingSeekTarget?>(null) }
+    // True only once the player's position has been seen moving; gates every forward carry.
+    var clockAdvancing by remember { mutableStateOf(false) }
 
     var deferredCurrentLineIndex by rememberSaveable { mutableIntStateOf(0) }
     var lastPreviewTime by rememberSaveable { mutableLongStateOf(0L) }
@@ -494,6 +496,8 @@ fun ExperimentalLyricsView(
 
         var lastBasePos = positionState.value
         var lastUpdateTime = System.currentTimeMillis()
+        var lastRawPos = lyricsClockSource?.rawPositionMs() ?: positionState.value
+        var rawAdvancing = false
 
         while (isActive) {
             delay(25)
@@ -501,6 +505,13 @@ fun ExperimentalLyricsView(
             val clockSourcePlaying = lyricsClockSource?.isPlaying() ?: isPlaying
             val clockSourceBuffering = isBuffering || (lyricsClockSource?.isBuffering() == true)
             val rawPos = lyricsClockSource?.rawPositionMs() ?: positionState.value
+            // "Playing" flips on before audio reaches the output (tap-to-seek on a paused song).
+            // Until the raw reading actually moves forward, nothing may run ahead of it.
+            rawAdvancing = advanceConfirmed(
+                rawAdvancing, lastRawPos, rawPos, clockSourcePlaying && !clockSourceBuffering
+            )
+            lastRawPos = rawPos
+            if (clockAdvancing != rawAdvancing) clockAdvancing = rawAdvancing
 
             // Prefer positionState.value when actively advancing (smoothly interpolated at 60fps
             // by rememberLyricsClock), falling back to rawPos if clock is uninitialized or lagging.
@@ -523,8 +534,11 @@ fun ExperimentalLyricsView(
                 val hasAudioReached = kotlin.math.abs(basePos - pending.targetTimeMs) <= 350L ||
                     kotlin.math.abs(rawPos - pending.targetTimeMs) <= 350L
                 val minTimeElapsed = (now - pending.timestamp) >= 80L
-                val hasConverged = minTimeElapsed && hasAudioReached && !clockSourceBuffering && clockSourcePlaying
-                val isTimedOut = (now - pending.timestamp) > 1500L
+                val hasConverged = minTimeElapsed && hasAudioReached && rawAdvancing
+                // Resuming a paused song can take longer than a seek; hold the pin while
+                // playback is merely starting up, so the tapped line waits for the audio.
+                val isTimedOut = (now - pending.timestamp) > 1500L &&
+                    (rawAdvancing || !clockSourcePlaying || (now - pending.timestamp) > 6000L)
                 if (hasConverged || isTimedOut) {
                     pendingSeekTarget = null
                     false
@@ -547,8 +561,7 @@ fun ExperimentalLyricsView(
                 // Pin strictly to the seek target timestamp so lyrics don't run ahead during buffering
                 pending.targetTimeMs + offsetMs
             } else {
-                val isAdvancing = clockSourcePlaying && !clockSourceBuffering
-                val elapsed = if (isAdvancing) (now - lastUpdateTime).coerceIn(0L, 500L) else 0L
+                val elapsed = if (rawAdvancing) (now - lastUpdateTime).coerceIn(0L, 500L) else 0L
                 lastBasePos + elapsed + offsetMs
             }
             currentPositionState = currentPos
@@ -992,7 +1005,7 @@ fun ExperimentalLyricsView(
                                     displayedCurrentLineIndex = deferredCurrentLineIndex,
                                     syncType = lyrics?.syncType ?: SyncType.PLAIN,
                                     isPlaying = isPlaying,
-                                    isBuffering = isBuffering || (pendingSeekTarget != null),
+                                    isBuffering = isBuffering || (pendingSeekTarget != null) || !clockAdvancing,
                                     standardBlur = standardLyricsBlur,
                                     lineCenterPx = blurGeometry.lineCenterPx,
                                     activeLineCenterPx = blurGeometry.activeLineCenterPx,

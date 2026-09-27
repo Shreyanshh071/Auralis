@@ -13,7 +13,7 @@ data class AppearanceSettings(
     val miniPlayerDesign: String = "New mini player",
     val pureBlackMiniPlayer: Boolean = false,
     val newMiniPlayerDesign: Boolean = true,
-    val miniPlayerBackgroundStyle: String = "Live Mesh",
+    val miniPlayerBackgroundStyle: String = "Blur",
 
     // ── Player ──
     val newPlayerDesign: Boolean = true,

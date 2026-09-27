@@ -79,4 +79,18 @@ class TitleHeaderFilterTest {
         val d = lyrics("Ek do teen - chaar", "Ab tum hi ho", "Zindagi ab tum hi ho")
         assertEquals(texts(d), texts(LyricsContentFilter.removeTitleHeader(d, "Tum Hi Ho")))
     }
+
+    @Test
+    fun `a sloppy fan-typed header with a typo is removed`() {
+        // Seen live on The Less I Know The Better: "-<" separator, "TheLess", "Konw".
+        val d = lyrics("Tame Impala -<TheLess I Konw the Better>", "Someone said they left together", "I ran out the door to get her")
+        assertEquals(listOf("Someone said they left together", "I ran out the door to get her"),
+            texts(LyricsContentFilter.removeTitleHeader(d, "The Less I Know The Better")))
+    }
+
+    @Test
+    fun `a short title is never fuzzy-matched`() {
+        val d = lyrics("Oh no - Help", "Help me if you can", "I'm feeling down")
+        assertEquals(texts(d), texts(LyricsContentFilter.removeTitleHeader(d, "Hello")))
+    }
 }

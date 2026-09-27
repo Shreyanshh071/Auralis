@@ -389,7 +389,7 @@ class PlayerViewModel(
                 loadLyrics(effectiveTrack, reqId)
 
                 viewModelScope.launch(Dispatchers.IO) {
-                    if (com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(effectiveTrack.album, effectiveTrack.title)) {
+                    if (com.auralis.music.data.network.AlbumMetadataResolver.needsResolving(effectiveTrack.album, effectiveTrack.title)) {
                         try {
                             val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(
                                 trackTitle = effectiveTrack.title,
@@ -526,7 +526,7 @@ class PlayerViewModel(
             }
 
             // Asynchronously resolve authentic album if missing or redundant with title
-            if (com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)) {
+            if (com.auralis.music.data.network.AlbumMetadataResolver.needsResolving(track.album, track.title)) {
                 try {
                     val resolved = com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(
                         trackTitle = track.title,

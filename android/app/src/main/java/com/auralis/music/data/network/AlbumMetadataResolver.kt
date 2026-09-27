@@ -35,6 +35,8 @@ object AlbumMetadataResolver {
             .replace(Regex("""(?i)\s*[\(\[]\s*(original motion picture soundtrack|original soundtrack|motion picture soundtrack|soundtrack|from\s+["']?.*?["']?|deluxe(\s+edition)?|bonus(\s+track\s+version)?|special\s+edition|expanded(\s+edition)?|anniversary(\s+edition)?|remastered)\s*[\)\]]"""), "")
             .replace(Regex("""(?i)\s*-\s*(original motion picture soundtrack|original soundtrack|soundtrack|deluxe(\s+edition)?|ost)\b.*$"""), "")
             .replace(Regex("""(?i)\b(original motion picture soundtrack|original soundtrack)\b.*$"""), "")
+            // Edition tags in any mix: "Urban Hymns (Deluxe / Remastered 2016)" -> "Urban Hymns".
+            .replace(Regex("""(?i)\s*[\(\[][^\)\]]*\b(deluxe|remaster(ed)?|edition|expanded|anniversary)\b[^\)\]]*[\)\]]"""), "")
             .replace(Regex("""["'“”‘’]"""), "")
             .trim()
             .ifBlank { title.trim() }
@@ -116,6 +118,22 @@ object AlbumMetadataResolver {
         return false
     }
 
+    private val compilationPattern = Regex(
+        """(?i)\b(greatest hits|the hits|best of|the best|highlights|essentials|anthology|collection|the very best|hits|the singles|singles\s+(collection|\d)|b-sides|rarities|definitive|the complete|retrospective)\b""" +
+            """|\b(19|20)?\d{2}\s*[-–]\s*(19|20)?\d{2}\b"""
+    )
+
+    /**
+     * A hits / singles compilation ("This Is Music: The Singles 92-98", "The Highlights").
+     * YouTube Music often files a song under one of these; it is never the song's home album.
+     */
+    fun isCompilation(album: String?): Boolean =
+        !album.isNullOrBlank() && compilationPattern.containsMatchIn(album)
+
+    /** Whether a track's own album tag can't be trusted as its parent studio album. */
+    fun needsResolving(album: String?, trackTitle: String): Boolean =
+        isRedundantOrSingle(album, trackTitle) || isCompilation(album)
+
     /**
      * Overload for resolveAlbum with optional knownAlbum title.
      */
@@ -138,7 +156,9 @@ object AlbumMetadataResolver {
     ): ResolvedAlbum? = withContext(Dispatchers.IO) {
         val cleanTitle = cleanTrackTitle(trackTitle)
         val soundtrackTag = extractSoundtrackTag(trackTitle)
-        val cleanKnownAlbum = knownAlbum?.let { cleanAlbumTitle(it) }?.takeIf { !isRedundantOrSingle(it, trackTitle) }
+        // A compilation tag is not a hint: trusting it (and its +200 score) is how songs landed
+        // on "The Singles 92-98" instead of their studio album.
+        val cleanKnownAlbum = knownAlbum?.let { cleanAlbumTitle(it) }?.takeIf { !needsResolving(it, trackTitle) }
 
         val cleanArtist = artistName
             .split(",", "&", "feat.", "ft.", "/").firstOrNull()?.trim()
@@ -227,6 +247,10 @@ object AlbumMetadataResolver {
             } catch (_: Exception) {}
         }
 
+        // Set when iTunes says the song's home is a single; reported instead of "nothing found".
+        var singleRelease: String? = null
+        var singleArt: String? = null
+
         // 2. Query Apple Music / iTunes Search API
         try {
             val query = "$cleanArtist $cleanTitle".trim()
@@ -306,8 +330,7 @@ object AlbumMetadataResolver {
                     }
                     // Hits compilations re-release the song later ("The Highlights" for Starboy);
                     // the parent studio album is what "View album" should open.
-                    val isCompilation = Regex("""(?i)\b(greatest hits|the hits|best of|the best|highlights|essentials|anthology|collection|the very best|hits)\b""")
-                        .containsMatchIn(collectionName) ||
+                    val isCompilation = isCompilation(collectionName) ||
                         item.optString("collectionArtistName").equals("Various Artists", ignoreCase = true)
                     if (isCompilation) score -= 40
 
@@ -331,6 +354,10 @@ object AlbumMetadataResolver {
                 compareByDescending<Candidate> { it.score }
                     .thenBy { it.releaseDate.ifBlank { "9999" } }
             ).firstOrNull()
+            if (bestCandidate != null && bestCandidate.isSingle) {
+                singleRelease = bestCandidate.collectionName
+                singleArt = bestCandidate.artworkUrl
+            }
             if (bestCandidate != null && !bestCandidate.isSingle) {
                 var ytmAlbumId: String? = null
                 var ytmArt: String? = null
@@ -428,6 +455,7 @@ object AlbumMetadataResolver {
                     !isMashup &&
                     isArtistMatch &&
                     !isRedundantOrSingle(cand.title, cleanTitle) &&
+                    !isCompilation(cand.title) &&
                     (candClean.equals(cleanKnownAlbum, ignoreCase = true) ||
                      candClean.equals(cleanTitle, ignoreCase = true) ||
                      (soundtrackTag != null && candClean.contains(soundtrackTag, ignoreCase = true)) ||
@@ -449,6 +477,12 @@ object AlbumMetadataResolver {
             }
         } catch (_: Exception) {}
 
+        // A standalone single: say so, so "View album" can show "Single" instead of guessing.
+        singleRelease?.let { release ->
+            val single = ResolvedAlbum(albumTitle = release, albumArt = singleArt, artistName = cleanArtist, isSingle = true)
+            synchronized(memoryCache) { memoryCache.put(cacheKey, single) }
+            return@withContext single
+        }
         null
     }
 }

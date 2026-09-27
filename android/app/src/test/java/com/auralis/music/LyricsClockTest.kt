@@ -1,8 +1,11 @@
 package com.auralis.music
 
+import com.auralis.music.ui.lyrics.MAX_ADVANCE_STEP_MS
 import com.auralis.music.ui.lyrics.MAX_CLOCK_CARRY_MS
+import com.auralis.music.ui.lyrics.advanceConfirmed
 import com.auralis.music.ui.lyrics.carriedPositionMs
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -135,6 +138,30 @@ class LyricsClockTest {
             10_000L,
             carriedPositionMs(10_000L, 10_000L, 0L, 80L, -1.5f, true)
         )
+    }
+
+    @Test
+    fun `tap-to-seek on a paused song holds until the audio actually moves`() {
+        // Tap a line at 42_000ms: seek lands, play() flips "playing" on at once,
+        // but the output is silent for a while and the reading sits at the target.
+        var advancing = advanceConfirmed(false, 10_000L, 42_000L, isPlaying = true)
+        assertFalse("the seek jump itself is not playback", advancing)
+        repeat(40) {
+            advancing = advanceConfirmed(advancing, 42_000L, 42_000L, isPlaying = true)
+            assertFalse("a frozen reading must not unlock the carry", advancing)
+        }
+        // Sound starts: the reading steps forward, and only now may the clock run.
+        advancing = advanceConfirmed(advancing, 42_000L, 42_020L, isPlaying = true)
+        assertTrue(advancing)
+        // Plateaus between readings keep it running.
+        assertTrue(advanceConfirmed(advancing, 42_020L, 42_020L, isPlaying = true))
+    }
+
+    @Test
+    fun `pause, stall and backward jumps all reset the advance`() {
+        assertFalse(advanceConfirmed(true, 10_000L, 10_050L, isPlaying = false))
+        assertFalse(advanceConfirmed(true, 10_000L, 9_000L, isPlaying = true))
+        assertFalse(advanceConfirmed(true, 10_000L, 10_000L + MAX_ADVANCE_STEP_MS + 1, isPlaying = true))
     }
 
     @Test

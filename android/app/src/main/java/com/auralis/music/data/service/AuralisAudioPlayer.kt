@@ -250,9 +250,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             )
 
         // DefaultDataSource.Factory seamlessly handles local file:// (offline downloads), content://, and network streams
+        // Network audio goes through the on-disk song cache (Settings > Storage). DefaultDataSource
+        // only uses this factory for http(s), so downloaded files never get copied into the cache.
+        SongCache.observeSettings(appContext)
         val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
             appContext,
-            httpDataSourceFactory
+            SongCache.dataSourceFactory(appContext, httpDataSourceFactory)
         )
 
         val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
@@ -844,6 +847,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     val mediaItem = MediaItem.Builder()
                         .setUri(directUrl)
                         .setMediaId(effectiveMediaId)
+                        .setCustomCacheKey(SongCache.keyFor(effectiveMediaId, directUrl.toString()))
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(track.title)
@@ -962,6 +966,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             val nextMediaItem = MediaItem.Builder()
                                 .setUri(streamUrl)
                                 .setMediaId(effectiveMediaId)
+                                .setCustomCacheKey(SongCache.keyFor(effectiveMediaId, streamUrl.toString()))
                                 .setMediaMetadata(
                                     MediaMetadata.Builder()
                                         .setTitle(track.title)

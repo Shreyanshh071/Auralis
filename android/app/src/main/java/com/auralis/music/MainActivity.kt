@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        holdSplashUntilHomeArtworkIsReady()
         DiscordSocialSdkInit.setEngineActivity(this)
         liveNavDestination.value = extractNavDestination(intent)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -98,6 +99,15 @@ class MainActivity : ComponentActivity() {
         val db = AuralisDatabase.getInstance(applicationContext)
         val settingsDataStore = SettingsDataStore(applicationContext)
         val appearanceDataStore = AppearanceSettingsDataStore(applicationContext)
+        // Apply the refresh rate before the first frame. Applied from Compose, it switched the
+        // panel (90 -> 120 Hz) right after Home first drew, and that switch blanks the screen for
+        // ~0.5 s on many phones: the app flashed Home, went blank, then faded back in.
+        val startupHighRefresh = runCatching {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(150L) { appearanceDataStore.settingsFlow.first().highRefreshRate }
+            }
+        }.getOrNull() ?: false
+        applyRefreshRate(startupHighRefresh)
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         com.auralis.music.data.service.ListeningTimeTracker.start(applicationContext)
 
@@ -126,6 +136,7 @@ class MainActivity : ComponentActivity() {
 
         Log.d("AuralisPlayback", "[MainActivity] onCreate - connected to AuralisAudioPlayer (track=${audioPlayer.currentTrack.value?.title}, isPlaying=${audioPlayer.isPlaying.value})")
 
+        com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
         val googleAccountSyncManager = GoogleAccountSyncManager(
             context = applicationContext,
             libraryRepository = libraryRepository,
@@ -136,6 +147,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(3000L)
             googleAccountSyncManager.startContinuousCloudSync(this)
+            // Listening stats live on the account too, so a reinstall doesn't wipe them.
+            com.auralis.music.data.sync.StatsCloudSync.start(this)
         }
 
         // Background update check & notification on startup
@@ -168,29 +181,10 @@ class MainActivity : ComponentActivity() {
                 initial = com.auralis.music.domain.model.PrivacySettings()
             )
 
-            // Dynamic High Refresh Rate Enforcer (120Hz / 144Hz / 90Hz)
+            // Only when the setting really changes: re-applying the same rate after the first frame
+            // is what used to blank the screen at launch.
             LaunchedEffect(appearanceSettings.highRefreshRate) {
-                val lp = window.attributes
-                if (appearanceSettings.highRefreshRate) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        val maxDisplayMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
-                        lp.preferredDisplayModeId = maxDisplayMode?.modeId ?: 0
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        val maxRate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 120f
-                        } else 120f
-                        lp.preferredRefreshRate = maxRate
-                    }
-                } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        lp.preferredDisplayModeId = 0
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        lp.preferredRefreshRate = 0f
-                    }
-                }
-                window.attributes = lp
+                applyRefreshRate(appearanceSettings.highRefreshRate)
             }
 
             // Secure Flag (Disable Screenshots / Recents Preview)
@@ -292,8 +286,14 @@ class MainActivity : ComponentActivity() {
                         // rather than a dissolve immediately followed by a hard cut.
                         var showUnlockVeil by remember { mutableStateOf(false) }
                         val veilAlpha = remember { Animatable(0f) }
+                        // Only for a real sign-in during this session. It used to run on every
+                        // launch of a signed-in user too, covering Home for ~0.9 s right after the
+                        // splash: the "opening the app isn't smooth" blank.
+                        var wasUnlocked by remember { mutableStateOf(isAppUnlockedHere) }
                         LaunchedEffect(isAppUnlockedHere) {
-                            if (isAppUnlockedHere) {
+                            val justSignedIn = isAppUnlockedHere && !wasUnlocked
+                            wasUnlocked = isAppUnlockedHere
+                            if (justSignedIn) {
                                 showUnlockVeil = true
                                 veilAlpha.snapTo(0f)
                                 veilAlpha.animateTo(1f, tween(150))
@@ -363,4 +363,102 @@ class MainActivity : ComponentActivity() {
         android.util.Log.d("AuralisPlayback", "[MainActivity] onDestroy - Activity destroyed, background service and player remain intact")
         super.onDestroy()
     }
+
+    private var appliedHighRefresh: Boolean? = null
+
+    /**
+     * Asks for the fastest refresh rate at the current resolution (or the system default). A mode
+     * with another resolution always blanks the panel, so those are never chosen. No-op when the
+     * requested state is already applied.
+     */
+    private fun applyRefreshRate(high: Boolean) {
+        if (appliedHighRefresh == high) return
+        appliedHighRefresh = high
+        val lp = window.attributes
+        if (high) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val current = display?.mode
+                val best = display?.supportedModes
+                    ?.filter { current == null || (it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight) }
+                    ?.maxByOrNull { it.refreshRate }
+                lp.preferredDisplayModeId = best?.modeId ?: 0
+                lp.preferredRefreshRate = best?.refreshRate ?: 0f
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                lp.preferredRefreshRate = 120f
+            }
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) lp.preferredDisplayModeId = 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) lp.preferredRefreshRate = 0f
+        }
+        window.attributes = lp
+    }
+
+
+    /**
+     * Makes launch one smooth motion instead of splash -> Home with empty tiles -> artwork popping in:
+     * - Speed dial covers (first page) are decoded into memory while the launch screen is still up,
+     *   using the same URL and size the tiles request, so Home's first frame is already complete.
+     * - The first frame waits for that, never longer than [SPLASH_HOLD_MAX_MS].
+     * - Android 12+: the launch icon grows slightly and fades as the launch screen dissolves into
+     *   Home, where the sections then unfold (UnfoldIn).
+     */
+    private fun holdSplashUntilHomeArtworkIsReady() {
+        val startMs = android.os.SystemClock.uptimeMillis()
+        val artworkReady = java.util.concurrent.atomic.AtomicBoolean(false)
+        lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.withTimeoutOrNull(SPLASH_HOLD_MAX_MS) {
+                val pages = com.auralis.music.data.datastore.HomeRecommendationsCache.getCachedSpeedDial(applicationContext)
+                val loader = coil.Coil.imageLoader(applicationContext)
+                kotlinx.coroutines.coroutineScope {
+                    pages.firstOrNull().orEmpty().mapNotNull { it.image?.takeIf { url -> url.isNotBlank() } }
+                        .map { raw ->
+                            val url = com.auralis.music.ui.components.getOptimizedThumbnailUrl(raw) ?: raw
+                            launch {
+                                loader.execute(
+                                    coil.request.ImageRequest.Builder(applicationContext)
+                                        .data(url)
+                                        .size(384, 384)
+                                        .allowHardware(true)
+                                        .build()
+                                )
+                            }
+                        }
+                }
+            }
+            artworkReady.set(true)
+        }
+
+        val content = findViewById<android.view.View>(android.R.id.content)
+        content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val go = artworkReady.get() || android.os.SystemClock.uptimeMillis() - startMs > SPLASH_HOLD_MAX_MS
+                if (go) content.viewTreeObserver.removeOnPreDrawListener(this)
+                return go
+            }
+        })
+        // Make sure a frame is attempted once the cap passes even if nothing else invalidates.
+        content.postDelayed({ content.invalidate() }, SPLASH_HOLD_MAX_MS + 20)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { splashView ->
+                val ease = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+                splashView.iconView?.animate()
+                    ?.scaleX(1.18f)?.scaleY(1.18f)?.alpha(0f)
+                    ?.setDuration(360L)?.setInterpolator(ease)?.start()
+                splashView.animate()
+                    .alpha(0f)
+                    .setStartDelay(40L)
+                    .setDuration(380L)
+                    .setInterpolator(ease)
+                    .withEndAction { splashView.remove() }
+                    .start()
+            }
+        }
+    }
+
+    private companion object {
+        /** Longest the launch screen waits for Home's artwork before showing Home anyway. */
+        const val SPLASH_HOLD_MAX_MS = 700L
+    }
+
 }

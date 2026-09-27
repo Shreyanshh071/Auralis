@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -279,14 +280,15 @@ fun AudioOutputBottomSheet(
         else activeAccent.copy(alpha = 0.22f)
     }
 
-    val dynamicVolumeFillStart = remember(activeAccent, isMonochrome) {
-        if (isMonochrome) Color(0xFF888888)
-        else activeAccent.copy(alpha = 0.65f)
+    // Solid, darker accent for the filled part; a pale accent for the thumb on top of it.
+    val dynamicVolumeFill = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color(0xFF6E6E6E)
+        else androidx.compose.ui.graphics.lerp(activeAccent, Color.Black, 0.45f)
     }
 
-    val dynamicVolumeFillEnd = remember(activeAccent, isMonochrome) {
-        if (isMonochrome) Color(0xFFE0E0E0)
-        else activeAccent
+    val dynamicVolumeThumb = remember(activeAccent, isMonochrome) {
+        if (isMonochrome) Color(0xFFEDEDED)
+        else androidx.compose.ui.graphics.lerp(activeAccent, Color.White, 0.45f)
     }
 
     val onAccentTextColor = remember(activeAccent) {
@@ -353,7 +355,7 @@ fun AudioOutputBottomSheet(
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(com.auralis.music.ui.components.CookieShape(lobes = 8, depth = 0.07f))
                                 .background(dynamicBadgeBg),
                             contentAlignment = Alignment.Center
                         ) {
@@ -536,7 +538,7 @@ fun AudioOutputBottomSheet(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(dynamicBadgeBg)
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
                             .padding(horizontal = 10.dp, vertical = 3.dp)
                     ) {
                         Text(
@@ -582,36 +584,29 @@ fun AudioOutputBottomSheet(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     val trackWidth = maxWidth
-                    val fillWidth = trackWidth * systemVolumeFraction
+                    val thumbSize = 28.dp
+                    val thumbInset = 4.dp
+                    // The fill always wraps the thumb (even at 0%), so the thumb rides inside it.
+                    val minFill = thumbSize + thumbInset * 2
+                    val fillWidth = minFill + (trackWidth - minFill) * systemVolumeFraction
 
-                    // Filled active bar with dynamic gradient
                     Box(
                         modifier = Modifier
                             .width(fillWidth)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        dynamicVolumeFillStart,
-                                        dynamicVolumeFillEnd
-                                    )
-                                )
-                            )
+                            .background(dynamicVolumeFill)
                     )
 
-                    // Scalloped / Tactile dynamic thumb handle
-                    if (fillWidth > 18.dp) {
-                        Box(
-                            modifier = Modifier
-                                .offset(x = (fillWidth - 26.dp).coerceAtLeast(4.dp))
-                                .size(24.dp)
-                                .shadow(4.dp, CircleShape)
-                                .clip(CircleShape)
-                                // White so the thumb stands out from the accent-coloured fill.
-                                .background(Color.White)
-                        )
-                    }
+                    // Wavy "cookie" thumb that turns as it moves, like a dial being rolled along.
+                    Box(
+                        modifier = Modifier
+                            .offset(x = fillWidth - thumbSize - thumbInset)
+                            .size(thumbSize)
+                            .graphicsLayer { rotationZ = systemVolumeFraction * 720f }
+                            .clip(com.auralis.music.ui.components.CookieShape(lobes = 12, depth = 0.07f))
+                            .background(dynamicVolumeThumb)
+                    )
                 }
             }
 
