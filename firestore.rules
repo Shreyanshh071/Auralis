@@ -136,8 +136,12 @@ service cloud.firestore {
           && request.resource.data.id == request.auth.uid
           && hasValidMemberShape();
 
-        // A user can delete their own member record (leave room).
-        allow delete: if isAuthenticated() && memberId == request.auth.uid;
+        // A user can delete their own member record (leave room). Once the room document is
+        // gone (the host closed it), anyone signed in may clear its leftover member records.
+        allow delete: if isAuthenticated() && (
+          memberId == request.auth.uid ||
+          !exists(/databases/$(database)/documents/rooms/$(roomId))
+        );
       }
 
       // ---- Room Recommendations Subcollection ----
