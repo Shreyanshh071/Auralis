@@ -42,6 +42,14 @@ scratch/
 *.sqlite
 scratch_yt_res.json
 *.pb
+scratch_audio/
+scratch_*.json
+/package-lock.json
+docs/verification-logs/
+# Test lyrics fixtures (copyrighted lyrics; kept locally, tests skip when missing)
+creep_raw.ttml
+*.ttml
+!android/app/src/**/*.ttml
 
 
 .empryo

@@ -190,7 +190,9 @@ class LyricsEntityMetadataRoundTripTest {
 
     @Test
     fun `network-fetched BetterLyrics TTML metadata reaches entity and survives round-trip`() {
-        val ttml = java.io.File("c:/Users/shrey/OneDrive/Desktop/Auralis/scratch/creep.ttml").readText()
+        val fixture = java.io.File("c:/Users/shrey/OneDrive/Desktop/Auralis/scratch/creep.ttml")
+        org.junit.Assume.assumeTrue("local lyrics fixture not present; skipping", fixture.exists())
+        val ttml = fixture.readText()
         val parsed = com.auralis.music.data.parser.BetterLyricsParser.parse(
             content = ttml,
             provider = LyricsProvider.BETTER_LYRICS,
