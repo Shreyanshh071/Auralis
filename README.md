@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/logo-round.png" width="130" height="130" alt="Auralis Logo" />
   <h1>Auralis</h1>
-  <p><b>Next-Generation Native Music Streaming & Collaborative Group Listening</b></p>
+  <p><b>A native YouTube Music player for Android, with synced lyrics and group listening</b></p>
 
   ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Shreyanshh071/Auralis?style=for-the-badge&color=8A2BE2)
   ![APK Size](https://img.shields.io/badge/APK%20Size-43%20MB%20(Universal)-32CD32?style=for-the-badge&logo=android&logoColor=white)
@@ -13,7 +13,7 @@
 
   <br />
 
-  **Auralis** is a modern, high-performance, ad-free native music streaming and collaborative listening experience crafted with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines**, and **Material 3**.
+  **Auralis** is an ad-free music player for Android that streams from YouTube Music, built natively with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines** and **Material 3**.
 
   <br />
 
@@ -31,7 +31,7 @@
 The biggest update so far. [Full release notes →](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.1.0)
 
 - **Stats that follow your account** — listening stats are backed up when you're signed in and come back after a reinstall or on a new phone.
-- **Offline song cache** — songs you play are kept on your phone (you choose the size), so replays start instantly and work without internet.
+- **Offline song cache** — songs you play are kept on your phone (you choose the size), so replays don't download again and work without internet.
 - **Smarter search** — when an album and a song share a name, the more-played one is the Top result and the other shows right below under **Also matching**.
 - **Rebuilt Listen Together** — hosts decide who can play, skip or seek; everyone starts each song together; optional Allow / Decline for guests' picks.
 - **Word-by-word lyrics** — smoother karaoke highlighting, Hinglish for Indian songs, and no more highlight running ahead after you tap a line.
@@ -95,30 +95,30 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 - **Host Permissions**: Choose whether guests may control playback (play, pause, seek) and whether they may play or skip songs, with optional Allow / Decline approval for their picks.
 - **Dedicated Host Controls & Listener Protection**: Prevents accidental desync by blocking listener playback alterations from Bluetooth earphones, TWS touch gestures, or lockscreen controls while keeping volume independent.
 - **Smart Song Recommendations & Voting**: Room members can search, recommend, and upvote songs in a shared room queue.
-- **Real-Time Member Presence & Pill Alerts**: Instant floating animated notifications when friends join, leave, or disconnect.
+- **Member Presence Alerts**: A small notification when friends join, leave or disconnect.
 
 ### 🎨 Visual Excellence & Modern Aesthetics
-- **Dynamic Blurred Artwork Player**: Fluid multi-layer ambient background that adapts seamlessly to the playing song's artwork palette.
-- **Glassmorphic Floating Sheets & Controls**: Ultra-premium Frosted Glass / Haze effect across player sheets, dialogs, and popups.
-- **Fluid Spring Animations & 120 FPS Scrolling**: Zero-lag scrolling performance with optimized artwork caching and lightweight list item bindings.
-- **Verified Studio Artworks & Portrait Fallback**: High-resolution studio album covers (`=w1200-h1200`) and automatic Wikipedia portrait resolution for artists with blank avatars (e.g. Kanye West).
+- **Artwork-Coloured Player**: The player background takes its colours from the current song's artwork.
+- **Frosted-Glass Sheets & Controls**: A blurred glass effect (Haze) on player sheets, dialogs and popups.
+- **Spring Animations & High Refresh Rate**: Spring-based motion throughout, with support for 90/120 Hz displays and cached artwork for smooth scrolling.
+- **High-Resolution Artwork & Artist Photos**: Album covers up to 1200×1200, with Wikipedia photos filled in for artists who have no picture (e.g. Kanye West).
 
 ### 📜 Multi-Engine Synced Lyrics Ecosystem
 - **Word-by-Word Karaoke Lyrics**: Lyrics light up word by word as the song plays; Hindi/Urdu songs always show in Hinglish (Latin letters).
 - **Multi-Source Lyrics**: Line-by-line and word-by-word synced lyrics from **Musixmatch** (Spotify catalog), **LRCLIB**, **KuGou** (200M+ synchronized catalog), **AMLL**, and official **YouTube Music** record-label lyrics.
 - **AI Translation & Romanization**: One-tap AI translation to English and Pinyin/Romaji/Hangul transliteration for foreign language tracks.
 - **Spotify-Style Lyric Card Sharing**: Generate and export customizable aesthetic lyric cards directly to social media.
-- **Offline Caching**: Automatically saves fetched synchronized lyrics for instant offline access.
+- **Offline Caching**: Lyrics are saved once fetched, so they're available offline.
 
-### 🎧 Audiophile-Grade Playback Engine
-- **Uninterrupted Background Streaming**: Rock-solid playback with `PARTIAL_WAKE_LOCK`, `WifiLock`, and native foreground `MediaSessionService` that never sleeps.
+### 🎧 Playback
+- **Background Playback**: Keeps playing with the screen off, using a foreground `MediaSessionService` with wake and Wi-Fi locks.
 - **Android 13/14 Quick Settings & Lock-Screen Deck**: Native system media card featuring monochrome app badge, interactive scrub seekbar, previous/next controls, like/heart toggle, and repeat modes.
-- **Offline Song Cache**: Songs you play are kept on your phone up to a size you choose, so replays start instantly and work offline.
+- **Offline Song Cache**: Songs you play are kept on your phone up to a size you choose, so replays don't download again and work offline.
 - **Offline Downloads & Local Library**: Download songs and whole playlists for offline playback, with Auto / High / Low audio quality (High is Opus up to ~160 kbps).
 - **Gapless Playback & Spatial Audio**: The next song is preloaded for gapless transitions, and a Spatial Audio switch widens the soundstage.
 
 ### 🔍 Discovery, Search & Music Recognition
-- **Instant Search & Autocomplete**: Fast suggestions across songs, albums, artists and playlists.
+- **Search & Autocomplete**: Suggestions as you type, across songs, albums, artists and playlists.
 - **Ranked by Plays**: Exact titles first, then everything by popularity. An album and a song with the same name are weighed against each other and the runner-up appears under **Also matching**.
 - **Right Album, Every Time**: "View album" opens a song's original album, not a greatest-hits compilation, and standalone singles are labelled as singles.
 - **Music & Voice Recognition**: Identify songs playing around you using built-in acoustic fingerprinting (Shazam-compatible, via SongRec).
@@ -126,7 +126,7 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 - **Full Artist Discography**: Artist bios, subscriber counts, top tracks, albums, singles, and related artist graphs.
 
 ### ☁️ Cloud Sync & Playlist Importer
-- **One-Click Playlist Import**: Effortlessly import playlists from Spotify and YouTube directly into your library.
+- **Playlist Import**: Paste a public Spotify or YouTube playlist link to add it to your library.
 - **Google Account & Firebase Sync**: Back up your liked songs, playlists, saved artists and listening stats; sign in on a new phone and they all come back.
 
 ### 📊 Listening Stats
@@ -138,8 +138,8 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 - **Fully Customizable**: Activity name, details, images, status and update interval; seeking updates Discord right away.
 
 ### 🔄 In-App Direct OTA Updater
-- **Instant Update Notifications**: Checks GitHub Releases automatically and notifies you of new versions.
-- **In-App Background Download & Install**: Download APK updates with a live progress bar and install seamlessly with one tap.
+- **Update Notifications**: Checks GitHub Releases and tells you when a new version is out.
+- **In-App Background Download & Install**: Download APK updates with a progress bar and install them with one tap.
 
 ---
 
@@ -217,7 +217,7 @@ The app itself is small: native **Jetpack Compose** and **AndroidX Media3**, shr
 <summary><b>How does Auralis recommend music for brand-new users?</b></summary>
 <br>
 
-Fresh installs start with an instant offline/online taste seed pool across curated artist discographies (*Tame Impala, Kanye West, Karan Aujla, Radiohead, KR$NA, Arijit Singh, KK, Shreya Ghoshal, Atif Aslam*) with non-music noise spam filtered out. As soon as you begin listening, our real-time adaptive engine smoothly learns your authentic taste.
+Fresh installs start with a starter set of songs from curated artists (*Tame Impala, Kanye West, Karan Aujla, Radiohead, KR$NA, Arijit Singh, KK, Shreya Ghoshal, Atif Aslam*) with non-music noise spam filtered out. Once you start listening, recommendations adapt to what you actually play.
 </details>
 
 <br />
