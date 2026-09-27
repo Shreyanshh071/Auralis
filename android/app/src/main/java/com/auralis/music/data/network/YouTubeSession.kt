@@ -24,6 +24,7 @@ object YouTubeSession {
     private const val KEY_VISITOR_DATA = "visitor_data"
     private const val KEY_AUTH_USER = "auth_user"
     private const val KEY_ACCOUNT_LABEL = "account_label"
+    private const val KEY_DATA_SYNC_ID = "data_sync_id"
 
     private var prefs: SharedPreferences? = null
 
@@ -31,6 +32,8 @@ object YouTubeSession {
     @Volatile var visitorData: String = ""
         private set
     @Volatile private var authUser: String = "0"
+    /** The account's session ID; YouTube binds a signed-in download's PO token to it. */
+    @Volatile private var dataSyncId: String = ""
 
     private val _signedIn = MutableStateFlow(false)
     val signedIn: StateFlow<Boolean> = _signedIn.asStateFlow()
@@ -46,21 +49,24 @@ object YouTubeSession {
         cookie = p.getString(KEY_COOKIE, "").orEmpty()
         visitorData = p.getString(KEY_VISITOR_DATA, "").orEmpty()
         authUser = p.getString(KEY_AUTH_USER, "0").orEmpty().ifBlank { "0" }
+        dataSyncId = p.getString(KEY_DATA_SYNC_ID, "").orEmpty()
         _accountLabel.value = p.getString(KEY_ACCOUNT_LABEL, "").orEmpty()
         _signedIn.value = hasAuthCookies(cookie)
     }
 
     val isSignedIn: Boolean get() = _signedIn.value
 
-    fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String) {
+    fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String, dataSyncId: String = "") {
         this.cookie = cookie
         this.visitorData = visitorData
         this.authUser = authUser.filter(Char::isDigit).ifBlank { "0" }
+        this.dataSyncId = normalizeDataSyncId(dataSyncId)
         prefs?.edit()
             ?.putString(KEY_COOKIE, cookie)
             ?.putString(KEY_VISITOR_DATA, visitorData)
             ?.putString(KEY_AUTH_USER, this.authUser)
             ?.putString(KEY_ACCOUNT_LABEL, accountLabel)
+            ?.putString(KEY_DATA_SYNC_ID, this.dataSyncId)
             ?.apply()
         _accountLabel.value = accountLabel
         _signedIn.value = hasAuthCookies(cookie)
@@ -70,9 +76,42 @@ object YouTubeSession {
         cookie = ""
         visitorData = ""
         authUser = "0"
+        dataSyncId = ""
         prefs?.edit()?.clear()?.apply()
         _accountLabel.value = ""
         _signedIn.value = false
+    }
+
+    /** "12345||" or "12345||67890" -> "12345": the part YouTube binds tokens to. */
+    fun normalizeDataSyncId(raw: String): String = raw.substringBefore("||").trim()
+
+    /**
+     * The account's Data Sync ID. Sessions saved before it was recorded fetch it once from
+     * music.youtube.com (its page config carries DATASYNC_ID for the signed-in account).
+     */
+    fun dataSyncId(): String {
+        if (dataSyncId.isNotBlank() || !isSignedIn) return dataSyncId
+        val origin = "https://music.youtube.com"
+        val fetched = try {
+            val request = okhttp3.Request.Builder()
+                .url("$origin/")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Cookie", cookie)
+                .build()
+            okhttp3.OkHttpClient().newCall(request).execute().use { resp ->
+                val html = resp.body?.string().orEmpty()
+                Regex(""""DATASYNC_ID"\s*:\s*"([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+            }
+        } catch (_: Exception) {
+            ""
+        }
+        val id = normalizeDataSyncId(fetched)
+        if (id.isNotBlank()) {
+            dataSyncId = id
+            prefs?.edit()?.putString(KEY_DATA_SYNC_ID, id)?.apply()
+        }
+        return id
     }
 
     /** Signed in means YouTube set its login cookies, not just any cookie from the login page. */

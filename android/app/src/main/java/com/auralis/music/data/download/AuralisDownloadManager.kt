@@ -349,8 +349,9 @@ object AuralisDownloadManager {
             if (!downloadSuccess) {
                 Log.w(TAG, "Initial download failed. Attempting fresh stream re-resolution...")
                 AudioStreamResolver.clearCache()
+                // YouTube sometimes binds the streaming token to the video instead of the account.
                 var freshStream = if (ageRestricted) withTimeoutOrNull(30000L) {
-                    com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id)
+                    com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id, bindStreamingTokenToVideo = true)
                 } else null
                 if (freshStream.isNullOrBlank()) freshStream = withTimeoutOrNull(15000L) {
                     AudioStreamResolver.resolveAudioStream(

@@ -261,11 +261,13 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
                 val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
                 if (YouTubeSession.hasAuthCookies(cookie)) {
                     val config = readPageConfig(view)
-                    if (config != null && config.first.isNotBlank()) {
+                    if (config != null && config.visitorData.isNotBlank()) {
                         CookieManager.getInstance().flush()
-                        YouTubeSession.save(cookie, config.first, config.second, accountLabel = "")
+                        YouTubeSession.save(cookie, config.visitorData, config.sessionIndex, accountLabel = "", dataSyncId = config.dataSyncId)
                         val label = withContext(Dispatchers.IO) { fetchAccountLabel() }
-                        if (label.isNotBlank()) YouTubeSession.save(cookie, config.first, config.second, label)
+                        if (label.isNotBlank()) {
+                            YouTubeSession.save(cookie, config.visitorData, config.sessionIndex, label, config.dataSyncId)
+                        }
                         onSignedIn()
                         return@launch
                     }
@@ -347,13 +349,15 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
     }
 }
 
-/** VISITOR_DATA and SESSION_INDEX from the signed-in music.youtube.com page, or null. */
-private suspend fun readPageConfig(view: WebView): Pair<String, String>? {
+private class PageConfig(val visitorData: String, val sessionIndex: String, val dataSyncId: String)
+
+/** VISITOR_DATA, SESSION_INDEX and DATASYNC_ID from the signed-in music.youtube.com page, or null. */
+private suspend fun readPageConfig(view: WebView): PageConfig? {
     val result = CompletableDeferred<String?>()
     withContext(Dispatchers.Main) {
         view.evaluateJavascript(
             "(function(){var c=window.yt&&window.yt.config_;" +
-                "return c?JSON.stringify({v:c.VISITOR_DATA||'',s:String(c.SESSION_INDEX||0)}):'';})()"
+                "return c?JSON.stringify({v:c.VISITOR_DATA||'',s:String(c.SESSION_INDEX||0),d:c.DATASYNC_ID||''}):'';})()"
         ) { raw -> result.complete(raw) }
     }
     val raw = withTimeoutOrNull(1_500L) { result.await() } ?: return null
@@ -362,7 +366,7 @@ private suspend fun readPageConfig(view: WebView): Pair<String, String>? {
         val inner = org.json.JSONTokener(raw).nextValue() as? String ?: return null
         if (inner.isBlank()) return null
         val json = JSONObject(inner)
-        json.optString("v") to json.optString("s", "0")
+        PageConfig(json.optString("v"), json.optString("s", "0"), json.optString("d"))
     } catch (_: Exception) {
         null
     }

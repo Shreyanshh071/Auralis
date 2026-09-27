@@ -18,6 +18,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
         com.auralis.music.data.network.YouTubeSession.init(this)
+        com.auralis.music.data.network.potoken.PoTokenGenerator.init(this)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
                 com.auralis.music.data.network.AudioStreamResolver.init(this@AuralisApplication)

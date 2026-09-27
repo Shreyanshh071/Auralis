@@ -49,61 +49,171 @@ object InnerTubePlayerResolver {
     /** One YouTube client to try with the user's sign-in (versions and agents from yt-dlp 2026.07). */
     private class SignedInClient(
         val name: String,
+        val id: Int,
         val version: String,
         val origin: String,
         val userAgent: String
-    )
+    ) {
+        /** Web clients' streams need PO tokens; the TV clients' don't. */
+        val needsPoToken: Boolean get() = !name.startsWith("TVHTML5")
+    }
 
-    // In order. The TV clients need no proof-of-origin token but answered "The page needs to be
-    // reloaded" on device (2026-09-27); the web clients are what YouTube's own sites use, and the
-    // mobile site is the one the in-app YouTube page plays age-restricted songs with.
+    // In order. On device (2026-09-27) the TV clients answered "The page needs to be reloaded"
+    // and WEB_REMIX handed over streams that googlevideo refused (403) without PO tokens.
     private val SIGNED_IN_CLIENTS = listOf(
         SignedInClient(
-            "WEB_REMIX", "1.20260114.03.00", "https://music.youtube.com",
+            "WEB_REMIX", 67, "1.20260114.03.00", "https://music.youtube.com",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
         ),
         SignedInClient(
-            "MWEB", "2.20260115.01.00", "https://m.youtube.com",
+            "MWEB", 2, "2.20260115.01.00", "https://m.youtube.com",
             "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
         ),
         SignedInClient(
-            "WEB", "2.20260114.08.00", "https://www.youtube.com",
+            "WEB", 1, "2.20260114.08.00", "https://www.youtube.com",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
         ),
-        SignedInClient("TVHTML5", "5.20260114", "https://www.youtube.com", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"),
+        SignedInClient("TVHTML5", 7, "5.20260114", "https://www.youtube.com", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"),
         SignedInClient(
-            "TVHTML5", "7.20260114.12.00", "https://www.youtube.com",
+            "TVHTML5", 7, "7.20260114.12.00", "https://www.youtube.com",
             "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)"
         )
     )
 
     /**
      * Age-restricted videos answer "Sign in to confirm your age" to every signed-out client. With
-     * the user's own YouTube sign-in ([YouTubeSession]) YouTube serves them; tries each client in
-     * [SIGNED_IN_CLIENTS] and logs every answer. Null when signed out or when none returns a stream.
+     * the user's own YouTube sign-in ([YouTubeSession]) YouTube serves them, and a web client's
+     * stream downloads once it carries proof-of-origin tokens
+     * ([com.auralis.music.data.network.potoken.PoTokenGenerator]): the player token in the request,
+     * the streaming token as `pot=` on the URL. The streaming token is bound to the account's Data
+     * Sync ID; YouTube sometimes wants it bound to the video instead, which
+     * [bindStreamingTokenToVideo] tries (used on the retry after a 403).
+     * Null when signed out or when no client returns a stream.
      */
-    suspend fun resolveSignedInStream(videoId: String): String? = withContext(Dispatchers.IO) {
-        if (!YouTubeSession.isSignedIn) return@withContext null
-        val sts = PlayerJsCache.getSignatureTimestamp() ?: 20689
-        for (client in SIGNED_IN_CLIENTS) {
-            val stream = requestPlayerStream(
-                videoId = videoId,
-                sts = sts,
-                clientName = client.name,
-                clientVersion = client.version,
-                origin = client.origin,
-                userAgent = client.userAgent,
-                extraHeaders = YouTubeSession.authHeaders(client.origin),
-                visitorData = YouTubeSession.visitorData,
-                apiHost = client.origin
+    suspend fun resolveSignedInStream(videoId: String, bindStreamingTokenToVideo: Boolean = false): String? =
+        withContext(Dispatchers.IO) {
+            if (!YouTubeSession.isSignedIn) return@withContext null
+            AudioStreamResolver.ensureNewPipeInitialized()
+            val sts = runCatching {
+                org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager.getSignatureTimestamp(videoId)
+            }.getOrNull() ?: PlayerJsCache.getSignatureTimestamp() ?: 20689
+
+            val dataSyncId = YouTubeSession.dataSyncId()
+            val session = dataSyncId.ifBlank { YouTubeSession.visitorData }
+            val tokens = if (session.isNotBlank()) {
+                com.auralis.music.data.network.potoken.PoTokenGenerator.getTokens(videoId, session)
+            } else null
+            Log.i(
+                TAG,
+                "Signed-in resolve $videoId: poTokens=${tokens != null}, " +
+                    "boundTo=${if (dataSyncId.isNotBlank()) "account" else "visitor"}, bindToVideo=$bindStreamingTokenToVideo"
             )
-            if (!stream.isNullOrBlank()) {
+
+            for (client in SIGNED_IN_CLIENTS) {
+                // Without tokens a web client's stream is refused anyway; go to the TV clients.
+                if (client.needsPoToken && tokens == null) continue
+                val playerPot = if (client.needsPoToken) tokens?.playerRequestPoToken else null
+                val url = requestSignedInStream(videoId, client, sts, playerPot) ?: continue
+                val finalUrl = if (client.needsPoToken && tokens != null) {
+                    val pot = if (bindStreamingTokenToVideo) tokens.playerRequestPoToken else tokens.streamingDataPoToken
+                    url + "&pot=" + java.net.URLEncoder.encode(pot, "UTF-8")
+                } else url
                 Log.i(TAG, "Signed-in stream for $videoId via ${client.name} ${client.version}")
-                return@withContext stream
+                return@withContext finalUrl
             }
+            null
         }
-        null
+
+    /** The best audio stream URL (signature and n parameter decoded) from one signed-in client. */
+    private fun requestSignedInStream(videoId: String, client: SignedInClient, sts: Int, playerPoToken: String?): String? {
+        try {
+            val payload = JSONObject().apply {
+                put("videoId", videoId)
+                put("contentCheckOk", true)
+                put("racyCheckOk", true)
+                put(
+                    "playbackContext",
+                    JSONObject().put(
+                        "contentPlaybackContext",
+                        JSONObject().put("signatureTimestamp", sts).put("html5Preference", "HTML5_PREF_WANTS")
+                    )
+                )
+                put("context", JSONObject().put("client", JSONObject().apply {
+                    put("clientName", client.name)
+                    put("clientVersion", client.version)
+                    put("hl", "en")
+                    put("gl", "US")
+                    if (YouTubeSession.visitorData.isNotBlank()) put("visitorData", YouTubeSession.visitorData)
+                }))
+                if (!playerPoToken.isNullOrBlank()) {
+                    put("serviceIntegrityDimensions", JSONObject().put("poToken", playerPoToken))
+                }
+            }
+            val request = Request.Builder()
+                .url(client.origin + "/youtubei/v1/player?prettyPrint=false")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("User-Agent", client.userAgent)
+                .header("Origin", client.origin)
+                .header("Referer", client.origin + "/")
+                .header("X-YouTube-Client-Name", client.id.toString())
+                .header("X-YouTube-Client-Version", client.version)
+                .apply { YouTubeSession.authHeaders(client.origin).forEach { (k, v) -> header(k, v) } }
+                .build()
+
+            val json = execute(request) ?: return null
+            val streamingData = json.optJSONObject("streamingData")
+            if (streamingData == null) {
+                val playability = json.optJSONObject("playabilityStatus")
+                Log.w(TAG, "Signed-in ${client.name} ${client.version}: ${playability?.optString("status")} ${playability?.optString("reason")}")
+                return null
+            }
+            val formats = streamingData.optJSONArray("adaptiveFormats") ?: return null
+            var best: JSONObject? = null
+            for (i in 0 until formats.length()) {
+                val fmt = formats.getJSONObject(i)
+                if (!fmt.optString("mimeType").startsWith("audio/")) continue
+                if (best == null || fmt.optInt("bitrate") > best.optInt("bitrate")) best = fmt
+            }
+            if (best == null) {
+                Log.w(TAG, "Signed-in ${client.name}: no audio formats (SABR-only=${streamingData.has("serverAbrStreamingUrl")})")
+                return null
+            }
+
+            val direct = best.optString("url")
+            val url = if (direct.isNotBlank()) direct else {
+                val cipher = best.optString("signatureCipher", best.optString("cipher"))
+                if (cipher.isBlank()) {
+                    Log.w(TAG, "Signed-in ${client.name}: audio format has neither url nor signatureCipher")
+                    return null
+                }
+                val params = cipher.split("&").associate {
+                    val parts = it.split("=", limit = 2)
+                    parts[0] to (if (parts.size > 1) URLDecoder.decode(parts[1], "UTF-8") else "")
+                }
+                val rawUrl = params["url"] ?: return null
+                val sig = params["s"]
+                if (sig.isNullOrBlank()) rawUrl else {
+                    val decoded = org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
+                        .deobfuscateSignature(videoId, sig)
+                    rawUrl + "&" + (params["sp"] ?: "sig") + "=" + java.net.URLEncoder.encode(decoded, "UTF-8")
+                }
+            }
+            return org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
+                .getUrlWithThrottlingParameterDeobfuscated(videoId, url)
+        } catch (e: Exception) {
+            Log.w(TAG, "Signed-in ${client.name} ${client.version} failed: ${e.javaClass.simpleName} ${e.message}")
+            return null
+        }
     }
+
+    private fun execute(request: Request): JSONObject? =
+        client.newCall(request).execute().use { res ->
+            if (!res.isSuccessful) {
+                Log.w(TAG, "Signed-in player request got HTTP ${res.code}")
+                return null
+            }
+            JSONObject(res.body?.string() ?: return null)
+        }
 
     private suspend fun requestPlayerStream(
         videoId: String,

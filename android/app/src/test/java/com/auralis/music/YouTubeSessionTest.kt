@@ -53,4 +53,19 @@ class YouTubeSessionTest {
         assertFalse(YouTubeSession.isSignedIn)
         assertTrue(YouTubeSession.authHeaders("https://www.youtube.com").isEmpty())
     }
+
+    @Test
+    fun `data sync id keeps only the account part YouTube binds tokens to`() {
+        assertEquals("113244556677", YouTubeSession.normalizeDataSyncId("113244556677||"))
+        assertEquals("113244556677", YouTubeSession.normalizeDataSyncId("113244556677||998877"))
+        assertEquals("", YouTubeSession.normalizeDataSyncId(""))
+    }
+
+    @Test
+    fun `po token bytes become youtube's url-safe base64`() {
+        // "abc" -> YWJj ; bytes 251,255 -> +/8= in plain base64, -_8= in YouTube's form
+        assertEquals("YWJj", com.auralis.music.data.network.potoken.u8ToBase64("97,98,99"))
+        assertEquals("-_8=", com.auralis.music.data.network.potoken.u8ToBase64("251,255"))
+        assertEquals("new Uint8Array([97,98,99])", com.auralis.music.data.network.potoken.stringToU8("abc"))
+    }
 }
