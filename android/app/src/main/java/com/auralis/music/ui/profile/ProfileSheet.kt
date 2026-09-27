@@ -106,6 +106,10 @@ fun ProfileSheet(
     onOpenPlaylistSelector: () -> Unit,
     onSyncLikedMusic: () -> Unit,
     onDisconnect: () -> Unit,
+    /** Deletes the account and its backed-up data; the password is null for Google accounts. */
+    onDeleteAccount: (password: String?) -> Unit = {},
+    deleteAccountNeedsPassword: Boolean = false,
+    onClearDeleteAccountError: () -> Unit = {},
     onClosePlaylistSelector: () -> Unit,
     onTogglePlaylistSelection: (String) -> Unit,
     onSelectAllPlaylists: () -> Unit,
@@ -803,6 +807,30 @@ fun ProfileSheet(
                         )
                     }
                 }
+
+                // ── DELETE ACCOUNT ──
+                var showDeleteDialog by remember { mutableStateOf(false) }
+                Text(
+                    text = "Delete account",
+                    color = Color(0xFFEF4444).copy(alpha = 0.85f),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 10.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onClearDeleteAccountError(); showDeleteDialog = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+                if (showDeleteDialog) {
+                    DeleteAccountDialog(
+                        needsPassword = deleteAccountNeedsPassword,
+                        isDeleting = authUiState.isDeletingAccount,
+                        error = authUiState.deleteAccountError,
+                        onConfirm = onDeleteAccount,
+                        onDismiss = { if (!authUiState.isDeletingAccount) showDeleteDialog = false }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.padding(bottomChromePadding(includeNavigationBar = false)))
@@ -930,4 +958,60 @@ fun SpotifyLogoIcon(modifier: Modifier = Modifier) {
     }
 }
 
-
+/**
+ * Confirms account deletion and says exactly what goes: the sign-in and everything backed up to it.
+ * Data on this phone stays. Email accounts re-enter their password; Google accounts confirm with a
+ * fresh Google sign-in after tapping Delete.
+ */
+@Composable
+private fun DeleteAccountDialog(
+    needsPassword: Boolean,
+    isDeleting: Boolean,
+    error: String?,
+    onConfirm: (password: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete your account?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "This permanently deletes your Auralis account and everything backed up to it: " +
+                        "playlists, liked songs, saved artists and listening stats. It can't be undone.\n\n" +
+                        "Songs and playlists on this phone stay. To remove those too, clear the app's data."
+                )
+                if (needsPassword) {
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        enabled = !isDeleting
+                    )
+                } else {
+                    Text(
+                        "You'll be asked to sign in with Google again to confirm it's you.",
+                        fontSize = 13.sp
+                    )
+                }
+                if (error != null) {
+                    Text(error, color = Color(0xFFEF4444), fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(if (needsPassword) password else null) },
+                enabled = !isDeleting && (!needsPassword || password.isNotBlank())
+            ) {
+                Text(if (isDeleting) "Deleting…" else "Delete", color = Color(0xFFEF4444))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isDeleting) { Text("Cancel") }
+        }
+    )
+}

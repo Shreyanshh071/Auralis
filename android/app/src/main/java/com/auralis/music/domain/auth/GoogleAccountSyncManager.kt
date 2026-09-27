@@ -406,6 +406,7 @@ class GoogleAccountSyncManager(
      * Backs up local playlists, favorites, and saved artists to Firestore `/users/{uid}`.
      */
     suspend fun backupLibraryToCloud(): Boolean = withContext(Dispatchers.IO) {
+        if (isDeletingAccount) return@withContext false
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return@withContext false
         if (fbUser.isAnonymous) return@withContext false
         val uid = fbUser.uid
@@ -621,6 +622,57 @@ class GoogleAccountSyncManager(
     /**
      * Disconnects and signs out of the account.
      */
+    /** True while [deleteAccount] runs, so no backup can re-create the data being deleted. */
+    @Volatile var isDeletingAccount = false
+        private set
+
+    /** Whether the signed-in account uses email + password (vs Google), which decides how to re-verify. */
+    fun isEmailPasswordAccount(): Boolean = try {
+        FirebaseAuth.getInstance().currentUser?.providerData?.any { it.providerId == "password" } == true
+    } catch (_: Exception) { false }
+
+    /**
+     * Deletes the signed-in account and everything backed up to it: listening stats
+     * (users/{uid}/listening), the account document (playlists, liked songs, saved artists) and the
+     * Firebase sign-in itself. Data on this phone is left alone.
+     *
+     * Firebase only deletes a sign-in that was used recently, so the caller re-verifies first with
+     * [credential] (a fresh Google token or the account's password). Re-verifying before touching
+     * any data means a failed check deletes nothing.
+     */
+    suspend fun deleteAccount(credential: com.google.firebase.auth.AuthCredential): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+        if (user == null || user.isAnonymous) return@withContext Result.failure(IllegalStateException("Not signed in"))
+        val uid = user.uid
+        isDeletingAccount = true
+        com.auralis.music.data.sync.StatsCloudSync.paused = true
+        try {
+            user.reauthenticate(credential).await()
+
+            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            val userDoc = db.collection("users").document(uid)
+            // Batches are capped at 500 writes; a heavy listener has one stats document per day.
+            val statsDocs = userDoc.collection("listening").get().await().documents
+            for (chunk in statsDocs.chunked(400)) {
+                val batch = db.batch()
+                chunk.forEach { batch.delete(it.reference) }
+                batch.commit().await()
+            }
+            userDoc.delete().await()
+            user.delete().await()
+
+            disconnectAccount()
+            _syncMessage.value = "Your account and backed-up data were deleted."
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("CloudSync", "[DeleteAccount] Failed: ${e.message}", e)
+            Result.failure(e)
+        } finally {
+            isDeletingAccount = false
+            com.auralis.music.data.sync.StatsCloudSync.paused = false
+        }
+    }
+
     fun disconnectAccount() {
         val reset = UserProfile(
             uid = "",
