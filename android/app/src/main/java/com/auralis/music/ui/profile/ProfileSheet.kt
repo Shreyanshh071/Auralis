@@ -520,6 +520,48 @@ fun ProfileSheet(
                 Column {
             Spacer(modifier = Modifier.height(10.dp))
 
+            // ── YOUTUBE MUSIC LIBRARY PICKER (signed-in users only) ──
+            if (youTubeSignedIn) {
+                com.auralis.music.ui.screens.YouTubeLibrarySection(
+                    isImporting = isImportingYouTube,
+                    importMessage = youtubeImportMessage,
+                    onImport = onImportYouTubeLibraryPlaylists
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .clickable { isYouTubeAccountOpen = true }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color(0xFFFF0033),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Sign in to YouTube to pick playlists directly, instead of pasting links",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
             // ── YOUTUBE MUSIC PLAYLIST IMPORTER CARD ──
             Box(
                 modifier = Modifier
@@ -989,10 +1031,7 @@ fun ProfileSheet(
     AuralisPushedPage(page = subPage) { page ->
         when (page) {
             ProfileSubPage.YOUTUBE -> com.auralis.music.ui.screens.YouTubeAccountScreen(
-                onDismiss = { isYouTubeAccountOpen = false },
-                isImporting = isImportingYouTube,
-                importMessage = youtubeImportMessage,
-                onImportPlaylists = onImportYouTubeLibraryPlaylists
+                onDismiss = { isYouTubeAccountOpen = false }
             )
             ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
                 onDismiss = { isDiscordIntegrationOpen = false }

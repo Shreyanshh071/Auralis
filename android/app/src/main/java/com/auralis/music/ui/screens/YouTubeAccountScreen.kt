@@ -75,7 +75,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-private val YOUTUBE_RED = Color(0xFFFF0033)
+internal val YOUTUBE_RED = Color(0xFFFF0033)
 private const val SIGN_IN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
 
 /**
@@ -83,12 +83,7 @@ private const val SIGN_IN_URL = "https://accounts.google.com/ServiceLogin?contin
  * account YouTube never sees, so these songs need the user to sign in to YouTube itself.
  */
 @Composable
-fun YouTubeAccountScreen(
-    onDismiss: () -> Unit,
-    isImporting: Boolean = false,
-    importMessage: String? = null,
-    onImportPlaylists: (List<YouTubeMusicLibrary.LibraryPlaylist>) -> Unit = {}
-) {
+fun YouTubeAccountScreen(onDismiss: () -> Unit) {
     val signedIn by YouTubeSession.signedIn.collectAsState()
     val accountLabel by YouTubeSession.accountLabel.collectAsState()
     var isSigningIn by remember { mutableStateOf(false) }
@@ -238,9 +233,14 @@ fun YouTubeAccountScreen(
                 }
 
                 if (signedIn) {
-                    Spacer(Modifier.height(24.dp))
-                    YouTubeLibrarySection(isImporting, importMessage, onImportPlaylists)
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Pick playlists to import from Profile → Import playlists.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
                 }
             }
         }
@@ -249,7 +249,7 @@ fun YouTubeAccountScreen(
 
 /** The signed-in user's YouTube Music playlists, to pick and import instead of pasting links. */
 @Composable
-private fun YouTubeLibrarySection(
+internal fun YouTubeLibrarySection(
     isImporting: Boolean,
     importMessage: String?,
     onImport: (List<YouTubeMusicLibrary.LibraryPlaylist>) -> Unit
