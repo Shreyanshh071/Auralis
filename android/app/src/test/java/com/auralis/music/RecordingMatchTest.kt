@@ -109,4 +109,31 @@ class RecordingMatchTest {
         val cand = t("cuMuMnCRfqk", "Dracula", "Tame Impala", "Deadbeat", 206)
         assertEquals("cuMuMnCRfqk", SearchQueryMatcher.findBestCandidateForTrack(spotify, listOf(cand))?.id)
     }
+
+    @Test
+    fun `rounding-only 4 s gap is the same song`() {
+        // Spotify 208.786 s floors to 208; YouTube Music lists 211.475 s as 3:32.
+        val spotify = t("sp_5cF0dROlMOK5uNZtivgu50", "Attention", "Charlie Puth", null, 208)
+        val cand = t("vxUBYHz_q1I", "Attention", "Charlie Puth", "Attention", 212)
+        assertNotNull(SearchQueryMatcher.recordingMismatch(spotify, cand))
+        assertEquals(true, SearchQueryMatcher.isRoundingOnlyLengthGap(spotify, cand))
+    }
+
+    @Test
+    fun `rounding allowance never lets a featured cut match the solo one`() {
+        val feat = t("sp_moral", "Moral of the Story", "Ashe, Niall Horan", null, 198)
+        val solo = t("GLTGm0zb3zU", "Moral of the Story", "Ashe", "Ashlyn", 202)
+        assertEquals(false, SearchQueryMatcher.isRoundingOnlyLengthGap(feat, solo))
+        val featTitle = t("sp_moral2", "Moral of the Story (feat. Niall Horan)", "Ashe", null, 198)
+        assertEquals(false, SearchQueryMatcher.isRoundingOnlyLengthGap(featTitle, solo))
+    }
+
+    @Test
+    fun `rounding allowance is exactly one second and needs a clean version`() {
+        val spotify = t("sp_a", "Attention", "Charlie Puth", null, 207)
+        assertEquals(false, SearchQueryMatcher.isRoundingOnlyLengthGap(spotify, t("v1", "Attention", "Charlie Puth", null, 212)))
+        val s208 = spotify.copy(duration = 208)
+        assertEquals(false, SearchQueryMatcher.isRoundingOnlyLengthGap(s208, t("v2", "Attention (Remix)", "Charlie Puth", null, 212)))
+        assertEquals(false, SearchQueryMatcher.isRoundingOnlyLengthGap(s208, t("v3", "Attention", "redpillow & koma", null, 212)))
+    }
 }

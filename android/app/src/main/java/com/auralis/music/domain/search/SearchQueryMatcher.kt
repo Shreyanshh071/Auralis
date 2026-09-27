@@ -765,6 +765,26 @@ object SearchQueryMatcher {
 
     private val ARTIST_SEPARATOR_REGEX = Regex("""(?i)[,&/+]|\b(?:feat\.?|ft\.?|featuring|with|and|x|vs\.?)\s""")
 
+    /**
+     * True when [candidate] fails [recordingMismatch] only through rounding: Spotify floors its
+     * milliseconds and YouTube Music rounds its "m:ss" up, so one master can read 4 s apart
+     * ("Attention": 208.8 s on Spotify, 211.5 s on YouTube Music). Only the exact title by exactly
+     * the credited artists qualifies, so the featured cut YouTube Music files under the lead singer
+     * ("Moral of the Story" feat. Niall Horan, 198 s vs solo 202 s) still fails: the source credits
+     * someone the candidate doesn't.
+     */
+    fun isRoundingOnlyLengthGap(target: Track, candidate: Track): Boolean {
+        if (target.duration <= 0 || candidate.duration <= 0) return false
+        if (kotlin.math.abs(target.duration - candidate.duration) != MAX_RECORDING_DELTA_SEC + 1) return false
+        if (recordingMismatch(target.copy(duration = 0L), candidate) != null) return false
+        if (versionMarkers(target.title) != versionMarkers(candidate.title)) return false
+        if (normalize(target.title) != normalize(candidate.title)) return false
+        val targetArtist = if (target.artist.equals("Spotify Artist", ignoreCase = true)) "" else target.artist
+        fun names(artists: String) = artists.split(ARTIST_SEPARATOR_REGEX).map { normalize(it) }.filter { it.isNotBlank() }.toSet()
+        val targetNames = names(targetArtist)
+        return targetNames.isNotEmpty() && targetNames == names(candidate.artist)
+    }
+
     /** True if raw [candArtists] names someone whose words appear nowhere in the [normalize]d [creditedText]. */
     private fun writtenInDifferentScripts(a: String, b: String): Boolean {
         fun nonLatin(t: String) = t.any { it.isLetter() && it.code > 0x024F }

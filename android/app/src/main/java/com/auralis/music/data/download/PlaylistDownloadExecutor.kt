@@ -92,6 +92,7 @@ class PlaylistDownloadExecutor(private val context: Context) {
                         } else {
                             android.util.Log.w("PlaylistDownload", "Download attempt $attempt failed for ${track.title}: ${base.error}")
                             finalResult = base
+                            if (base.error == AuralisDownloadManager.AGE_RESTRICTED_ERROR) break
                         }
                     }
                     results[track.id] = finalResult

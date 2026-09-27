@@ -354,7 +354,12 @@ object AudioStreamResolver {
                 .map { it.first }
 
             // No fallback to an unscored candidate: playing some other version desyncs lyrics.
+            // The one exception is the same song whose lengths differ only by rounding.
             val bestCandidate = scoredCandidates.firstOrNull()
+                ?: allCandidates.firstOrNull {
+                    it.id != originalVideoId &&
+                        com.auralis.music.domain.search.SearchQueryMatcher.isRoundingOnlyLengthGap(dummyTarget, it)
+                }
 
             if (bestCandidate == null) {
                 diagLog("[Diag-Resolver] No match found for track '$title' by '$artist'")
