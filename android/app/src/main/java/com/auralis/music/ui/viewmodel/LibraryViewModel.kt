@@ -739,6 +739,73 @@ class LibraryViewModel(
         _uiState.update { it.copy(importMessage = null) }
     }
 
+    /**
+     * Imports playlists picked by the user from their signed-in Spotify account.
+     * Liked Songs go into favorites; playlists already existing in library (same title) are updated in place.
+     */
+    fun importSpotifyLibraryPlaylists(selected: List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) {
+        if (selected.isEmpty()) return
+        _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = null) }
+        viewModelScope.launch {
+            var imported = 0
+            var failed = 0
+            for ((index, item) in selected.withIndex()) {
+                _uiState.update { it.copy(spotifyImportMessage = "Importing ${index + 1} of ${selected.size}: ${item.title}") }
+                try {
+                    if (item.isLikedSongs) {
+                        val tracks = com.auralis.music.data.network.SpotifyLibrary.fetchLikedSongsTracks(
+                            importer = spotifyImporter,
+                            onProgress = { progressText ->
+                                _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                            }
+                        )
+                        if (tracks.isNotEmpty()) {
+                            tracks.forEach { libraryRepository.setFavorite(it, true) }
+                            imported++
+                        } else {
+                            failed++
+                        }
+                    } else {
+                        val remote = com.auralis.music.data.network.SpotifyLibrary.fetchPlaylist(
+                            playlistId = item.id,
+                            importer = spotifyImporter,
+                            onProgress = { progressText ->
+                                _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                            }
+                        )
+                        if (remote == null) {
+                            failed++
+                            continue
+                        }
+                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail ?: remote.tracks.firstOrNull()?.thumbnail
+                        val existing = libraryRepository.getPlaylists().first()
+                            .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
+                        val playlistId = if (existing != null) {
+                            libraryRepository.updatePlaylist(existing.id, existing.title, existing.description, cover)
+                            existing.id
+                        } else {
+                            libraryRepository.createPlaylist(item.title, remote.description, cover).id
+                        }
+                        libraryRepository.replacePlaylistTracks(playlistId, remote.tracks)
+                        imported++
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.e("SpotifyLibrary", "Failed to import ${item.title}: ${e.message}")
+                    failed++
+                }
+            }
+            val noun = if (imported == 1) "playlist" else "playlists"
+            _uiState.update {
+                it.copy(
+                    isImportingSpotify = false,
+                    spotifyImportMessage = if (failed == 0) "Imported $imported $noun" else "Imported $imported $noun, $failed couldn't be read"
+                )
+            }
+        }
+    }
+
     fun clearSpotifyImportMessage() {
         _uiState.update { it.copy(spotifyImportMessage = null) }
     }

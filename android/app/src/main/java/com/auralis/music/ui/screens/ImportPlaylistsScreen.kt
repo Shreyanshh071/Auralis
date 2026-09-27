@@ -1,8 +1,14 @@
 package com.auralis.music.ui.screens
 
+import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
+import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,17 +34,30 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.auralis.music.data.network.SpotifyLibrary
+import com.auralis.music.data.network.SpotifySession
 import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.profile.SpotifyLogoIcon
 import com.auralis.music.ui.theme.dynamicBackground
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
+
+private val SPOTIFY_GREEN = Color(0xFF1DB954)
 
 /**
  * Dedicated Import Playlists screen.
  * Gives users clean choices:
  * 1. Pick from their signed-in YouTube Music account via a scrollable popup.
- * 2. Import a YouTube Music playlist by link.
- * 3. Import a Spotify playlist by link.
+ * 2. Pick from their signed-in Spotify account via a scrollable popup.
+ * 3. Import a YouTube Music playlist by link.
+ * 4. Import a Spotify playlist by link.
  */
 @Composable
 fun ImportPlaylistsScreen(
@@ -50,6 +69,7 @@ fun ImportPlaylistsScreen(
     onClearYouTubeImportMessage: () -> Unit,
     onImportYouTubePlaylist: (String) -> Unit,
     onImportSpotifyPlaylist: (String) -> Unit,
+    onImportSpotifyLibraryPlaylists: (List<SpotifyLibrary.LibraryPlaylist>) -> Unit = {},
     isImportingSpotify: Boolean,
     spotifyImportMessage: String?,
     onClearSpotifyImportMessage: () -> Unit,
@@ -59,6 +79,10 @@ fun ImportPlaylistsScreen(
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
     val accountLabel by YouTubeSession.accountLabel.collectAsState()
 
+    val spotifySignedIn by SpotifySession.signedIn.collectAsState()
+    val spotifyAccountLabel by SpotifySession.accountLabel.collectAsState()
+    var isSigningInSpotify by remember { mutableStateOf(false) }
+
     var showPlaylistPickerPopup by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf<List<YouTubeMusicLibrary.LibraryPlaylist>?>(null) }
     var isLoadingPlaylists by remember { mutableStateOf(false) }
@@ -66,8 +90,19 @@ fun ImportPlaylistsScreen(
     var reloadKey by remember { mutableStateOf(0) }
     val selectedPlaylists = remember { mutableStateListOf<String>() }
 
+    var showSpotifyPlaylistPickerPopup by remember { mutableStateOf(false) }
+    var spotifyPlaylists by remember { mutableStateOf<List<SpotifyLibrary.LibraryPlaylist>?>(null) }
+    var isLoadingSpotifyPlaylists by remember { mutableStateOf(false) }
+    var loadSpotifyFailed by remember { mutableStateOf(false) }
+    var reloadSpotifyKey by remember { mutableStateOf(0) }
+    val selectedSpotifyPlaylists = remember { mutableStateListOf<String>() }
+
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
+
+    BackHandler(enabled = isSigningInSpotify) {
+        isSigningInSpotify = false
+    }
 
     // Prefetch YouTube playlists when signed in so the popup opens instantly
     LaunchedEffect(youTubeSignedIn, reloadKey) {
@@ -84,6 +119,21 @@ fun ImportPlaylistsScreen(
         }
     }
 
+    // Prefetch Spotify playlists when signed in so the popup opens instantly
+    LaunchedEffect(spotifySignedIn, reloadSpotifyKey) {
+        if (spotifySignedIn) {
+            isLoadingSpotifyPlaylists = true
+            loadSpotifyFailed = false
+            val result = SpotifyLibrary.fetchPlaylists()
+            spotifyPlaylists = result
+            loadSpotifyFailed = result == null
+            isLoadingSpotifyPlaylists = false
+        } else {
+            spotifyPlaylists = null
+            selectedSpotifyPlaylists.clear()
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -91,7 +141,16 @@ fun ImportPlaylistsScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        Column(
+        if (isSigningInSpotify) {
+            SpotifySignInWebView(
+                onSignedIn = {
+                    isSigningInSpotify = false
+                    reloadSpotifyKey++
+                },
+                onCancel = { isSigningInSpotify = false }
+            )
+        } else {
+            Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -277,6 +336,162 @@ fun ImportPlaylistsScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = "Sign in to YouTube",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            // ── 2. SPOTIFY ACCOUNT (Scrollable Popup Picker) ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.2.dp, SPOTIFY_GREEN.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                    .padding(16.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(SPOTIFY_GREEN.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            SpotifyLogoIcon(modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Spotify Account",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = if (spotifySignedIn) {
+                                    if (spotifyAccountLabel.isNotBlank()) spotifyAccountLabel else "Signed in"
+                                } else "Sign in to pick playlists directly",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (spotifySignedIn) {
+                            TextButton(
+                                onClick = {
+                                    SpotifySession.signOut()
+                                    reloadSpotifyKey++
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Sign out", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    if (spotifySignedIn) {
+                        Text(
+                            text = "Import Liked Songs and playlists directly from your Spotify account—including private playlists—without pasting links or setting them to public.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { showSpotifyPlaylistPickerPopup = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SPOTIFY_GREEN,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SpotifyLogoIcon(modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = when {
+                                        isLoadingSpotifyPlaylists -> "Loading playlists..."
+                                        spotifyPlaylists != null && spotifyPlaylists!!.isNotEmpty() -> "Choose playlists (${spotifyPlaylists!!.size} available)"
+                                        else -> "Choose playlists to import"
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+
+                        if (isImportingSpotify && !showSpotifyPlaylistPickerPopup) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    color = SPOTIFY_GREEN,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = spotifyImportMessage ?: "Importing...",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else if (spotifyImportMessage != null && !showSpotifyPlaylistPickerPopup) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = spotifyImportMessage,
+                                color = if (spotifyImportMessage.startsWith("Imported", ignoreCase = true) || spotifyImportMessage.startsWith("Success", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEF4444),
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Sign in to your Spotify account to pick and import any of your playlists (including private ones) and Liked Songs directly into Auralis.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { isSigningInSpotify = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SPOTIFY_GREEN,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SpotifyLogoIcon(modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "Sign in to Spotify",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -695,8 +910,9 @@ fun ImportPlaylistsScreen(
 
             Spacer(Modifier.height(32.dp))
         }
+    }
 
-        // ── SCROLLABLE PLAYLIST PICKER POPUP ──
+        // ── SCROLLABLE PLAYLIST PICKER POPUP (YOUTUBE) ──
         if (showPlaylistPickerPopup) {
             YouTubePlaylistPickerBottomSheet(
                 playlists = playlists,
@@ -710,6 +926,23 @@ fun ImportPlaylistsScreen(
                     onImportYouTubeLibraryPlaylists(selected)
                 },
                 onDismiss = { showPlaylistPickerPopup = false }
+            )
+        }
+
+        // ── SCROLLABLE PLAYLIST PICKER POPUP (SPOTIFY) ──
+        if (showSpotifyPlaylistPickerPopup) {
+            SpotifyPlaylistPickerBottomSheet(
+                playlists = spotifyPlaylists,
+                isLoading = isLoadingSpotifyPlaylists,
+                loadFailed = loadSpotifyFailed,
+                onRetry = { reloadSpotifyKey++ },
+                selected = selectedSpotifyPlaylists,
+                isImporting = isImportingSpotify,
+                importMessage = spotifyImportMessage,
+                onImport = { selected ->
+                    onImportSpotifyLibraryPlaylists(selected)
+                },
+                onDismiss = { showSpotifyPlaylistPickerPopup = false }
             )
         }
     }
@@ -1013,3 +1246,480 @@ fun YouTubePlaylistPickerBottomSheet(
         }
     }
 }
+
+/**
+ * Scrollable bottom sheet modal popup containing all the signed-in Spotify playlists.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SpotifyPlaylistPickerBottomSheet(
+    playlists: List<SpotifyLibrary.LibraryPlaylist>?,
+    isLoading: Boolean,
+    loadFailed: Boolean,
+    onRetry: () -> Unit,
+    selected: SnapshotStateList<String>,
+    isImporting: Boolean,
+    importMessage: String?,
+    onImport: (List<SpotifyLibrary.LibraryPlaylist>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+        },
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+        ) {
+            // Header: Title + Select all / Clear + Close button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+            ) {
+                Text(
+                    text = "Your Spotify playlists",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 17.sp,
+                    modifier = Modifier.weight(1f)
+                )
+
+                val all = playlists.orEmpty()
+                if (all.isNotEmpty()) {
+                    val allSelected = selected.size == all.size
+                    TextButton(
+                        onClick = {
+                            selected.clear()
+                            if (!allSelected) selected.addAll(all.map { it.id })
+                        },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (allSelected) "Clear" else "Select all",
+                            color = SPOTIFY_GREEN,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = "Private playlists and Liked Songs included. Liked Songs are added to your favorites; importing a playlist you already have updates it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Body: Loading / Error / Empty / Scrollable list
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = SPOTIFY_GREEN, modifier = Modifier.size(32.dp))
+                    }
+                }
+                loadFailed || playlists == null -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Couldn't load your playlists from Spotify.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = onRetry) {
+                            Text("Try again", color = SPOTIFY_GREEN, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                playlists.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No playlists found in your Spotify account.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(playlists, key = { it.id }) { item ->
+                            val checked = item.id in selected
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (checked) SPOTIFY_GREEN.copy(alpha = 0.08f) else Color.Transparent)
+                                    .clickable(enabled = !isImporting) {
+                                        if (checked) selected.remove(item.id) else selected.add(item.id)
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (item.isLikedSongs) {
+                                        Icon(
+                                            imageVector = Icons.Default.Favorite,
+                                            contentDescription = null,
+                                            tint = SPOTIFY_GREEN,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    } else if (item.thumbnail != null) {
+                                        coil.compose.AsyncImage(
+                                            model = item.thumbnail,
+                                            contentDescription = null,
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        SpotifyLogoIcon(modifier = Modifier.size(22.dp))
+                                    }
+                                }
+
+                                Spacer(Modifier.width(12.dp))
+
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.title,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (item.subtitle.isNotBlank()) {
+                                        Text(
+                                            text = item.subtitle,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Checkbox(
+                                    checked = checked,
+                                    enabled = !isImporting,
+                                    onCheckedChange = { on ->
+                                        if (on) selected.add(item.id) else selected.remove(item.id)
+                                    },
+                                    colors = CheckboxDefaults.colors(checkedColor = SPOTIFY_GREEN)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Action button
+            Button(
+                onClick = {
+                    val toImport = playlists?.filter { it.id in selected }.orEmpty()
+                    if (toImport.isNotEmpty()) {
+                        onImport(toImport)
+                    }
+                },
+                enabled = selected.isNotEmpty() && !isImporting,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = SPOTIFY_GREEN,
+                    disabledContainerColor = SPOTIFY_GREEN.copy(alpha = 0.35f),
+                    contentColor = Color.White,
+                    disabledContentColor = Color.White.copy(alpha = 0.7f)
+                ),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+            ) {
+                if (isImporting) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Importing...",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                } else {
+                    Text(
+                        text = when {
+                            selected.isEmpty() -> "Select playlists to import"
+                            else -> "Import ${selected.size} ${if (selected.size == 1) "playlist" else "playlists"}"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+
+            if (importMessage != null) {
+                Text(
+                    text = importMessage,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun SpotifySignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var finishing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun finishFrom(view: WebView) {
+        if (finishing) return
+        finishing = true
+        scope.launch {
+            // Settle session cookies and web player state
+            repeat(25) {
+                val cookie = CookieManager.getInstance().getCookie("https://open.spotify.com").orEmpty()
+                if (cookie.contains("sp_dc=") || cookie.contains("sp_key=")) {
+                    val session = readSpotifySession(view)
+                    if (session != null && session.accessToken.isNotBlank() && !session.isAnonymous) {
+                        CookieManager.getInstance().flush()
+                        SpotifySession.save(
+                            cookie = cookie,
+                            accessToken = session.accessToken,
+                            expiresAtMs = session.expiresAt,
+                            accountLabel = session.displayName.ifBlank { "Signed in" },
+                            userId = session.userId,
+                            avatarUrl = session.avatarUrl
+                        )
+                        onSignedIn()
+                        return@launch
+                    }
+                }
+                delay(600)
+            }
+            finishing = false
+            error = "Couldn't finish signing in. Make sure you completed sign-in, then try again."
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize().padding(top = 52.dp),
+            factory = { ctx ->
+                CookieManager.getInstance().setAcceptCookie(true)
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.userAgentString = SpotifySession.USER_AGENT
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val scheme = request.url.scheme
+                            return !(scheme == "http" || scheme == "https")
+                        }
+
+                        override fun onPageFinished(view: WebView, url: String?) {
+                            val uri = url?.let(android.net.Uri::parse)
+                            if (uri?.host == "open.spotify.com") {
+                                finishFrom(view)
+                            }
+                        }
+                    }
+                    loadUrl("https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F")
+                }
+            }
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .background(MaterialTheme.dynamicBackground)
+                .padding(horizontal = 4.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onCancel) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Cancel",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+                Text(
+                    text = "Sign in to Spotify",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 17.sp
+                )
+            }
+        }
+
+        if (finishing) {
+            CircularProgressIndicator(Modifier.align(Alignment.Center), color = SPOTIFY_GREEN)
+        }
+        error?.let {
+            Text(
+                text = it,
+                color = Color.White,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xE6202020))
+                    .padding(12.dp)
+            )
+        }
+    }
+}
+
+private class SpotifyWebSession(
+    val accessToken: String,
+    val expiresAt: Long,
+    val isAnonymous: Boolean,
+    val displayName: String,
+    val userId: String,
+    val avatarUrl: String
+)
+
+private suspend fun readSpotifySession(view: WebView): SpotifyWebSession? {
+    val result = CompletableDeferred<String?>()
+    withContext(Dispatchers.Main) {
+        val script = """
+            (async function() {
+                try {
+                    const res = await fetch('/get_access_token?reason=transport&productType=web_player', {
+                        credentials: 'include'
+                    });
+                    if (!res.ok) return JSON.stringify({ error: 'http_' + res.status });
+                    const data = await res.json();
+                    let name = '';
+                    let uid = '';
+                    let img = '';
+                    if (data.accessToken) {
+                        try {
+                            const meRes = await fetch('https://api.spotify.com/v1/me', {
+                                headers: { 'Authorization': 'Bearer ' + data.accessToken }
+                            });
+                            if (meRes.ok) {
+                                const me = await meRes.json();
+                                name = me.display_name || me.id || '';
+                                uid = me.id || '';
+                                if (me.images && me.images.length > 0) {
+                                    img = me.images[0].url || '';
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    return JSON.stringify({
+                        token: data.accessToken || '',
+                        expiresAt: data.accessTokenExpirationTimestampMs || 0,
+                        isAnon: data.isAnonymous || false,
+                        name: name,
+                        uid: uid,
+                        img: img
+                    });
+                } catch(e) {
+                    return JSON.stringify({ error: e.message });
+                }
+            })()
+        """.trimIndent()
+        view.evaluateJavascript(script) { raw -> result.complete(raw) }
+    }
+    val raw = withTimeoutOrNull(2_000L) { result.await() } ?: return null
+    return try {
+        val inner = org.json.JSONTokener(raw).nextValue() as? String ?: return null
+        if (inner.isBlank()) return null
+        val json = JSONObject(inner)
+        val token = json.optString("token")
+        if (token.isBlank()) return null
+        SpotifyWebSession(
+            accessToken = token,
+            expiresAt = json.optLong("expiresAt", System.currentTimeMillis() + 3600_000L),
+            isAnonymous = json.optBoolean("isAnon", false),
+            displayName = json.optString("name"),
+            userId = json.optString("uid"),
+            avatarUrl = json.optString("img")
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
