@@ -738,12 +738,13 @@ fun YouTubePlaylistPickerBottomSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 12.dp),
-                contentAlignment = Alignment.Center
+                    .statusBarsPadding(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Spacer(Modifier.height(12.dp))
                 Box(
                     modifier = Modifier
                         .width(36.dp)
@@ -751,6 +752,7 @@ fun YouTubePlaylistPickerBottomSheet(
                         .clip(RoundedCornerShape(2.dp))
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 )
+                Spacer(Modifier.height(10.dp))
             }
         },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
