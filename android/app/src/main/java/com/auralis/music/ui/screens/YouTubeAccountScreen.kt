@@ -178,12 +178,11 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                         Spacer(Modifier.height(14.dp))
                         Text(
                             text = if (signedIn) {
-                                "Age-restricted songs will download using this YouTube account. " +
-                                    "Your YouTube account needs to be age-verified for this to work."
+                                "Age-restricted songs will download using this YouTube account, and you can pick and import your playlists directly from Profile → Import playlists. " +
+                                    "Your YouTube account needs to be age-verified for age-restricted downloads."
                             } else {
-                                "Some songs are age-restricted on YouTube. You can't download them unless " +
-                                    "you sign in to YouTube here, even though you're signed in to Auralis. " +
-                                    "Everything else works without it."
+                                "Some songs are age-restricted on YouTube. Signing in lets you download them and " +
+                                    "pick your YouTube Music playlists to import directly in Profile → Import playlists."
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -229,17 +228,6 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
-                    )
-                }
-
-                if (signedIn) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "Pick playlists to import from Profile → Import playlists.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp)
                     )
                 }
             }
