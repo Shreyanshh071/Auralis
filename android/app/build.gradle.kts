@@ -109,6 +109,12 @@ android {
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/LICENSE-notice.md"
         }
+        // Compress native libraries in the APK (Android unpacks them at install). The Discord Social
+        // SDK is ~33 MB across the four ABIs and was stored uncompressed, making the APK ~45 MB;
+        // compressed it's ~25 MB. Costs a slightly slower install and ~9 MB more once installed.
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
