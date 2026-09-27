@@ -270,7 +270,7 @@ class GlobalKaraokeRendererTest {
     @Test
     fun testCreepRegressionBeautiful940msPreserved() {
         val creepFile = File("c:/Users/shrey/OneDrive/Desktop/Auralis/creep_raw.ttml")
-        assertTrue(creepFile.exists())
+        org.junit.Assume.assumeTrue("local lyrics fixture not present; skipping", creepFile.exists())
 
         val lyrics = TtmlParser.parse(creepFile.readText(), LyricsProvider.BETTER_LYRICS)
         val line = lyrics.lines.first { it.text.contains("beautiful", ignoreCase = true) }

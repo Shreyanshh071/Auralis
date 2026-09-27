@@ -25,7 +25,9 @@ class TtmlParserTest {
 
     @Test
     fun `parse extracts duration and leading silence from creep ttml`() {
-        val ttml = java.io.File("c:/Users/shrey/OneDrive/Desktop/Auralis/scratch/creep.ttml").readText()
+        val fixture = java.io.File("c:/Users/shrey/OneDrive/Desktop/Auralis/scratch/creep.ttml")
+        org.junit.Assume.assumeTrue("local lyrics fixture not present; skipping", fixture.exists())
+        val ttml = fixture.readText()
         val parsed = TtmlParser.parse(ttml)
         println("PARSED DURATION: ${parsed.durationMs}")
         println("PARSED SILENCE: ${parsed.leadingSilenceMs}")
