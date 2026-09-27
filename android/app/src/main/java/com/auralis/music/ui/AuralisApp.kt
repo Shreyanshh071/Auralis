@@ -2315,15 +2315,10 @@ fun AuralisApp(
                                 spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
                             )
                             .clip(topPillShape)
-                            .hazeEffect(
-                                state = hazeState,
-                                style = HazeStyle(
-                                    backgroundColor = Color.Transparent,
-                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.38f else 0.48f)),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.02f
-                                )
-                            )
+                            // Solid surface, not a haze blur: the haze source is the page under the
+                            // player, so over an open player it blurred the hidden Home screen and
+                            // showed its colours (blue/orange smear) instead of what's on screen.
+                            .background(surfaceColor.copy(alpha = 0.94f))
                             .border(
                                 width = 1.dp,
                                 brush = Brush.verticalGradient(
@@ -2361,7 +2356,8 @@ fun AuralisApp(
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = pill.message,
-                                color = Color.White,
+                                // Readable on the solid surface in light themes too.
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -2416,15 +2412,10 @@ fun AuralisApp(
                                 spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
                             )
                             .clip(pillShape)
-                            .hazeEffect(
-                                state = hazeState,
-                                style = HazeStyle(
-                                    backgroundColor = Color.Transparent,
-                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.35f else 0.45f)),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.02f
-                                )
-                            )
+                            // Solid surface, not a haze blur: the haze source is the page under the
+                            // player, so over an open player it blurred the hidden Home screen and
+                            // showed its colours (blue/orange smear) instead of what's on screen.
+                            .background(surfaceColor.copy(alpha = 0.94f))
                             .border(
                                 width = 0.75.dp,
                                 color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
