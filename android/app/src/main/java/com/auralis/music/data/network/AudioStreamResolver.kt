@@ -281,6 +281,21 @@ object AudioStreamResolver {
                         diagLog("[Diag-Resolver] Native Extractor returned no stream for $actualTargetId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback")
                         return@withContext null
                     }
+                } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
+                    // Only a signed-in YouTube account can play these; see YouTubeSession.
+                    val signedInStream = if (YouTubeSession.isSignedIn) {
+                        withTimeoutOrNull(10_000L) { InnerTubePlayerResolver.resolveSignedInStream(actualTargetId) }
+                    } else null
+                    if (!signedInStream.isNullOrBlank()) {
+                        diagLog("[Diag-Resolver] WINNER: YouTube sign-in for age-restricted $actualTargetId ('$title')")
+                        cacheStream(cacheKey, signedInStream)
+                        cacheStream(actualTargetId, signedInStream)
+                        cacheStream(effectiveTargetId, signedInStream)
+                        cacheStream(videoId, signedInStream)
+                        return@withContext signedInStream
+                    }
+                    diagLog("[Diag-Resolver] Age-restricted $actualTargetId ('$title'), signedIn=${YouTubeSession.isSignedIn}; returning null for YouTubeEngine fallback")
+                    return@withContext null
                 } catch (e: Exception) {
                     diagLog("[Diag-Resolver] Native Extractor exception for $actualTargetId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback")
                     return@withContext null

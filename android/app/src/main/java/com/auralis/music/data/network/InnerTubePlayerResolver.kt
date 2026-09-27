@@ -46,12 +46,41 @@ object InnerTubePlayerResolver {
         null
     }
 
+    // yt-dlp's "tv_downgraded" client, its default for signed-in requests (yt-dlp 2026.07): a TV
+    // client that accepts account cookies and needs no proof-of-origin token.
+    private const val TV_CLIENT_VERSION = "5.20260114"
+    private const val TV_USER_AGENT = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+
+    /**
+     * Age-restricted videos answer "Sign in to confirm your age" to every signed-out client. With
+     * the user's own YouTube sign-in ([YouTubeSession]) the TV client returns their streams.
+     * Null when signed out, or when the account itself can't watch the video.
+     */
+    suspend fun resolveSignedInStream(videoId: String): String? = withContext(Dispatchers.IO) {
+        if (!YouTubeSession.isSignedIn) return@withContext null
+        val origin = "https://www.youtube.com"
+        val sts = PlayerJsCache.getSignatureTimestamp() ?: 20689
+        requestPlayerStream(
+            videoId = videoId,
+            sts = sts,
+            clientName = "TVHTML5",
+            clientVersion = TV_CLIENT_VERSION,
+            origin = origin,
+            userAgent = TV_USER_AGENT,
+            extraHeaders = YouTubeSession.authHeaders(origin),
+            visitorData = YouTubeSession.visitorData
+        )
+    }
+
     private suspend fun requestPlayerStream(
         videoId: String,
         sts: Int,
         clientName: String,
         clientVersion: String,
-        origin: String
+        origin: String,
+        userAgent: String = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        extraHeaders: Map<String, String> = emptyMap(),
+        visitorData: String = ""
     ): String? {
         try {
             val payload = JSONObject().apply {
@@ -70,6 +99,7 @@ object InnerTubePlayerResolver {
                         put("clientVersion", clientVersion)
                         put("hl", "en")
                         put("gl", "US")
+                        if (visitorData.isNotBlank()) put("visitorData", visitorData)
                     })
                 })
             }
@@ -77,9 +107,10 @@ object InnerTubePlayerResolver {
             val req = Request.Builder()
                 .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
                 .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+                .header("User-Agent", userAgent)
                 .header("Origin", origin)
                 .header("Referer", "$origin/")
+                .apply { extraHeaders.forEach { (name, value) -> header(name, value) } }
                 .build()
 
             val res = client.newCall(req).execute()
@@ -87,7 +118,12 @@ object InnerTubePlayerResolver {
 
             val body = res.body?.string() ?: return null
             val json = JSONObject(body)
-            val streamingData = json.optJSONObject("streamingData") ?: return null
+            val streamingData = json.optJSONObject("streamingData")
+            if (streamingData == null) {
+                val playability = json.optJSONObject("playabilityStatus")
+                Log.w(TAG, "No streams for $videoId ($clientName): ${playability?.optString("status")} ${playability?.optString("reason")}")
+                return null
+            }
             val formats = streamingData.optJSONArray("adaptiveFormats") ?: return null
 
             var bestUrl: String? = null
@@ -114,7 +150,10 @@ object InnerTubePlayerResolver {
                 }
             }
 
-            if (bestUrl.isNullOrBlank()) return null
+            if (bestUrl.isNullOrBlank()) {
+                Log.w(TAG, "No usable audio URL for $videoId ($clientName): ${formats.length()} formats, SABR-only=${streamingData.has("serverAbrStreamingUrl")}")
+                return null
+            }
 
             // Transform n parameter if present in query string
             return applyNParamTransformation(bestUrl)
