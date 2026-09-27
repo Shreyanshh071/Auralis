@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import com.auralis.music.ui.theme.AuralisPushedPage
 import com.auralis.music.ui.theme.auralisPushParent
@@ -47,7 +49,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -74,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -141,6 +146,7 @@ fun ProfileSheet(
     var isSettingsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isDiscordIntegrationOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isYouTubeAccountOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var isImportByLinkOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val youTubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
@@ -446,6 +452,72 @@ fun ProfileSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // ── IMPORT BY LINK (collapsible: YouTube Music + Spotify paste-a-link importers) ──
+            val importByLinkRotation by animateFloatAsState(
+                targetValue = if (isImportByLinkOpen) 180f else 0f,
+                label = "importByLinkChevron"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                    .clickable { isImportByLinkOpen = !isImportByLinkOpen }
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Import a playlist by link",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = "Paste a YouTube Music or Spotify link",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isImportByLinkOpen) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .graphicsLayer { rotationZ = importByLinkRotation }
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = isImportByLinkOpen) {
+                Column {
             Spacer(modifier = Modifier.height(10.dp))
 
             // ── YOUTUBE MUSIC PLAYLIST IMPORTER CARD ──
@@ -846,6 +918,8 @@ fun ProfileSheet(
                             lineHeight = 15.sp
                         )
                     }
+                }
+            }
                 }
             }
 
