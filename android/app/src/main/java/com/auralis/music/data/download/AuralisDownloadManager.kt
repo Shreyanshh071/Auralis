@@ -42,6 +42,8 @@ import java.util.concurrent.TimeUnit
 object AuralisDownloadManager {
 
     private const val TAG = "AuralisDownload"
+    /** YouTube only serves this video to a signed-in, age-verified account. */
+    const val AGE_RESTRICTED_ERROR = "Age-restricted on YouTube (needs a signed-in account)"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -250,6 +252,8 @@ object AuralisDownloadManager {
             }
 
 
+            var ageRestricted = false
+
             // Strategy D: Direct NewPipe Extractor for YouTube IDs
             if (streamUrl.isNullOrBlank() && !track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) {
                 try {
@@ -262,6 +266,9 @@ object AuralisDownloadManager {
                     }
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
+                    ageRestricted = true
+                    Log.w(TAG, "Strategy D direct NewPipe notice: ${e.message}")
                 } catch (e: Exception) {
                     Log.w(TAG, "Strategy D direct NewPipe notice: ${e.message}")
                 }
@@ -308,6 +315,8 @@ object AuralisDownloadManager {
 
             val initialUrl = streamUrl
             if (initialUrl.isNullOrBlank()) {
+                // Every YouTube client asks for a signed-in account here; retrying can't help.
+                if (ageRestricted) throw IllegalStateException(AGE_RESTRICTED_ERROR)
                 throw IllegalStateException("Unable to resolve audio stream URL for '${track.title}'")
             }
 
