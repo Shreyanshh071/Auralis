@@ -121,9 +121,9 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 - **Instant Search & Autocomplete**: Fast suggestions across songs, albums, artists and playlists.
 - **Ranked by Plays**: Exact titles first, then everything by popularity. An album and a song with the same name are weighed against each other and the runner-up appears under **Also matching**.
 - **Right Album, Every Time**: "View album" opens a song's original album, not a greatest-hits compilation, and standalone singles are labelled as singles.
-- **Music & Voice Recognition**: Identify songs playing around you using built-in acoustic fingerprinting (Shazam / ACRCloud / SongRec).
+- **Music & Voice Recognition**: Identify songs playing around you using built-in acoustic fingerprinting (Shazam-compatible, via SongRec).
 - **Taste Profiler & Speed Dial**: Personalized home feed tailored to your real listening habits, heavy rotation, and top-played artists.
-- **Full Artist Discography**: Artist bios, monthly listener counts, top tracks, albums, singles, and related artist graphs.
+- **Full Artist Discography**: Artist bios, subscriber counts, top tracks, albums, singles, and related artist graphs.
 
 ### ☁️ Cloud Sync & Playlist Importer
 - **One-Click Playlist Import**: Effortlessly import playlists from Spotify and YouTube directly into your library.
@@ -240,3 +240,5 @@ Your support helps keep the project fast, 100% ad-free, open-source, and constan
 
 This project is free and open-source software licensed under the **[GNU General Public License v3.0 (GPL-3.0)](LICENSE)**.
 You are free to use, modify, and distribute this software under the terms and copyleft protections of the GPL-3.0 license.
+
+> **Closed-source components:** the release APK also includes Google's Firebase SDKs (sign-in, backup, update notifications) and Discord's official Social SDK (Rich Presence). The Discord SDK can't be redistributed, so it isn't in this repository; to build Auralis yourself, add it locally as described in `.gitignore`.
