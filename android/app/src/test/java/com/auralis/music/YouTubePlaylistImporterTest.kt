@@ -74,4 +74,135 @@ class YouTubePlaylistImporterTest {
         assertTrue(YouTubePlaylistImporter.isStandardYouTubeUrl("https://youtu.be/abc"))
         assertFalse(YouTubePlaylistImporter.isStandardYouTubeUrl("https://music.youtube.com/playlist?list=PL123"))
     }
+
+    @Test
+    fun upgradeCoverUrl_upgradesGoogleUserContentToStudioMaster1200() {
+        val rawW = "https://yt3.googleusercontent.com/abc=w544-h544-l90-rj"
+        assertEquals("https://yt3.googleusercontent.com/abc=w1200-h1200-l90-rj", YouTubePlaylistImporter.upgradeCoverUrl(rawW))
+
+        val rawS = "https://yt3.googleusercontent.com/def=s192"
+        assertEquals("https://yt3.googleusercontent.com/def=s1200-c", YouTubePlaylistImporter.upgradeCoverUrl(rawS))
+    }
+
+    @Test
+    fun extractBestThumbnailUrl_picksHighestResolution() {
+        val array = org.json.JSONArray(
+            """[
+                {"url":"https://yt3.googleusercontent.com/small=s60","width":60,"height":60},
+                {"url":"https://yt3.googleusercontent.com/large=s576","width":576,"height":576},
+                {"url":"https://yt3.googleusercontent.com/medium=s120","width":120,"height":120}
+            ]"""
+        )
+        val best = YouTubePlaylistImporter.extractBestThumbnailUrl(array)
+        assertEquals("https://yt3.googleusercontent.com/large=s1200-c", best)
+    }
+
+    @Test
+    fun extractPlaylistThumbnail_fromTwoColumnResponsiveHeader_findsAndUpgradesCover() {
+        val json = org.json.JSONObject(
+            """{
+                "contents": {
+                    "twoColumnBrowseResultsRenderer": {
+                        "tabs": [{
+                            "tabRenderer": {
+                                "content": {
+                                    "sectionListRenderer": {
+                                        "contents": [{
+                                            "musicResponsiveHeaderRenderer": {
+                                                "thumbnail": {
+                                                    "musicThumbnailRenderer": {
+                                                        "thumbnail": {
+                                                            "thumbnails": [
+                                                                {"url": "https://yt3.googleusercontent.com/art=w540-h540", "width": 540, "height": 540}
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }]
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }
+            }"""
+        )
+        val cover = YouTubePlaylistImporter.extractPlaylistThumbnail(json)
+        assertEquals("https://yt3.googleusercontent.com/art=w1200-h1200-l90-rj", cover)
+    }
+
+    @Test
+    fun extractPlaylistThumbnail_fromEditablePlaylistDetailHeader_findsNestedCover() {
+        val json = org.json.JSONObject(
+            """{
+                "contents": {
+                    "twoColumnBrowseResultsRenderer": {
+                        "tabs": [{
+                            "tabRenderer": {
+                                "content": {
+                                    "sectionListRenderer": {
+                                        "contents": [{
+                                            "musicEditablePlaylistDetailHeaderRenderer": {
+                                                "header": {
+                                                    "musicResponsiveHeaderRenderer": {
+                                                        "thumbnail": {
+                                                            "croppedSquareThumbnailRenderer": {
+                                                                "thumbnail": {
+                                                                    "thumbnails": [
+                                                                        {"url": "https://yt3.googleusercontent.com/user_art=s192", "width": 192, "height": 192}
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }]
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }
+            }"""
+        )
+        val cover = YouTubePlaylistImporter.extractPlaylistThumbnail(json)
+        assertEquals("https://yt3.googleusercontent.com/user_art=s1200-c", cover)
+    }
+
+    @Test
+    fun extractPlaylistThumbnail_fromSingleColumnBrowseResults_findsCover() {
+        val json = org.json.JSONObject(
+            """{
+                "contents": {
+                    "singleColumnBrowseResultsRenderer": {
+                        "tabs": [{
+                            "tabRenderer": {
+                                "content": {
+                                    "sectionListRenderer": {
+                                        "contents": [{
+                                            "musicDetailHeaderRenderer": {
+                                                "thumbnail": {
+                                                    "musicThumbnailRenderer": {
+                                                        "thumbnail": {
+                                                            "thumbnails": [
+                                                                {"url": "https://yt3.googleusercontent.com/sc_art=s300", "width": 300, "height": 300}
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }]
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }
+            }"""
+        )
+        val cover = YouTubePlaylistImporter.extractPlaylistThumbnail(json)
+        assertEquals("https://yt3.googleusercontent.com/sc_art=s1200-c", cover)
+    }
 }
