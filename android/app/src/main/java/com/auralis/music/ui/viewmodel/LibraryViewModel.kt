@@ -201,7 +201,7 @@ class LibraryViewModel(
                     it.thumbnail.contains("mosaic.scdn.co") ||
                     it.thumbnail.contains("image-cdn") ||
                     it.id.startsWith("sp_") ||
-                    (!playlist.coverUrl.isNullOrBlank() && it.thumbnail == playlist.coverUrl)
+                    (playlist.id.startsWith("sp_") && !playlist.coverUrl.isNullOrBlank() && it.thumbnail == playlist.coverUrl)
                 }
                 if (needsEnrich && playlist.tracks.isNotEmpty()) {
                     android.util.Log.i("LibraryViewModel", "Enriching playlist '${playlist.title}' (${playlist.tracks.size} tracks) with official artwork...")
@@ -288,7 +288,7 @@ class LibraryViewModel(
                     it.thumbnail.contains("mosaic.scdn.co") ||
                     it.thumbnail.contains("image-cdn") ||
                     it.id.startsWith("sp_") ||
-                    (!pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
+                    (pl.id.startsWith("sp_") && !pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
                 }
                 if (needsEnrich && pl.tracks.isNotEmpty()) {
                     android.util.Log.i("LibraryViewModel", "Auto-enriching/repairing playlist '${pl.title}'...")
@@ -462,8 +462,12 @@ class LibraryViewModel(
                     val existingIds = playlist.tracks.map { it.id }.toSet()
                     val newTracks = imported.tracks.filter { it.id !in existingIds }
                     val mergedTracks = playlist.tracks + newTracks
+                    val resolvedCover = playlist.coverUrl?.ifBlank { null } ?: imported.coverUrl?.ifBlank { null }
+                    if (resolvedCover != null && resolvedCover != playlist.coverUrl) {
+                        libraryRepository.updatePlaylist(playlist.id, playlist.title, playlist.description, resolvedCover)
+                    }
                     libraryRepository.reorderPlaylist(playlist.id, mergedTracks)
-                    val updatedPlaylist = playlist.copy(tracks = mergedTracks)
+                    val updatedPlaylist = playlist.copy(tracks = mergedTracks, coverUrl = resolvedCover ?: playlist.coverUrl)
                     _uiState.update {
                         it.copy(
                             isImporting = false,
@@ -653,7 +657,7 @@ class LibraryViewModel(
             try {
                 val imported = youtubeImporter.importPlaylist(urlOrId)
                 if (imported != null) {
-                    val resolvedCover = imported.coverUrl?.ifBlank { null } ?: imported.tracks.firstOrNull()?.thumbnail
+                    val resolvedCover = imported.coverUrl?.ifBlank { null }
                     val playlist = libraryRepository.createPlaylist(
                         title = imported.title,
                         description = imported.description,
@@ -707,7 +711,7 @@ class LibraryViewModel(
                     if (item.isLikedMusic) {
                         remote.tracks.forEach { libraryRepository.setFavorite(it, true) }
                     } else {
-                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail ?: remote.tracks.firstOrNull()?.thumbnail
+                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
                         val existing = libraryRepository.getPlaylists().first()
                             .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
                         val playlistId = if (existing != null) {
@@ -737,6 +741,73 @@ class LibraryViewModel(
 
     fun clearYouTubeImportMessage() {
         _uiState.update { it.copy(importMessage = null) }
+    }
+
+    /**
+     * Imports playlists picked by the user from their signed-in Spotify account.
+     * Liked Songs go into favorites; playlists already existing in library (same title) are updated in place.
+     */
+    fun importSpotifyLibraryPlaylists(selected: List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) {
+        if (selected.isEmpty()) return
+        _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = null) }
+        viewModelScope.launch {
+            var imported = 0
+            var failed = 0
+            for ((index, item) in selected.withIndex()) {
+                _uiState.update { it.copy(spotifyImportMessage = "Importing ${index + 1} of ${selected.size}: ${item.title}") }
+                try {
+                    if (item.isLikedSongs) {
+                        val tracks = com.auralis.music.data.network.SpotifyLibrary.fetchLikedSongsTracks(
+                            importer = spotifyImporter,
+                            onProgress = { progressText ->
+                                _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                            }
+                        )
+                        if (tracks.isNotEmpty()) {
+                            tracks.forEach { libraryRepository.setFavorite(it, true) }
+                            imported++
+                        } else {
+                            failed++
+                        }
+                    } else {
+                        val remote = com.auralis.music.data.network.SpotifyLibrary.fetchPlaylist(
+                            playlistId = item.id,
+                            importer = spotifyImporter,
+                            onProgress = { progressText ->
+                                _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                            }
+                        )
+                        if (remote == null) {
+                            failed++
+                            continue
+                        }
+                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
+                        val existing = libraryRepository.getPlaylists().first()
+                            .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
+                        val playlistId = if (existing != null) {
+                            libraryRepository.updatePlaylist(existing.id, existing.title, existing.description, cover)
+                            existing.id
+                        } else {
+                            libraryRepository.createPlaylist(item.title, remote.description, cover).id
+                        }
+                        libraryRepository.replacePlaylistTracks(playlistId, remote.tracks)
+                        imported++
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.e("SpotifyLibrary", "Failed to import ${item.title}: ${e.message}")
+                    failed++
+                }
+            }
+            val noun = if (imported == 1) "playlist" else "playlists"
+            _uiState.update {
+                it.copy(
+                    isImportingSpotify = false,
+                    spotifyImportMessage = if (failed == 0) "Imported $imported $noun" else "Imported $imported $noun, $failed couldn't be read"
+                )
+            }
+        }
     }
 
     fun clearSpotifyImportMessage() {
