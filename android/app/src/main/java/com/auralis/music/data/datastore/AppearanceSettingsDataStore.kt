@@ -129,7 +129,7 @@ class AppearanceSettingsDataStore(
                 },
                 pureBlackMiniPlayer = preferences[PURE_BLACK_MINI_PLAYER] ?: false,
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
-                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Live Mesh",
+                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
                 newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
                 playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",

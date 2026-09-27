@@ -14,6 +14,8 @@
     </style>
 
     <style name="AppTheme.NoActionBarLaunch" parent="@android:style/Theme.Material.NoActionBar">
+        <!-- Near the app's dark background, so launch doesn't flash the system's grey. -->
+        <item name="android:windowBackground">@color/launch_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>

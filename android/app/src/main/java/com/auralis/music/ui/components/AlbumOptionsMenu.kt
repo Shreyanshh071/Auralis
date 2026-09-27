@@ -66,7 +66,13 @@ fun AlbumOptionsMenu(
     val context = LocalContext.current
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
-    val actionCardColor = MaterialTheme.colorScheme.surfaceVariant
+    // surfaceVariant alone reads near-white under artwork-derived (dynamic) palettes;
+    // pulled 40% back toward the sheet so the cards stay distinct but calm.
+    val actionCardColor = androidx.compose.ui.graphics.lerp(
+        MaterialTheme.colorScheme.surface,
+        MaterialTheme.colorScheme.surfaceVariant,
+        0.6f
+    )
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }

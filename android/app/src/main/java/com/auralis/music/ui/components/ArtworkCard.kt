@@ -168,7 +168,8 @@ fun ArtworkCard(
     fallbackTrack: Track? = null,
     contentScale: ContentScale = ContentScale.Crop,
     highRes: Boolean = false,
-    crossfade: Boolean = highRes,
+    // Fades in only when loaded from disk or network; a memory-cache hit still shows instantly.
+    crossfade: Boolean = true,
     // Opt in only for bounded browsing thumbnails; player and large artwork keep explicit sizes.
     sizeToConstraints: Boolean = false
 ) {

@@ -27,9 +27,9 @@ import kotlinx.coroutines.withContext
  * playing state for the current song, and writes a playback event with that real duration when
  * the song changes, playback shuts down, or (while still playing) every [PERIODIC_FLUSH_MS] — the
  * periodic flush is what lets Stats climb while a song is still playing instead of only once it
- * ends: each flush banks the segment played so far as its own event and keeps counting from zero,
- * so nothing is double-counted. Pauses are excluded; a repeat-one loop keeps adding to the same
- * listen.
+ * ends. One listen is one event: the first flush inserts it and later flushes add to it. (Each
+ * flush used to insert its own 10s event, so no event ever reached the 30s a play needs and every
+ * song showed 0 plays.) Pauses are excluded; a repeat-one loop keeps adding to the same listen.
  */
 object ListeningTimeTracker {
     /** Listens shorter than this are noise (instant skips) and are not stored at all. */
@@ -42,8 +42,16 @@ object ListeningTimeTracker {
     private var job: Job? = null
     private var tickerJob: Job? = null
 
+    /** The listen being recorded. [eventId] is set once its row exists. */
+    private class Listen(val startedAtWallMs: Long) {
+        var eventId: Long? = null
+    }
+
+    /** Serialises the database side of flushes, so one listen can never get two rows. */
+    private val dbMutex = kotlinx.coroutines.sync.Mutex()
+
     private var track: Track? = null
-    private var startedAtWallMs = 0L
+    private var listen = Listen(0L)
     private var accumulatedMs = 0L
     private var segmentStartElapsed: Long? = null
 
@@ -59,7 +67,7 @@ object ListeningTimeTracker {
                     if (current?.id != track?.id) {
                         flush(appContext, now)
                         track = current
-                        startedAtWallMs = System.currentTimeMillis()
+                        listen = Listen(System.currentTimeMillis())
                         accumulatedMs = 0L
                         segmentStartElapsed = null
                     }
@@ -94,17 +102,18 @@ object ListeningTimeTracker {
 
     private suspend fun flush(context: Context, nowElapsed: Long) {
         val finished = track ?: return
+        val current = listen
         val listenedMs = accumulatedMs + (segmentStartElapsed?.let { nowElapsed - it } ?: 0L)
-        val startedAt = startedAtWallMs
-        val stillPlaying = segmentStartElapsed != null
-        // Reset first so a second flush for the same song can't double count. A periodic flush
-        // (song still playing) starts the next event's clock at now, since this event just
-        // banked everything up to this instant; a boundary flush (track changed/stopped) leaves
-        // startedAtWallMs alone, since the very next thing to set it is the new track starting.
+        // Reset first so a second flush can't bank the same time twice. The listen itself stays
+        // until the song changes, so a periodic flush adds to its row instead of starting another.
         accumulatedMs = 0L
-        segmentStartElapsed = if (stillPlaying) nowElapsed else null
-        if (stillPlaying) startedAtWallMs = System.currentTimeMillis()
-        if (listenedMs < MIN_RECORDED_MS || finished.id.isBlank()) return
+        segmentStartElapsed = if (segmentStartElapsed != null) nowElapsed else null
+        if (finished.id.isBlank() || listenedMs <= 0L) return
+        // A skip under a second is noise, but once a listen has a row every second counts.
+        if (current.eventId == null && listenedMs < MIN_RECORDED_MS) {
+            accumulatedMs += listenedMs
+            return
+        }
 
         withContext(NonCancellable + Dispatchers.IO) {
             val paused = runCatching {
@@ -112,15 +121,24 @@ object ListeningTimeTracker {
             }.getOrDefault(false)
             if (paused) return@withContext
             val db = AuralisDatabase.getInstance(context)
-            // Ensure the song row exists even if the app UI never saw this song.
-            db.trackDao().upsertTrackPreservingFavorite(finished.toEntity())
-            db.playbackEventDao().insertEvent(
-                PlaybackEventEntity(
-                    trackId = finished.id,
-                    timestamp = startedAt,
-                    playTimeMs = listenedMs
+            dbMutex.lock()
+            try {
+                val existing = current.eventId
+                if (existing != null && db.playbackEventDao().addPlayTime(existing, listenedMs) > 0) {
+                    return@withContext
+                }
+                // Ensure the song row exists even if the app UI never saw this song.
+                db.trackDao().upsertTrackPreservingFavorite(finished.toEntity())
+                current.eventId = db.playbackEventDao().insertEvent(
+                    PlaybackEventEntity(
+                        trackId = finished.id,
+                        timestamp = current.startedAtWallMs,
+                        playTimeMs = listenedMs
+                    )
                 )
-            )
+            } finally {
+                dbMutex.unlock()
+            }
         }
     }
 }

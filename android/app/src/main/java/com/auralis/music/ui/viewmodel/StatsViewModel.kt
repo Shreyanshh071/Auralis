@@ -42,6 +42,7 @@ class StatsViewModel(
     init {
         viewModelScope.launch {
             statsRepository.removeEstimatedListens()
+            statsRepository.mergeChunkedListens()
         }
     }
 

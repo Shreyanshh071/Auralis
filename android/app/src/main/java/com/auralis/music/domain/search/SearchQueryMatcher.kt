@@ -177,9 +177,10 @@ object SearchQueryMatcher {
             romanizationKey(normTitle) == romanizationKey(normQuery) -> ScoredTrack(track, MatchTier.EXACT_TITLE, 97.0)
             romanizationKey(cleanTitle) == romanizationKey(normQuery) -> ScoredTrack(track, MatchTier.EXACT_TITLE, 92.0)
 
-            // Singular/plural stemming match (e.g. "flashing light" matching "flashing lights")
+            // Singular/plural of the query ("Current" for "currents"): close, but a different title,
+            // so it ranks with the partial titles by plays instead of beside the real "Currents".
             normQuery.length >= 3 && (normTitle.removeSuffix("s") == normQuery.removeSuffix("s") || cleanTitle.removeSuffix("s") == normQuery.removeSuffix("s")) -> {
-                ScoredTrack(track, MatchTier.EXACT_TITLE, 94.0)
+                ScoredTrack(track, MatchTier.PREFIX_TITLE, 94.0)
             }
 
             // Query contains both Title and Artist (e.g. "Dracula Tame Impala" or "Tame Impala Dracula", "Love Me Not Ravyn Lenae" or "Ravyn Lenae Love Me Not")
@@ -324,6 +325,19 @@ object SearchQueryMatcher {
         return result
     }
 
+    /** "1.9B plays", "644M plays", "12K plays" — the inverse of [parsePlayCount]. */
+    fun formatPlayCount(plays: Long): String {
+        fun fmt(v: Double, unit: String) =
+            (if (v >= 100 || v % 1.0 == 0.0) String.format(java.util.Locale.US, "%.0f", v) else String.format(java.util.Locale.US, "%.1f", v)).removeSuffix(".0") + unit
+        val text = when {
+            plays >= 1_000_000_000L -> fmt(plays / 1e9, "B")
+            plays >= 1_000_000L -> fmt(plays / 1e6, "M")
+            plays >= 1_000L -> fmt(plays / 1e3, "K")
+            else -> plays.toString()
+        }
+        return "$text plays"
+    }
+
     fun parsePlayCount(str: String?): Long {
         if (str.isNullOrBlank()) return 0L
         val clean = str.trim().lowercase(Locale.ROOT)
@@ -461,7 +475,12 @@ object SearchQueryMatcher {
         // 3. Most plays first. That is the whole rule inside a group: no point formula.
         // 4. Score, then YouTube Music's own order, for songs without a play count.
         val exactPlays = scoredMatches.filter { it.tier == MatchTier.EXACT_TITLE }.maxOfOrNull { parsePlayCount(it.track.views) } ?: 0L
-        fun group(st: ScoredTrack): Int = when (st.tier) {
+        val normQueryForAlbum = normalize(trimmed)
+        // A song on the album the query names ("currents" -> Tame Impala's Currents) is what the
+        // search is about: it ranks with the partial titles, by plays, not down with artist matches.
+        fun isOnQueriedAlbum(st: ScoredTrack): Boolean =
+            st.track.album?.let { normalize(it) == normQueryForAlbum } == true
+        fun group(st: ScoredTrack): Int = if (st.tier.priority > MatchTier.CLOSE_TITLE.priority && isOnQueriedAlbum(st)) 2 else when (st.tier) {
             MatchTier.EXACT_TITLE -> 1
             MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE ->
                 if (parsePlayCount(st.track.views) >= maxOf(exactPlays, 1L) * 100L) 1 else 2

@@ -24,6 +24,41 @@ import com.auralis.music.data.service.PlaybackClockSource
 const val MAX_CLOCK_CARRY_MS = 100L
 
 /**
+ * Largest forward step between two consecutive raw readings that still counts as
+ * audio running. Bigger forward jumps (and any backward jump) are seeks.
+ */
+const val MAX_ADVANCE_STEP_MS = 600L
+
+/**
+ * Whether the engine's raw position has been seen moving forward since the last
+ * seek, resume or stall. Pure, so it is unit-testable.
+ *
+ * "Playing" is published the moment `play()` is called, well before audio
+ * reaches the output. Extrapolating from that flag alone runs the highlight
+ * ahead of silent audio after a tap-to-seek, then snaps it back when sound
+ * starts. Only a reading that actually advanced proves the audio is moving.
+ *
+ * @param wasConfirmed result of the previous call
+ * @param previousRawMs the previous distinct raw reading
+ * @param rawMs the raw reading this frame
+ * @param isPlaying whether the engine claims to be playing (and not buffering)
+ */
+fun advanceConfirmed(
+    wasConfirmed: Boolean,
+    previousRawMs: Long,
+    rawMs: Long,
+    isPlaying: Boolean
+): Boolean {
+    if (!isPlaying) return false
+    val step = rawMs - previousRawMs
+    return when {
+        step == 0L -> wasConfirmed
+        step in 1L..MAX_ADVANCE_STEP_MS -> true
+        else -> false
+    }
+}
+
+/**
  * Anchor-and-carry interpolation of a coarse playback clock. Pure, so the timing
  * rules are unit-testable without Compose or a player.
  *
@@ -89,12 +124,14 @@ fun rememberLyricsClock(
         var anchorRawMs = source.rawPositionMs()
         var anchorWallMs = withFrameMillis { it }
         var anchorSpeed = source.speed()
+        var advancing = false
         clock.longValue = anchorRawMs
 
         while (true) {
             val frameWallMs = withFrameMillis { it }
             val rawMs = source.rawPositionMs()
             val playing = source.isPlaying()
+            advancing = advanceConfirmed(advancing, anchorRawMs, rawMs, playing)
 
             clock.longValue = carriedPositionMs(
                 rawMs = rawMs,
@@ -102,7 +139,7 @@ fun rememberLyricsClock(
                 anchorWallMs = anchorWallMs,
                 nowWallMs = frameWallMs,
                 speed = anchorSpeed,
-                isPlaying = playing
+                isPlaying = playing && advancing
             )
 
             if (rawMs != anchorRawMs) {

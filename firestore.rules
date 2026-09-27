@@ -83,7 +83,20 @@ service cloud.firestore {
       // to delete their own document is intentional and self-limited.
       allow delete: if isOwner(uid);
 
-      // No nested collections are used under users.
+      // Listening stats, one document per UTC day, so they survive a reinstall.
+      // `events` maps "<startMs>_<trackId>" to one listen.
+      match /listening/{day} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.keys().hasOnly(['events', 'updatedAt'])
+          && request.resource.data.events is map
+          && request.resource.data.events.size() <= 3000
+          && request.resource.data.updatedAt is number;
+        allow delete: if isOwner(uid);
+      }
+
+      // No other nested collections are used under users.
       match /{document=**} {
         allow read, write: if false;
       }

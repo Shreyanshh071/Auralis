@@ -8,7 +8,7 @@ data class DiscordRpcSettings(
     val discordToken: String = "",
     val enableRichPresence: Boolean = false,
     val activityStatus: String = "Online", // Online, Idle, DND
-    val updateIntervalSeconds: Int = 20,
+    val updateIntervalSeconds: Int = 5,
     val platform: String = "Android", // Android, Desktop, Web
     val activityName: String = "Auralis",
     val activityDetails: String = "Song title",
@@ -17,5 +17,5 @@ data class DiscordRpcSettings(
     val activityType: String = "Listening", // Listening, Playing, Streaming
     val largeImage: String = "Album artwork",
     val largeText: String = "Album name",
-    val smallImage: String = "Artist artwork"
+    val smallImage: String = "App logo"
 )

@@ -146,6 +146,22 @@ class StatsRepositoryImpl(
         }
     }
 
+    override suspend fun mergeChunkedListens() = withContext(Dispatchers.IO) {
+        statsMutationMutex.withLock {
+            val events = playbackEventDao.getAllEventsByTrack()
+            if (events.size < 2) return@withLock
+            val durations = events.map { it.trackId }.distinct()
+                .associateWith { (trackDao.getTrackById(it)?.duration ?: 0L) * 1000L }
+            val groups = com.auralis.music.domain.stats.ListenChunkMerger.findChunkedListens(
+                events.map { com.auralis.music.domain.stats.ListenChunkMerger.Event(it.id, it.trackId, it.timestamp, it.playTimeMs) }
+            ) { trackId -> durations[trackId] ?: 0L }
+            for (group in groups) {
+                playbackEventDao.setPlayTime(group.first().id, group.sumOf { it.playTimeMs })
+                playbackEventDao.deleteEvents(group.drop(1).map { it.id })
+            }
+        }
+    }
+
     override suspend fun clearListeningStats() = withContext(Dispatchers.IO) {
         statsMutationMutex.withLock {
             // The startup seed reads both of these legacy tables. Clear them before events
@@ -154,5 +170,6 @@ class StatsRepositoryImpl(
             playCountDao.clearPlayCounts()
             playbackEventDao.clearAllEvents()
         }
+        com.auralis.music.data.sync.StatsCloudSync.clearAccountStats()
     }
 }

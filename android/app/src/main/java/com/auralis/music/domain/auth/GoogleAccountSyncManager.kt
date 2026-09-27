@@ -388,6 +388,9 @@ class GoogleAccountSyncManager(
             _userProfile.value = updated
             persistProfile(updated)
 
+            // Signing in (e.g. after a reinstall) brings the account's listening stats back too.
+            com.auralis.music.data.sync.StatsCloudSync.restoreIfNeeded()
+            com.auralis.music.data.sync.StatsCloudSync.upload()
             _syncMessage.value = "Your cloud playlists and library were successfully restored!"
             return@withContext true
         } catch (e: Exception) {

@@ -146,9 +146,11 @@ class DiscordGatewayManager private constructor(private val context: Context) {
             val elapsed = now - lastPresenceAtMs
             val expectedPosition = lastPresencePositionMs + if (lastPresencePlaying) elapsed else 0L
             val seeked = abs(positionMs - expectedPosition) > 3_000L
-            // A refresh never takes one of the last slots Discord allows: those are for real changes.
+            // A refresh only goes out when nothing else was sent in Discord's whole rate window.
+            // Refreshes used to hold up to 3 of the 5 slots, so a seek right after a song change
+            // waited up to 20s for a free one and Discord showed the old position meanwhile.
             val refreshDue = refreshMs > 0L && elapsed >= refreshMs &&
-                rateLimitWaitMs(now) == 0L && recentSendsMs.size <= RATE_LIMIT_COUNT - 3
+                rateLimitWaitMs(now) == 0L && recentSendsMs.isEmpty()
             if (!force && key == lastPresenceKey && !seeked && !refreshDue) return
             lastPresenceKey = key
             lastPresenceAtMs = now

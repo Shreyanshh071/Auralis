@@ -116,4 +116,31 @@ class AlbumMetadataResolverTest {
         org.junit.Assert.assertFalse("Must never contain x", currents.albumTitle.contains(" x ", ignoreCase = true))
         org.junit.Assert.assertEquals("Tame Impala", currents.artistName)
     }
+
+    @Test
+    fun testCompilationTagIsNotTheHomeAlbum() {
+        assertTrue(AlbumMetadataResolver.isCompilation("This Is Music: The Singles 92-98"))
+        assertTrue(AlbumMetadataResolver.isCompilation("The Highlights"))
+        assertTrue(AlbumMetadataResolver.isCompilation("Greatest Hits"))
+        assertFalse(AlbumMetadataResolver.isCompilation("Urban Hymns"))
+        assertFalse(AlbumMetadataResolver.isCompilation("Currents"))
+        assertFalse(AlbumMetadataResolver.isCompilation("This Is Acting"))
+        assertFalse(AlbumMetadataResolver.isCompilation("Singles"))
+        assertEquals("Urban Hymns", AlbumMetadataResolver.cleanAlbumTitle("Urban Hymns (Deluxe / Remastered 2016)"))
+    }
+
+    @Test
+    fun testCompilationKnownAlbumResolvesToStudioAlbum() = kotlinx.coroutines.runBlocking {
+        AlbumMetadataResolver.clearCache()
+        val resolved = AlbumMetadataResolver.resolveAlbum(
+            trackTitle = "Bitter Sweet Symphony",
+            artistName = "The Verve",
+            knownAlbum = "This Is Music: The Singles 92-98",
+            innerTubeClient = com.auralis.music.data.network.InnerTubeClient()
+        )
+        org.junit.Assert.assertNotNull(resolved)
+        println("Resolved: ${resolved!!.albumTitle} id=${resolved.albumId}")
+        assertTrue("Expected Urban Hymns, got ${resolved.albumTitle}", resolved.albumTitle.contains("Urban Hymns", ignoreCase = true))
+        org.junit.Assert.assertNotNull("Needs a YTM album id to open", resolved.albumId)
+    }
 }

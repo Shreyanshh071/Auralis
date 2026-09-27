@@ -241,7 +241,86 @@ class SearchRepositoryImpl(
                     SearchQueryMatcher.MatchTier.CLOSE_TITLE
                 )
 
+            // An album named exactly like the query against the top song: the more listened one wins.
+            // An album's plays are the plays of its songs in these results (the title track counts
+            // for it too, so "after hours", "currents" and "starboy" open their albums when other
+            // songs of theirs show up). An album no result song belongs to has no proven listeners
+            // and never takes the spot from a song.
+            // Same play counts the top song is judged by (after merging in the official upload's
+            // count), so an album is never short-changed against its own title track.
+            val songsForPlays = (finalMatchedSongs + allSongs.map { upgradeTrackThumb(it) })
+                .groupBy { it.id }
+                .map { (_, copies) -> copies.maxByOrNull { SearchQueryMatcher.parsePlayCount(it.views) }!! }
+            fun albumPlays(album: PlaylistResult): Long {
+                val normAlbum = SearchQueryMatcher.normalize(album.title)
+                val byAlbumArtist = { song: Track -> SearchQueryMatcher.isAuthorMatch(song.artist, album.author.orEmpty()) }
+                return songsForPlays.filter { song ->
+                    (album.id.isNotBlank() && song.albumId == album.id) ||
+                        (song.album?.let { SearchQueryMatcher.normalize(it) } == normAlbum && byAlbumArtist(song)) ||
+                        // The title track, when this result came without its album (YouTube Music's
+                        // general results often leave it out and the songs-only search can fail).
+                        (song.album.isNullOrBlank() && SearchQueryMatcher.normalize(song.title) == normAlbum && byAlbumArtist(song))
+                }
+                    // One entry per song: a single's remix / instrumental / live cuts of the title
+                    // track are still one song, so they can't outvote the song itself.
+                    .groupBy { SearchQueryMatcher.normalize(AlbumMetadataResolver.cleanTrackTitle(it.title)) }
+                    .values.sumOf { versions -> versions.maxOf { SearchQueryMatcher.parsePlayCount(it.views) } }
+            }
+            // Several albums can share the name ("Currents"); the most listened one is meant.
+            // The album search sometimes misses the album everyone means, but its songs still name
+            // it ("After Hours" / MPREb_TH6Wut5eTMQ), so those count as candidates too.
+            val albumsFromSongs = songsForPlays
+                .filter { !it.albumId.isNullOrBlank() && it.album?.let { a -> SearchQueryMatcher.normalize(a) } == normQuery }
+                .map { PlaylistResult(id = it.albumId!!, title = it.album!!, thumbnail = it.thumbnail.ifBlank { null }, author = it.artist) }
+            val sameNameAlbums = (listOfNotNull(ytmAlbumResult?.album?.takeIf { isYtmAlbumValidMatch }) + allAlbums + albumsFromSongs)
+                .filter { SearchQueryMatcher.normalize(it.title) == normQuery }
+                .distinctBy { it.id }
+            // Search results say nothing about an album's popularity, and often contain none of its
+            // songs ("graduation": only same-titled songs by others, none from Kanye's album). So the
+            // leading candidates' own pages are read for their real per-track plays.
+            // Capped so a slow album page can't hold up the whole search; without it the album is
+            // judged by its songs in the results alone.
+            val pageInfo: Map<String, Pair<Long, Int>> = sameNameAlbums.take(2).map { album ->
+                async {
+                    album.id to (kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                        innerTubeClient.getAlbumPlays(album.id)
+                    } ?: (0L to 0))
+                }
+            }.associate { it.await() }
+            // A release of up to four tracks by the song's own artist, named like the song, is that
+            // song's single ("creep", "blinding lights"): it never outranks the song itself.
+            fun isSongsOwnSingle(album: PlaylistResult): Boolean {
+                val tracks = pageInfo[album.id]?.second ?: return false
+                val song = topMatchedSong ?: return false
+                return tracks in 1..4 && topSongIsExactTitle &&
+                    SearchQueryMatcher.isAuthorMatch(song.artist, album.author.orEmpty())
+            }
+            fun totalAlbumPlays(album: PlaylistResult): Long =
+                if (isSongsOwnSingle(album)) minOf(maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L), topSongViews)
+                else maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L)
+            val queriedAlbum = sameNameAlbums.maxByOrNull { totalAlbumPlays(it) }
+                ?: exactAlbumMatch ?: ytmAlbumResult?.album?.takeIf { isYtmAlbumValidMatch }
+            val queriedAlbumPlays = queriedAlbum?.let { totalAlbumPlays(it) } ?: 0L
+            // A same-named artist only keeps the spot when their songs here outplay the album: a small
+            // band called "Currents" must not hide Tame Impala's Currents; "radiohead" stays the artist.
+            val queriedArtistPlays = ytmArtistResult?.takeIf { isYtmArtistValidMatch }?.artist?.let { artist ->
+                songsForPlays.filter { SearchQueryMatcher.isAuthorMatch(it.artist, artist.name) }
+                    .sumOf { SearchQueryMatcher.parsePlayCount(it.views) }
+            } ?: 0L
+            val albumBeatsSong = queriedAlbum != null &&
+                // Strictly more: a single's only song is the song itself, so a tie means a single
+                // ("blinding lights", "creep") and the song keeps the spot.
+                queriedAlbumPlays > topSongViews &&
+                // Same artist, same name: the album must bring real listening beyond the song
+                // itself (After Hours 8.9B vs 644M), not just a remix on top of it ("creep": 2.302B
+                // single vs the 2.3B song).
+                !(topMatchedSong != null && topSongIsExactTitle &&
+                    SearchQueryMatcher.isAuthorMatch(topMatchedSong.artist, queriedAlbum.author.orEmpty()) &&
+                    queriedAlbumPlays < topSongViews + topSongViews / 10) &&
+                (!isYtmArtistValidMatch || queriedAlbumPlays > queriedArtistPlays)
+
             var resolvedTopResult: SearchTopResult? = when {
+                albumBeatsSong -> SearchTopResult.AlbumResult(queriedAlbum!!)
                 topSongWins -> {
                     SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
@@ -289,6 +368,24 @@ class SearchRepositoryImpl(
                 }
                 else -> null
             }
+
+            // Whatever lost the top spot on the same name is still what some people searched for:
+            // shown right under the top result instead of disappearing into the lists.
+            // Only something people actually play (1M+) and never under an artist top result, so
+            // it never shows an unknown 13K-play upload.
+            val runnerUpMinPlays = 1_000_000L
+            val runnerUp: SearchTopResult? = when {
+                resolvedTopResult is SearchTopResult.ArtistResult -> null
+                resolvedTopResult is SearchTopResult.AlbumResult && topMatchedSong != null && topSongIsExactTitle &&
+                    topSongViews >= runnerUpMinPlays ->
+                    SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong))
+                resolvedTopResult !is SearchTopResult.AlbumResult && queriedAlbum != null &&
+                    queriedAlbumPlays >= runnerUpMinPlays && !isSongsOwnSingle(queriedAlbum) ->
+                    SearchTopResult.AlbumResult(queriedAlbum)
+                else -> null
+            }
+            val runnerUpAlbumPlays = if (runnerUp is SearchTopResult.AlbumResult) queriedAlbumPlays
+                else (resolvedTopResult as? SearchTopResult.AlbumResult)?.let { queriedAlbumPlays } ?: 0L
 
             // Resolve Primary Artist (e.g. Radiohead for "OK Computer", Kanye West for "Graduation", Elley Duhé for "MIDDLE OF THE NIGHT")
             var primaryArtist: Artist? = when {
@@ -354,13 +451,17 @@ class SearchRepositoryImpl(
                 }
             }
 
+            // Set when the album service confirmed a full album, e.g. "After Hours" by The Weeknd:
+            // named like its title track, but 14 songs, not a single.
+            var albumConfirmedNotSingle = false
+
             // Resolve Primary Album (InnerTube get_queue / Apple Music specification)
             var primaryAlbum: PlaylistResult? = when {
                 resolvedTopResult is SearchTopResult.AlbumResult -> resolvedTopResult.album
                 resolvedTopResult is SearchTopResult.SongResult -> {
                     val track = resolvedTopResult.track
                     val targetArtist = primaryArtist?.name ?: track.artist
-                    val isRedundant = AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+                    val isRedundant = AlbumMetadataResolver.needsResolving(track.album, track.title)
 
                     // 1. If the track already has verified authentic studio album metadata
                     if (!isRedundant && !track.albumId.isNullOrBlank() && !track.album.isNullOrBlank()) {
@@ -377,6 +478,7 @@ class SearchRepositoryImpl(
                         } catch (_: Exception) { null }
 
                         if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank()) {
+                            albumConfirmedNotSingle = true
                             val updatedTrack = track.copy(
                                 album = resolved.albumTitle,
                                 albumId = resolved.albumId ?: track.albumId
@@ -394,7 +496,7 @@ class SearchRepositoryImpl(
                                 innerTubeClient.getSongDetails(track.id)
                             } catch (_: Exception) { null }
 
-                            if (detailedTrack != null && !detailedTrack.albumId.isNullOrBlank() && !detailedTrack.album.isNullOrBlank() && !AlbumMetadataResolver.isRedundantOrSingle(detailedTrack.album, track.title)) {
+                            if (detailedTrack != null && !detailedTrack.albumId.isNullOrBlank() && !detailedTrack.album.isNullOrBlank() && !AlbumMetadataResolver.needsResolving(detailedTrack.album, track.title)) {
                                 resolvedTopResult = SearchTopResult.SongResult(
                                     track.copy(
                                         album = detailedTrack.album,
@@ -425,7 +527,7 @@ class SearchRepositoryImpl(
             }
 
             // Suppress redundant album card if it just mirrors the song title as a single
-            if (primaryAlbum != null) {
+            if (primaryAlbum != null && !albumConfirmedNotSingle) {
                 val topSongTitle = (resolvedTopResult as? SearchTopResult.SongResult)?.track?.title ?: ""
                 if (AlbumMetadataResolver.isRedundantOrSingle(primaryAlbum.title, topSongTitle)) {
                     primaryAlbum = null
@@ -470,7 +572,9 @@ class SearchRepositoryImpl(
                 artists = finalArtists,
                 playlists = generalResults.playlists,
                 primaryArtist = primaryArtist,
-                primaryAlbum = primaryAlbum
+                primaryAlbum = primaryAlbum,
+                runnerUp = runnerUp,
+                albumPlays = runnerUpAlbumPlays
             )
         }
     }

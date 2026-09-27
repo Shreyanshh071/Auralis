@@ -63,6 +63,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import com.auralis.music.ui.components.UnfoldIn
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -127,6 +129,8 @@ fun StatsScreen(
     var showClearConfirmation by remember { mutableStateOf(false) }
     var isClearingStats by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    // When the screen opened: cards unfold in only during the first moments, never on scroll.
+    val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
 
     val isDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
     val themePrimary = MaterialTheme.dynamicPrimary
@@ -326,7 +330,7 @@ fun StatsScreen(
                 if (topArtist != null || topSong != null) {
                     item(key = "your_highlights") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
+                            UnfoldIn(0, openedAtMs) { Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -344,10 +348,10 @@ fun StatsScreen(
                                     ),
                                     color = themePrimary
                                 )
-                            }
+                            } }
 
                             // Card 1: Top Artist
-                            topArtist?.let { artist ->
+                            topArtist?.let { artist -> UnfoldIn(1, openedAtMs) {
                                 Surface(
                                     shape = RoundedCornerShape(22.dp),
                                     color = surfaceCardColor,
@@ -441,10 +445,10 @@ fun StatsScreen(
                                         }
                                     }
                                 }
-                            }
+                            } }
 
                             // Card 2: Top Song
-                            topSong?.let { song ->
+                            topSong?.let { song -> UnfoldIn(2, openedAtMs) {
                                 Surface(
                                     shape = RoundedCornerShape(22.dp),
                                     color = surfaceCardColor,
@@ -524,7 +528,7 @@ fun StatsScreen(
                                         }
                                     }
                                 }
-                            }
+                            } }
                         }
                     }
                 }
@@ -532,16 +536,17 @@ fun StatsScreen(
                 // Section: Listening Overview
                 item(key = "listening_overview") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
+                        UnfoldIn(3, openedAtMs) { Text(
                             text = "Listening Overview",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp
                             ),
                             color = themePrimary
-                        )
+                        ) }
 
                         // Hero Card: Total Time Listened
+                        UnfoldIn(4, openedAtMs) {
                         Surface(
                             shape = RoundedCornerShape(24.dp),
                             color = surfaceCardColor,
@@ -620,8 +625,10 @@ fun StatsScreen(
                                 }
                             }
                         }
+                        }
 
                         // Row of 3 mini metric cards
+                        UnfoldIn(5, openedAtMs) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -671,12 +678,13 @@ fun StatsScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        }
                     }
                 }
 
                 // Section: Top Songs
                 if (topSongs.isNotEmpty()) {
-                    item(key = "top_songs_header") {
+                    item(key = "top_songs_header") { UnfoldIn(6, openedAtMs) {
                         Text(
                             text = "Top Songs",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -685,9 +693,9 @@ fun StatsScreen(
                             ),
                             color = themePrimary
                         )
-                    }
+                    } }
 
-                    itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat ->
+                    itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -755,12 +763,12 @@ fun StatsScreen(
                                 )
                             }
                         }
-                    }
+                    } }
                 }
 
                 // Section: Top Artists
                 if (topArtists.isNotEmpty()) {
-                    item(key = "top_artists_header") {
+                    item(key = "top_artists_header") { UnfoldIn(14, openedAtMs) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "Top Artists",
@@ -770,9 +778,9 @@ fun StatsScreen(
                             ),
                             color = themePrimary
                         )
-                    }
+                    } }
 
-                    itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat ->
+                    itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -833,7 +841,7 @@ fun StatsScreen(
                                 )
                             }
                         }
-                    }
+                    } }
                 }
 
                 // Empty state if no stats at all

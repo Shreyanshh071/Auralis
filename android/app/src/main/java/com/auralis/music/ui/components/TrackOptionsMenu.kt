@@ -21,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -56,6 +57,7 @@ fun TrackOptionsMenu(
     onToggleFavorite: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onRemoveFromQueue: (() -> Unit)? = null,
     onStartRadio: (() -> Unit)? = null,
     onPinToSpeedDial: (() -> Unit)? = null,
     isPinned: Boolean = false,
@@ -74,7 +76,13 @@ fun TrackOptionsMenu(
     val coroutineScope = rememberCoroutineScope()
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
-    val actionCardColor = MaterialTheme.colorScheme.surfaceVariant
+    // surfaceVariant alone reads near-white under artwork-derived (dynamic) palettes;
+    // pulled 40% back toward the sheet so the cards stay distinct but calm.
+    val actionCardColor = androidx.compose.ui.graphics.lerp(
+        MaterialTheme.colorScheme.surface,
+        MaterialTheme.colorScheme.surfaceVariant,
+        0.6f
+    )
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -87,7 +95,7 @@ fun TrackOptionsMenu(
         AlbumMetadataResolver.getCached(track.title, track.artist)
     }
     val isRedundantTrackAlbum = remember(track.album, track.title) {
-        AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
+        AlbumMetadataResolver.needsResolving(track.album, track.title)
     }
 
     val initialAlbumName = when {
@@ -105,6 +113,9 @@ fun TrackOptionsMenu(
     var resolvedAlbumId by remember(track.id) { mutableStateOf(initialAlbumId) }
     var resolvedArtistName by remember(track.id) { mutableStateOf(cachedAlbum?.artistName) }
     var resolvedAlbumArt by remember(track.id) { mutableStateOf(cachedAlbum?.albumArt) }
+    // Whether the album lookup has finished (or wasn't needed), and whether it found a single.
+    var albumLookupDone by remember(track.id) { mutableStateOf(initialAlbumName != null && initialAlbumId != null) }
+    var isKnownSingle by remember(track.id) { mutableStateOf(cachedAlbum?.isSingle == true) }
 
     LaunchedEffect(track.id, track.title, track.artist, track.album) {
         if (resolvedAlbumName.isNullOrBlank() || resolvedAlbumId.isNullOrBlank() ||
@@ -114,6 +125,7 @@ fun TrackOptionsMenu(
                 artistName = track.artist,
                 knownAlbum = track.album
             )
+            if (resolved?.isSingle == true) isKnownSingle = true
             if (resolved != null && !resolved.albumTitle.isNullOrBlank() && !resolved.isSingle) {
                 val keepExistingTitle = !isRedundantTrackAlbum && !track.album.isNullOrBlank()
                 if (!keepExistingTitle || resolved.albumTitle.contains(track.album!!, ignoreCase = true) || track.album!!.contains(resolved.albumTitle, ignoreCase = true)) {
@@ -124,11 +136,31 @@ fun TrackOptionsMenu(
                 resolvedAlbumArt = resolved.albumArt
             }
         }
+        if (resolvedAlbumName.isNullOrBlank() && AlbumMetadataResolver.needsResolving(track.album, track.title)) {
+            // No parent album found. Ask YouTube Music which release this exact video belongs to
+            // when the track arrived without one (radio, queue restore); iTunes often doesn't list
+            // the song at all, so "nothing found" there proves nothing.
+            val release = if (track.album.isNullOrBlank()) runCatching {
+                com.auralis.music.data.network.InnerTubeClient().getQueue(listOf(track.id)).firstOrNull()
+            }.getOrNull() else null
+            val releaseTitle = release?.album ?: track.album
+            when {
+                releaseTitle.isNullOrBlank() -> Unit
+                // A release named after the song is the song's own single.
+                AlbumMetadataResolver.isRedundantOrSingle(releaseTitle, track.title) -> isKnownSingle = true
+                !AlbumMetadataResolver.isCompilation(releaseTitle) && release?.albumId != null -> {
+                    resolvedAlbumName = releaseTitle
+                    resolvedAlbumId = release.albumId
+                }
+            }
+        }
+        albumLookupDone = true
     }
 
-    val displayAlbum = resolvedAlbumName
+    // null = no real album. Never a placeholder: "Album" used to be opened as a search for an
+    // album literally called "Album", showing some unrelated record.
+    val displayAlbum: String? = resolvedAlbumName
         ?: track.album.takeIf { !it.isNullOrBlank() && !AlbumMetadataResolver.isRedundantOrSingle(it, track.title) }
-        ?: "Album"
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -381,6 +413,22 @@ fun TrackOptionsMenu(
                                 onDismiss()
                             }
                         )
+
+                        if (onRemoveFromQueue != null) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                            TrackOptionRow(
+                                icon = Icons.Default.RemoveCircleOutline,
+                                title = "Remove from queue",
+                                subtitle = "Take this song out of Up Next",
+                                onClick = {
+                                    onRemoveFromQueue()
+                                    onDismiss()
+                                }
+                            )
+                        }
                     }
 
                     // ── GROUP 2: PIN TO SPEED DIAL ──
@@ -484,13 +532,19 @@ fun TrackOptionsMenu(
                         TrackOptionRow(
                             icon = Icons.Default.Album,
                             title = "View album",
-                            subtitle = displayAlbum,
+                            subtitle = displayAlbum ?: when {
+                                !albumLookupDone -> "Finding album…"
+                                isKnownSingle -> "Single · not part of an album"
+                                else -> "No album for this song"
+                            },
+                            enabled = displayAlbum != null,
                             onClick = {
+                                val albumTitle = displayAlbum ?: return@TrackOptionRow
                                 val targetAlbumId = resolvedAlbumId
                                     ?: track.albumId.takeIf { !AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title) }
                                 onGoToAlbum?.invoke(
                                     targetAlbumId,
-                                    displayAlbum,
+                                    albumTitle,
                                     resolvedArtistName ?: track.artist,
                                     resolvedAlbumArt ?: track.thumbnail
                                 )
@@ -698,12 +752,14 @@ private fun TrackOptionRow(
     subtitle: String? = null,
     iconTint: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .alpha(if (enabled) 1f else 0.5f)
+            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

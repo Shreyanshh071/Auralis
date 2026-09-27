@@ -421,6 +421,7 @@ fun NowPlayingModal(
     onSleepTimerSelect: (Int) -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
     onReorderQueue: ((Int, Int) -> Unit)? = null,
+    onRemoveQueueItem: ((Int) -> Unit)? = null,
     onLyricsOffsetChange: (Long) -> Unit = {},
     onSearchLyricsManually: ((String, String) -> Unit)? = null,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
@@ -717,6 +718,8 @@ fun NowPlayingModal(
     var showAudioOutputSheet by remember { mutableStateOf(false) }
     var showTrackOptions by remember { mutableStateOf(false) }
     var queueOptionsTrack by remember { mutableStateOf<Track?>(null) }
+    // The tapped row's queue position: the same song can sit in the queue twice.
+    var queueOptionsIndex by remember { mutableIntStateOf(-1) }
     var showOffsetControls by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(true) }
     var showManualLyricsSearch by remember { mutableStateOf(false) }
@@ -1505,7 +1508,10 @@ fun NowPlayingModal(
                                                     )
                                                 }
                                                 IconButton(
-                                                    onClick = { queueOptionsTrack = item.track },
+                                                    onClick = {
+                                                        queueOptionsIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
+                                                        queueOptionsTrack = item.track
+                                                    },
                                                     modifier = Modifier.size(40.dp)
                                                 ) {
                                                     Icon(
@@ -2017,7 +2023,10 @@ fun NowPlayingModal(
                     onSelectQueueTrack = onSelectQueueTrack,
                     onReorderQueue = onReorderQueue,
                     onShowTrackOptions = { showTrackOptions = true },
-                    onShowQueueTrackOptions = { queueOptionsTrack = it },
+                    onShowQueueTrackOptions = {
+                        queueOptionsIndex = -1
+                        queueOptionsTrack = it
+                    },
                     onShowSleepDialog = { showSleepDialog = true },
                     onShowOutputPicker = { showAudioOutputSheet = true },
                     lyricsPositionState = lyricsPositionState,
@@ -2081,6 +2090,12 @@ fun NowPlayingModal(
             onToggleFavorite = { onToggleFavoriteTrack(selectedTrack) },
             onPlayNext = { onPlayNextTrack(selectedTrack) },
             onAddToQueue = { onAddToQueueTrack(selectedTrack) },
+            onRemoveFromQueue = onRemoveQueueItem?.let { remove ->
+                val removeIndex = queueOptionsIndex.takeIf { uiState.queue.getOrNull(it)?.id == selectedTrack.id }
+                    ?: uiState.queue.indexOfFirst { it.id == selectedTrack.id }
+                // The song that is playing is not "up next"; skipping it is a separate action.
+                if (removeIndex < 0 || removeIndex == uiState.currentIndex) null else { { remove(removeIndex) } }
+            },
             onStartRadio = { onStartRadioTrack(selectedTrack) },
             onGoToArtist = {
                 onArtistClick?.invoke(com.auralis.music.domain.model.Artist(
@@ -2306,6 +2321,7 @@ fun NowPlayingSheet(
     onSleepTimerSelect: (Int) -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
     onReorderQueue: ((Int, Int) -> Unit)? = null,
+    onRemoveQueueItem: ((Int) -> Unit)? = null,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onPlayNext: () -> Unit = {},
@@ -2340,6 +2356,7 @@ fun NowPlayingSheet(
         onSleepTimerSelect = onSleepTimerSelect,
         onSelectQueueTrack = onSelectQueueTrack,
         onReorderQueue = onReorderQueue,
+        onRemoveQueueItem = onRemoveQueueItem,
         onLyricsOffsetChange = onLyricsOffsetChange,
         onAddToPlaylist = onAddToPlaylist,
         onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,

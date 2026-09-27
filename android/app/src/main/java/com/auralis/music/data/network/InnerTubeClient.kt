@@ -17,6 +17,7 @@ open class InnerTubeClient(
     private val client: OkHttpClient = NetworkClientProvider.okHttpClient
 ) {
     companion object {
+        private val ALBUM_TRACK_PLAYS = Regex("\"text\":\"([0-9.,]+[KMB]?) plays\"")
         private const val YT_MUSIC_API = "https://music.youtube.com/youtubei/v1"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -121,6 +122,48 @@ open class InnerTubeClient(
     }
 
     /**
+     * Total plays of an album: the sum of the per-track "N plays" on its YouTube Music page
+     * (for a release of four tracks or fewer, its biggest track only).
+     * Search results carry no popularity for albums, so this is how an album named like the query
+     * ("graduation" -> Kanye West's Graduation) is weighed against a same-named song.
+     * Returns 0 when the page can't be read.
+     */
+    open suspend fun getAlbumTotalPlays(browseId: String): Long = getAlbumPlays(browseId).first
+
+    /** (total plays, number of tracks with a play count) from the album's page; (0, 0) if unreadable. */
+    open suspend fun getAlbumPlays(browseId: String): Pair<Long, Int> = withContext(Dispatchers.IO) {
+        if (!browseId.startsWith("MPRE")) return@withContext 0L to 0
+        try {
+            val payload = JSONObject().apply {
+                put("context", JSONObject().put("client", JSONObject().apply {
+                    put("clientName", "WEB_REMIX")
+                    put("clientVersion", "1.20241028.01.00")
+                    put("hl", "en")
+                    put("gl", "US")
+                }))
+                put("browseId", browseId)
+            }
+            val request = Request.Builder()
+                .url("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+            val body = client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string() else null }
+                ?: return@withContext 0L to 0
+            val trackPlays = ALBUM_TRACK_PLAYS.findAll(body).map {
+                com.auralis.music.domain.search.SearchQueryMatcher.parsePlayCount(it.groupValues[1] + " plays")
+            }.toList()
+            // A single or short EP is mostly versions of one song (remix, instrumental, sped up):
+            // summing those would let a single outvote its own song, so it counts its biggest track.
+            (if (trackPlays.size <= 4) trackPlays.maxOrNull() ?: 0L else trackPlays.sum()) to trackPlays.size
+        } catch (_: Exception) {
+            0L to 0
+        }
+    }
+
+    /**
      * Calls YouTube Music get_queue endpoint
      * to fetch verified authentic track metadata including real album, artist, and duration.
      */
@@ -218,7 +261,7 @@ open class InnerTubeClient(
      */
     open suspend fun getSongDetails(videoId: String): Track? = withContext(Dispatchers.IO) {
         val qTrack = getQueue(listOf(videoId)).firstOrNull() ?: return@withContext null
-        if (AlbumMetadataResolver.isRedundantOrSingle(qTrack.album, qTrack.title)) {
+        if (AlbumMetadataResolver.needsResolving(qTrack.album, qTrack.title)) {
             val resolved = AlbumMetadataResolver.resolveAlbum(qTrack.title, qTrack.artist)
             if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank()) {
                 return@withContext qTrack.copy(

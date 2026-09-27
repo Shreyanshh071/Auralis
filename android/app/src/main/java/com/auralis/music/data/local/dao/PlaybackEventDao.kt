@@ -24,7 +24,26 @@ data class PlaybackEventWithTrackTuple(
 @Dao
 interface PlaybackEventDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEvent(event: PlaybackEventEntity)
+    suspend fun insertEvent(event: PlaybackEventEntity): Long
+
+    /** Adds time to a listen still in progress. Returns 0 if the row is gone (stats cleared). */
+    @Query("UPDATE playback_events SET playTimeMs = playTimeMs + :addMs WHERE id = :id")
+    suspend fun addPlayTime(id: Long, addMs: Long): Int
+
+    @Query("SELECT * FROM playback_events ORDER BY trackId, timestamp")
+    suspend fun getAllEventsByTrack(): List<PlaybackEventEntity>
+
+    @Query("SELECT * FROM playback_events WHERE timestamp >= :fromTimestamp ORDER BY timestamp")
+    suspend fun getEventsSince(fromTimestamp: Long): List<PlaybackEventEntity>
+
+    @Query("DELETE FROM playback_events WHERE id IN (:ids)")
+    suspend fun deleteEvents(ids: List<Long>)
+
+    @Query("UPDATE playback_events SET playTimeMs = :playTimeMs WHERE id = :id")
+    suspend fun setPlayTime(id: Long, playTimeMs: Long)
+
+    @Query("SELECT COUNT(*) FROM playback_events WHERE trackId = :trackId AND timestamp BETWEEN :from AND :to")
+    suspend fun countEventsNear(trackId: String, from: Long, to: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvents(events: List<PlaybackEventEntity>)

@@ -16,6 +16,7 @@ import com.auralis.music.R
 import com.auralis.music.ui.components.rememberShimmerBrush
 import com.auralis.music.ui.components.tactileBounce
 import androidx.compose.foundation.lazy.LazyColumn
+import com.auralis.music.ui.components.UnfoldIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
@@ -142,6 +143,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    // When Home first appeared: its sections unfold in only during the first moments after launch.
+    val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedAlbumForMenu by remember { mutableStateOf<PlaylistResult?>(null) }
     var activeMood by remember { mutableStateOf<String?>(null) }
@@ -167,7 +170,7 @@ fun HomeScreen(
                 // ================================================================
                 // 1. TOP APP BAR: "Home" Title + Action Icons
                 // ================================================================
-                item(key = "home_top_bar", contentType = "header") {
+                item(key = "home_top_bar", contentType = "header") { UnfoldIn(0, openedAtMs) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -229,7 +232,7 @@ fun HomeScreen(
                             }
                         }
                     }
-                }
+                } }
 
             // ── SKELETON GHOST TILES ON INITIAL LOAD ──
             if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
@@ -243,7 +246,7 @@ fun HomeScreen(
                 // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
                 // ================================================================
                 if (uiState.speedDialPages.isNotEmpty()) {
-                    item(key = "home_speed_dial", contentType = "speed_dial") {
+                    item(key = "home_speed_dial", contentType = "speed_dial") { UnfoldIn(1, openedAtMs) {
                         Text(
                             text = "Speed dial",
                             style = MaterialTheme.typography.titleLarge,
@@ -372,7 +375,7 @@ fun HomeScreen(
                                 }
                             }
                         }
-                    }
+                    } }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -402,7 +405,7 @@ fun HomeScreen(
             // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
             // ================================================================
             if (uiState.quickPicks.isNotEmpty()) {
-                item(key = "home_quick_picks", contentType = "quick_picks") {
+                item(key = "home_quick_picks", contentType = "quick_picks") { UnfoldIn(2, openedAtMs) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -540,7 +543,7 @@ fun HomeScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(18.dp))
-                }
+                } }
             }
 
             // ================================================================
@@ -548,7 +551,7 @@ fun HomeScreen(
             // ================================================================
             val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
             if (keepList.isNotEmpty()) {
-                item(key = "home_keep_listening", contentType = "keep_listening") {
+                item(key = "home_keep_listening", contentType = "keep_listening") { UnfoldIn(3, openedAtMs) {
                     Text(
                         text = "Keep listening",
                         style = MaterialTheme.typography.titleLarge,
@@ -605,7 +608,7 @@ fun HomeScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(18.dp))
-                }
+                } }
             }
 
             // ================================================================
@@ -613,7 +616,7 @@ fun HomeScreen(
             // ================================================================
             uiState.similarRecommendations.forEachIndexed { idx, simRec ->
                 if (simRec.items.isNotEmpty()) {
-                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") {
+                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { UnfoldIn(4 + idx, openedAtMs) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -710,7 +713,7 @@ fun HomeScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(18.dp))
-                    }
+                    } }
                 }
             }
 
@@ -719,7 +722,7 @@ fun HomeScreen(
             // ================================================================
             uiState.dynamicSections.forEachIndexed { sIdx, section ->
                 if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
-                    item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") {
+                    item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") { UnfoldIn(6 + sIdx, openedAtMs) {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
                                 text = section.title,
@@ -830,7 +833,7 @@ fun HomeScreen(
                             }
                             Spacer(modifier = Modifier.height(14.dp))
                         }
-                    }
+                    } }
                     }
                 }
             }

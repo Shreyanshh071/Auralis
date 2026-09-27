@@ -56,7 +56,7 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
                 volume = preferences[VOLUME] ?: 1.0f,
                 isMuted = preferences[IS_MUTED] ?: false,
                 themeMode = parseEnum(preferences[THEME_MODE], ThemeMode.SYSTEM),
-                audioQuality = parseEnum(preferences[AUDIO_QUALITY], AudioQuality.AUTO),
+                audioQuality = parseEnum(preferences[AUDIO_QUALITY], AudioQuality.HIGH),
                 gaplessPlayback = preferences[GAPLESS_PLAYBACK] ?: true,
                 skipSilence = preferences[SKIP_SILENCE] ?: false,
                 persistentQueue = preferences[PERSISTENT_QUEUE] ?: true,
