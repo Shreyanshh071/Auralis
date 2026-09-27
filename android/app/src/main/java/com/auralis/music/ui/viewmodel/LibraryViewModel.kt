@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -680,6 +681,56 @@ class LibraryViewModel(
                         importMessage = e.localizedMessage ?: "Failed to import playlist"
                     )
                 }
+            }
+        }
+    }
+
+    /**
+     * Imports playlists picked from the signed-in YouTube Music library, one after another.
+     * Liked Music goes into liked songs; a playlist already here (same title) is updated in place
+     * rather than duplicated, so importing again refreshes it.
+     */
+    fun importYouTubeLibraryPlaylists(selected: List<com.auralis.music.data.network.YouTubeMusicLibrary.LibraryPlaylist>) {
+        if (selected.isEmpty()) return
+        _uiState.update { it.copy(isImporting = true, importMessage = null) }
+        viewModelScope.launch {
+            var imported = 0
+            var failed = 0
+            for ((index, item) in selected.withIndex()) {
+                _uiState.update { it.copy(importMessage = "Importing ${index + 1} of ${selected.size}: ${item.title}") }
+                try {
+                    val remote = youtubeImporter.importPlaylistById(item.id)
+                    if (remote == null) {
+                        failed++
+                        continue
+                    }
+                    if (item.isLikedMusic) {
+                        remote.tracks.forEach { libraryRepository.setFavorite(it, true) }
+                    } else {
+                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail ?: remote.tracks.firstOrNull()?.thumbnail
+                        val existing = libraryRepository.getPlaylists().first()
+                            .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
+                        val playlistId = if (existing != null) {
+                            libraryRepository.updatePlaylist(existing.id, existing.title, existing.description, cover)
+                            existing.id
+                        } else {
+                            libraryRepository.createPlaylist(item.title, remote.description, cover).id
+                        }
+                        libraryRepository.replacePlaylistTracks(playlistId, remote.tracks)
+                    }
+                    imported++
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed++
+                }
+            }
+            val noun = if (imported == 1) "playlist" else "playlists"
+            _uiState.update {
+                it.copy(
+                    isImporting = false,
+                    importMessage = if (failed == 0) "Imported $imported $noun" else "Imported $imported $noun, $failed couldn't be read"
+                )
             }
         }
     }

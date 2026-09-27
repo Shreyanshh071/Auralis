@@ -122,6 +122,8 @@ class YouTubePlaylistImporter(
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
                 .header("Referer", "https://music.youtube.com/")
                 .header("Origin", "https://music.youtube.com")
+                // Signed in to YouTube: private playlists and Liked Music read too.
+                .apply { YouTubeMusicLibrary.signedInHeaders().forEach { (k, v) -> header(k, v) } }
                 .build()
 
             val initialResponse = client.newCall(initialRequest).execute()
@@ -156,6 +158,7 @@ class YouTubePlaylistImporter(
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
                         .header("Referer", "https://music.youtube.com/")
                         .header("Origin", "https://music.youtube.com")
+                        .apply { YouTubeMusicLibrary.signedInHeaders().forEach { (k, v) -> header(k, v) } }
                         .build()
 
                     val contResponse = client.newCall(contRequest).execute()

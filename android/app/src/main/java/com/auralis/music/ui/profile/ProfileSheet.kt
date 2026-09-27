@@ -102,6 +102,8 @@ val PROFILE_CARD_BG: Color
 fun ProfileSheet(
     authUiState: AuthUiState,
     onImportYouTubePlaylist: (String) -> Unit = {},
+    /** Playlists picked from the signed-in YouTube Music library (Profile > YouTube account). */
+    onImportYouTubeLibraryPlaylists: (List<com.auralis.music.data.network.YouTubeMusicLibrary.LibraryPlaylist>) -> Unit = {},
     onClearYouTubeImportMessage: () -> Unit = {},
     isImportingYouTube: Boolean = false,
     youtubeImportMessage: String? = null,
@@ -913,7 +915,10 @@ fun ProfileSheet(
     AuralisPushedPage(page = subPage) { page ->
         when (page) {
             ProfileSubPage.YOUTUBE -> com.auralis.music.ui.screens.YouTubeAccountScreen(
-                onDismiss = { isYouTubeAccountOpen = false }
+                onDismiss = { isYouTubeAccountOpen = false },
+                isImporting = isImportingYouTube,
+                importMessage = youtubeImportMessage,
+                onImportPlaylists = onImportYouTubeLibraryPlaylists
             )
             ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
                 onDismiss = { isDiscordIntegrationOpen = false }

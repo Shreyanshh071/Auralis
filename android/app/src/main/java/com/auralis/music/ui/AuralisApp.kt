@@ -1460,6 +1460,7 @@ fun AuralisApp(
                         com.auralis.music.ui.theme.ArtworkPaletteCache.clear()
                     },
                     onImportYouTubePlaylist = { libVM.importYouTubePlaylist(it) },
+                    onImportYouTubeLibraryPlaylists = { libVM.importYouTubeLibraryPlaylists(it) },
                     onClearYouTubeImportMessage = { libVM.clearYouTubeImportMessage() },
                     isImportingYouTube = libraryUiState.isImporting,
                     youtubeImportMessage = libraryUiState.importMessage,

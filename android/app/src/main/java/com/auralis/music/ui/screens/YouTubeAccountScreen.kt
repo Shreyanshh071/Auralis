@@ -8,6 +8,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,9 +29,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,6 +44,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.theme.dynamicBackground
 import kotlinx.coroutines.CompletableDeferred
@@ -75,7 +83,12 @@ private const val SIGN_IN_URL = "https://accounts.google.com/ServiceLogin?contin
  * account YouTube never sees, so these songs need the user to sign in to YouTube itself.
  */
 @Composable
-fun YouTubeAccountScreen(onDismiss: () -> Unit) {
+fun YouTubeAccountScreen(
+    onDismiss: () -> Unit,
+    isImporting: Boolean = false,
+    importMessage: String? = null,
+    onImportPlaylists: (List<YouTubeMusicLibrary.LibraryPlaylist>) -> Unit = {}
+) {
     val signedIn by YouTubeSession.signedIn.collectAsState()
     val accountLabel by YouTubeSession.accountLabel.collectAsState()
     var isSigningIn by remember { mutableStateOf(false) }
@@ -216,10 +229,185 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "Your YouTube sign-in stays on this phone. Auralis only sends it to YouTube, " +
-                            "only for age-restricted songs, and never to Auralis's servers.",
+                            "to download age-restricted songs and to read your playlists when you import them, " +
+                            "and never to Auralis's servers.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
+                    )
+                }
+
+                if (signedIn) {
+                    Spacer(Modifier.height(24.dp))
+                    YouTubeLibrarySection(isImporting, importMessage, onImportPlaylists)
+                    Spacer(Modifier.height(24.dp))
+                }
+            }
+        }
+    }
+}
+
+/** The signed-in user's YouTube Music playlists, to pick and import instead of pasting links. */
+@Composable
+private fun YouTubeLibrarySection(
+    isImporting: Boolean,
+    importMessage: String?,
+    onImport: (List<YouTubeMusicLibrary.LibraryPlaylist>) -> Unit
+) {
+    var playlists by remember { mutableStateOf<List<YouTubeMusicLibrary.LibraryPlaylist>?>(null) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
+    val selected = remember { mutableStateListOf<String>() }
+
+    LaunchedEffect(reloadKey) {
+        loadFailed = false
+        val result = YouTubeMusicLibrary.fetchPlaylists()
+        playlists = result
+        loadFailed = result == null
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+        ) {
+            Text(
+                text = "Your YouTube Music playlists",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 16.sp
+            )
+            val all = playlists.orEmpty()
+            if (all.isNotEmpty()) {
+                val allSelected = selected.size == all.size
+                TextButton(onClick = {
+                    selected.clear()
+                    if (!allSelected) selected.addAll(all.map { it.id })
+                }) {
+                    Text(if (allSelected) "Clear" else "Select all", color = YOUTUBE_RED)
+                }
+            }
+        }
+        Text(
+            text = "Private playlists included. Liked Music is added to your liked songs; " +
+                "importing a playlist you already have updates it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        Spacer(Modifier.height(10.dp))
+
+        val list = playlists
+        when {
+            list == null && !loadFailed -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = YOUTUBE_RED, modifier = Modifier.size(28.dp))
+            }
+            list == null -> Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Couldn't load your playlists from YouTube Music.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp
+                )
+                TextButton(onClick = { reloadKey++ }) { Text("Try again", color = YOUTUBE_RED) }
+            }
+            else -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                        .padding(vertical = 4.dp)
+                ) {
+                    list.forEach { item ->
+                        val checked = item.id in selected
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isImporting) {
+                                    if (checked) selected.remove(item.id) else selected.add(item.id)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (item.isLikedMusic || item.thumbnail == null) {
+                                    Icon(
+                                        imageVector = if (item.isLikedMusic) Icons.Default.Favorite else Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = YOUTUBE_RED,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                } else {
+                                    coil.compose.AsyncImage(
+                                        model = item.thumbnail,
+                                        contentDescription = null,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = item.title,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                if (item.subtitle.isNotBlank()) {
+                                    Text(
+                                        text = item.subtitle,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Checkbox(
+                                checked = checked,
+                                enabled = !isImporting,
+                                onCheckedChange = { on -> if (on) selected.add(item.id) else selected.remove(item.id) },
+                                colors = CheckboxDefaults.colors(checkedColor = YOUTUBE_RED)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = { onImport(list.filter { it.id in selected }) },
+                    enabled = selected.isNotEmpty() && !isImporting,
+                    colors = ButtonDefaults.buttonColors(containerColor = YOUTUBE_RED, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = when {
+                            isImporting -> "Importing..."
+                            selected.isEmpty() -> "Select playlists to import"
+                            else -> "Import ${selected.size} ${if (selected.size == 1) "playlist" else "playlists"}"
+                        },
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                importMessage?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
                     )
                 }
             }
