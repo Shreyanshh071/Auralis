@@ -10,8 +10,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.ByteString.Companion.decodeBase64
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Musixmatch word sync (RichSync), line sync and plain lyrics. The only source with word timing
@@ -25,15 +34,23 @@ class MusixmatchLyricsSource(
     override val supportedSyncTypes: Set<SyncType> = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC, SyncType.PLAIN)
 
     companion object {
-        // The desktop app id now gets an all-zero token and decoy results ("Casual" by Doja Cat
-        // for every search); the Android app id still gets a real token and real results.
+        // Requests are signed the way musixmatch.com's own web player signs them (HMAC-SHA256 of
+        // the URL plus the UTC date, keyed by a secret shipped in the site's JavaScript). Unsigned
+        // calls get an all-zero token and decoy results ("Casual" by Doja Cat for every search)
+        // or a "captcha" refusal; signed ones get real results. Same approach as Vivi Music.
         private const val API_BASE = "https://apic.musixmatch.com/ws/1.1"
-        private const val APP_ID = "android-player-v1.0"
-        private const val USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 13)"
-        /** After Musixmatch answers "captcha", stay away this long instead of asking every song. */
+        private const val APP_ID = "mobile-app-v1.0"
+        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        /** Used when the secret can't be read from the site. */
+        private const val FALLBACK_SECRET = "b3dc8788299f5806a70a6a20a0cb0ffc"
+        private val APP_JS_REGEX = Regex("""src="([^"]*/_next/static/chunks/pages/_app-[^"]+\.js)"""")
+        private val SECRET_REGEX = Regex("""from\(\s*"(.*?)"\s*\.split""")
+        /** After Musixmatch refuses ("captcha"), stay away this long instead of asking every song. */
         private const val CAPTCHA_BACKOFF_MS = 30L * 60_000L
 
-        // One token per app run, shared by every instance: token.get is the rate-limited call.
+        // One secret and token per app run, shared by every instance.
+        private val guid = UUID.randomUUID().toString()
+        @Volatile private var secret: String? = null
         @Volatile private var token: String? = null
         @Volatile private var blockedUntilMs = 0L
     }
@@ -64,7 +81,7 @@ class MusixmatchLyricsSource(
             "q_track=${enc(cleanTitle)}&q_artist=${enc(primaryArtist)}&s_track_rating=desc",
             "q=${enc("$cleanTitle $cleanArtist".trim())}"
         )) {
-            val list = apiGet("track.search", "$params&page_size=6")?.optJSONArray("track_list") ?: continue
+            val list = apiGet("track.search", "$params&f_has_lyrics=true&page_size=6")?.optJSONArray("track_list") ?: continue
             for (i in 0 until list.length()) {
                 val t = MxmTrack(list.optJSONObject(i)?.optJSONObject("track") ?: continue)
                 if (t.id != 0L) found.putIfAbsent(t.id, t)
@@ -98,9 +115,37 @@ class MusixmatchLyricsSource(
         candidateDurationSec = t.lengthSec.takeIf { it > 0L }
     )
 
-    /** GET [url] and return its message (header + body), or null. Starts the back-off on "captcha". */
+    private fun fetchText(url: String): String? = try {
+        client.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).header("Cookie", "mxm_bab=AB").build())
+            .execute().use { resp -> if (resp.isSuccessful) resp.body?.string() else null }
+    } catch (_: Exception) { null }
+
+    /** The web player's signing secret: base64, reversed, inside its _app JavaScript bundle. */
+    private fun signingSecret(): String {
+        secret?.let { return it }
+        val scraped = try {
+            fetchText("https://www.musixmatch.com/search")
+                ?.let { APP_JS_REGEX.find(it)?.groupValues?.get(1) }
+                ?.let { src -> if (src.startsWith("http")) src else "https://www.musixmatch.com/${src.trimStart('/')}" }
+                ?.let { fetchText(it) }
+                ?.let { SECRET_REGEX.find(it)?.groupValues?.get(1) }
+                ?.reversed()?.decodeBase64()?.utf8()
+                ?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
+        return (scraped ?: FALLBACK_SECRET).also { secret = it }
+    }
+
+    private fun sign(url: String): String {
+        val normalized = url.replace("%20", "+")
+        val day = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+        val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(signingSecret().toByteArray(Charsets.UTF_8), "HmacSHA256")) }
+        val signature = mac.doFinal((normalized + day).toByteArray(Charsets.UTF_8)).toByteString().base64()
+        return "$normalized&signature=${URLEncoder.encode(signature, "UTF-8")}&signature_protocol=sha256"
+    }
+
+    /** GET a signed [url] and return its message (header + body), or null. Starts the back-off on "captcha". */
     private fun request(url: String): JSONObject? = try {
-        client.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { resp ->
+        client.newCall(Request.Builder().url(sign(url)).header("User-Agent", USER_AGENT).header("Accept", "application/json").build()).execute().use { resp ->
             if (!resp.isSuccessful) return@use null
             val message = JSONObject(resp.body?.string() ?: "").optJSONObject("message")
             val header = message?.optJSONObject("header")
@@ -113,7 +158,7 @@ class MusixmatchLyricsSource(
 
     private fun fetchToken(): String? {
         token?.let { return it }
-        val body = request("$API_BASE/token.get?app_id=$APP_ID&format=json")?.optJSONObject("body") ?: return null
+        val body = request("$API_BASE/token.get?app_id=$APP_ID&guid=$guid&format=json")?.optJSONObject("body") ?: return null
         val t = body.optString("user_token").takeIf { it.isNotBlank() && it.any { c -> c != '0' } } ?: return null
         token = t
         return t
@@ -125,8 +170,11 @@ class MusixmatchLyricsSource(
             if (System.currentTimeMillis() < blockedUntilMs) return null
             val t = fetchToken() ?: return null
             val message = request("$API_BASE/$method?app_id=$APP_ID&format=json&usertoken=$t&$params") ?: return null
-            if (message.optJSONObject("header")?.optInt("status_code") == 401) {
+            val status = message.optJSONObject("header")?.optInt("status_code")
+            if (status == 401 || status == 402) {
+                // Expired token or a rotated secret: fetch both again on the second pass.
                 token = null
+                secret = null
                 return@repeat
             }
             return message.optJSONObject("body")
