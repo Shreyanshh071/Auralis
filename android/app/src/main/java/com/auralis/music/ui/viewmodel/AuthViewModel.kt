@@ -21,7 +21,9 @@ data class AuthUiState(
     val syncMessage: String? = null,
     val showPlaylistSelectDialog: Boolean = false,
     val isSendingPasswordReset: Boolean = false,
-    val passwordResetMessage: String? = null
+    val passwordResetMessage: String? = null,
+    val isDeletingAccount: Boolean = false,
+    val deleteAccountError: String? = null
 )
 
 class AuthViewModel(
@@ -199,6 +201,52 @@ class AuthViewModel(
 
     fun disconnectAccount() {
         syncManager.disconnectAccount()
+    }
+
+    /** Email + password accounts confirm deletion with their password; Google accounts sign in again. */
+    fun deleteAccountNeedsPassword(): Boolean = syncManager.isEmailPasswordAccount()
+
+    /**
+     * Deletes the account and everything backed up to it, after confirming it's really the owner:
+     * [password] for email accounts, a fresh Google sign-in otherwise.
+     */
+    fun deleteAccount(activity: android.app.Activity, password: String?, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDeletingAccount = true, deleteAccountError = null) }
+            val credential = try {
+                if (syncManager.isEmailPasswordAccount()) {
+                    val email = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email
+                    if (email.isNullOrBlank() || password.isNullOrBlank()) null
+                    else com.google.firebase.auth.EmailAuthProvider.getCredential(email, password)
+                } else {
+                    GoogleSignInHelper(activity).signIn(activity)?.let {
+                        com.google.firebase.auth.GoogleAuthProvider.getCredential(it.idToken, null)
+                    }
+                }
+            } catch (e: Exception) {
+                null
+            }
+            if (credential == null) {
+                _uiState.update { it.copy(isDeletingAccount = false, deleteAccountError = "Couldn't confirm it's you. Nothing was deleted.") }
+                return@launch
+            }
+            val result = syncManager.deleteAccount(credential)
+            if (result.isSuccess) {
+                _uiState.update { it.copy(isDeletingAccount = false) }
+                onDeleted()
+            } else {
+                val e = result.exceptionOrNull()
+                val message = when (e) {
+                    is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException -> "Wrong password. Nothing was deleted."
+                    else -> "Couldn't delete your account: ${e?.localizedMessage ?: "unknown error"}"
+                }
+                _uiState.update { it.copy(isDeletingAccount = false, deleteAccountError = message) }
+            }
+        }
+    }
+
+    fun clearDeleteAccountError() {
+        _uiState.update { it.copy(deleteAccountError = null) }
     }
 
     fun toggleAutoSync(enabled: Boolean) {

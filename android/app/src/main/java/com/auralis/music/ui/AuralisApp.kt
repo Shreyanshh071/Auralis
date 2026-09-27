@@ -1459,6 +1459,14 @@ fun AuralisApp(
                         authVM.disconnectAccount()
                         isProfileOpen = false
                     },
+                    onDeleteAccount = { password ->
+                        val act = context.findActivity()
+                        if (act != null) {
+                            authVM.deleteAccount(act, password) { isProfileOpen = false }
+                        }
+                    },
+                    deleteAccountNeedsPassword = remember(authUiState.profile.uid) { authVM.deleteAccountNeedsPassword() },
+                    onClearDeleteAccountError = { authVM.clearDeleteAccountError() },
                     onClosePlaylistSelector = { authVM.closePlaylistSelectDialog() },
                     onTogglePlaylistSelection = { authVM.togglePlaylistSelection(it) },
                     onSelectAllPlaylists = { authVM.selectAllPlaylists() },

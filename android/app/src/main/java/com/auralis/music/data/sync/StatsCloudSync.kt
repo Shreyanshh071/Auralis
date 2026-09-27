@@ -47,6 +47,9 @@ object StatsCloudSync {
     private val dayFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC)
     private val mutex = Mutex()
 
+    /** Set while an account is being deleted, so no upload re-creates the stats being removed. */
+    @Volatile var paused: Boolean = false
+
     private lateinit var appContext: Context
     private lateinit var statsRepository: StatsRepository
     private val prefs: SharedPreferences
@@ -122,7 +125,7 @@ object StatsCloudSync {
 
     /** Sends listens recorded since the last upload (plus any that were still growing). */
     suspend fun upload() = withContext(Dispatchers.IO) {
-        if (!::appContext.isInitialized) return@withContext
+        if (!::appContext.isInitialized || paused) return@withContext
         val uid = signedInUid() ?: return@withContext
         mutex.withLock {
             try {
