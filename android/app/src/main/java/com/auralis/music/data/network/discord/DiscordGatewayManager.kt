@@ -55,6 +55,11 @@ class DiscordGatewayManager private constructor(private val context: Context) {
     private val artistLookups = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     init {
+        DiscordSocialClient.profileListener = { profile ->
+            scope.launch {
+                dataStore.updateAvatarForConnectedUser(profile.username, profile.avatarUrl)
+            }
+        }
         DiscordSocialClient.readyListener = {
             lastAppliedStatus = null
             applyOnlineStatus()
@@ -109,6 +114,8 @@ class DiscordGatewayManager private constructor(private val context: Context) {
                     dataStore.setLoginState(
                         isLoggedIn = true,
                         username = username.ifBlank { "Discord user" },
+                        avatarUrl = DiscordSocialClient.currentProfile
+                            ?.takeIf { it.username == username }?.avatarUrl.orEmpty(),
                         token = ""
                     )
                     dataStore.setEnableRichPresence(true)

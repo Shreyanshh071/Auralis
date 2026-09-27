@@ -9,6 +9,8 @@ import android.os.Looper
 object DiscordSocialClient {
     const val APPLICATION_ID = 1553114990909591732L
 
+    data class UserProfile(val username: String, val avatarUrl: String)
+
     init {
         System.loadLibrary("auralis_discord_bridge")
     }
@@ -16,6 +18,9 @@ object DiscordSocialClient {
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var authorizationListener: ((Boolean, String, String) -> Unit)? = null
     @Volatile var readyListener: (() -> Unit)? = null
+    @Volatile var profileListener: ((UserProfile) -> Unit)? = null
+    @Volatile var currentProfile: UserProfile? = null
+        private set
     @Volatile private var tokenStore: DiscordOAuthTokenStore? = null
 
     fun initialize(context: Context): Boolean {
@@ -61,6 +66,13 @@ object DiscordSocialClient {
     @JvmStatic
     fun onSdkReady() {
         mainHandler.post { readyListener?.invoke() }
+    }
+
+    @JvmStatic
+    fun onCurrentUserProfile(username: String, avatarUrl: String) {
+        val profile = UserProfile(username, avatarUrl)
+        currentProfile = profile
+        mainHandler.post { profileListener?.invoke(profile) }
     }
 
     @JvmStatic

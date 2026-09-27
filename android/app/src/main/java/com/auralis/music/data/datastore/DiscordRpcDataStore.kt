@@ -139,6 +139,15 @@ class DiscordRpcDataStore(private val context: Context) {
         }
     }
 
+    suspend fun updateAvatarForConnectedUser(username: String, avatarUrl: String) {
+        if (avatarUrl.isBlank()) return
+        context.discordDataStore.edit { prefs ->
+            if (prefs[IS_LOGGED_IN] == true && prefs[DISCORD_USERNAME] == username) {
+                prefs[DISCORD_AVATAR_URL] = avatarUrl
+            }
+        }
+    }
+
     suspend fun setEnableRichPresence(enabled: Boolean) {
         context.discordDataStore.edit { it[ENABLE_RICH_PRESENCE] = enabled }
     }
