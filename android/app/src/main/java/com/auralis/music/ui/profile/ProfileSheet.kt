@@ -491,14 +491,14 @@ fun ProfileSheet(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Import a playlist by link",
+                                text = "Import playlists",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = "Paste a YouTube Music or Spotify link",
+                                text = "From YouTube Music or Spotify",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp
