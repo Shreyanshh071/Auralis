@@ -94,7 +94,11 @@ fun DownloadedHubView(
             val hasDownloadedTracks = downloadedForJob.isNotEmpty() || (job.completedCount > 0 && job.status != "FAILED" && job.status != "CANCELLED")
 
             if (isJobActive || hasDownloadedTracks) {
-                downloadedForJob.forEach { accountedTrackIds.add(it.id) }
+                // Every downloaded song of this playlist belongs to it, even before the job has
+                // recorded its result: a song is saved a moment before the job copies it to the
+                // public folder and records it, and in that gap it showed up as a one-song
+                // "Individual Songs" folder that flashed in and out for every track.
+                allTracks.forEach { if (AuralisDownloadManager.isDownloaded(it.id)) accountedTrackIds.add(it.id) }
                 val originalPlaylist = userPlaylists.firstOrNull {
                     it.id == job.playlistId || it.title.equals(job.playlistName, ignoreCase = true)
                 }

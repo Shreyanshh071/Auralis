@@ -305,6 +305,11 @@ fun AuralisApp(
     val isFullyCollapsed by remember {
         derivedStateOf { playerSheetProgress.value == 0f }
     }
+    // For overlay-pill blur source only: the player's artwork isn't dominant on screen until
+    // the sheet transition is mostly finished (its own fade-in reaches full opacity ~0.6).
+    val pillBlurShowsPlayer by remember {
+        derivedStateOf { isNowPlayingOpen || playerSheetProgress.value > 0.6f }
+    }
     val dismissOffsetY = remember { Animatable(0f) }
     var isStatsOpen by rememberSaveable { mutableStateOf(false) }
     var sheetAnimationJob by remember { mutableStateOf<Job?>(null) }
@@ -701,6 +706,10 @@ fun AuralisApp(
     CompositionLocalProvider(LocalBottomChrome provides mainBottomChrome) {
         val playerSharedScope = this
         val hazeState = remember { dev.chrisbanes.haze.HazeState() }
+        // Whatever's directly under an overlay pill: the content pages normally, or the open
+        // player's artwork once it's on screen (else a pill blurs the page hidden behind the
+        // player and shows its colours instead of what's actually visible).
+        val playerBackdropHazeState = remember { HazeState() }
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -1574,7 +1583,6 @@ fun AuralisApp(
                 if (style == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else style
             }
             val sharedPalette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
-            val playerBackdropHazeState = remember { HazeState() }
 
             if (isPlayerSheetActive) {
                 Box(
@@ -2315,10 +2323,19 @@ fun AuralisApp(
                                 spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
                             )
                             .clip(topPillShape)
-                            // Solid surface, not a haze blur: the haze source is the page under the
-                            // player, so over an open player it blurred the hidden Home screen and
-                            // showed its colours (blue/orange smear) instead of what's on screen.
-                            .background(surfaceColor.copy(alpha = 0.94f))
+                            // Blurs whatever's actually on screen behind the pill: the content
+                            // pages normally, or the player's own artwork once it's open (using
+                            // hazeState here regardless blurred the page hidden behind the player
+                            // and showed its colours instead of what's on screen).
+                            .hazeEffect(
+                                state = if (pillBlurShowsPlayer) playerBackdropHazeState else hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Color.Transparent,
+                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.38f else 0.48f)),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.02f
+                                )
+                            )
                             .border(
                                 width = 1.dp,
                                 brush = Brush.verticalGradient(
@@ -2412,10 +2429,19 @@ fun AuralisApp(
                                 spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
                             )
                             .clip(pillShape)
-                            // Solid surface, not a haze blur: the haze source is the page under the
-                            // player, so over an open player it blurred the hidden Home screen and
-                            // showed its colours (blue/orange smear) instead of what's on screen.
-                            .background(surfaceColor.copy(alpha = 0.94f))
+                            // Blurs whatever's actually on screen behind the pill: the content
+                            // pages normally, or the player's own artwork once it's open (using
+                            // hazeState here regardless blurred the page hidden behind the player
+                            // and showed its colours instead of what's on screen).
+                            .hazeEffect(
+                                state = if (pillBlurShowsPlayer) playerBackdropHazeState else hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Color.Transparent,
+                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.35f else 0.45f)),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.02f
+                                )
+                            )
                             .border(
                                 width = 0.75.dp,
                                 color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
