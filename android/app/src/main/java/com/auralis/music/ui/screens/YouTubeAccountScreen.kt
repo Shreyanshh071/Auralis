@@ -178,11 +178,9 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                         Spacer(Modifier.height(14.dp))
                         Text(
                             text = if (signedIn) {
-                                "Age-restricted songs will download using this YouTube account, and you can pick and import your playlists directly from Profile → Import playlists. " +
-                                    "Your YouTube account needs to be age-verified for age-restricted downloads."
+                                "Your YouTube account is connected. You can now download age-restricted music and directly import your YouTube Music playlists—including private ones—without needing to set them to public. (Make sure your account is age-verified on YouTube)."
                             } else {
-                                "Some songs are age-restricted on YouTube. Signing in lets you download them and " +
-                                    "pick your YouTube Music playlists to import directly in Profile → Import playlists."
+                                "Signing in to a YouTube account is required to download age-restricted music. It also lets you directly import your YouTube Music playlists—including private ones—without having to make them public."
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -222,9 +220,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Your YouTube sign-in stays on this phone. Auralis only sends it to YouTube, " +
-                            "to download age-restricted songs and to read your playlists when you import them, " +
-                            "and never to Auralis's servers.",
+                        text = "Your YouTube sign-in stays on this device. It is only used to download age-restricted music and import your playlists, and is never sent to Auralis servers.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp

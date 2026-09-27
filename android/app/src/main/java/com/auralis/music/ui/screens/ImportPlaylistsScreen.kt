@@ -184,7 +184,7 @@ fun ImportPlaylistsScreen(
 
                     if (youTubeSignedIn) {
                         Text(
-                            text = "Import Liked Music and saved playlists directly from your YouTube account without pasting links.",
+                            text = "Import Liked Music and playlists directly from your YouTube account—including private playlists—without pasting links or setting them to public.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
@@ -248,7 +248,7 @@ fun ImportPlaylistsScreen(
                         }
                     } else {
                         Text(
-                            text = "Sign in to your YouTube account to pick and import any of your playlists or Liked Music directly into Auralis.",
+                            text = "Sign in to your YouTube account to pick and import any of your playlists (including private ones) and Liked Music directly into Auralis.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
