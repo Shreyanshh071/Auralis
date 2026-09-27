@@ -170,11 +170,11 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                         Spacer(Modifier.height(14.dp))
                         Text(
                             text = if (signedIn) {
-                                "Age-restricted songs will play and download using this YouTube account. " +
+                                "Age-restricted songs will download using this YouTube account. " +
                                     "Your YouTube account needs to be age-verified for this to work."
                             } else {
-                                "Some songs are age-restricted on YouTube. You can't play or download them " +
-                                    "unless you sign in to YouTube here, even though you're signed in to Auralis. " +
+                                "Some songs are age-restricted on YouTube. You can't download them unless " +
+                                    "you sign in to YouTube here, even though you're signed in to Auralis. " +
                                     "Everything else works without it."
                             },
                             style = MaterialTheme.typography.bodyMedium,

@@ -427,7 +427,7 @@ fun ProfileSheet(
                             )
                             Text(
                                 text = if (youTubeSignedIn) "Age-restricted songs unlocked"
-                                else "Sign in to play & download age-restricted songs",
+                                else "Sign in to download age-restricted songs",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp

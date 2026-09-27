@@ -46,30 +46,63 @@ object InnerTubePlayerResolver {
         null
     }
 
-    // yt-dlp's "tv_downgraded" client, its default for signed-in requests (yt-dlp 2026.07): a TV
-    // client that accepts account cookies and needs no proof-of-origin token.
-    private const val TV_CLIENT_VERSION = "5.20260114"
-    private const val TV_USER_AGENT = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+    /** One YouTube client to try with the user's sign-in (versions and agents from yt-dlp 2026.07). */
+    private class SignedInClient(
+        val name: String,
+        val version: String,
+        val origin: String,
+        val userAgent: String
+    )
+
+    // In order. The TV clients need no proof-of-origin token but answered "The page needs to be
+    // reloaded" on device (2026-09-27); the web clients are what YouTube's own sites use, and the
+    // mobile site is the one the in-app YouTube page plays age-restricted songs with.
+    private val SIGNED_IN_CLIENTS = listOf(
+        SignedInClient(
+            "WEB_REMIX", "1.20260114.03.00", "https://music.youtube.com",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+        ),
+        SignedInClient(
+            "MWEB", "2.20260115.01.00", "https://m.youtube.com",
+            "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
+        ),
+        SignedInClient(
+            "WEB", "2.20260114.08.00", "https://www.youtube.com",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
+        ),
+        SignedInClient("TVHTML5", "5.20260114", "https://www.youtube.com", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"),
+        SignedInClient(
+            "TVHTML5", "7.20260114.12.00", "https://www.youtube.com",
+            "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)"
+        )
+    )
 
     /**
      * Age-restricted videos answer "Sign in to confirm your age" to every signed-out client. With
-     * the user's own YouTube sign-in ([YouTubeSession]) the TV client returns their streams.
-     * Null when signed out, or when the account itself can't watch the video.
+     * the user's own YouTube sign-in ([YouTubeSession]) YouTube serves them; tries each client in
+     * [SIGNED_IN_CLIENTS] and logs every answer. Null when signed out or when none returns a stream.
      */
     suspend fun resolveSignedInStream(videoId: String): String? = withContext(Dispatchers.IO) {
         if (!YouTubeSession.isSignedIn) return@withContext null
-        val origin = "https://www.youtube.com"
         val sts = PlayerJsCache.getSignatureTimestamp() ?: 20689
-        requestPlayerStream(
-            videoId = videoId,
-            sts = sts,
-            clientName = "TVHTML5",
-            clientVersion = TV_CLIENT_VERSION,
-            origin = origin,
-            userAgent = TV_USER_AGENT,
-            extraHeaders = YouTubeSession.authHeaders(origin),
-            visitorData = YouTubeSession.visitorData
-        )
+        for (client in SIGNED_IN_CLIENTS) {
+            val stream = requestPlayerStream(
+                videoId = videoId,
+                sts = sts,
+                clientName = client.name,
+                clientVersion = client.version,
+                origin = client.origin,
+                userAgent = client.userAgent,
+                extraHeaders = YouTubeSession.authHeaders(client.origin),
+                visitorData = YouTubeSession.visitorData,
+                apiHost = client.origin
+            )
+            if (!stream.isNullOrBlank()) {
+                Log.i(TAG, "Signed-in stream for $videoId via ${client.name} ${client.version}")
+                return@withContext stream
+            }
+        }
+        null
     }
 
     private suspend fun requestPlayerStream(
@@ -80,7 +113,8 @@ object InnerTubePlayerResolver {
         origin: String,
         userAgent: String = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         extraHeaders: Map<String, String> = emptyMap(),
-        visitorData: String = ""
+        visitorData: String = "",
+        apiHost: String = "https://www.youtube.com"
     ): String? {
         try {
             val payload = JSONObject().apply {
@@ -105,7 +139,7 @@ object InnerTubePlayerResolver {
             }
 
             val req = Request.Builder()
-                .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                .url("$apiHost/youtubei/v1/player?prettyPrint=false")
                 .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .header("User-Agent", userAgent)
                 .header("Origin", origin)
@@ -114,7 +148,10 @@ object InnerTubePlayerResolver {
                 .build()
 
             val res = client.newCall(req).execute()
-            if (!res.isSuccessful) return null
+            if (!res.isSuccessful) {
+                if (extraHeaders.isNotEmpty()) Log.w(TAG, "Signed-in player request for $videoId ($clientName) got HTTP ${res.code}")
+                return null
+            }
 
             val body = res.body?.string() ?: return null
             val json = JSONObject(body)

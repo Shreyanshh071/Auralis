@@ -44,8 +44,8 @@ object AuralisDownloadManager {
     private const val TAG = "AuralisDownload"
     /** YouTube only serves this video to a signed-in, age-verified account. */
     const val AGE_RESTRICTED_ERROR = "Age-restricted on YouTube. Sign in to YouTube in Profile to download it"
-    /** Signed in, but YouTube still won't serve it to that account (e.g. not age-verified). */
-    const val AGE_RESTRICTED_ACCOUNT_ERROR = "Age-restricted on YouTube, and your YouTube account can't play it"
+    /** Signed in, but no YouTube client handed over a downloadable stream. */
+    const val AGE_RESTRICTED_ACCOUNT_ERROR = "Age-restricted on YouTube. Couldn't download it even with your YouTube sign-in"
 
     fun isAgeRestrictedError(error: String?) = error == AGE_RESTRICTED_ERROR || error == AGE_RESTRICTED_ACCOUNT_ERROR
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -319,7 +319,7 @@ object AuralisDownloadManager {
 
             // Strategy G: age-restricted videos only play for a signed-in YouTube account.
             if (streamUrl.isNullOrBlank() && ageRestricted && com.auralis.music.data.network.YouTubeSession.isSignedIn) {
-                streamUrl = withTimeoutOrNull(12000L) {
+                streamUrl = withTimeoutOrNull(30000L) {
                     com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id)
                 }
                 if (!streamUrl.isNullOrBlank()) Log.d(TAG, "Strategy G resolved via YouTube sign-in for '${track.title}'")
@@ -349,7 +349,7 @@ object AuralisDownloadManager {
             if (!downloadSuccess) {
                 Log.w(TAG, "Initial download failed. Attempting fresh stream re-resolution...")
                 AudioStreamResolver.clearCache()
-                var freshStream = if (ageRestricted) withTimeoutOrNull(12000L) {
+                var freshStream = if (ageRestricted) withTimeoutOrNull(30000L) {
                     com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id)
                 } else null
                 if (freshStream.isNullOrBlank()) freshStream = withTimeoutOrNull(15000L) {
