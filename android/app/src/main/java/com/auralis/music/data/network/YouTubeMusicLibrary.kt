@@ -128,9 +128,16 @@ object YouTubeMusicLibrary {
             return (0 until arr.length()).joinToString("") { arr.optJSONObject(it)?.optString("text").orEmpty() }
         }
         val title = runs(card.optJSONObject("title")).ifBlank { return null }
-        val thumbs = card.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-        val thumbnail = thumbs?.optJSONObject(thumbs.length() - 1)?.optString("url")?.takeIf { it.isNotBlank() }
+        val thumbs = card.optJSONObject("thumbnailRenderer")?.let { tr ->
+            tr.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                ?: tr.optJSONObject("croppedSquareThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                ?: tr.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                ?: tr.optJSONArray("thumbnails")
+        } ?: card.optJSONObject("thumbnail")?.let { t ->
+            t.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                ?: t.optJSONArray("thumbnails")
+        }
+        val thumbnail = YouTubePlaylistImporter.extractBestThumbnailUrl(thumbs)?.takeIf { it.isNotBlank() }
         return LibraryPlaylist(id, title, runs(card.optJSONObject("subtitle")), thumbnail)
     }
 

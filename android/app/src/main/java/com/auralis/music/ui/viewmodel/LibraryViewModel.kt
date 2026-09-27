@@ -201,7 +201,7 @@ class LibraryViewModel(
                     it.thumbnail.contains("mosaic.scdn.co") ||
                     it.thumbnail.contains("image-cdn") ||
                     it.id.startsWith("sp_") ||
-                    (!playlist.coverUrl.isNullOrBlank() && it.thumbnail == playlist.coverUrl)
+                    (playlist.id.startsWith("sp_") && !playlist.coverUrl.isNullOrBlank() && it.thumbnail == playlist.coverUrl)
                 }
                 if (needsEnrich && playlist.tracks.isNotEmpty()) {
                     android.util.Log.i("LibraryViewModel", "Enriching playlist '${playlist.title}' (${playlist.tracks.size} tracks) with official artwork...")
@@ -288,7 +288,7 @@ class LibraryViewModel(
                     it.thumbnail.contains("mosaic.scdn.co") ||
                     it.thumbnail.contains("image-cdn") ||
                     it.id.startsWith("sp_") ||
-                    (!pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
+                    (pl.id.startsWith("sp_") && !pl.coverUrl.isNullOrBlank() && it.thumbnail == pl.coverUrl)
                 }
                 if (needsEnrich && pl.tracks.isNotEmpty()) {
                     android.util.Log.i("LibraryViewModel", "Auto-enriching/repairing playlist '${pl.title}'...")
@@ -462,8 +462,12 @@ class LibraryViewModel(
                     val existingIds = playlist.tracks.map { it.id }.toSet()
                     val newTracks = imported.tracks.filter { it.id !in existingIds }
                     val mergedTracks = playlist.tracks + newTracks
+                    val resolvedCover = playlist.coverUrl?.ifBlank { null } ?: imported.coverUrl?.ifBlank { null }
+                    if (resolvedCover != null && resolvedCover != playlist.coverUrl) {
+                        libraryRepository.updatePlaylist(playlist.id, playlist.title, playlist.description, resolvedCover)
+                    }
                     libraryRepository.reorderPlaylist(playlist.id, mergedTracks)
-                    val updatedPlaylist = playlist.copy(tracks = mergedTracks)
+                    val updatedPlaylist = playlist.copy(tracks = mergedTracks, coverUrl = resolvedCover ?: playlist.coverUrl)
                     _uiState.update {
                         it.copy(
                             isImporting = false,
@@ -653,7 +657,7 @@ class LibraryViewModel(
             try {
                 val imported = youtubeImporter.importPlaylist(urlOrId)
                 if (imported != null) {
-                    val resolvedCover = imported.coverUrl?.ifBlank { null } ?: imported.tracks.firstOrNull()?.thumbnail
+                    val resolvedCover = imported.coverUrl?.ifBlank { null }
                     val playlist = libraryRepository.createPlaylist(
                         title = imported.title,
                         description = imported.description,
@@ -707,7 +711,7 @@ class LibraryViewModel(
                     if (item.isLikedMusic) {
                         remote.tracks.forEach { libraryRepository.setFavorite(it, true) }
                     } else {
-                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail ?: remote.tracks.firstOrNull()?.thumbnail
+                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
                         val existing = libraryRepository.getPlaylists().first()
                             .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
                         val playlistId = if (existing != null) {
@@ -777,7 +781,7 @@ class LibraryViewModel(
                             failed++
                             continue
                         }
-                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail ?: remote.tracks.firstOrNull()?.thumbnail
+                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
                         val existing = libraryRepository.getPlaylists().first()
                             .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
                         val playlistId = if (existing != null) {

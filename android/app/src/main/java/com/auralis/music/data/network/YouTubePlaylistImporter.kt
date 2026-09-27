@@ -86,6 +86,237 @@ class YouTubePlaylistImporter(
 
             return null
         }
+
+        fun upgradeCoverUrl(rawUrl: String): String {
+            var url = rawUrl.trim()
+            if (url.startsWith("//")) url = "https:$url"
+            return when {
+                url.contains("googleusercontent.com") || url.contains("ggpht.com") -> {
+                    url.replace(Regex("""=w\d+-h\d+.*"""), "=w1200-h1200-l90-rj")
+                        .replace(Regex("""=s\d+.*"""), "=s1200-c")
+                }
+                url.contains("i.ytimg.com") || url.contains("img.youtube.com") -> {
+                    val noQuery = url.substringBefore('?')
+                    noQuery.replace("default.jpg", "hqdefault.jpg")
+                        .replace("mqdefault.jpg", "hqdefault.jpg")
+                        .replace("hq720.jpg", "hqdefault.jpg")
+                }
+                else -> url
+            }
+        }
+
+        fun extractBestThumbnailUrl(thumbnails: JSONArray?): String? {
+            if (thumbnails == null || thumbnails.length() == 0) return null
+            var bestUrl: String? = null
+            var maxArea = 0L
+
+            for (i in 0 until thumbnails.length()) {
+                val item = thumbnails.optJSONObject(i) ?: continue
+                val u = item.optString("url").trim()
+                if (u.isBlank()) continue
+                val w = item.optLong("width", 0L)
+                val h = item.optLong("height", 0L)
+                val area = w * h
+                if (area >= maxArea || bestUrl == null) {
+                    maxArea = area
+                    bestUrl = u
+                }
+            }
+
+            if (bestUrl == null) {
+                val last = thumbnails.optJSONObject(thumbnails.length() - 1)
+                bestUrl = last?.optString("url")?.takeIf { it.isNotBlank() }
+            }
+
+            return bestUrl?.let { upgradeCoverUrl(it) }
+        }
+
+        private fun extractThumbnailFromHeaderNode(header: JSONObject?): String? {
+            if (header == null) return null
+            val effectiveHeader = header.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                ?.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")
+                ?: header.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                    ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+                ?: header.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")
+                ?: header.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+                ?: header
+
+            val candidates = listOfNotNull(
+                effectiveHeader.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("thumbnail")?.optJSONObject("croppedSquareThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("thumbnailRenderer")?.optJSONObject("croppedSquareThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("thumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("foregroundThumbnail")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("playlistHeaderBanner")?.optJSONObject("heroPlaylistThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"),
+                effectiveHeader.optJSONObject("heroPlaylistThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+            )
+
+            for (arr in candidates) {
+                val url = extractBestThumbnailUrl(arr)
+                if (!url.isNullOrBlank()) return url
+            }
+
+            fun findThumbnails(node: Any?): JSONArray? {
+                if (node is JSONObject) {
+                    val direct = node.optJSONArray("thumbnails")
+                    if (direct != null && direct.length() > 0) return direct
+                    val keys = node.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        if (k != "runs" && k != "navigationEndpoint" && k != "menu" && k != "serviceTrackingParams") {
+                            val res = findThumbnails(node.opt(k))
+                            if (res != null) return res
+                        }
+                    }
+                } else if (node is JSONArray) {
+                    for (i in 0 until node.length()) {
+                        val res = findThumbnails(node.opt(i))
+                        if (res != null) return res
+                    }
+                }
+                return null
+            }
+
+            val foundArr = findThumbnails(effectiveHeader)
+            if (foundArr != null) {
+                val url = extractBestThumbnailUrl(foundArr)
+                if (!url.isNullOrBlank()) return url
+            }
+
+            return null
+        }
+
+        internal fun extractPlaylistThumbnail(json: JSONObject): String? {
+            // 1. Direct check in microformatDataRenderer
+            val microformatThumb = json.optJSONObject("microformat")
+                ?.optJSONObject("microformatDataRenderer")
+                ?.optJSONObject("thumbnail")
+                ?.optJSONArray("thumbnails")
+            extractBestThumbnailUrl(microformatThumb)?.let { return it }
+
+            // 2. Direct checks on standard tabs in both twoColumnBrowseResultsRenderer and singleColumnBrowseResultsRenderer
+            val contents = json.optJSONObject("contents")
+            val tabs = contents?.optJSONObject("twoColumnBrowseResultsRenderer")?.optJSONArray("tabs")
+                ?: contents?.optJSONObject("singleColumnBrowseResultsRenderer")?.optJSONArray("tabs")
+
+            if (tabs != null && tabs.length() > 0) {
+                val tab0 = tabs.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
+                val sectionList = tab0?.optJSONObject("sectionListRenderer")
+                val sectionContents = sectionList?.optJSONArray("contents")
+
+                if (sectionContents != null) {
+                    for (i in 0 until sectionContents.length()) {
+                        val sec = sectionContents.optJSONObject(i) ?: continue
+                        for (headerKey in listOf(
+                            "musicResponsiveHeaderRenderer",
+                            "musicDetailHeaderRenderer",
+                            "musicEditablePlaylistDetailHeaderRenderer",
+                            "musicVisualHeaderRenderer"
+                        )) {
+                            sec.optJSONObject(headerKey)?.let { hdr ->
+                                extractThumbnailFromHeaderNode(hdr)?.let { return it }
+                            }
+                        }
+                        extractThumbnailFromHeaderNode(sec)?.let { return it }
+                    }
+                }
+
+                sectionList?.optJSONObject("header")?.let { hdr ->
+                    extractThumbnailFromHeaderNode(hdr)?.let { return it }
+                }
+            }
+
+            // 3. Direct check on root header
+            json.optJSONObject("header")?.let { rootHdr ->
+                extractThumbnailFromHeaderNode(rootHdr)?.let { return it }
+            }
+
+            // 4. Recursive search across JSON for any playlist header renderer (excluding track lists & continuations)
+            fun searchHeaderNode(node: Any?): String? {
+                if (node is JSONObject) {
+                    for (key in listOf(
+                        "musicResponsiveHeaderRenderer",
+                        "musicDetailHeaderRenderer",
+                        "musicEditablePlaylistDetailHeaderRenderer",
+                        "musicVisualHeaderRenderer",
+                        "playlistHeaderRenderer"
+                    )) {
+                        node.optJSONObject(key)?.let { hdr ->
+                            extractThumbnailFromHeaderNode(hdr)?.let { return it }
+                        }
+                    }
+
+                    val keys = node.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        if (k != "musicPlaylistShelfRenderer" &&
+                            k != "musicResponsiveListItemRenderer" &&
+                            k != "playlistVideoListRenderer" &&
+                            k != "playlistVideoRenderer" &&
+                            k != "continuations" &&
+                            k != "onResponseReceivedActions" &&
+                            k != "responseContext" &&
+                            k != "trackingParams"
+                        ) {
+                            val res = searchHeaderNode(node.opt(k))
+                            if (res != null) return res
+                        }
+                    }
+                } else if (node is JSONArray) {
+                    for (i in 0 until node.length()) {
+                        val res = searchHeaderNode(node.opt(i))
+                        if (res != null) return res
+                    }
+                }
+                return null
+            }
+
+            return searchHeaderNode(json)
+        }
+
+        private fun extractPlaylistAuthor(json: JSONObject): String? {
+            fun extractAuthorFromHeader(header: JSONObject?): String? {
+                if (header == null) return null
+                val effective = header.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                    ?.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")
+                    ?: header.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                        ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+                    ?: header.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")
+                    ?: header.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+                    ?: header
+
+                val strapline = effective.optJSONObject("straplineTextOne")
+                    ?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                    ?: effective.optJSONObject("subtitle")
+                        ?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                return strapline?.trim()?.ifBlank { null }
+            }
+
+            val contents = json.optJSONObject("contents")
+            val tabs = contents?.optJSONObject("twoColumnBrowseResultsRenderer")?.optJSONArray("tabs")
+                ?: contents?.optJSONObject("singleColumnBrowseResultsRenderer")?.optJSONArray("tabs")
+
+            if (tabs != null && tabs.length() > 0) {
+                val tab0 = tabs.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
+                val sectionList = tab0?.optJSONObject("sectionListRenderer")
+                val sectionContents = sectionList?.optJSONArray("contents")
+                if (sectionContents != null) {
+                    for (i in 0 until sectionContents.length()) {
+                        val sec = sectionContents.optJSONObject(i) ?: continue
+                        for (k in listOf("musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer", "musicEditablePlaylistDetailHeaderRenderer")) {
+                            sec.optJSONObject(k)?.let { extractAuthorFromHeader(it)?.let { return it } }
+                        }
+                        extractAuthorFromHeader(sec)?.let { return it }
+                    }
+                }
+                extractAuthorFromHeader(sectionList?.optJSONObject("header"))?.let { return it }
+            }
+
+            extractAuthorFromHeader(json.optJSONObject("header"))?.let { return it }
+            return null
+        }
     }
 
     suspend fun importPlaylist(urlOrId: String): Playlist? = withContext(Dispatchers.IO) {
@@ -179,7 +410,7 @@ class YouTubePlaylistImporter(
 
             val validTracks = allTracks.filter { it.id.isNotBlank() }
             if (validTracks.isNotEmpty()) {
-                val finalCover = playlistCover?.ifBlank { null } ?: validTracks.firstOrNull()?.thumbnail
+                val finalCover = playlistCover?.ifBlank { null }
                 return@withContext Playlist(
                     id = cleanId,
                     title = playlistTitle,
@@ -339,105 +570,7 @@ class YouTubePlaylistImporter(
         return null
     }
 
-    private fun extractPlaylistThumbnail(json: JSONObject): String? {
-        // 1. Direct check in microformatDataRenderer
-        val microformatThumb = json.optJSONObject("microformat")
-            ?.optJSONObject("microformatDataRenderer")
-            ?.optJSONObject("thumbnail")
-            ?.optJSONArray("thumbnails")
-        if (microformatThumb != null && microformatThumb.length() > 0) {
-            val url = microformatThumb.optJSONObject(microformatThumb.length() - 1)?.optString("url")
-            if (!url.isNullOrBlank()) return url
-        }
 
-        // 2. Check root header variants
-        val rootHeader = json.optJSONObject("header")
-        val headerThumb = rootHeader?.optJSONObject("musicResponsiveHeaderRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-        if (headerThumb != null && headerThumb.length() > 0) {
-            val url = headerThumb.optJSONObject(headerThumb.length() - 1)?.optString("url")
-            if (!url.isNullOrBlank()) return url
-        }
-        val detailThumb = rootHeader?.optJSONObject("musicDetailHeaderRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-        if (detailThumb != null && detailThumb.length() > 0) {
-            val url = detailThumb.optJSONObject(detailThumb.length() - 1)?.optString("url")
-            if (!url.isNullOrBlank()) return url
-        }
-        val editableHeaderThumb = rootHeader?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
-            ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-        if (editableHeaderThumb != null && editableHeaderThumb.length() > 0) {
-            val url = editableHeaderThumb.optJSONObject(editableHeaderThumb.length() - 1)?.optString("url")
-            if (!url.isNullOrBlank()) return url
-        }
-
-        // 3. Check twoColumnBrowseResultsRenderer tabs
-        val tabHeaderThumb = json.optJSONObject("contents")
-            ?.optJSONObject("twoColumnBrowseResultsRenderer")
-            ?.optJSONArray("tabs")?.optJSONObject(0)
-            ?.optJSONObject("tabRenderer")?.optJSONObject("content")
-            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
-            ?.optJSONObject(0)?.optJSONObject("musicResponsiveHeaderRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
-            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-        if (tabHeaderThumb != null && tabHeaderThumb.length() > 0) {
-            val url = tabHeaderThumb.optJSONObject(tabHeaderThumb.length() - 1)?.optString("url")
-            if (!url.isNullOrBlank()) return url
-        }
-
-        // 4. Fallback: search any thumbnail array in rootHeader
-        fun findThumb(obj: Any?): String? {
-            if (obj is JSONObject) {
-                if (obj.has("thumbnails")) {
-                    val arr = obj.optJSONArray("thumbnails")
-                    if (arr != null && arr.length() > 0) {
-                        val last = arr.optJSONObject(arr.length() - 1)?.optString("url")
-                        if (!last.isNullOrBlank()) return last
-                    }
-                }
-                val keys = obj.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    if (key != "contents" && key != "musicResponsiveListItemRenderer") {
-                        val res = findThumb(obj.get(key))
-                        if (res != null) return res
-                    }
-                }
-            } else if (obj is JSONArray) {
-                for (i in 0 until obj.length()) {
-                    val res = findThumb(obj.get(i))
-                    if (res != null) return res
-                }
-            }
-            return null
-        }
-
-        return findThumb(rootHeader)
-    }
-
-    private fun extractPlaylistAuthor(json: JSONObject): String? {
-        val tabHeader = json.optJSONObject("contents")
-            ?.optJSONObject("twoColumnBrowseResultsRenderer")
-            ?.optJSONArray("tabs")?.optJSONObject(0)
-            ?.optJSONObject("tabRenderer")?.optJSONObject("content")
-            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
-            ?.optJSONObject(0)?.optJSONObject("musicResponsiveHeaderRenderer")
-        val strapline = tabHeader?.optJSONObject("straplineTextOne")
-            ?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-        if (!strapline.isNullOrBlank()) return strapline.trim()
-
-        val rootHeader = json.optJSONObject("header")
-        val rootStrapline = rootHeader?.optJSONObject("musicResponsiveHeaderRenderer")
-            ?.optJSONObject("straplineTextOne")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-            ?: rootHeader?.optJSONObject("musicDetailHeaderRenderer")
-                ?.optJSONObject("subtitle")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-        if (!rootStrapline.isNullOrBlank()) return rootStrapline.trim()
-        return null
-    }
 
     private fun extractTracksFromJson(
         json: JSONObject,
