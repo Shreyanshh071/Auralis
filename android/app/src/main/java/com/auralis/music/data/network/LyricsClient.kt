@@ -40,9 +40,9 @@ class LyricsClient(
     private val jioSaavnSource: JioSaavnLyricsSource = JioSaavnLyricsSource(),
     private val netEaseSource: NetEaseLyricsSource = NetEaseLyricsSource(),
     private val kuGouSource: KuGouLyricsSource = KuGouLyricsSource(),
-    // Not raced: since 2026-09 Musixmatch hands anonymous clients an all-zero token and serves the
-    // same decoy tracks ("Casual" by Doja Cat, cat music) for every search. Kept for callers/tests.
-    @Suppress("unused") private val musixmatchSource: MusixmatchLyricsSource = MusixmatchLyricsSource(),
+    // Word sync for many Indian songs Apple Music only syncs by line (see MusixmatchLyricsSource
+    // for why it uses the Android app id).
+    private val musixmatchSource: MusixmatchLyricsSource = MusixmatchLyricsSource(),
     private val geniusSource: GeniusLyricsSource = GeniusLyricsSource(),
     private val ytMusicSource: YouTubeInnerTubeLyricsSource = YouTubeInnerTubeLyricsSource(),
     private val youLyPlusSource: YouLyPlusLyricsSource = YouLyPlusLyricsSource(),
@@ -646,6 +646,7 @@ class LyricsClient(
             paxsenixSource,
             youLyPlusSource,
             simpMusicSource,
+            musixmatchSource,
             lrcLibSource,
             kuGouSource,
             netEaseSource,
@@ -716,7 +717,8 @@ class LyricsClient(
                 val netEaseActive = providerJobMap[LyricsProvider.NETEASE]?.isActive == true
                 val youLyPlusActive = providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true
                 val simpMusicActive = providerJobMap[LyricsProvider.SIMPMUSIC]?.isActive == true
-                val anyWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || simpMusicActive
+                val musixmatchActive = providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
+                val anyWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || simpMusicActive || musixmatchActive
 
                 val candidate = if (bestCandidate != null) {
                     if (bestTier == TIER_WORD) {
