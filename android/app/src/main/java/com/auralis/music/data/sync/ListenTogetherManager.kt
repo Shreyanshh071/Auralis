@@ -166,6 +166,28 @@ private const val CLOSED_ROOM_TTL_MS = 60L * 60 * 1000
 
 private fun expiresIn(ms: Long) = com.google.firebase.Timestamp(java.util.Date(System.currentTimeMillis() + ms))
 
+/**
+ * Closing a room deletes it instead of leaving it marked "closed". Firestore's TTL auto-delete needs
+ * a billing account, which this project doesn't have, so nothing else would ever remove it, and the
+ * privacy policy says closed rooms are deleted. Order matters:
+ * 1. status "closed" first, so guests leave even if a later step fails;
+ * 2. recommendations, while the room still exists (only the host of an existing room may read them);
+ * 3. the room document (guests already treat a vanished room as ended);
+ * 4. members, whom the rules let anyone clear once their room is gone.
+ */
+private suspend fun deleteClosedRoom(roomDoc: com.google.firebase.firestore.DocumentReference) {
+    roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
+    clearSubcollection(roomDoc, "recommendations")
+    roomDoc.delete().await()
+    clearSubcollection(roomDoc, "members")
+}
+
+private suspend fun clearSubcollection(roomDoc: com.google.firebase.firestore.DocumentReference, name: String) {
+    runCatching {
+        roomDoc.collection(name).get().await().documents.forEach { it.reference.delete().await() }
+    }.onFailure { android.util.Log.w("ListenTogether", "[Close] Couldn't clear $name: ${it.message}") }
+}
+
 class ListenTogetherManager(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -196,7 +218,7 @@ class ListenTogetherManager(
                 kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
                     val roomDoc = FirebaseFirestore.getInstance().collection("rooms").document(roomCode)
                     roomDoc.collection("members").document(uid).delete().await()
-                    if (isHost) roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
+                    if (isHost) deleteClosedRoom(roomDoc)
                 }
                 android.util.Log.d("ListenTogether", "[Shutdown] Left room=$roomCode (isHost=$isHost)")
             } catch (e: Exception) {
@@ -217,7 +239,11 @@ class ListenTogetherManager(
                 // Guests only remove their member record: the room document is host-only.
                 roomDoc.collection("members").document(uid).delete()
                 if (isHost) {
+                    // Fire-and-forget: the process may die any moment. Closed first so guests leave,
+                    // then the room itself; leftovers are cleared by the next host who closes a room
+                    // cleanly or by hand.
                     roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS))
+                        .continueWithTask { roomDoc.delete() }
                 }
                 android.util.Log.d("ListenTogether", "[TaskRemoved Cleanup] Successfully cleaned up room=$roomCode, isHost=$isHost")
             } catch (e: Exception) {
@@ -542,7 +568,7 @@ class ListenTogetherManager(
             // Guests only remove their member record: the room document is host-only.
             roomDoc.collection("members").document(uid).delete().await()
             if (isHost) {
-                roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
+                deleteClosedRoom(roomDoc)
             }
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "[Leave Room Error] code=$normalizedCode, isHost=$isHost: ${e.message}", e)
