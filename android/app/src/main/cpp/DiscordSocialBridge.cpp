@@ -20,6 +20,7 @@ JavaVM* javaVm = nullptr;
 jclass bridgeClass = nullptr;
 jmethodID authorizationCallback = nullptr;
 jmethodID readyCallback = nullptr;
+jmethodID profileCallback = nullptr;
 jmethodID tokensCallback = nullptr;
 
 template <typename Callback>
@@ -65,6 +66,17 @@ void notifyReady() {
     });
 }
 
+void notifyProfile(const std::string& username, const std::string& avatarUrl) {
+    withJni([&](JNIEnv* env) {
+        if (profileCallback == nullptr) return;
+        jstring user = env->NewStringUTF(username.c_str());
+        jstring avatar = env->NewStringUTF(avatarUrl.c_str());
+        env->CallStaticVoidMethod(bridgeClass, profileCallback, user, avatar);
+        env->DeleteLocalRef(user);
+        env->DeleteLocalRef(avatar);
+    });
+}
+
 void notifyTokens(const std::string& access, const std::string& refresh, int32_t expiresIn) {
     withJni([&](JNIEnv* env) {
         if (tokensCallback == nullptr) return;
@@ -98,10 +110,13 @@ Java_com_auralis_music_data_network_discord_DiscordSocialClient_nativeInitialize
             bridgeClass, "onAuthorizationResult", "(ZLjava/lang/String;Ljava/lang/String;)V"
         );
         readyCallback = env->GetStaticMethodID(bridgeClass, "onSdkReady", "()V");
+        profileCallback = env->GetStaticMethodID(
+            bridgeClass, "onCurrentUserProfile", "(Ljava/lang/String;Ljava/lang/String;)V"
+        );
         tokensCallback = env->GetStaticMethodID(
             bridgeClass, "onAuthorizationTokens", "(Ljava/lang/String;Ljava/lang/String;I)V"
         );
-        if (authorizationCallback == nullptr || readyCallback == nullptr || tokensCallback == nullptr) return JNI_FALSE;
+        if (authorizationCallback == nullptr || readyCallback == nullptr || profileCallback == nullptr || tokensCallback == nullptr) return JNI_FALSE;
         client = std::make_unique<discordpp::Client>();
         client->SetApplicationId(applicationId == 0 ? kApplicationId : static_cast<uint64_t>(applicationId));
         client->SetStatusChangedCallback([](discordpp::Client::Status status, discordpp::Client::Error error, int32_t) {
@@ -112,7 +127,22 @@ Java_com_auralis_music_data_network_discord_DiscordSocialClient_nativeInitialize
                 static_cast<int>(status),
                 static_cast<int>(error)
             );
-            if (status == discordpp::Client::Status::Ready) notifyReady();
+            if (status == discordpp::Client::Status::Ready) {
+                std::lock_guard<std::recursive_mutex> callbackLock(clientMutex);
+                if (client) {
+                    auto currentUser = client->GetCurrentUserV2();
+                    if (currentUser) {
+                        notifyProfile(
+                            currentUser->Username(),
+                            currentUser->AvatarUrl(
+                                discordpp::UserHandle::AvatarType::Webp,
+                                discordpp::UserHandle::AvatarType::Png
+                            )
+                        );
+                    }
+                }
+                notifyReady();
+            }
         });
         client->Connect();
         return JNI_TRUE;
