@@ -32,7 +32,7 @@ object YouTubeSession {
     @Volatile var visitorData: String = ""
         private set
     @Volatile private var authUser: String = "0"
-    /** The account's session ID; YouTube binds a signed-in download's PO token to it. */
+    /** The account's session ID, recorded at sign-in (YouTube's DATASYNC_ID, account part). */
     @Volatile private var dataSyncId: String = ""
 
     private val _signedIn = MutableStateFlow(false)
@@ -84,35 +84,6 @@ object YouTubeSession {
 
     /** "12345||" or "12345||67890" -> "12345": the part YouTube binds tokens to. */
     fun normalizeDataSyncId(raw: String): String = raw.substringBefore("||").trim()
-
-    /**
-     * The account's Data Sync ID. Sessions saved before it was recorded fetch it once from
-     * music.youtube.com (its page config carries DATASYNC_ID for the signed-in account).
-     */
-    fun dataSyncId(): String {
-        if (dataSyncId.isNotBlank() || !isSignedIn) return dataSyncId
-        val origin = "https://music.youtube.com"
-        val fetched = try {
-            val request = okhttp3.Request.Builder()
-                .url("$origin/")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Cookie", cookie)
-                .build()
-            okhttp3.OkHttpClient().newCall(request).execute().use { resp ->
-                val html = resp.body?.string().orEmpty()
-                Regex(""""DATASYNC_ID"\s*:\s*"([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-            }
-        } catch (_: Exception) {
-            ""
-        }
-        val id = normalizeDataSyncId(fetched)
-        if (id.isNotBlank()) {
-            dataSyncId = id
-            prefs?.edit()?.putString(KEY_DATA_SYNC_ID, id)?.apply()
-        }
-        return id
-    }
 
     /** Signed in means YouTube set its login cookies, not just any cookie from the login page. */
     fun hasAuthCookies(cookie: String): Boolean {

@@ -349,9 +349,12 @@ object AuralisDownloadManager {
             if (!downloadSuccess) {
                 Log.w(TAG, "Initial download failed. Attempting fresh stream re-resolution...")
                 AudioStreamResolver.clearCache()
-                // YouTube sometimes binds the streaming token to the video instead of the account.
-                var freshStream = if (ageRestricted) withTimeoutOrNull(30000L) {
-                    com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id, bindStreamingTokenToVideo = true)
+                // A refused signed-in stream can mean a stale player config: refresh it, then retry.
+                var freshStream = if (ageRestricted) {
+                    com.auralis.music.data.network.InnerTubePlayerResolver.onSignedInStreamRejected()
+                    withTimeoutOrNull(30000L) {
+                        com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id)
+                    }
                 } else null
                 if (freshStream.isNullOrBlank()) freshStream = withTimeoutOrNull(15000L) {
                     AudioStreamResolver.resolveAudioStream(
@@ -489,7 +492,8 @@ object AuralisDownloadManager {
                 httpClient.newCall(request).execute().use { response ->
                     if ((response.isSuccessful || response.code == 206) && response.body != null) {
                         val body = response.body!!
-                        val contentLength = body.contentLength().coerceAtLeast(1L)
+                        val expectedBytes = body.contentLength()
+                        val contentLength = expectedBytes.coerceAtLeast(1L)
                         var bytesReadTotal = 0L
 
                         body.byteStream().use { input ->
@@ -514,7 +518,12 @@ object AuralisDownloadManager {
                             }
                         }
 
-                        if (tempFile.exists() && tempFile.length() > 5000) {
+                        // Some YouTube streams stop after a free first MiB instead of failing outright;
+                        // a cut-off file must not be saved as the song.
+                        val complete = expectedBytes <= 0L || bytesReadTotal >= expectedBytes
+                        if (!complete) {
+                            Log.w(TAG, "Stream ended early: $bytesReadTotal of $expectedBytes bytes")
+                        } else if (tempFile.exists() && tempFile.length() > 5000) {
                             return true
                         }
                     } else {

@@ -1,6 +1,4 @@
-// Ported from Metrolist (github.com/MetrolistGroup/Metrolist), which adapted it from NewPipe
-// (github.com/TeamNewPipe/NewPipe). GPL-3.0, like Auralis.
-package com.auralis.music.data.network.potoken
+package com.zemer.cipher.potoken
 
 class PoTokenException(message: String) : Exception(message)
 
