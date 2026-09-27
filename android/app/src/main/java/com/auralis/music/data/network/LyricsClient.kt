@@ -249,9 +249,7 @@ class LyricsClient(
             maxGapMs: Long = 0L,
             bestMaxGapMs: Long = 0L,
             hasSpeakers: Boolean = false,
-            bestHasSpeakers: Boolean = false,
-            needsMachineScript: Boolean = false,
-            bestNeedsMachineScript: Boolean = false
+            bestHasSpeakers: Boolean = false
         ): Boolean {
             val isAligned = masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             val bestIsAligned = bestMasterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
@@ -265,12 +263,6 @@ class LyricsClient(
                 (maxGapMs - bestMaxGapMs) >= 18_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
                 tier > bestTier -> true
                 tier < bestTier -> false
-                // Same timing tier: lyrics written in Latin letters (or carrying Apple's own
-                // transliteration) beat Indic-script lyrics that need machine transliteration.
-                // Both display in Latin letters (HinglishScript); timing still ranks first, since
-                // a Hinglish copy synced to another cut is worse than a machine-romanized exact one.
-                !needsMachineScript && bestNeedsMachineScript -> true
-                needsMachineScript && !bestNeedsMachineScript -> false
                 tier == TIER_WORD -> {
                     // Exact-video-match genuine word sync takes precedence over metadata-only word sync
                     if (isExactVideoMatch && !bestIsExactVideoMatch) true
@@ -699,7 +691,6 @@ class LyricsClient(
             var bestTier = TIER_NONE
             var bestScore = 0.0
             var bestMasterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
-            var bestNeedsMachineScript = false
             var completedCount = 0
             var graceDeadlineMs = Long.MAX_VALUE
 
@@ -763,7 +754,6 @@ class LyricsClient(
                 val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
                 // Clean first (credits, symbol-only marker lines, source headers, CJK annotations),
                 // then count: a result that was only credits must not survive as empty lyrics.
-                val needsMachineScript = com.auralis.music.data.parser.HinglishScript.isMostlyIndic(candidate.lyricsData)
                 val cleanedData = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(candidate.lyricsData, coreTitle)
                 // Fewer than 3 sung lines isn't a song's lyrics: seen live, NetEase answered
                 // "Jadoo Ki Jhappi" with a single line (a credit) and won because nothing else had.
@@ -849,11 +839,8 @@ class LyricsClient(
                             maxGapMs = candMaxGap,
                             bestMaxGapMs = bestCandMaxGap,
                             hasSpeakers = candHasSpeakers,
-                            bestHasSpeakers = bestHasSpeakers,
-                            needsMachineScript = needsMachineScript,
-                            bestNeedsMachineScript = bestNeedsMachineScript
+                            bestHasSpeakers = bestHasSpeakers
                         )) {
-                        bestNeedsMachineScript = needsMachineScript
                         bestTier = tier
                         bestScore = score
                         bestMasterMatch = masterMatch
