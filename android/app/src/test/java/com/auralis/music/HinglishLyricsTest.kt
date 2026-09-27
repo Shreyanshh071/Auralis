@@ -103,4 +103,34 @@ class HinglishLyricsTest {
             needsMachineScript = true, bestNeedsMachineScript = false
         ))
     }
+
+    @Test
+    fun `scripts without a romanizer keep their own letters instead of going blank`() {
+        val tamil = "உன்னை காதலிக்கிறேன்"
+        val telugu = "నిన్ను ప్రేమిస్తున్నాను"
+        val data = LyricsData(
+            provider = LyricsProvider.LRCLIB,
+            syncType = SyncType.LINE_SYNC,
+            lines = listOf(LyricLine(time = 1_000L, text = tamil), LyricLine(time = 5_000L, text = telugu))
+        )
+        val shown = HinglishScript.toLatin(data)
+        assertEquals(listOf(tamil, telugu), shown.lines.map { it.text })
+        assertFalse(HinglishScript.isMostlyIndic(data))
+    }
+
+    @Test
+    fun `hindi punjabi and bengali are still written in latin letters`() {
+        val data = LyricsData(
+            provider = LyricsProvider.LRCLIB,
+            syncType = SyncType.LINE_SYNC,
+            lines = listOf(
+                LyricLine(time = 1_000L, text = "तेरी मेरी कहानी"),
+                LyricLine(time = 2_000L, text = "ਤੇਰੀ ਮੇਰੀ ਕਹਾਣੀ"),
+                LyricLine(time = 3_000L, text = "তোমার আমার গল্প")
+            )
+        )
+        val shown = HinglishScript.toLatin(data).lines.map { it.text }
+        assertTrue(shown.none { IndicScriptNormalizer.containsIndicScript(it) })
+        assertTrue(shown.all { it.isNotBlank() })
+    }
 }

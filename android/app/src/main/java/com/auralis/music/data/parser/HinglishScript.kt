@@ -11,21 +11,32 @@ import com.auralis.music.domain.model.LyricsData
  * Preference order: a source written in Latin letters, or Apple's own transliteration shipped in
  * the TTML (applied by [TtmlParser]); then, only when neither exists, [toLatin]'s machine
  * transliteration, which ranks below both in the lyrics race.
+ *
+ * Only scripts [IndicScriptNormalizer] has letter tables for are rewritten (Devanagari, Bengali,
+ * Gurmukhi). Tamil, Telugu, Kannada, Malayalam, Gujarati etc. stay in their own script: the
+ * transliterator has no mapping for them and turned such lines into empty text.
  */
 object HinglishScript {
+
+    private fun isRomanizableChar(code: Int) = code in 0x0900..0x097F || code in 0x0980..0x09FF || code in 0x0A00..0x0A7F
+
+    /** Indic text whose every Indic letter can be written in Latin letters. */
+    private fun canRomanize(text: String): Boolean =
+        IndicScriptNormalizer.containsIndicScript(text) &&
+            text.all { c -> c.code !in 0x0900..0x0DFF || isRomanizableChar(c.code) }
 
     /** True when most sung lines are still in an Indic script. */
     fun isMostlyIndic(data: LyricsData): Boolean {
         val sung = data.lines.filter { !it.isInstrumental && it.text.isNotBlank() }
         if (sung.isEmpty()) return false
-        return sung.count { IndicScriptNormalizer.containsIndicScript(it.text) } * 2 >= sung.size
+        return sung.count { canRomanize(it.text) } * 2 >= sung.size
     }
 
     /** Rewrites every Indic-script line (text and each timed word) in Latin letters; timing is untouched. */
     fun toLatin(data: LyricsData): LyricsData {
-        if (data.lines.none { IndicScriptNormalizer.containsIndicScript(it.text) }) return data
+        if (data.lines.none { canRomanize(it.text) }) return data
         val lines = data.lines.map { line ->
-            if (!IndicScriptNormalizer.containsIndicScript(line.text)) return@map line
+            if (!canRomanize(line.text)) return@map line
             // Sentence case, like written Hinglish lyrics: the transliterator capitalises every word.
             val words = line.words?.mapIndexed { i, w ->
                 val latin = if (IndicScriptNormalizer.containsIndicScript(w.word)) {
