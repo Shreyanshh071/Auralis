@@ -83,6 +83,24 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
         <sub><b>Discord Presence</b></sub>
       </td>
     </tr>
+    <tr>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/stats.jpg" alt="Listening Stats" width="100%" /><br />
+        <sub><b>Listening Stats</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/new_player.jpg" alt="New Player" width="100%" /><br />
+        <sub><b>New Player</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/new_player_lyrics.jpg" alt="Player with Lyrics" width="100%" /><br />
+        <sub><b>Player · Lyrics</b></sub>
+      </td>
+      <td align="center" width="25%">
+        <img src="docs/screenshots/new_player_queue.jpg" alt="Player with Queue" width="100%" /><br />
+        <sub><b>Player · Queue</b></sub>
+      </td>
+    </tr>
   </table>
 </div>
 
