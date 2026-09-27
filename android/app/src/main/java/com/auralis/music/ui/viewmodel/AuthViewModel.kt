@@ -200,7 +200,11 @@ class AuthViewModel(
     }
 
     fun disconnectAccount() {
-        syncManager.disconnectAccount()
+        viewModelScope.launch {
+            // Anything not yet backed up would stay on this phone only, owned by a signed-out account.
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) { syncManager.flushToCloud() }
+            syncManager.disconnectAccount()
+        }
     }
 
     /** Email + password accounts confirm deletion with their password; Google accounts sign in again. */
