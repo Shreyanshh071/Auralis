@@ -1,15 +1,9 @@
 package com.auralis.music.ui.screens
 
-import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
-import android.webkit.CookieManager
-import android.webkit.WebResourceRequest
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.content.Intent
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,20 +29,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.auralis.music.data.network.SpotifyLibrary
 import com.auralis.music.data.network.SpotifySession
 import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.profile.SpotifyLogoIcon
 import com.auralis.music.ui.theme.dynamicBackground
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONObject
 
 private val SPOTIFY_GREEN = Color(0xFF1DB954)
 
@@ -82,7 +68,6 @@ fun ImportPlaylistsScreen(
 
     val spotifySignedIn by SpotifySession.signedIn.collectAsState()
     val spotifyAccountLabel by SpotifySession.accountLabel.collectAsState()
-    var isSigningInSpotify by remember { mutableStateOf(false) }
 
     var showPlaylistPickerPopup by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf<List<YouTubeMusicLibrary.LibraryPlaylist>?>(null) }
@@ -100,10 +85,6 @@ fun ImportPlaylistsScreen(
 
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
-
-    BackHandler(enabled = isSigningInSpotify) {
-        isSigningInSpotify = false
-    }
 
     // Prefetch YouTube playlists when signed in so the popup opens instantly
     LaunchedEffect(youTubeSignedIn, reloadKey) {
@@ -142,16 +123,7 @@ fun ImportPlaylistsScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        if (isSigningInSpotify) {
-            SpotifySignInWebView(
-                onSignedIn = {
-                    isSigningInSpotify = false
-                    reloadSpotifyKey++
-                },
-                onCancel = { isSigningInSpotify = false }
-            )
-        } else {
-            Column(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -468,7 +440,7 @@ fun ImportPlaylistsScreen(
                         }
                     } else {
                         Text(
-                            text = "Sign in to your Spotify account to pick and import any of your playlists (including private ones) and Liked Songs directly into Auralis.",
+                            text = "Sign in to try importing playlists and Liked Songs directly. If Spotify doesn't grant library access, you can still import a public playlist by link below.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
@@ -478,7 +450,7 @@ fun ImportPlaylistsScreen(
                         Spacer(Modifier.height(12.dp))
 
                         Button(
-                            onClick = { isSigningInSpotify = true },
+                            onClick = { context.startActivity(Intent(context, SpotifyLoginActivity::class.java)) },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = SPOTIFY_GREEN,
                                 contentColor = Color.White
@@ -910,7 +882,6 @@ fun ImportPlaylistsScreen(
             }
 
             Spacer(Modifier.height(32.dp))
-        }
     }
 
         // ── SCROLLABLE PLAYLIST PICKER POPUP (YOUTUBE) ──
@@ -1540,210 +1511,3 @@ fun SpotifyPlaylistPickerBottomSheet(
         }
     }
 }
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun SpotifySignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var finishing by remember { mutableStateOf(false) }
-    var pageLoadingProgress by remember { mutableStateOf(0) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    fun checkAndFinish(view: WebView) {
-        if (finishing) return
-        scope.launch {
-            val cookie = listOf(
-                "https://open.spotify.com",
-                "https://spotify.com",
-                "https://accounts.spotify.com"
-            ).map { CookieManager.getInstance().getCookie(it).orEmpty() }
-                .filter { it.isNotBlank() }
-                .joinToString("; ")
-
-            if (cookie.contains("sp_dc=") || cookie.contains("sp_key=")) {
-                finishing = true
-                val token = withContext(Dispatchers.IO) {
-                    SpotifySession.fetchWebPlayerToken(cookie)
-                }
-                if (!token.isNullOrBlank()) {
-                    val profile = withContext(Dispatchers.IO) {
-                        SpotifySession.fetchUserProfile(token)
-                    }
-                    CookieManager.getInstance().flush()
-                    SpotifySession.save(
-                        cookie = cookie,
-                        accessToken = token,
-                        expiresAtMs = System.currentTimeMillis() + 3600_000L,
-                        accountLabel = profile?.displayName?.ifBlank { "Signed in" } ?: "Signed in",
-                        userId = profile?.id.orEmpty(),
-                        avatarUrl = profile?.avatarUrl.orEmpty()
-                    )
-                    onSignedIn()
-                    return@launch
-                }
-                finishing = false
-            }
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.dynamicBackground)
-    ) {
-        // Top App Bar
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .padding(horizontal = 4.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onCancel) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Cancel",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = "Sign in to Spotify",
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 17.sp
-                )
-            }
-            if (finishing) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .padding(end = 16.dp)
-                        .size(20.dp),
-                    color = SPOTIFY_GREEN,
-                    strokeWidth = 2.dp
-                )
-            }
-        }
-
-        // Real-time progress bar for page loading
-        if (pageLoadingProgress in 1..99) {
-            LinearProgressIndicator(
-                progress = { pageLoadingProgress / 100f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.5.dp),
-                color = SPOTIFY_GREEN,
-                trackColor = Color.Transparent
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    WebView(ctx).apply {
-                        setBackgroundColor(android.graphics.Color.WHITE)
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.javaScriptCanOpenWindowsAutomatically = true
-                        settings.setSupportMultipleWindows(false)
-                        settings.loadWithOverviewMode = true
-                        settings.useWideViewPort = true
-
-                        // Strip '; wv' and 'Version/X.X' so Google Sign-In and Spotify allow mobile web login
-                        // without anti-bot or "disallowed_useragent" errors
-                        val rawUa = settings.userAgentString.orEmpty()
-                        settings.userAgentString = rawUa
-                            .replace("; wv", "")
-                            .replace(Regex("Version/\\d+\\.\\d+\\s*"), "")
-
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                pageLoadingProgress = newProgress
-                            }
-                        }
-
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                                val url = request.url ?: return false
-                                val scheme = url.scheme.orEmpty().lowercase()
-                                if (scheme == "http" || scheme == "https") {
-                                    return false
-                                }
-                                return try {
-                                    val intent = android.content.Intent.parseUri(url.toString(), android.content.Intent.URI_INTENT_SCHEME)
-                                    view.context.startActivity(intent)
-                                    true
-                                } catch (_: Exception) {
-                                    true
-                                }
-                            }
-
-                            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
-                                super.onPageStarted(view, url, favicon)
-                                checkAndFinish(view)
-                            }
-
-                            override fun onPageFinished(view: WebView, url: String?) {
-                                super.onPageFinished(view, url)
-                                checkAndFinish(view)
-                            }
-                        }
-
-                        loadUrl("https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F")
-                    }
-                }
-            )
-
-            if (finishing) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(24.dp)
-                    ) {
-                        CircularProgressIndicator(color = SPOTIFY_GREEN, modifier = Modifier.size(36.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            text = "Connecting Spotify account...",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 14.sp
-                        )
-                    }
-                }
-            }
-
-            error?.let {
-                Text(
-                    text = it,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(16.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xE6202020))
-                        .padding(12.dp)
-                )
-            }
-        }
-    }
-}
-
