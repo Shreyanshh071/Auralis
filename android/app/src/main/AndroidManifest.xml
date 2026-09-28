@@ -68,6 +68,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.screens.SpotifyLoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
         <!-- Callback target used by Discord's official Social SDK authorization flow. -->
         <activity
             android:name="com.discord.socialsdk.AuthenticationActivity"
