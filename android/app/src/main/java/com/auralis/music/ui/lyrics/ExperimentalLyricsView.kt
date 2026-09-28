@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.offset
@@ -157,8 +158,6 @@ private val LYRICS_ITEM_FALLBACK_HEIGHT_DP = 68.dp
 private val LYRICS_ITEM_GAP_DP = 16.dp
 private val LYRICS_FADE_TOP_DP = 44.dp
 private val LYRICS_FADE_BOTTOM_DP = 120.dp
-private const val LYRICS_STAGGER_DELAY_PER_DISTANCE = 20
-private const val LYRICS_STAGGER_DELAY_MAX_MS = 200
 private const val LYRICS_PREVIEW_TIME = 8000L
 
 /**
@@ -528,15 +527,26 @@ fun ExperimentalLyricsView(
     // word-synced upgrade must lay out the same, or the view jumps from centre to left mid-song.
     val hasMultipleVocalists = remember(effectiveLines) { MetroSpeakerLayout.build(effectiveLines) != null }
 
+    // Reset key: only changes on song change (or track identity change), not on same-song lyrics stage upgrades.
+    val lyricsResetKey: Any? = track?.id?.takeIf { it.isNotBlank() } ?: lyrics
+
+    val initialActiveLyricIndex = remember(lyricsResetKey) {
+        if (effectiveLines.isNotEmpty()) {
+            LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value + offsetMs, offsetMs)
+        } else -1
+    }
+
     // Interactive & selection state
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
-    var authoritativeTargetIndex by rememberSaveable { mutableIntStateOf(-1) }
+    var authoritativeTargetIndex by rememberSaveable(lyricsResetKey) { mutableIntStateOf(initialActiveLyricIndex) }
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     var pendingSeekTarget by remember { mutableStateOf<ExperimentalPendingSeekTarget?>(null) }
     // True only once the player's position has been seen moving; gates every forward carry.
     var clockAdvancing by remember { mutableStateOf(false) }
 
-    var deferredCurrentLineIndex by rememberSaveable { mutableIntStateOf(0) }
+    var deferredCurrentLineIndex by rememberSaveable(lyricsResetKey) {
+        mutableIntStateOf(if (initialActiveLyricIndex >= 0) initialActiveLyricIndex else 0)
+    }
     var lastPreviewTime by rememberSaveable { mutableLongStateOf(0L) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(appearance.autoScrollLyrics) }
 
@@ -678,16 +688,35 @@ fun ExperimentalLyricsView(
         }
     }
 
-    val listState = rememberLazyListState()
+    val initialFirstVisibleIndex = remember(lyricsResetKey) {
+        if (initialActiveLyricIndex >= 0) {
+            val mappedIndex = mergedLyricsList.indexOfFirst {
+                it is ExperimentalLyricsListItem.Line && it.index == initialActiveLyricIndex
+            }
+            if (mappedIndex >= 0) (mappedIndex - 1).coerceAtLeast(0) else 0
+        } else 0
+    }
+    val listState = rememberSaveable(lyricsResetKey, saver = LazyListState.Saver) {
+        LazyListState(
+            firstVisibleItemIndex = initialFirstVisibleIndex,
+            firstVisibleItemScrollOffset = 0
+        )
+    }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
     var isUserInteracting by remember { mutableStateOf(false) }
     var hasInitialCentered by remember { mutableStateOf(false) }
     var lastCenteredIndex by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(lyrics, effectiveLines) {
+    // Lyrics for the same song can arrive in stages (cached/plain, then an interim synced
+    // copy, then the final word-synced upgrade) — each delivery is a new `lyrics` object even
+    // though the song hasn't changed. Resetting scroll state on every one of those snapped the
+    // list back to the top and re-jumped to the current line each time, which is the visible
+    // "freeze then jump" during loading. Only hard-reset when the song itself changes; let a
+    // same-song lyrics upgrade flow through the normal (animated) follow-the-line effect below.
+    LaunchedEffect(lyricsResetKey) {
         isAutoScrollEnabled = appearance.autoScrollLyrics
-        authoritativeTargetIndex = -1
-        deferredCurrentLineIndex = 0
+        authoritativeTargetIndex = initialActiveLyricIndex
+        deferredCurrentLineIndex = if (initialActiveLyricIndex >= 0) initialActiveLyricIndex else 0
         isSelectionModeActive = false
         selectedIndices.clear()
         hasInitialCentered = false
@@ -703,8 +732,8 @@ fun ExperimentalLyricsView(
         derivedStateOf {
             val isLineOnlyFallback = !hasWordTimings && isSynced
             val curPos = if (isLineOnlyFallback) currentPositionState + 250L else currentPositionState
-            val curIdx = if (isLineOnlyFallback) {
-                LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState + 250L, offsetMs)
+            val curIdx = if (isLineOnlyFallback || authoritativeTargetIndex < 0) {
+                LyricsEngine.findActiveLyricIndex(effectiveLines, curPos, offsetMs)
             } else {
                 authoritativeTargetIndex
             }
@@ -719,9 +748,10 @@ fun ExperimentalLyricsView(
             if (activeIndicatorIndex >= 0) {
                 activeIndicatorIndex
             } else {
-                mergedLyricsList.indexOfFirst {
+                val lineIdx = mergedLyricsList.indexOfFirst {
                     it is ExperimentalLyricsListItem.Line && it.index == curIdx
-                }.coerceAtLeast(0)
+                }
+                if (lineIdx >= 0) lineIdx else 0
             }
         }
     }
@@ -772,41 +802,41 @@ fun ExperimentalLyricsView(
                     val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * LYRICS_ANCHOR_RATIO)
                     var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
                     if (itemInfo == null) {
-                        val visibleNow = layoutInfo.visibleItemsInfo
-                        if (animate && visibleNow.isNotEmpty()) {
-                            // Off-screen target on an animated move (e.g. auto-resume after the user scrolled
-                            // away): glide there in one motion instead of jumping, estimating the distance
-                            // from the average visible line height. The correction below centres it exactly.
-                            val avgItem = visibleNow.map { it.size }.average().toFloat() + layoutInfo.mainAxisItemSpacing
-                            val anchor = visibleNow.first()
-                            val estimatedCenter = anchor.offset + (targetIndex - anchor.index) * avgItem + avgItem / 2f
-                            val estimatedDelta = estimatedCenter - targetCenterY
-                            val glideMs = (350 + kotlin.math.abs(estimatedDelta) / 6f).toInt().coerceIn(400, 900)
-                            listState.animateScrollBy(
-                                value = estimatedDelta,
-                                animationSpec = tween(durationMillis = glideMs, easing = FastOutSlowInEasing)
-                            )
+                        val currentFirst = listState.firstVisibleItemIndex
+                        val distance = kotlin.math.abs(targetIndex - currentFirst)
+                        // If the target is not visible (e.g. lyrics opened mid-song, or after a long scrub),
+                        // never scroll through all the previously sung lyrics. Pre-position 1 line before
+                        // the target so the visible motion is just a short, elegant 1-line glide into center.
+                        if (distance > 1) {
+                            val preIndex = (targetIndex - 1).coerceAtLeast(0)
+                            listState.scrollToItem(preIndex)
                         } else {
-                            val currentFirst = listState.firstVisibleItemIndex
-                            val distance = kotlin.math.abs(targetIndex - currentFirst)
-                            if (distance > 8) {
-                                val preIndex = if (targetIndex > currentFirst) {
-                                    (targetIndex - 2).coerceAtLeast(0)
-                                } else {
-                                    (targetIndex + 2).coerceAtMost(mergedLyricsList.size - 1)
-                                }
-                                listState.scrollToItem(preIndex)
-                            } else {
-                                listState.scrollToItem(targetIndex)
-                            }
+                            listState.scrollToItem(targetIndex)
                         }
-                        try {
-                            withFrameMillis { }
-                        } catch (_: Exception) {
-                            delay(16L)
+
+                        // Give layout a couple of frames to settle so the animated correction below
+                        // is computed from real, stable item positions.
+                        repeat(2) {
+                            try {
+                                withFrameMillis { }
+                            } catch (_: Exception) {
+                                delay(16L)
+                            }
                         }
                         layoutInfo = listState.layoutInfo
                         itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        if (itemInfo == null) {
+                            listState.scrollToItem(targetIndex)
+                            repeat(2) {
+                                try {
+                                    withFrameMillis { }
+                                } catch (_: Exception) {
+                                    delay(16L)
+                                }
+                            }
+                            layoutInfo = listState.layoutInfo
+                            itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        }
                     }
 
                     if (itemInfo != null) {
@@ -814,18 +844,13 @@ fun ExperimentalLyricsView(
                         val scrollDelta = itemCenterY - targetCenterY
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
-                                if (animate) {
-                                    val distance = if (lastCenteredIndex >= 0) {
-                                        kotlin.math.abs(targetIndex - lastCenteredIndex)
-                                    } else 1
-                                    val delayMs = (distance * 20).coerceAtMost(200)
+                                // A small leftover delta means the target is already practically centered.
+                                // Snap it rather than running a second animation that reads as an extra scroll.
+                                if (animate && kotlin.math.abs(scrollDelta) > 48f) {
+                                    val durationMs = (180 + kotlin.math.abs(scrollDelta) / 8f).toInt().coerceIn(180, 360)
                                     listState.animateScrollBy(
                                         value = scrollDelta,
-                                        animationSpec = tween(
-                                            durationMillis = 750,
-                                            delayMillis = delayMs,
-                                            easing = FastOutSlowInEasing
-                                        )
+                                        animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
                                     )
                                 } else {
                                     listState.scrollBy(scrollDelta)
@@ -935,8 +960,7 @@ fun ExperimentalLyricsView(
                 if (interacting || selecting) return@collectLatest
                 if (activeIndex !in mergedLyricsList.indices) return@collectLatest
 
-                val shouldAnimate = hasInitialCentered
-                centerActiveLine(activeIndex, shouldAnimate)
+                centerActiveLine(activeIndex, true)
                 lastCenteredIndex = activeIndex
                 hasInitialCentered = true
             }
