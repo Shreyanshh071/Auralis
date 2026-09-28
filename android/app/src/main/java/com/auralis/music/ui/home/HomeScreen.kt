@@ -125,6 +125,7 @@ fun HomeScreen(
     onOpenStats: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
+    onPlaylistClick: (String) -> Unit = {},
     onUnpinSpeedDial: ((String) -> Unit)? = null,
     savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
     isAlbumPinned: ((String) -> Boolean)? = null,
@@ -326,6 +327,7 @@ fun HomeScreen(
                                                                     )
                                                                     onAlbumClick(alb)
                                                                 }
+                                                                SpeedDialType.PLAYLIST -> onPlaylistClick(item.id.removePrefix("playlist-"))
                                                                 SpeedDialType.ARTIST -> {
                                                                     onArtistClick(
                                                                         Artist(

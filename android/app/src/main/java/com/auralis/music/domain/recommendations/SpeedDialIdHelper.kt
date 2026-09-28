@@ -19,7 +19,7 @@ object SpeedDialIdHelper {
     }
 
     fun isSystemOrNonTrackId(id: String): Boolean {
-        return isAlbumId(id) || id.startsWith("artist-") || id.startsWith("surprise-") || id.startsWith("placeholder-")
+        return isAlbumId(id) || id.startsWith("artist-") || id.startsWith("playlist-") || id.startsWith("surprise-") || id.startsWith("placeholder-")
     }
 
     /**

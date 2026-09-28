@@ -306,13 +306,12 @@ class GoogleAccountSyncManager(
             // 1. Restore Playlists & Tracks
             val rawPlaylists = docSnap.get("playlists") as? List<*>
             if (rawPlaylists != null && rawPlaylists.isNotEmpty()) {
-                val localPlaylists = libraryRepository.getPlaylists().first()
-
                 for (pObj in rawPlaylists) {
                     val pMap = pObj as? Map<*, *> ?: continue
                     val title = (pMap["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Restored Playlist"
                     val desc = pMap["description"] as? String
                     val coverUrl = pMap["coverUrl"] as? String
+                    val cloudPlaylistId = (pMap["id"] as? String)?.takeIf { it.isNotBlank() }
                     val rawTracks = pMap["tracks"] as? List<*> ?: emptyList<Any>()
 
                     val tracks = rawTracks.mapNotNull { tObj ->
@@ -333,21 +332,14 @@ class GoogleAccountSyncManager(
                         )
                     }
 
-                    val existingLocal = localPlaylists.find { it.title.trim().equals(title.trim(), ignoreCase = true) }
-                    val targetPlaylistId = if (existingLocal != null) {
-                        existingLocal.id
+                    val targetPlaylist = if (cloudPlaylistId != null) {
+                        libraryRepository.restorePlaylist(cloudPlaylistId, title, desc, coverUrl)
                     } else {
-                        val created = libraryRepository.createPlaylist(title, desc)
-                        created.id
-                    }
-
-                    // Restore coverUrl if present in cloud backup
-                    if (!coverUrl.isNullOrBlank()) {
-                        libraryRepository.updatePlaylist(targetPlaylistId, title, desc, coverUrl)
+                        libraryRepository.createPlaylist(title, desc, coverUrl)
                     }
 
                     if (tracks.isNotEmpty()) {
-                        libraryRepository.replacePlaylistTracks(targetPlaylistId, tracks)
+                        libraryRepository.replacePlaylistTracks(targetPlaylist.id, tracks)
                     }
                     restoredPlaylistsCount++
                 }
