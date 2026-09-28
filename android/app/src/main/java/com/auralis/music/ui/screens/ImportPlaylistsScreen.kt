@@ -1,9 +1,12 @@
 package com.auralis.music.ui.screens
 
+import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -73,6 +76,19 @@ fun ImportPlaylistsScreen(
     var loadFailed by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
     val selectedPlaylists = remember { mutableStateListOf<String>() }
+
+    var showSpotifyPlaylistPickerPopup by remember { mutableStateOf(false) }
+    var spotifyPlaylists by remember { mutableStateOf<List<SpotifyLibrary.LibraryPlaylist>?>(null) }
+    var isLoadingSpotifyPlaylists by remember { mutableStateOf(false) }
+    var loadSpotifyFailed by remember { mutableStateOf(false) }
+    var reloadSpotifyKey by remember { mutableStateOf(0) }
+    val selectedSpotifyPlaylists = remember { mutableStateListOf<String>() }
+    val spotifyLoginLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            reloadSpotifyKey++
+            showSpotifyPlaylistPickerPopup = true
+        }
+    }
 
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
@@ -426,7 +442,7 @@ fun ImportPlaylistsScreen(
                         Spacer(Modifier.height(12.dp))
 
                         Button(
-                            onClick = { context.startActivity(Intent(context, SpotifyLoginActivity::class.java)) },
+                            onClick = { spotifyLoginLauncher.launch(Intent(context, SpotifyLoginActivity::class.java)) },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = SPOTIFY_GREEN,
                                 contentColor = Color.White
