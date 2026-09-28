@@ -99,6 +99,9 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
     fun getPlaylistEntityFlow(playlistId: String): Flow<PlaylistEntity?>
 
+    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    suspend fun getPlaylistEntity(playlistId: String): PlaylistEntity?
+
     @Query("""
         SELECT tracks.* FROM tracks 
         INNER JOIN playlist_tracks ON tracks.id = playlist_tracks.trackId 

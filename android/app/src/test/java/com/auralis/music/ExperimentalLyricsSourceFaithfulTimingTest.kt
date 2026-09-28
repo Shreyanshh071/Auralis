@@ -6,7 +6,9 @@ import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.domain.model.LyricsAnimationMode
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.lyrics.experimentalWordProgress
+import com.auralis.music.ui.lyrics.mapShapedTimedRanges
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
+import com.auralis.music.ui.lyrics.shapedFragmentSweep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -14,6 +16,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExperimentalLyricsSourceFaithfulTimingTest {
+
+    @Test
+    fun `final timed fragment completes only its visible Hindi word`() {
+        val text = "भाग भाग मिल्खा"
+        val words = listOf(
+            com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("भाग", 1.0, 1.2),
+            com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("भाग", 1.3, 1.5),
+            com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("मिल्", 1.6, 1.8),
+            com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("खा", 1.8, 2.0)
+        )
+
+        val ranges = mapShapedTimedRanges(text, words)
+        assertEquals("भाग", text.substring(ranges[0]!!.completedStart, ranges[0]!!.completedEnd))
+        assertEquals("मिल्", text.substring(ranges[2]!!.completedStart, ranges[2]!!.completedEnd))
+        assertEquals("मिल्खा", text.substring(ranges[3]!!.completedStart, ranges[3]!!.completedEnd))
+    }
+
+    @Test
+    fun `shaped Hindi fragments sweep across the word rather than fading it all at once`() {
+        val ranges = mapShapedTimedRanges(
+            "मिल्खा",
+            listOf(
+                com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("मिल्", 1.0, 1.5),
+                com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("खा", 1.5, 2.0)
+            )
+        )
+        val first = ranges[0]!!
+        val last = ranges[1]!!
+
+        assertEquals(0f, shapedFragmentSweep(first, 0.5f, false).first, 0.001f)
+        assertTrue(shapedFragmentSweep(first, 0.5f, false).second in 0f..0.5f)
+        assertEquals(shapedFragmentSweep(first, 1f, true).second,
+            shapedFragmentSweep(last, 0f, false).first, 0.001f)
+        assertEquals(1f, shapedFragmentSweep(last, 1f, true).second, 0.001f)
+    }
+
+    @Test
+    fun `one shaped word has a left-to-right partial sweep`() {
+        val range = mapShapedTimedRanges(
+            "बबुआन",
+            listOf(com.auralis.music.ui.lyrics.ExperimentalWordTimestamp("बबुआन", 1.0, 2.0))
+        ).single()!!
+
+        assertEquals(0.5f, shapedFragmentSweep(range, 0.5f, false).second, 0.001f)
+        assertEquals(1f, shapedFragmentSweep(range, 1f, true).second, 0.001f)
+    }
 
     @Test
     fun `known source start and end are preserved exactly`() {

@@ -1337,8 +1337,8 @@ open class InnerTubeClient(
             return SearchTopResult.ArtistResult(artist)
         } else if (onTapPageType == "MUSIC_PAGE_TYPE_ALBUM" || cardType.contains("album") || cardType.contains("ep") || cardType.contains("single") || (browseId != null && (browseId.startsWith("MPRE") || browseId.startsWith("OLAK")) && videoId.isNullOrBlank())) {
             val author = if (subParts.size > 1) subParts[1] else null
-            val album = PlaylistResult(id = browseId ?: "pl:$title", title = title, thumbnail = thumbUrl.ifBlank { null }, author = author)
-            if (albums.none { it.id == browseId || it.title.equals(title, ignoreCase = true) }) {
+            val album = PlaylistResult(id = browseId ?: "pl:$title:${author.orEmpty()}", title = title, thumbnail = thumbUrl.ifBlank { null }, author = author)
+            if (albums.none { it.id == album.id }) {
                 albums.add(0, album)
             }
             return SearchTopResult.AlbumResult(album)
@@ -1597,10 +1597,11 @@ open class InnerTubeClient(
                 )
             }
         } else if (isAlbum && videoId.isNullOrBlank()) {
-            if (albums.none { it.id == browseId || it.title.equals(title, ignoreCase = true) }) {
+            val albumId = browseId ?: "pl:$title:$cleanArtist"
+            if (albums.none { it.id == albumId }) {
                 albums.add(
                     PlaylistResult(
-                        id = browseId ?: "pl:$title",
+                        id = albumId,
                         title = title,
                         thumbnail = thumbUrl.ifBlank { null },
                         author = cleanArtist
