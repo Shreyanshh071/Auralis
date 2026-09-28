@@ -212,4 +212,66 @@ object SpotifySession {
         // Return current token as best-effort fallback if refresh failed
         currentToken.takeIf { it.isNotBlank() }
     }
+
+    data class UserProfile(
+        val id: String,
+        val displayName: String,
+        val avatarUrl: String
+    )
+
+    /**
+     * Fetches a fresh Bearer access token using the provided session cookies.
+     */
+    suspend fun fetchWebPlayerToken(cookieHeader: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
+                .header("User-Agent", USER_AGENT)
+                .header("Cookie", cookieHeader)
+                .header("Referer", "https://open.spotify.com/")
+                .header("Origin", "https://open.spotify.com")
+                .header("Accept", "application/json")
+                .build()
+
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string() ?: ""
+                val json = JSONObject(body)
+                val token = json.optString("accessToken")
+                val isAnon = json.optBoolean("isAnonymous", false)
+                if (token.isNotBlank() && !isAnon) {
+                    return@withContext token
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching web player token: ${e.message}")
+        }
+        null
+    }
+
+    /**
+     * Fetches the user profile (id, display name, avatar) using a valid access token.
+     */
+    suspend fun fetchUserProfile(token: String): UserProfile? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("https://api.spotify.com/v1/me")
+                .header("Authorization", "Bearer $token")
+                .header("User-Agent", USER_AGENT)
+                .build()
+
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string() ?: ""
+                val json = JSONObject(body)
+                val id = json.optString("id")
+                val displayName = json.optString("display_name").ifBlank { id }
+                val avatarUrl = json.optJSONArray("images")?.optJSONObject(0)?.optString("url").orEmpty()
+                return@withContext UserProfile(id, displayName, avatarUrl)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching user profile: ${e.message}")
+        }
+        null
+    }
 }
