@@ -12,6 +12,10 @@ interface LibraryRepository {
     fun getPlaylists(): Flow<List<Playlist>>
     fun getPlaylist(playlistId: String): Flow<Playlist?>
     suspend fun createPlaylist(title: String, description: String? = null, coverUrl: String? = null): Playlist
+    suspend fun upsertImportedPlaylist(source: String, remoteId: String, title: String, description: String? = null, coverUrl: String? = null): Playlist =
+        createPlaylist(title, description, coverUrl)
+    suspend fun restorePlaylist(id: String, title: String, description: String? = null, coverUrl: String? = null): Playlist =
+        createPlaylist(title, description, coverUrl)
     suspend fun updatePlaylist(playlistId: String, title: String, description: String? = null, coverUrl: String? = null)
     suspend fun addTrackToPlaylist(playlistId: String, track: Track)
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)

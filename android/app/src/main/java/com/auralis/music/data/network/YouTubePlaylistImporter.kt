@@ -399,16 +399,17 @@ class YouTubePlaylistImporter(
                     val contJson = JSONObject(contBody)
 
                     val newTracks = extractTracksFromJson(contJson, playlistTitle, playlistAuthor, playlistCover)
-                    if (newTracks.isEmpty()) break
                     allTracks.addAll(newTracks)
 
-                    continuationToken = extractPlaylistContinuationToken(contJson)
+                    val nextToken = extractPlaylistContinuationToken(contJson)
+                    if (nextToken == continuationToken) break
+                    continuationToken = nextToken
                 } catch (_: Exception) {
                     break
                 }
             }
 
-            val validTracks = allTracks.filter { it.id.isNotBlank() }
+            val validTracks = YouTubeShortsFilter.filter(allTracks.filter { it.id.isNotBlank() })
             if (validTracks.isNotEmpty()) {
                 val finalCover = playlistCover?.ifBlank { null }
                 return@withContext Playlist(
@@ -695,7 +696,10 @@ class YouTubePlaylistImporter(
                         else -> ""
                     }
 
-                    if (!videoId.isNullOrBlank() && title.isNotBlank() && !isVideoUnavailable) {
+                    if (!videoId.isNullOrBlank() && title.isNotBlank() && !isVideoUnavailable &&
+                        !YouTubeShortsFilter.hasShortsMarker(item) &&
+                        !YouTubeShortsFilter.isUnlinkedShortUgc(item, durationSec)
+                    ) {
                         tracks.add(
                             Track(
                                 id = videoId,

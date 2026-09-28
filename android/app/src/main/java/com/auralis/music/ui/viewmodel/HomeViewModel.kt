@@ -25,9 +25,14 @@ import java.util.Collections
 
 import android.content.Context
 import com.auralis.music.data.datastore.HomeRecommendationsCache
+import com.auralis.music.data.datastore.PlaylistListeningStore
+import com.auralis.music.domain.recommendations.PlaylistSpeedDialRanking
+import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.recommendations.SpeedDialIdHelper
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicLong
@@ -111,7 +116,8 @@ class HomeViewModel(
     private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
     private val context: Context? = null,
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
-    private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default
+    private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
+    private val libraryRepository: LibraryRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -121,6 +127,7 @@ class HomeViewModel(
 
     @Volatile
     internal var inMemoryPinnedItems: List<SpeedDialItem> = emptyList()
+    @Volatile private var mostListenedPlaylistItem: SpeedDialItem? = null
 
     private val pinPersistenceMutex = Mutex()
     internal val pinSequence = AtomicLong(0)
@@ -151,6 +158,33 @@ class HomeViewModel(
     }
 
     init {
+        if (context != null && libraryRepository != null) {
+            viewModelScope.launch(ioDispatcher) {
+                PlaylistListeningStore.load(context)
+                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats) { playlists, stats ->
+                    PlaylistSpeedDialRanking.mostListened(playlists, stats)
+                }.distinctUntilChanged().collect { playlist ->
+                    mostListenedPlaylistItem = playlist?.let {
+                        SpeedDialItem(
+                            id = "playlist-${it.id}",
+                            name = it.title,
+                            type = SpeedDialType.PLAYLIST,
+                            image = it.coverUrl ?: it.tracks.firstOrNull()?.thumbnail
+                        )
+                    }
+                    _uiState.update { current ->
+                        val pinned = inMemoryPinnedItems
+                        current.copy(speedDialPages = buildSpeedDialPages(
+                            current.topPlayedTracks.map { it.track },
+                            current.recentTracks.map { it.track },
+                            current.speedDialPages.flatten().mapNotNull { it.track },
+                            pinned
+                        ))
+                    }
+                    HomeRecommendationsCache.saveSpeedDial(context, _uiState.value.speedDialPages)
+                }
+            }
+        }
         // 1. Immediately restore cached speed dial & recommendation shelves to UI (0ms cold start latency)
         viewModelScope.launch(ioDispatcher) {
             context?.let { ctx ->
@@ -905,6 +939,7 @@ class HomeViewModel(
     fun clearHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             historyRepository.clearHistory()
+            context?.let { PlaylistListeningStore.clear(it) }
             val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
             _uiState.update { current ->
                 val currentPinned = inMemoryPinnedItems
@@ -948,6 +983,11 @@ class HomeViewModel(
         val allItems = mutableListOf<SpeedDialItem>()
         // 1. Add all pinned items first
         allItems.addAll(effectivePinned)
+
+        // Reserve one unpinned slot for a playlist with repeat, substantial listening.
+        mostListenedPlaylistItem?.let { playlist ->
+            if (allItems.none { it.id == playlist.id }) allItems.add(playlist)
+        }
 
         // 2. Add unpinned tracks up to limit (always backed by seed tracks so 26 slots are filled)
         val seedTracks = NewUserSeedProvider.getInitialSeedTracks()

@@ -280,23 +280,32 @@ class SearchRepositoryImpl(
             // leading candidates' own pages are read for their real per-track plays.
             // Capped so a slow album page can't hold up the whole search; without it the album is
             // judged by its songs in the results alone.
-            val pageInfo: Map<String, Pair<Long, Int>> = sameNameAlbums.take(2).map { album ->
+            val relevantAlbumPages = (sameNameAlbums + rankedAlbums.filter { album ->
+                SearchQueryMatcher.evaluateAlbumMatch(album, trimmed)?.tier?.priority?.let { it <= SearchQueryMatcher.MatchTier.CLOSE_TITLE.priority } == true
+            }).filter { it.id.startsWith("MPRE") }.distinctBy { it.id }.take(8)
+            val pageInfo: Map<String, Pair<Long, Int>> = relevantAlbumPages.map { album ->
                 async {
                     album.id to (kotlinx.coroutines.withTimeoutOrNull(2_500L) {
                         innerTubeClient.getAlbumPlays(album.id)
                     } ?: (0L to 0))
                 }
             }.associate { it.await() }
-            // A release of up to four tracks by the song's own artist, named like the song, is that
-            // song's single ("creep", "blinding lights"): it never outranks the song itself.
-            fun isSongsOwnSingle(album: PlaylistResult): Boolean {
-                val tracks = pageInfo[album.id]?.second ?: return false
-                val song = topMatchedSong ?: return false
-                return tracks in 1..4 && topSongIsExactTitle &&
-                    SearchQueryMatcher.isAuthorMatch(song.artist, album.author.orEmpty())
-            }
+            // A single or remix release can arrive through the album filter. Judge it against
+            // its own title track, not against the top song (which may be by another artist).
+            fun isSongRelease(album: PlaylistResult): Boolean = isTitleTrackRelease(
+                album = album,
+                songs = songsForPlays,
+                albumPlays = maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L),
+                pageTrackCount = pageInfo[album.id]?.second?.takeIf { it > 0 } ?: album.trackCount
+            )
             fun totalAlbumPlays(album: PlaylistResult): Long =
-                if (isSongsOwnSingle(album)) minOf(maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L), topSongViews)
+                if (isSongRelease(album)) {
+                    val titleTrackPlays = songsForPlays.filter {
+                        SearchQueryMatcher.normalize(it.title) == SearchQueryMatcher.normalize(album.title) &&
+                            SearchQueryMatcher.isAuthorMatch(it.artist, album.author.orEmpty())
+                    }.maxOfOrNull { SearchQueryMatcher.parsePlayCount(it.views) } ?: 0L
+                    minOf(maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L), titleTrackPlays)
+                }
                 else maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L)
             val queriedAlbum = sameNameAlbums.maxByOrNull { totalAlbumPlays(it) }
                 ?: exactAlbumMatch ?: ytmAlbumResult?.album?.takeIf { isYtmAlbumValidMatch }
@@ -369,21 +378,14 @@ class SearchRepositoryImpl(
                 else -> null
             }
 
-            // Whatever lost the top spot on the same name is still what some people searched for:
-            // shown right under the top result instead of disappearing into the lists.
-            // Only something people actually play (1M+) and never under an artist top result, so
-            // it never shows an unknown 13K-play upload.
-            val runnerUpMinPlays = 1_000_000L
-            val runnerUp: SearchTopResult? = when {
-                resolvedTopResult is SearchTopResult.ArtistResult -> null
-                resolvedTopResult is SearchTopResult.AlbumResult && topMatchedSong != null && topSongIsExactTitle &&
-                    topSongViews >= runnerUpMinPlays ->
-                    SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong))
-                resolvedTopResult !is SearchTopResult.AlbumResult && queriedAlbum != null &&
-                    queriedAlbumPlays >= runnerUpMinPlays && !isSongsOwnSingle(queriedAlbum) ->
-                    SearchTopResult.AlbumResult(queriedAlbum)
-                else -> null
-            }
+            val runnerUp = selectAlsoMatchingResult(
+                query = trimmed,
+                topResult = resolvedTopResult,
+                matchedSongs = finalMatchedSongs,
+                queriedAlbum = queriedAlbum,
+                queriedAlbumPlays = queriedAlbumPlays,
+                albumIsTitleTrackRelease = queriedAlbum?.let { isSongRelease(it) } ?: false
+            )
             val runnerUpAlbumPlays = if (runnerUp is SearchTopResult.AlbumResult) queriedAlbumPlays
                 else (resolvedTopResult as? SearchTopResult.AlbumResult)?.let { queriedAlbumPlays } ?: 0L
 
@@ -542,7 +544,7 @@ class SearchRepositoryImpl(
             }
 
             val finalAlbums = if (primaryAlbum != null) {
-                listOf(primaryAlbum) + rankedAlbums.filterNot { it.id == primaryAlbum.id || it.title.equals(primaryAlbum.title, ignoreCase = true) }
+                listOf(primaryAlbum) + rankedAlbums.filterNot { it.id == primaryAlbum.id }
             } else {
                 rankedAlbums
             }
@@ -564,6 +566,9 @@ class SearchRepositoryImpl(
                 }
             }
 
+            val albumPlayCounts = finalAlbums.associate { it.id to totalAlbumPlays(it) }
+            val rankedMatches = rankMixedSearchResults(trimmed, finalSongsWithAlbums, finalAlbums, albumPlayCounts)
+
             SearchResults(
                 topResult = resolvedTopResult,
                 recommendations = finalRecommendations,
@@ -574,7 +579,9 @@ class SearchRepositoryImpl(
                 primaryArtist = primaryArtist,
                 primaryAlbum = primaryAlbum,
                 runnerUp = runnerUp,
-                albumPlays = runnerUpAlbumPlays
+                albumPlays = runnerUpAlbumPlays,
+                rankedMatches = rankedMatches,
+                albumPlayCounts = albumPlayCounts
             )
         }
     }

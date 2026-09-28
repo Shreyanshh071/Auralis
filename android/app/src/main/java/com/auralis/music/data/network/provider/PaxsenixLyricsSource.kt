@@ -58,7 +58,7 @@ class PaxsenixLyricsSource(
         private const val TAG = "PaxsenixLyricsSource"
         private const val APPLE_MUSIC_API_BASE = "https://amp-api.music.apple.com/v1/catalog/us"
         private const val PAXSENIX_API_BASE = "https://lyrics.paxsenix.org"
-        private const val USER_AGENT = "Auralis/1.1.0"
+        private const val USER_AGENT = "Auralis/1.1.1"
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {

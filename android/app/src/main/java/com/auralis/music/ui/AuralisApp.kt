@@ -955,6 +955,10 @@ fun AuralisApp(
                                                 onAlbumClick = { album ->
                                                     openAlbumDetail(album)
                                                 },
+                                                onPlaylistClick = { playlistId ->
+                                                    obtainLibraryViewModel().selectPlaylist(playlistId)
+                                                    navigateToDestination(AppDestination.LIBRARY)
+                                                },
                                                 onUnpinSpeedDial = { homeViewModel.unpinFromSpeedDial(it) },
                                                 savedAlbums = libraryUiState.savedAlbums,
                                                 isAlbumPinned = { albumId -> homeViewModel.isAlbumPinned(albumId) },
@@ -1212,7 +1216,8 @@ fun AuralisApp(
                                                         track = track,
                                                         newQueue = queue,
                                                         startIndex = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0),
-                                                        sourcePlaylistTitle = libraryUiState.selectedPlaylist?.title
+                                                        sourcePlaylistTitle = libraryUiState.selectedPlaylist?.title,
+                                                        sourcePlaylistId = libraryUiState.selectedPlaylist?.id
                                                     )
                                                 }
                                                 },

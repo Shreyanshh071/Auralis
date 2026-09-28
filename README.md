@@ -4,7 +4,7 @@
   <p><b>A native YouTube Music player for Android, with synced lyrics and group listening</b></p>
 
   ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Shreyanshh071/Auralis?style=for-the-badge&color=8A2BE2)
-  ![APK Size](https://img.shields.io/badge/APK%20Size-43%20MB%20(Universal)-32CD32?style=for-the-badge&logo=android&logoColor=white)
+  ![APK Size](https://img.shields.io/badge/APK%20Size-25%20MB%20(Universal)-32CD32?style=for-the-badge&logo=android&logoColor=white)
   ![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
   ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
   ![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
@@ -17,7 +17,7 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [What's New](#-whats-new-in-110) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [What's New](#-whats-new-in-111) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -26,7 +26,16 @@
 
 ---
 
-## 🆕 What's New in 1.1.0
+## 🆕 What's New in 1.1.1
+
+- **More reliable karaoke lyrics** — word highlighting sweeps smoothly through shaped text and completes each sung word.
+- **Better search results** — songs and albums with the same name stay distinct, rank by available play counts, and no longer repeat beneath the top cards.
+- **Safer playlist imports** — YouTube Shorts are filtered out, and imported playlists cannot replace a local playlist just because their names match.
+- **Your playlists in Speed Dial** — a playlist appears after at least three listening sessions and 20 minutes of playback.
+
+[Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer.
+
+## What's New in 1.1.0
 
 The biggest update so far. [Full release notes →](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.1.0)
 
@@ -38,7 +47,7 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
 - **Smoother everywhere** — no blank flash on launch, Home opens with artwork ready, sections unfold into place, and a new wavy volume dial.
 - **Remove from queue**, a **Discord profile** in Discord Integration, and dozens of fixes.
 
-### 📦 One universal APK (~43 MB)
+### 📦 One universal APK (~25 MB)
 There's one APK and it runs on every Android phone, whatever processor it has (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`). Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
 
 ---
@@ -218,7 +227,7 @@ Auralis/
 ## ❓ Frequently Asked Questions (FAQ)
 
 <details>
-<summary><b>Why is the APK about 43 MB?</b></summary>
+<summary><b>Why is the APK about 25 MB?</b></summary>
 <br>
 
 The app itself is small: native **Jetpack Compose** and **AndroidX Media3**, shrunk with **R8**. Most of the download is Discord's official SDK for Rich Presence, which ships native code for every kind of Android processor. That's what lets a single universal APK install on any phone.
@@ -228,7 +237,7 @@ The app itself is small: native **Jetpack Compose** and **AndroidX Media3**, shr
 <summary><b>Which APK should I download? Do I need to know my phone's CPU architecture?</b></summary>
 <br>
 
-**You do NOT need to check your phone's processor!** Simply download `Auralis-v1.1.0-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It is a single, universal build that automatically supports all Android CPU architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) out of the box.
+**You do NOT need to check your phone's processor!** Simply download `Auralis-v1.1.1-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It is a single, universal build that automatically supports all Android CPU architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) out of the box.
 </details>
 
 <details>

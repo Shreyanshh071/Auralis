@@ -18,7 +18,7 @@ data class SpeedDialItem(
 )
 
 @Serializable
-enum class SpeedDialType { TRACK, ARTIST, ALBUM, SURPRISE, MORE, PLACEHOLDER }
+enum class SpeedDialType { TRACK, ARTIST, ALBUM, PLAYLIST, SURPRISE, MORE, PLACEHOLDER }
 
 @Serializable
 data class DailyDiscoverItem(

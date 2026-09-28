@@ -254,6 +254,69 @@ private fun experimentalWordIsComplete(
     return currentPositionMs.toDouble() >= boundaryMs
 }
 
+internal data class ShapedTimedRange(
+    val start: Int,
+    val end: Int,
+    val visibleStart: Int,
+    val visibleEnd: Int,
+    val completedStart: Int,
+    val completedEnd: Int
+)
+
+/** Portion of a shaped word already sung by this timed fragment. */
+internal fun shapedFragmentSweep(range: ShapedTimedRange, progress: Float, complete: Boolean): Pair<Float, Float> {
+    val length = (range.visibleEnd - range.visibleStart).coerceAtLeast(1).toFloat()
+    val start = if (complete) range.completedStart else range.start
+    val end = if (complete) range.completedEnd.toFloat()
+        else range.start + (range.end - range.start) * progress.coerceIn(0f, 1f)
+    return ((start - range.visibleStart) / length).coerceIn(0f, 1f) to
+        ((end - range.visibleStart) / length).coerceIn(0f, 1f)
+}
+
+/**
+ * Keep provider fragments separate while giving the last fragment of each visible word
+ * responsibility for any conjunct, vowel mark, or punctuation its own substring misses.
+ */
+internal fun mapShapedTimedRanges(
+    text: String,
+    words: List<ExperimentalWordTimestamp>,
+    isBackground: Boolean = false
+): List<ShapedTimedRange?> {
+    var cursor = 0
+    val spans = words.mapIndexed { index, word ->
+        val token = word.text.let {
+            if (isBackground) it.removePrefix(if (index == 0) "(" else "")
+                .removeSuffix(if (index == words.lastIndex) ")" else "")
+            else it
+        }.trim()
+        if (token.isEmpty()) return@mapIndexed null
+        val start = text.indexOf(token, cursor)
+        if (start < 0) return@mapIndexed null
+        val end = start + token.length
+        cursor = end
+        start until end
+    }
+    return spans.mapIndexed { index, span ->
+        if (span == null) return@mapIndexed null
+        val start = span.first
+        val end = span.last + 1
+        var visibleStart = start
+        while (visibleStart > 0 && !text[visibleStart - 1].isWhitespace()) visibleStart--
+        var visibleEnd = end
+        while (visibleEnd < text.length && !text[visibleEnd].isWhitespace()) visibleEnd++
+        val followedByFragment = spans.asSequence().drop(index + 1).filterNotNull()
+            .firstOrNull()?.first?.let { it < visibleEnd } ?: false
+        ShapedTimedRange(
+            start = start,
+            end = end,
+            visibleStart = visibleStart,
+            visibleEnd = visibleEnd,
+            completedStart = if (followedByFragment) start else visibleStart,
+            completedEnd = if (followedByFragment) end else visibleEnd
+        )
+    }
+}
+
 private fun experimentalCharacterProgress(
     word: ExperimentalWordTimestamp,
     currentPositionMs: Long,
@@ -1626,6 +1689,10 @@ private fun ExperimentalWordLevelLyrics(
         }
     }
 
+    val shapedTimedRanges = remember(mainText, effectiveWords, isBackground) {
+        mapShapedTimedRanges(mainText, effectiveWords, isBackground)
+    }
+
     val charToWordData = remember(mainText, effectiveWords, isBackground, graphemeClusters, clusterCharOffsets) {
         val wordIdxMap = IntArray(clusterCount) { -1 }
         val charInWordMap = IntArray(clusterCount)
@@ -1725,7 +1792,6 @@ private fun ExperimentalWordLevelLyrics(
                 drawText(layoutResult, color = lineColor)
             } else {
                 if (drawAsShapedRun) {
-                    val (wordIdxMap, _, _) = charToWordData
                     val wordFactors = effectiveWords.map { word ->
                         val wStartMs = (word.startTime * 1000).toLong()
                         val wEndMs = word.endTime?.let { (it * 1000).toLong() }
@@ -1739,32 +1805,34 @@ private fun ExperimentalWordLevelLyrics(
 
                     effectiveWords.indices.forEach { wIdx ->
                         val (sungFactor, isWordSung, isWordActive) = wordFactors[wIdx]
-                        var left = Float.MAX_VALUE
-                        var right = Float.MIN_VALUE
-                        var top = Float.MAX_VALUE
-                        var bottom = Float.MIN_VALUE
-                        var found = false
-
-                        for (i in 0 until clusterCount) {
-                            if (wordIdxMap[i] == wIdx) {
-                                val charOffset = clusterCharOffsets[i]
-                                val bounds = layoutResult.getBoundingBox(charOffset)
-                                left = minOf(left, bounds.left)
-                                right = maxOf(right, bounds.right)
-                                top = minOf(top, bounds.top)
-                                bottom = maxOf(bottom, bounds.bottom)
-                                found = true
-                            }
-                        }
-
-                        if (found) {
-                            if (isWordSung) {
-                                clipRect(left = left, top = top, right = right, bottom = bottom) {
-                                    drawText(layoutResult, color = expressiveAccent)
-                                }
-                            } else if (isWordActive && sungFactor > 0f) {
-                                clipRect(left = left, top = top, right = right, bottom = bottom) {
-                                    drawText(layoutResult, color = expressiveAccent.copy(alpha = focusedAlpha + (1f - focusedAlpha) * sungFactor))
+                        val range = shapedTimedRanges[wIdx]
+                        if (range != null) {
+                            // Shape the entire visible word once. A fragment can begin inside a
+                            // conjunct, where measuring only its substring returns the whole glyph.
+                            val bounds = layoutResult.getPathForRange(range.visibleStart, range.visibleEnd).getBounds()
+                            if (bounds.isEmpty) return@forEach
+                            val wordLeft = bounds.left - 2f
+                            val wordRight = bounds.right + 2f
+                            val top = bounds.top - 2f
+                            val bottom = bounds.bottom + 2f
+                            if (isWordSung || isWordActive && sungFactor > 0f) {
+                                val (from, to) = shapedFragmentSweep(range, sungFactor, isWordSung)
+                                val width = wordRight - wordLeft
+                                val rtl = mainText.substring(range.visibleStart, range.visibleEnd).containsRtl()
+                                val left = if (rtl) wordRight - width * to else wordLeft + width * from
+                                val right = if (rtl) wordRight - width * from else wordLeft + width * to
+                                if (right > left) {
+                                    clipRect(left = left, top = top, right = right, bottom = bottom) {
+                                        drawText(layoutResult, color = expressiveAccent)
+                                    }
+                                    if (isWordActive && !isWordSung) {
+                                        val edgeWidth = 7.dp.toPx().coerceAtMost(right - left)
+                                        val edgeLeft = if (rtl) left else right - edgeWidth
+                                        val edgeRight = if (rtl) left + edgeWidth else right
+                                        clipRect(left = edgeLeft, top = top, right = edgeRight, bottom = bottom) {
+                                            drawText(layoutResult, color = Color.White.copy(alpha = 0.45f))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1868,7 +1936,7 @@ private fun ExperimentalWordLevelLyrics(
                         )
                     } else 0f
 
-                    val shouldGlow = wordItem?.endTime != null && !isWordSung && sungFactor > 0.001f
+                    val shouldGlow = wordItem?.endTime != null && !isWordSung && charLp > 0.001f && charLp < 0.999f
 
                     var crescendoDeltaX = 0f
                     var crescendoDeltaY = 0f
@@ -1944,22 +2012,25 @@ private fun ExperimentalWordLevelLyrics(
                             if (impactFactor > 0.01f) {
                                 val glowAlpha = (0.35f * impactFactor).coerceIn(0f, 0.4f)
                                 val baseGlowRadius = 12.dp.toPx() * impactFactor
-                                drawIntoCanvas { canvas ->
-                                    glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
-                                    glowPaint.color = expressiveAccent.copy(alpha = glowAlpha).toArgb()
-                                    glowPaint.textSize = lyricStyle.fontSize.toPx()
-                                    glowPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                                    canvas.nativeCanvas.drawText(
-                                        letterLayouts[i].layoutInput.text.text,
-                                        0f,
-                                        letterLayouts[i].firstBaseline,
-                                        glowPaint
-                                    )
+                                clipRect(left = 0f, top = -baseGlowRadius,
+                                    right = charBounds.width * charLp, bottom = charBounds.height + baseGlowRadius) {
+                                    drawIntoCanvas { canvas ->
+                                        glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
+                                        glowPaint.color = expressiveAccent.copy(alpha = glowAlpha).toArgb()
+                                        glowPaint.textSize = lyricStyle.fontSize.toPx()
+                                        glowPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                        canvas.nativeCanvas.drawText(
+                                            letterLayouts[i].layoutInput.text.text,
+                                            0f,
+                                            letterLayouts[i].firstBaseline,
+                                            glowPaint
+                                        )
+                                    }
                                 }
                             }
                         }
                         val allWordsSung = effectiveWords.all { experimentalWordIsComplete(it, smoothPosition) }
-                        val baseAlpha = if (isWordSung || allWordsSung || charLp > 0.99f) 1f else (focusedAlpha + (1f - focusedAlpha) * sungFactor)
+                        val baseAlpha = if (isWordSung || charLp > 0.99f) 1f else focusedAlpha
                         val charAlpha = if (wordIdx == -1) (if (allWordsSung) 1f else focusedAlpha) else baseAlpha
                         drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = charAlpha))
                         if (!isWordSung && charLp > 0f && charLp < 1f) {

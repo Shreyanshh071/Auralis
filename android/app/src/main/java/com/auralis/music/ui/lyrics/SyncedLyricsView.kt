@@ -1287,7 +1287,7 @@ private fun buildWordLayouts(
         if (start >= end) return@mapNotNull null
 
         // 1. Trim trailing whitespace only for geometry lookup to avoid pulling adjacent visual rows
-        val glyphEnd = (start + range.word.word.trimEnd().length).coerceIn(start, textLen)
+        val glyphEnd = lineTextGlyphEnd(layout.layoutInput.text.text, start, end)
         val wordPath = if (glyphEnd > start) layout.getPathForRange(start, glyphEnd) else layout.getPathForRange(start, end)
         val rawBounds = wordPath.getBounds()
 
@@ -1325,6 +1325,13 @@ private fun buildWordLayouts(
             isRtl = isRtl
         )
     }
+}
+
+/** The mapped span, rather than the source token length, defines rendered glyph coverage. */
+private fun lineTextGlyphEnd(text: String, start: Int, end: Int): Int {
+    var glyphEnd = end
+    while (glyphEnd > start && text[glyphEnd - 1].isWhitespace()) glyphEnd--
+    return glyphEnd
 }
 
 internal fun computeLyricsProgressiveBlur(
@@ -1742,17 +1749,30 @@ private fun LyricLineRow(
                                                     )
                                                 }
                                             } else {
-                                                // Multi-line wrapped span fallback: clip to the actual word path
+                                                // Keep a wrapped word progressive too; the path limits
+                                                // the horizontal sweep to this word's shaped glyphs.
+                                                val sweepEdge = if (activeItem.isRtl) {
+                                                    bounds.right - bounds.width * progress
+                                                } else {
+                                                    bounds.left + bounds.width * progress
+                                                }
                                                 clipPath(activeItem.wordPath) {
-                                                    drawText(
-                                                        textLayoutResult = layout,
-                                                        color = Color.White,
-                                                        shadow = Shadow(
-                                                            color = Color.White.copy(alpha = 0.60f),
-                                                            blurRadius = 8f,
-                                                            offset = Offset.Zero
+                                                    clipRect(
+                                                        left = if (activeItem.isRtl) sweepEdge else bounds.left,
+                                                        top = bounds.top,
+                                                        right = if (activeItem.isRtl) bounds.right else sweepEdge,
+                                                        bottom = bounds.bottom
+                                                    ) {
+                                                        drawText(
+                                                            textLayoutResult = layout,
+                                                            color = Color.White,
+                                                            shadow = Shadow(
+                                                                color = Color.White.copy(alpha = 0.60f),
+                                                                blurRadius = 8f,
+                                                                offset = Offset.Zero
+                                                            )
                                                         )
-                                                    )
+                                                    }
                                                 }
                                             }
                                         }

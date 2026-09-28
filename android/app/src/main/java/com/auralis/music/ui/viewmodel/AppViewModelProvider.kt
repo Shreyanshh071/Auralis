@@ -44,7 +44,8 @@ class AppViewModelProvider(
                         historyRepository,
                         searchRepository,
                         innerTubeClient,
-                        activity.applicationContext
+                        activity.applicationContext,
+                        libraryRepository = libraryRepository
                     ) as T
                 }
             }

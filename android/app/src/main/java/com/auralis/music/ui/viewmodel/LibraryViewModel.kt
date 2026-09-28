@@ -370,8 +370,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             try {
                 val cleanTitle = title.trim()
-                val existing = _uiState.value.playlists.firstOrNull { it.title.equals(cleanTitle, ignoreCase = true) }
-                val targetPlaylist = existing ?: libraryRepository.createPlaylist(
+                val targetPlaylist = libraryRepository.createPlaylist(
                     title = cleanTitle,
                     description = description?.trim(),
                     coverUrl = coverUrl
@@ -379,25 +378,12 @@ class LibraryViewModel(
                 if (tracks.isNotEmpty()) {
                     libraryRepository.replacePlaylistTracks(targetPlaylist.id, tracks)
                 }
-                if (existing != null && coverUrl != null && existing.coverUrl != coverUrl) {
-                    libraryRepository.updatePlaylist(
-                        playlistId = targetPlaylist.id,
-                        title = targetPlaylist.title,
-                        description = targetPlaylist.description,
-                        coverUrl = coverUrl
-                    )
-                }
                 val populated = targetPlaylist.copy(
                     tracks = tracks,
                     coverUrl = coverUrl ?: targetPlaylist.coverUrl
                 )
                 _uiState.update { state ->
-                    val updated = if (existing != null) {
-                        state.playlists.map { if (it.id == targetPlaylist.id) populated else it }
-                    } else {
-                        listOf(populated) + state.playlists
-                    }
-                    state.copy(playlists = updated)
+                    state.copy(playlists = listOf(populated) + state.playlists)
                 }
                 onCreated?.invoke(populated)
             } catch (e: Exception) {
@@ -658,7 +644,9 @@ class LibraryViewModel(
                 val imported = youtubeImporter.importPlaylist(urlOrId)
                 if (imported != null) {
                     val resolvedCover = imported.coverUrl?.ifBlank { null }
-                    val playlist = libraryRepository.createPlaylist(
+                    val playlist = libraryRepository.upsertImportedPlaylist(
+                        source = "youtube_music",
+                        remoteId = imported.id,
                         title = imported.title,
                         description = imported.description,
                         coverUrl = resolvedCover
@@ -691,8 +679,7 @@ class LibraryViewModel(
 
     /**
      * Imports playlists picked from the signed-in YouTube Music library, one after another.
-     * Liked Music goes into liked songs; a playlist already here (same title) is updated in place
-     * rather than duplicated, so importing again refreshes it.
+     * Liked Music goes into liked songs. Reimporting the same remote playlist refreshes it.
      */
     fun importYouTubeLibraryPlaylists(selected: List<com.auralis.music.data.network.YouTubeMusicLibrary.LibraryPlaylist>) {
         if (selected.isEmpty()) return
@@ -712,15 +699,14 @@ class LibraryViewModel(
                         remote.tracks.forEach { libraryRepository.setFavorite(it, true) }
                     } else {
                         val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
-                        val existing = libraryRepository.getPlaylists().first()
-                            .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
-                        val playlistId = if (existing != null) {
-                            libraryRepository.updatePlaylist(existing.id, existing.title, existing.description, cover)
-                            existing.id
-                        } else {
-                            libraryRepository.createPlaylist(item.title, remote.description, cover).id
-                        }
-                        libraryRepository.replacePlaylistTracks(playlistId, remote.tracks)
+                        val playlist = libraryRepository.upsertImportedPlaylist(
+                            source = "youtube_music",
+                            remoteId = remote.id,
+                            title = remote.title,
+                            description = remote.description,
+                            coverUrl = cover
+                        )
+                        libraryRepository.replacePlaylistTracks(playlist.id, remote.tracks)
                     }
                     imported++
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -745,7 +731,7 @@ class LibraryViewModel(
 
     /**
      * Imports playlists picked by the user from their signed-in Spotify account.
-     * Liked Songs go into favorites; playlists already existing in library (same title) are updated in place.
+     * Liked Songs go into favorites. Reimporting the same remote playlist refreshes it.
      */
     fun importSpotifyLibraryPlaylists(selected: List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) {
         if (selected.isEmpty()) return
@@ -782,15 +768,14 @@ class LibraryViewModel(
                             continue
                         }
                         val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
-                        val existing = libraryRepository.getPlaylists().first()
-                            .firstOrNull { it.title.trim().equals(item.title.trim(), ignoreCase = true) }
-                        val playlistId = if (existing != null) {
-                            libraryRepository.updatePlaylist(existing.id, existing.title, existing.description, cover)
-                            existing.id
-                        } else {
-                            libraryRepository.createPlaylist(item.title, remote.description, cover).id
-                        }
-                        libraryRepository.replacePlaylistTracks(playlistId, remote.tracks)
+                        val playlist = libraryRepository.upsertImportedPlaylist(
+                            source = "spotify",
+                            remoteId = remote.id.removePrefix("sp_"),
+                            title = remote.title,
+                            description = remote.description,
+                            coverUrl = cover
+                        )
+                        libraryRepository.replacePlaylistTracks(playlist.id, remote.tracks)
                         imported++
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -830,7 +815,9 @@ class LibraryViewModel(
                 )
                 if (imported != null && (imported.tracks.isNotEmpty() || imported.title.isNotBlank())) {
                     // 1. Immediately create the playlist in Room DB so user has 0ms wait time
-                    val playlist = libraryRepository.createPlaylist(
+                    val playlist = libraryRepository.upsertImportedPlaylist(
+                        source = "spotify",
+                        remoteId = imported.id.removePrefix("sp_"),
                         title = imported.title,
                         description = imported.description,
                         coverUrl = imported.coverUrl

@@ -18,8 +18,27 @@ data class SearchResults(
     // The same-named album or song that lost the top spot on plays, shown right below it.
     val runnerUp: SearchTopResult? = null,
     // Total plays of the same-named album (top result or runner-up), for its subtitle.
-    val albumPlays: Long = 0L
+    val albumPlays: Long = 0L,
+    val rankedMatches: List<SearchTopResult> = emptyList(),
+    val albumPlayCounts: Map<String, Long> = emptyMap()
 ) {
-    fun isEmpty(): Boolean = topResult == null && songs.isEmpty() && albums.isEmpty() && recommendations.isEmpty() && artists.isEmpty() && playlists.isEmpty() && primaryArtist == null && primaryAlbum == null
+    fun isEmpty(): Boolean = topResult == null && rankedMatches.isEmpty() && songs.isEmpty() && albums.isEmpty() && recommendations.isEmpty() && artists.isEmpty() && playlists.isEmpty() && primaryArtist == null && primaryAlbum == null
     fun isNotEmpty(): Boolean = !isEmpty()
+
+    /** The list below the featured cards contains only results not already shown above it. */
+    fun remainingRankedMatches(displayedAlbumId: String? = null): List<SearchTopResult> {
+        val featured = listOfNotNull(topResult, runnerUp)
+        val shownSongIds = featured.filterIsInstance<SearchTopResult.SongResult>().map { it.track.id }.toSet()
+        val shownAlbumIds = featured.filterIsInstance<SearchTopResult.AlbumResult>().map { it.album.id }.toSet() +
+            listOfNotNull(displayedAlbumId)
+        val shownArtistIds = featured.filterIsInstance<SearchTopResult.ArtistResult>().map { it.artist.id }.toSet()
+        val matches = rankedMatches.ifEmpty { songs.map { SearchTopResult.SongResult(it) } }
+        return matches.filterNot { match ->
+            when (match) {
+                is SearchTopResult.SongResult -> match.track.id in shownSongIds
+                is SearchTopResult.AlbumResult -> match.album.id in shownAlbumIds
+                is SearchTopResult.ArtistResult -> match.artist.id in shownArtistIds
+            }
+        }
+    }
 }

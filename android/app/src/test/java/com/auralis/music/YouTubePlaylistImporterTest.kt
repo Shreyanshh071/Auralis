@@ -1,6 +1,8 @@
 package com.auralis.music
 
 import com.auralis.music.data.network.YouTubePlaylistImporter
+import com.auralis.music.data.network.YouTubeShortsFilter
+import com.auralis.music.domain.model.Track
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +10,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class YouTubePlaylistImporterTest {
+
+    @Test
+    fun shortVideoClassificationRejectsShortsAndGamingButKeepsShortMusic() {
+        val gaming = Track(id = "gaming", title = "Trigger Discipline", duration = 49)
+        val music = Track(id = "song", title = "Short song", duration = 49)
+        val longSong = music.copy(duration = 210)
+        val gamingPlayer = org.json.JSONObject("""{
+            "microformat":{"playerMicroformatRenderer":{"category":"Gaming","uploadDate":"2026-01-01"}},
+            "videoDetails":{"lengthSeconds":"49"}
+        }""")
+        val portraitPlayer = org.json.JSONObject("""{
+            "microformat":{"playerMicroformatRenderer":{"category":"Music","uploadDate":"2026-01-01"}},
+            "videoDetails":{"lengthSeconds":"49"},
+            "streamingData":{"adaptiveFormats":[{"width":1080,"height":1920}]}
+        }""")
+        val landscapePlayer = org.json.JSONObject("""{
+            "microformat":{"playerMicroformatRenderer":{"category":"Music","uploadDate":"2026-01-01"}},
+            "videoDetails":{"lengthSeconds":"49"},
+            "streamingData":{"adaptiveFormats":[{"width":1920,"height":1080}]}
+        }""")
+
+        assertTrue(YouTubeShortsFilter.isShortOrNonMusic(gaming, gamingPlayer))
+        assertTrue(YouTubeShortsFilter.isShortOrNonMusic(music, portraitPlayer))
+        assertFalse(YouTubeShortsFilter.isShortOrNonMusic(music, landscapePlayer))
+        assertFalse(YouTubeShortsFilter.isShortOrNonMusic(longSong, gamingPlayer))
+    }
+
+    @Test
+    fun shortsNavigationMarkerIsRejectedWithoutPlayerLookup() {
+        val item = org.json.JSONObject("""{"navigationEndpoint":{"reelWatchEndpoint":{"videoId":"short"}}}""")
+        val normal = org.json.JSONObject("""{"navigationEndpoint":{"watchEndpoint":{"videoId":"song"}}}""")
+        assertTrue(YouTubeShortsFilter.hasShortsMarker(item))
+        assertFalse(YouTubeShortsFilter.hasShortsMarker(normal))
+    }
+
+    @Test
+    fun unlinkedSubMinuteUserUploadIsNotImportedAsMusic() {
+        val userClip = org.json.JSONObject("""{
+            "playlistItemData":{"videoId":"clip"},
+            "navigationEndpoint":{"watchEndpoint":{"watchEndpointMusicSupportedConfigs":{
+                "watchEndpointMusicConfig":{"musicVideoType":"MUSIC_VIDEO_TYPE_UGC"}}}},
+            "flexColumns":[{}, {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Creator"}]}}}]
+        }""")
+        val releasedSong = org.json.JSONObject("""{
+            "navigationEndpoint":{"watchEndpoint":{"watchEndpointMusicSupportedConfigs":{
+                "watchEndpointMusicConfig":{"musicVideoType":"MUSIC_VIDEO_TYPE_UGC"}}}},
+            "flexColumns":[{}, {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                {"text":"Artist"},{"text":"Album","navigationEndpoint":{"browseEndpoint":{"browseId":"MPRE123"}}}
+            ]}}}]
+        }""")
+        assertTrue(YouTubeShortsFilter.isUnlinkedShortUgc(userClip, 49))
+        assertFalse(YouTubeShortsFilter.isUnlinkedShortUgc(userClip, 180))
+        assertFalse(YouTubeShortsFilter.isUnlinkedShortUgc(releasedSong, 49))
+    }
 
     @Test
     fun extractPlaylistId_fromYouTubeMusicUrl_extractsListParam() {

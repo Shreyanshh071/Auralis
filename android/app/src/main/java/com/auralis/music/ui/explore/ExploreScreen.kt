@@ -820,6 +820,7 @@ private fun SearchResultsView(
     val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
         (results.primaryArtist != null && query.isNotBlank() &&
             com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist.name, query))
+    val rankedMatches = results.remainingRankedMatches(if (isArtistSearch) null else primaryAlbum?.id)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -849,7 +850,8 @@ private fun SearchResultsView(
             item(key = topResultKey) {
                 SearchHeroCard(
                     result = results.topResult,
-                    albumPlays = results.albumPlays,
+                    albumPlays = (results.topResult as? SearchTopResult.AlbumResult)?.album?.id
+                        ?.let { results.albumPlayCounts[it] } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
                     onTrackClick = onTrackClick,
                     onArtistClick = onArtistClick,
@@ -877,7 +879,8 @@ private fun SearchResultsView(
             item(key = "card_also_matching") {
                 SearchHeroCard(
                     result = runnerUp,
-                    albumPlays = results.albumPlays,
+                    albumPlays = (runnerUp as? SearchTopResult.AlbumResult)?.album?.id
+                        ?.let { results.albumPlayCounts[it] } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
                     onTrackClick = onTrackClick,
                     onArtistClick = onArtistClick,
@@ -1153,35 +1156,52 @@ private fun SearchResultsView(
         // ====================================================================
         // STEP 3 — ACTUAL SEARCH RESULTS (REAL QUERY-MATCHED SONGS)
         // ====================================================================
-        item(key = "header_matching_songs") {
-            Text(
-                text = if (isArtistSearch) "Top Songs" else "Songs",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-            )
-        }
-
-        if (results.songs.isNotEmpty()) {
-            items(
-                items = results.songs,
-                key = { "match_${it.id}" },
-                contentType = { "song" }
-            ) { track ->
-                val isCurrent = track.id == currentTrackId
-                TrackRowItem(
-                    track = track,
-                    isCurrent = isCurrent,
-                    isPlaying = isPlaying,
-                    playlist = listOf(track),
-                    onTrackClick = onTrackClick,
-                    onPlayNext = onPlayNext,
-                    onAddToQueue = onAddToQueue,
-                    onMenuClick = onMenuClick
+        if (rankedMatches.isNotEmpty() || results.topResult == null && results.runnerUp == null) {
+            item(key = "header_matching_songs") {
+                Text(
+                    text = when {
+                        rankedMatches.any { it is SearchTopResult.AlbumResult } -> "Songs & Albums"
+                        isArtistSearch -> "Top Songs"
+                        else -> "Songs"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
                 )
             }
-        } else {
+        }
+
+        if (rankedMatches.isNotEmpty()) {
+            items(
+                items = rankedMatches,
+                key = { match -> when (match) {
+                    is SearchTopResult.SongResult -> "match_song_${match.track.id}"
+                    is SearchTopResult.AlbumResult -> "match_album_${match.album.id}"
+                    is SearchTopResult.ArtistResult -> "match_artist_${match.artist.id}"
+                } },
+                contentType = { match -> if (match is SearchTopResult.AlbumResult) "album" else "song" }
+            ) { match ->
+                when (match) {
+                    is SearchTopResult.SongResult -> TrackRowItem(
+                        track = match.track,
+                        isCurrent = match.track.id == currentTrackId,
+                        isPlaying = isPlaying,
+                        playlist = listOf(match.track),
+                        onTrackClick = onTrackClick,
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onMenuClick = onMenuClick
+                    )
+                    is SearchTopResult.AlbumResult -> AlbumRowItem(
+                        album = match.album,
+                        plays = results.albumPlayCounts[match.album.id] ?: 0L,
+                        onClick = { onPlaylistClick(match.album) }
+                    )
+                    is SearchTopResult.ArtistResult -> Unit
+                }
+            }
+        } else if (results.topResult == null && results.runnerUp == null) {
             item(key = "empty_matching_songs") {
                 Column(
                     modifier = Modifier
@@ -1190,14 +1210,14 @@ private fun SearchResultsView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "No matching songs found",
+                        text = "No matching results found",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (query.isNotBlank()) "No songs match \"$query\". Check spelling or try searching another artist or title."
+                        text = if (query.isNotBlank()) "No songs or albums match \"$query\". Check spelling or try another search."
                         else "No songs found for this search.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1251,6 +1271,47 @@ private fun SearchResultsView(
                     onMenuClick = onMenuClick
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AlbumRowItem(album: PlaylistResult, plays: Long, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ArtworkCard(
+            sizeToConstraints = true,
+            url = album.thumbnail,
+            modifier = Modifier.size(50.dp),
+            cornerRadius = 8.dp,
+            contentDescription = album.title
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = album.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = buildString {
+                    append("Album • ${album.author ?: "Various Artists"}")
+                    if (plays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(plays)}")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
