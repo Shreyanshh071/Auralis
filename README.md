@@ -28,27 +28,27 @@
 
 ## 🆕 What's New in 1.1.1
 
-- **More reliable karaoke lyrics** — word highlighting sweeps smoothly through shaped text and completes each sung word.
-- **Better search results** — songs and albums with the same name stay distinct, rank by available play counts, and no longer repeat beneath the top cards.
-- **Safer playlist imports** — YouTube Shorts are filtered out, and imported playlists cannot replace a local playlist just because their names match.
-- **Your playlists in Speed Dial** — a playlist appears after at least three listening sessions and 20 minutes of playback.
+- **More reliable karaoke lyrics** — timed word highlighting sweeps through shaped text, including Hindi, and fills the word when its final timed fragment ends.
+- **Better search results** — same-name songs and albums stay distinct, rank by query relevance and available play counts, and the two featured results no longer repeat in the list below.
+- **Safer playlist imports** — imports filter identifiable YouTube Shorts when metadata is available, and a same-name import preserves an existing local playlist.
+- **Your playlists in Speed Dial** — a playlist becomes eligible after at least three starts from that playlist and 20 minutes of actual playback.
 
 [Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer.
+
+### 📦 Current universal APK (~25 MB)
+The 1.1.1 APK supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
 
 ## What's New in 1.1.0
 
 The biggest update so far. [Full release notes →](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.1.0)
 
-- **Stats that follow your account** — listening stats are backed up when you're signed in and come back after a reinstall or on a new phone.
-- **Offline song cache** — songs you play are kept on your phone (you choose the size), so replays don't download again and work without internet.
-- **Smarter search** — when an album and a song share a name, the more-played one is the Top result and the other shows right below under **Also matching**.
-- **Rebuilt Listen Together** — hosts decide who can play, skip or seek; everyone starts each song together; optional Allow / Decline for guests' picks.
-- **Word-by-word lyrics** — smoother karaoke highlighting, Hinglish for Indian songs, and no more highlight running ahead after you tap a line.
-- **Smoother everywhere** — no blank flash on launch, Home opens with artwork ready, sections unfold into place, and a new wavy volume dial.
+- **Stats that follow your account** — listening stats can be backed up when you're signed in and restored after a reinstall or on a new phone.
+- **Offline song cache** — cached songs can replay without another download; fully cached tracks can play without internet.
+- **Smarter search** — an album and a song sharing a name can appear as the Top result and under **Also matching**, based on relevance and available play counts.
+- **Rebuilt Listen Together** — hosts decide who can play, skip or seek; playback coordinates song starts across the room; optional Allow / Decline for guests' picks.
+- **Word-by-word lyrics** — smoother karaoke highlighting, optional Latin-script transliteration when available, and improved timing after you tap a line.
+- **Smoother screens** — reduced launch flashing, faster Home artwork, sections that unfold into place, and a new wavy volume dial.
 - **Remove from queue**, a **Discord profile** in Discord Integration, and dozens of fixes.
-
-### 📦 One universal APK (~25 MB)
-There's one APK and it runs on every Android phone, whatever processor it has (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`). Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
 
 ---
 
@@ -118,7 +118,7 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 ## ✨ Features
 
 ### 🌐 Listen Together (Real-Time Group Listening)
-- **Synchronized Playback Rooms**: Join with a 6-character code and listen together in real time. The host holds each new song until everyone has it loaded, so all of you start together.
+- **Synchronized Playback Rooms**: Join with a 6-character code and listen together in real time. The host briefly holds each new song for guests to load, subject to a timeout, then coordinates playback.
 - **Host Permissions**: Choose whether guests may control playback (play, pause, seek) and whether they may play or skip songs, with optional Allow / Decline approval for their picks.
 - **Dedicated Host Controls & Listener Protection**: Prevents accidental desync by blocking listener playback alterations from Bluetooth earphones, TWS touch gestures, or lockscreen controls while keeping volume independent.
 - **Smart Song Recommendations & Voting**: Room members can search, recommend, and upvote songs in a shared room queue.
@@ -131,34 +131,34 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 - **High-Resolution Artwork & Artist Photos**: Album covers up to 1200×1200, with Wikipedia photos filled in for artists who have no picture (e.g. Kanye West).
 
 ### 📜 Multi-Engine Synced Lyrics Ecosystem
-- **Word-by-Word Karaoke Lyrics**: Lyrics light up word by word as the song plays; Hindi/Urdu songs always show in Hinglish (Latin letters).
-- **Multi-Source Lyrics**: Line-by-line and word-by-word synced lyrics from **Musixmatch** (Spotify catalog), **LRCLIB**, **KuGou** (200M+ synchronized catalog), **AMLL**, and official **YouTube Music** record-label lyrics.
-- **AI Translation & Romanization**: One-tap AI translation to English and Pinyin/Romaji/Hangul transliteration for foreign language tracks.
+- **Word-by-Word Karaoke Lyrics**: Timed lyrics can light up word by word; Hindi/Urdu lyrics can be shown in Latin script when transliteration is available.
+- **Multi-Source Lyrics**: Line-by-line and word-by-word synced lyrics, when available, from **Musixmatch**, **LRCLIB**, **KuGou**, **AMLL**, and **YouTube Music**.
+- **AI Translation & Romanization**: One-tap AI translation to English and Latin-script romanization, including Pinyin and Romaji, for supported tracks.
 - **Spotify-Style Lyric Card Sharing**: Generate and export customizable aesthetic lyric cards directly to social media.
 - **Offline Caching**: Lyrics are saved once fetched, so they're available offline.
 
 ### 🎧 Playback
 - **Background Playback**: Keeps playing with the screen off, using a foreground `MediaSessionService` with wake and Wi-Fi locks.
 - **Android 13/14 Quick Settings & Lock-Screen Deck**: Native system media card featuring monochrome app badge, interactive scrub seekbar, previous/next controls, like/heart toggle, and repeat modes.
-- **Offline Song Cache**: Songs you play are kept on your phone up to a size you choose, so replays don't download again and work offline.
+- **Offline Song Cache**: Cached audio is kept on your phone up to a size you choose; fully cached tracks can replay offline.
 - **Offline Downloads & Local Library**: Download songs and whole playlists for offline playback, with Auto / High / Low audio quality (High is Opus up to ~160 kbps).
 - **Gapless Playback & Spatial Audio**: The next song is preloaded for gapless transitions, and a Spatial Audio switch widens the soundstage.
 
 ### 🔍 Discovery, Search & Music Recognition
 - **Search & Autocomplete**: Suggestions as you type, across songs, albums, artists and playlists.
-- **Ranked by Plays**: Exact titles first, then everything by popularity. An album and a song with the same name are weighed against each other and the runner-up appears under **Also matching**.
-- **Right Album, Every Time**: "View album" opens a song's original album, not a greatest-hits compilation, and standalone singles are labelled as singles.
-- **Music & Voice Recognition**: Identify songs playing around you using built-in acoustic fingerprinting (Shazam-compatible, via SongRec).
+- **Ranked Search**: Results use query relevance and available play counts. An album and a song with the same name can be weighed against each other, with the runner-up under **Also matching**.
+- **Album Metadata Resolution**: "View album" tries to find a song's original release instead of a compilation and identifies standalone singles where metadata allows.
+- **Music & Voice Recognition**: Identify songs playing around you using built-in Shazam-compatible acoustic fingerprinting.
 - **Taste Profiler & Speed Dial**: Personalized home feed tailored to your real listening habits, heavy rotation, and top-played artists.
-- **Full Artist Discography**: Artist bios, subscriber counts, top tracks, albums, singles, and related artist graphs.
+- **Artist Pages**: Artist bios, subscriber counts, top tracks, albums, singles, and related artists where the source provides them.
 
 ### ☁️ Cloud Sync & Playlist Importer
 - **Playlist Import**: Paste a public Spotify or YouTube playlist link to add it to your library.
-- **Google Account & Firebase Sync**: Back up your liked songs, playlists, saved artists and listening stats; sign in on a new phone and they all come back.
+- **Google Account & Firebase Sync**: Back up your liked songs, playlists, saved artists and listening stats; restore them after signing in on a new phone when a backup is available.
 
 ### 📊 Listening Stats
 - **Real Listening Time**: Only what you actually heard counts; skips don't add a whole song.
-- **Top Songs & Artists**: Weekly, monthly and yearly views, with one song counted once even when it's uploaded several times on YouTube.
+- **Top Songs & Artists**: Weekly, monthly and yearly views, with duplicate-upload matching to reduce split counts for the same song.
 
 ### 🎮 Discord Rich Presence
 - **Show What You're Playing**: Song, artist, album art and progress on your Discord profile via Discord's official Social SDK.
@@ -166,7 +166,7 @@ There's one APK and it runs on every Android phone, whatever processor it has (`
 
 ### 🔄 In-App Direct OTA Updater
 - **Update Notifications**: Checks GitHub Releases and tells you when a new version is out.
-- **In-App Background Download & Install**: Download APK updates with a progress bar and install them with one tap.
+- **In-App Background Download & Install**: Download APK updates with a progress bar, then open Android's installer. Android may ask you to allow installs from this app and confirm the update.
 
 ---
 
@@ -230,14 +230,14 @@ Auralis/
 <summary><b>Why is the APK about 25 MB?</b></summary>
 <br>
 
-The app itself is small: native **Jetpack Compose** and **AndroidX Media3**, shrunk with **R8**. Most of the download is Discord's official SDK for Rich Presence, which ships native code for every kind of Android processor. That's what lets a single universal APK install on any phone.
+The app itself is native **Jetpack Compose** and **AndroidX Media3**, shrunk with **R8**. Most of the download is Discord's official SDK for Rich Presence, which ships native code for the four CPU architectures packaged in the APK.
 </details>
 
 <details>
 <summary><b>Which APK should I download? Do I need to know my phone's CPU architecture?</b></summary>
 <br>
 
-**You do NOT need to check your phone's processor!** Simply download `Auralis-v1.1.1-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It is a single, universal build that automatically supports all Android CPU architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) out of the box.
+Download `Auralis-v1.1.1-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
 </details>
 
 <details>
