@@ -80,6 +80,21 @@ class AuralisMediaService : MediaSessionService() {
         selfControllerFuture = null
     }
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val foregroundRelease by lazy {
+        PlaybackForegroundRelease(
+            scope = serviceScope,
+            shouldKeepForeground = {
+                val player = AuralisAudioPlayer.getInstance(applicationContext)
+                player.isPlaying.value || player.isBuffering.value ||
+                    com.auralis.music.data.sync.ListenTogetherManager.activeRoomCode != null
+            },
+            releaseForeground = {
+                try {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                } catch (_: Exception) {}
+            }
+        )
+    }
     private var lastArtworkUrl: String? = null
     private var currentArtworkBitmap: Bitmap? = null
     private var currentActiveMediaItem: androidx.media3.common.MediaItem? = null
@@ -654,6 +669,7 @@ class AuralisMediaService : MediaSessionService() {
         val isFav = audioPlayer.isFavorite.value
 
         if (track == null) {
+            foregroundRelease.cancel()
             try {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } catch (_: Exception) {}
@@ -677,6 +693,7 @@ class AuralisMediaService : MediaSessionService() {
         val inRoom = com.auralis.music.data.sync.ListenTogetherManager.activeRoomCode != null
         val shouldRunForeground = isPlaying || isBuffering || inRoom
         if (shouldRunForeground) {
+            foregroundRelease.cancel()
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(
@@ -694,14 +711,9 @@ class AuralisMediaService : MediaSessionService() {
                 } catch (_: Exception) {}
             }
         } else {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(false)
-                }
-            } catch (_: Exception) {}
+            // ExoPlayer briefly reports idle while replacing a stream. Releasing foreground
+            // here makes the next automatic background start illegal on Android 12+.
+            foregroundRelease.schedule()
             try {
                 NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
             } catch (e: Exception) {

@@ -23,9 +23,10 @@ import com.auralis.music.data.local.entity.*
         SearchHistoryEntity::class,
         LyricsEntity::class,
         NegativeLyricsEntity::class,
-        PlaybackEventEntity::class
+        PlaybackEventEntity::class,
+        ArtworkSelectionEntity::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)
@@ -66,6 +67,41 @@ abstract class AuralisDatabase : RoomDatabase() {
             }
         }
 
+        // Version 10 was an abandoned experimental artwork schema; this starts from clean v9.
+        // No legacy artwork is promoted, repaired, or changed by this migration.
+        val MIGRATION_9_11 = object : Migration(9, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `artwork_selections` (
+                        `trackId` TEXT NOT NULL PRIMARY KEY,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        `duration` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `thumbnail` TEXT NOT NULL,
+                        `album` TEXT,
+                        `provider` TEXT NOT NULL,
+                        `providerItemId` TEXT NOT NULL,
+                        `releaseId` TEXT,
+                        `evidence` TEXT NOT NULL,
+                        `basis` TEXT NOT NULL,
+                        `revision` INTEGER NOT NULL,
+                        FOREIGN KEY(`trackId`) REFERENCES `tracks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+            }
+        }
+
+        // Compatibility only: preserve the abandoned v10 records as opaque archives.
+        // Never promote them to explicit selections or rewrite Track/library metadata.
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `artwork_selections` RENAME TO `artwork_selections_v10_archive`")
+                db.execSQL("ALTER TABLE `artwork_candidates` RENAME TO `artwork_candidates_v10_archive`")
+                MIGRATION_9_11.migrate(db)
+            }
+        }
+
         @Volatile
         private var instance: AuralisDatabase? = null
 
@@ -76,8 +112,7 @@ abstract class AuralisDatabase : RoomDatabase() {
                     AuralisDatabase::class.java,
                     DATABASE_NAME
                 )
-                .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_11, MIGRATION_10_11)
                 .build()
                 .also { instance = it }
             }

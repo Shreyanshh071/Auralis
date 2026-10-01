@@ -143,14 +143,13 @@ object TtmlParser {
             val groupAgentIds = collectGroupAgentIds(doc)
             val songVocabulary = wholeSpanVocabulary(doc)
 
-            val latinByKey = collectLatinTransliterations(doc)
-
-            val pNodes = doc.getElementsByTagName("p")
-            for (i in 0 until pNodes.length) {
-                val pElem = pNodes.item(i) as? Element ?: continue
-                val parsedLines = parseParagraph(pElem, groupAgentIds, songVocabulary)
-                val latin = latinByKey[attr(pElem, "key")]
-                lines.addAll(if (latin != null) withLatinLead(parsedLines, latin, songVocabulary) else parsedLines)
+            // TTML allows namespace-prefixed paragraphs as well as default-namespace
+            // <p>. Match the local name, just like the span handling below does.
+            val elements = doc.getElementsByTagName("*")
+            for (i in 0 until elements.length) {
+                val pElem = elements.item(i) as? Element ?: continue
+                if (localName(pElem) != "p") continue
+                lines.addAll(parseParagraph(pElem, groupAgentIds, songVocabulary))
             }
         } catch (_: Exception) {
             // Keep whatever was collected before the document went bad
@@ -187,77 +186,6 @@ object TtmlParser {
             durationMs = durationMs,
             leadingSilenceMs = leadingSilenceMs
         )
-    }
-
-    private class LatinLine(val text: String, val syllables: List<Syllable>)
-
-    /**
-     * Apple's own Latin transliteration of each line (`<transliteration xml:lang="hi-Latn">
-     * <text for="L1">…`), keyed by the paragraph's `itunes:key`. Word-synced files time the
-     * transliteration too, as spans inside `<text>`.
-     */
-    private fun collectLatinTransliterations(doc: org.w3c.dom.Document): Map<String, LatinLine> {
-        val out = HashMap<String, LatinLine>()
-        val all = doc.getElementsByTagName("*")
-        for (i in 0 until all.length) {
-            val block = all.item(i) as? Element ?: continue
-            if (localName(block) != "transliteration") continue
-            if (!attr(block, "lang").trim().lowercase().endsWith("-latn")) continue
-            var child: Node? = block.firstChild
-            while (child != null) {
-                if (child is Element && localName(child) == "text") {
-                    val key = attr(child, "for").trim()
-                    val text = child.textContent.orEmpty().replace(Regex("\\s+"), " ").trim()
-                    if (key.isNotEmpty() && text.isNotEmpty()) {
-                        val syllables = mutableListOf<Syllable>()
-                        var inner: Node? = child.firstChild
-                        while (inner != null) {
-                            when {
-                                inner.nodeType == Node.TEXT_NODE -> appendToLast(syllables, inner.textContent ?: "")
-                                inner is Element && localName(inner) == "span" && role(inner) !in NON_LEAD_ROLES ->
-                                    collectSyllables(inner, syllables)
-                            }
-                            inner = inner.nextSibling
-                        }
-                        out[key] = LatinLine(text, syllables)
-                    }
-                }
-                child = child.nextSibling
-            }
-        }
-        return out
-    }
-
-    /**
-     * Shows an Indic-script lead line in Apple's Latin transliteration ([HinglishScript]). Timing
-     * comes from the transliteration's own spans when it has them, else from the original words
-     * when the word counts agree one to one, else the line is left as one span over the line's
-     * measured interval (split by character count later, as for any multi-word span).
-     */
-    private fun withLatinLead(lines: List<LyricLine>, latin: LatinLine, songVocabulary: Set<String>): List<LyricLine> {
-        val leads = lines.filter { !it.isBackground }
-        if (leads.size != 1) return lines
-        val lead = leads[0]
-        if (!IndicScriptNormalizer.containsIndicScript(lead.text)) return lines
-
-        val (latinText, latinWords) = when {
-            latin.syllables.isNotEmpty() -> buildLineTextAndWords(latin.syllables, latin.text, songVocabulary)
-            lead.words.isNullOrEmpty() -> latin.text to null
-            else -> {
-                val original = lead.words.orEmpty()
-                val tokens = latin.text.split(' ').filter { it.isNotEmpty() }
-                val mapped = if (tokens.size == original.size) {
-                    original.mapIndexed { i, w -> w.copy(word = tokens[i] + if (i < tokens.lastIndex) " " else "") }
-                } else {
-                    val start = original.first().time
-                    val end = lead.endTime ?: original.last().let { w -> w.duration?.let { w.time + it } }
-                    listOf(original.first().copy(word = latin.text, time = start, duration = end?.minus(start)?.takeIf { it > 0L }))
-                }
-                latin.text to mapped
-            }
-        }
-        val replaced = lead.copy(text = latinText.ifBlank { latin.text }, words = latinWords)
-        return lines.map { if (it === lead) replaced else it }
     }
 
     /**
@@ -555,7 +483,9 @@ object TtmlParser {
         if (raw.isEmpty() || out.isEmpty()) return
         val normalized = if (raw.isBlank()) " " else raw
         val last = out.removeAt(out.size - 1)
-        if (last.text.endsWith(normalized)) {
+        // Collapse formatting whitespace only. A repeated word/punctuation text
+        // node is actual source content, even when the timed span ends the same way.
+        if (raw.isBlank() && last.text.endsWith(normalized)) {
             out.add(last)
         } else {
             out.add(Syllable(last.text + normalized, last.start, last.end))

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import com.auralis.music.domain.model.SavedArtist
@@ -50,6 +51,8 @@ class GoogleAccountSyncManager(
 ) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("auralis_account_prefs", Context.MODE_PRIVATE)
+
+    init { com.auralis.music.data.sync.CloudAccountWrites.init(context) }
 
     private val _userProfile = MutableStateFlow(loadPersistedProfile())
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
@@ -177,6 +180,7 @@ class GoogleAccountSyncManager(
             _userProfile.value = updated
             persistProfile(updated)
             _syncMessage.value = "Account created successfully!"
+            user?.uid?.let { takeOverLocalLibrary(it) }
             backupLibraryToCloud()
         } catch (e: Exception) {
             val msg = e.localizedMessage ?: "Failed to create account"
@@ -289,6 +293,10 @@ class GoogleAccountSyncManager(
             val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             val docSnap = db.collection("users").document(uid).get().await()
 
+            // Another account's library is on the phone: clear it here (it's in that account's
+            // backup) before this account's lands, so accounts never mix.
+            takeOverLocalLibrary(uid)
+
             if (!docSnap.exists()) {
                 android.util.Log.d("CloudSync", "[CloudSync] No cloud backup found for user $uid. Backing up current local library to cloud...")
                 backupLibraryToCloud()
@@ -301,13 +309,12 @@ class GoogleAccountSyncManager(
             // 1. Restore Playlists & Tracks
             val rawPlaylists = docSnap.get("playlists") as? List<*>
             if (rawPlaylists != null && rawPlaylists.isNotEmpty()) {
-                val localPlaylists = libraryRepository.getPlaylists().first()
-
                 for (pObj in rawPlaylists) {
                     val pMap = pObj as? Map<*, *> ?: continue
                     val title = (pMap["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Restored Playlist"
                     val desc = pMap["description"] as? String
                     val coverUrl = pMap["coverUrl"] as? String
+                    val cloudPlaylistId = (pMap["id"] as? String)?.takeIf { it.isNotBlank() }
                     val rawTracks = pMap["tracks"] as? List<*> ?: emptyList<Any>()
 
                     val tracks = rawTracks.mapNotNull { tObj ->
@@ -328,21 +335,14 @@ class GoogleAccountSyncManager(
                         )
                     }
 
-                    val existingLocal = localPlaylists.find { it.title.trim().equals(title.trim(), ignoreCase = true) }
-                    val targetPlaylistId = if (existingLocal != null) {
-                        existingLocal.id
+                    val targetPlaylist = if (cloudPlaylistId != null) {
+                        libraryRepository.restorePlaylist(cloudPlaylistId, title, desc, coverUrl)
                     } else {
-                        val created = libraryRepository.createPlaylist(title, desc)
-                        created.id
-                    }
-
-                    // Restore coverUrl if present in cloud backup
-                    if (!coverUrl.isNullOrBlank()) {
-                        libraryRepository.updatePlaylist(targetPlaylistId, title, desc, coverUrl)
+                        libraryRepository.createPlaylist(title, desc, coverUrl)
                     }
 
                     if (tracks.isNotEmpty()) {
-                        libraryRepository.replacePlaylistTracks(targetPlaylistId, tracks)
+                        libraryRepository.replacePlaylistTracks(targetPlaylist.id, tracks)
                     }
                     restoredPlaylistsCount++
                 }
@@ -368,7 +368,27 @@ class GoogleAccountSyncManager(
                 android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $favCount favorites for user $uid")
             }
 
-            // 3. Restore Saved Artists
+            // 3. Restore Saved Albums
+            val rawAlbums = docSnap.get("savedAlbums") as? List<*>
+            if (rawAlbums != null && rawAlbums.isNotEmpty()) {
+                for (aObj in rawAlbums) {
+                    val aMap = aObj as? Map<*, *> ?: continue
+                    val id = (aMap["id"] as? String) ?: continue
+                    val title = (aMap["title"] as? String) ?: continue
+                    libraryRepository.saveAlbum(
+                        com.auralis.music.domain.model.SavedAlbum(
+                            id = id,
+                            title = title,
+                            artist = aMap["artist"] as? String,
+                            thumbnail = aMap["thumbnail"] as? String,
+                            trackCount = (aMap["trackCount"] as? Number)?.toInt(),
+                            savedAt = (aMap["savedAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+
+            // 4. Restore Saved Artists
             val rawArtists = docSnap.get("savedArtists") as? List<*>
             if (rawArtists != null && rawArtists.isNotEmpty()) {
                 for (aObj in rawArtists) {
@@ -405,16 +425,30 @@ class GoogleAccountSyncManager(
     /**
      * Backs up local playlists, favorites, and saved artists to Firestore `/users/{uid}`.
      */
-    suspend fun backupLibraryToCloud(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun backupLibraryToCloud(): Boolean {
+        val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return false
+        if (user.isAnonymous) return false
+        val uid = user.uid
+        return com.auralis.music.data.sync.CloudAccountWrites.barrier.write(uid) {
+            backupLibraryToCloudUnlocked(uid)
+        } ?: false
+    }
+
+    private suspend fun backupLibraryToCloudUnlocked(expectedUid: String): Boolean = withContext(Dispatchers.IO) {
+        if (isDeletingAccount || isSwitchingAccount) return@withContext false
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return@withContext false
         if (fbUser.isAnonymous) return@withContext false
         val uid = fbUser.uid
+        if (uid != expectedUid) return@withContext false
+        // The phone still holds another account's library (the switch hasn't cleared it yet).
+        if (!com.auralis.music.data.sync.LocalDataOwner.belongsTo(uid)) return@withContext false
 
         try {
             val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             val playlists = libraryRepository.getPlaylists().first()
             val favorites = libraryRepository.getFavoriteTracks().first()
             val savedArtists = libraryRepository.getSavedArtists().first()
+            val savedAlbums = libraryRepository.getSavedAlbums().first()
 
             val playlistsData = playlists.map { p ->
                 mapOf(
@@ -457,11 +491,23 @@ class GoogleAccountSyncManager(
                 )
             }
 
+            val savedAlbumsData = savedAlbums.map { a ->
+                mapOf(
+                    "id" to a.id,
+                    "title" to a.title,
+                    "artist" to a.artist,
+                    "thumbnail" to a.thumbnail,
+                    "trackCount" to a.trackCount,
+                    "savedAt" to a.savedAt
+                )
+            }
+
             val now = System.currentTimeMillis()
             val docData = hashMapOf<String, Any?>(
                 "playlists" to playlistsData,
                 "favorites" to favoritesData,
                 "savedArtists" to savedArtistsData,
+                "savedAlbums" to savedAlbumsData,
                 "updatedAt" to now,
                 "playlistsUpdatedAt" to now,
                 "favoritesUpdatedAt" to now,
@@ -491,6 +537,21 @@ class GoogleAccountSyncManager(
      */
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     fun startContinuousCloudSync(scope: CoroutineScope) {
+        // Retry an explicitly confirmed pending deletion while the app is alive. Auth may
+        // require reauthentication again; in that case keep uploads blocked and ask the user.
+        scope.launch(Dispatchers.IO) {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                val user = FirebaseAuth.getInstance().currentUser
+                if (user != null && !user.isAnonymous && com.auralis.music.data.sync.CloudAccountWrites.isBlocked(user.uid)) {
+                    deletionMutex.lock()
+                    try {
+                        val result = deleteAccountLocked(null)
+                        if (result.isFailure) _syncMessage.value = "Account deletion pending. Cloud backup is paused; retry deletion to confirm your identity if needed."
+                    } finally { deletionMutex.unlock() }
+                }
+                kotlinx.coroutines.delay(30_000L)
+            }
+        }
         scope.launch(Dispatchers.IO) {
             val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
             if (user != null && !user.isAnonymous) {
@@ -621,6 +682,113 @@ class GoogleAccountSyncManager(
     /**
      * Disconnects and signs out of the account.
      */
+    /** True while [deleteAccount] runs, so no backup can re-create the data being deleted. */
+    @Volatile var isDeletingAccount = false
+        private set
+
+    /** Whether the signed-in account uses email + password (vs Google), which decides how to re-verify. */
+    fun isEmailPasswordAccount(): Boolean = try {
+        FirebaseAuth.getInstance().currentUser?.providerData?.any { it.providerId == "password" } == true
+    } catch (_: Exception) { false }
+
+    private val deletionMutex = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Deletes the signed-in account using Spark-compatible, account-scoped Firestore cleanup.
+     * Deletes everything backed up to it: listening stats
+     * (users/{uid}/listening), the account document (playlists, liked songs, saved artists) and the
+     * Firebase sign-in itself. Data on this phone is left alone.
+     *
+     * Firebase only deletes a sign-in that was used recently, so the caller re-verifies first with
+     * [credential] (a fresh Google token or the account's password). Re-verifying before touching
+     * any data means a failed check deletes nothing.
+     */
+    suspend fun deleteAccount(credential: com.google.firebase.auth.AuthCredential): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            deletionMutex.lock()
+            try {
+                deleteAccountLocked(credential)
+            } finally {
+                deletionMutex.unlock()
+            }
+        }
+
+    private suspend fun deleteAccountLocked(credential: com.google.firebase.auth.AuthCredential?): Result<Unit> {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null || user.isAnonymous) return Result.failure(IllegalStateException("Not signed in"))
+        val uid = user.uid
+        isDeletingAccount = true
+        com.auralis.music.data.sync.StatsCloudSync.paused = true
+        try {
+            // Wrong credentials touch neither cloud data nor the durable deletion block.
+            if (credential != null) user.reauthenticate(credential).await()
+            else check(com.auralis.music.data.sync.CloudAccountWrites.isBlocked(uid)) { "No pending deletion" }
+            user.getIdToken(true).await()
+            com.auralis.music.data.sync.CloudAccountWrites.barrier.pauseAndDrain(uid)
+
+            val cleanup = com.auralis.music.data.sync.SparkAccountDeletion(
+                com.google.firebase.firestore.FirebaseFirestore.getInstance(), user
+            ) {
+                withContext(Dispatchers.Main) {
+                    com.auralis.music.ui.viewmodel.AppScopedViewModels.listenTogether?.leaveRoom(leaveRemotely = false)
+                }
+                com.auralis.music.data.sync.ListenTogetherManager.stopLocalSessionForDeletion()
+            }
+            com.auralis.music.data.sync.deleteAccountOnSpark(cleanup)
+            com.auralis.music.data.sync.RoomCleanupCoordinator.discardDeletedAccount(uid)
+
+            disconnectAccount()
+            _syncMessage.value = "Your account and backed-up data were deleted. Songs on this phone were kept."
+            return Result.success(Unit)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("CloudSync", "Account deletion was not confirmed", e)
+            if (com.auralis.music.data.sync.CloudAccountWrites.isBlocked(uid)) {
+                return Result.failure(IllegalStateException(
+                    "Deletion was not confirmed. Cloud backup stays paused for this account. Retry deletion to confirm completion.", e))
+            }
+            return Result.failure(e)
+        } finally {
+            isDeletingAccount = false
+            // The persisted, UID-specific barrier remains in place after any partial failure.
+            com.auralis.music.data.sync.StatsCloudSync.paused = false
+        }
+    }
+
+    @Volatile private var isSwitchingAccount = false
+
+    /**
+     * Makes [uid] the owner of the library and listening data on this phone. If another account
+     * owns it, that data is cleared from the phone first (it stays in that account's cloud backup
+     * and returns when it signs in); data made while signed out is simply adopted. Downloads stay.
+     */
+    private suspend fun takeOverLocalLibrary(uid: String) {
+        val owner = com.auralis.music.data.sync.LocalDataOwner
+        if (owner.belongsTo(uid)) {
+            owner.set(uid)
+            return
+        }
+        android.util.Log.i("CloudSync", "[CloudSync] Account switch: clearing the previous account's library from this phone")
+        isSwitchingAccount = true
+        try {
+            libraryRepository.getPlaylists().first().forEach { libraryRepository.deletePlaylist(it.id) }
+            libraryRepository.getFavoriteTracks().first().forEach { libraryRepository.setFavorite(it, false) }
+            libraryRepository.getSavedArtists().first().forEach { libraryRepository.removeArtist(it.id) }
+            libraryRepository.getSavedAlbums().first().forEach { libraryRepository.removeAlbum(it.id) }
+            com.auralis.music.data.sync.StatsCloudSync.clearLocalForAccountSwitch(uid)
+            owner.set(uid)
+        } finally {
+            isSwitchingAccount = false
+        }
+    }
+
+    /** Uploads the latest library and listens before signing out, so nothing is left behind. */
+    suspend fun flushToCloud() {
+        backupLibraryToCloud()
+        com.auralis.music.data.sync.StatsCloudSync.upload()
+    }
+
     fun disconnectAccount() {
         val reset = UserProfile(
             uid = "",

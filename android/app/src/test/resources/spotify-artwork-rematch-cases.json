@@ -1,0 +1,68 @@
+[
+  {
+    "spotify": {
+      "duration": 280,
+      "thumbnail": "https://i.scdn.co/image/ab67616d00001e02c7b8d39b1e113845906984ab",
+      "artist": "Arijit Singh, Chinmayi, Shankar-Ehsaan-Loy, Amitabh Bhattacharya",
+      "album": "2 States",
+      "albumId": null,
+      "id": "sp_3uL1IBFhg52VcQqOwAG01E",
+      "source": "YOUTUBE",
+      "title": "Mast Magan"
+    },
+    "youtube": {
+      "duration": 281,
+      "thumbnail": "https://yt3.googleusercontent.com/Uf3FU8ElyrFboJFBiyva4RPgj7LBkm43iJ4srRMJ4Z2-PmYlxzB3uvsMWzXlXfrBYwYrVnqlAcurYVoUew=w1200-h1200-l90-rj",
+      "artist": "Arijit Singh & Chinmayi Sripada",
+      "album": "Love Dose Arijit Singh",
+      "albumId": "MPREb_XIPkIoR2WCw",
+      "id": "SDQdGibJ9mE",
+      "source": "YOUTUBE",
+      "title": "Mast Magan (From \"2 States)"
+    }
+  },
+  {
+    "spotify": {
+      "duration": 289,
+      "thumbnail": "https://i.scdn.co/image/ab67616d00001e0258397d59e15b5149adf86033",
+      "artist": "Pritam, Arijit Singh",
+      "album": "Ae Dil Hai Mushkil (Original Motion Picture Soundtrack) [Deluxe Edition]",
+      "albumId": null,
+      "id": "sp_0H2iJVgorRR0ZFgRqGUjUM",
+      "source": "YOUTUBE",
+      "title": "Channa Mereya"
+    },
+    "youtube": {
+      "duration": 290,
+      "thumbnail": "https://yt3.googleusercontent.com/_5mMSTZt32oHD9cH2uxTTitPgT64Uem0GFIzPv4b3X1b0BxgitR0ZZRAh4zcN96XgyTetjNuLPdrc7TKjw=w1200-h1200-l90-rj",
+      "artist": "Pritam & Arijit Singh",
+      "album": "Arijit Singh Heartbreak Hits",
+      "albumId": "MPREb_t3flna15YFa",
+      "id": "xnIRiRTTsMU",
+      "source": "YOUTUBE",
+      "title": "Channa Mereya (From \"Ae Dil Hai Mushkil\")"
+    }
+  },
+  {
+    "spotify": {
+      "duration": 243,
+      "thumbnail": "https://i.scdn.co/image/ab67616d00001e02e810a88d506b30bdc0935247",
+      "artist": "Pritam, Arijit Singh",
+      "album": "Agent Vinod",
+      "albumId": null,
+      "id": "sp_6FjbAnaPRPwiP3sciEYctO",
+      "source": "YOUTUBE",
+      "title": "Raabta"
+    },
+    "youtube": {
+      "duration": 244,
+      "thumbnail": "https://yt3.googleusercontent.com/SVLL3NHVaQiVC2EK1w1m0F1Xkrsywl_K8sULMJEM2bDm67vLUrSCXnrafmWJEgf4tm4d1RQGqSQ5WVafDw=w1200-h1200-l90-rj",
+      "artist": "Arijit Singh",
+      "album": "Best Of Arijit Singh",
+      "albumId": "MPREb_0Qm78hkVxz3",
+      "id": "sJV8kbT1MEU",
+      "source": "YOUTUBE",
+      "title": "Raabta"
+    }
+  }
+]

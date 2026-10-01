@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.offset
@@ -157,8 +158,6 @@ private val LYRICS_ITEM_FALLBACK_HEIGHT_DP = 68.dp
 private val LYRICS_ITEM_GAP_DP = 16.dp
 private val LYRICS_FADE_TOP_DP = 44.dp
 private val LYRICS_FADE_BOTTOM_DP = 120.dp
-private const val LYRICS_STAGGER_DELAY_PER_DISTANCE = 20
-private const val LYRICS_STAGGER_DELAY_MAX_MS = 200
 private const val LYRICS_PREVIEW_TIME = 8000L
 
 /**
@@ -252,6 +251,69 @@ private fun experimentalWordIsComplete(
 ): Boolean {
     val boundaryMs = (word.endTime ?: word.startTime) * 1000.0
     return currentPositionMs.toDouble() >= boundaryMs
+}
+
+internal data class ShapedTimedRange(
+    val start: Int,
+    val end: Int,
+    val visibleStart: Int,
+    val visibleEnd: Int,
+    val completedStart: Int,
+    val completedEnd: Int
+)
+
+/** Portion of a shaped word already sung by this timed fragment. */
+internal fun shapedFragmentSweep(range: ShapedTimedRange, progress: Float, complete: Boolean): Pair<Float, Float> {
+    val length = (range.visibleEnd - range.visibleStart).coerceAtLeast(1).toFloat()
+    val start = if (complete) range.completedStart else range.start
+    val end = if (complete) range.completedEnd.toFloat()
+        else range.start + (range.end - range.start) * progress.coerceIn(0f, 1f)
+    return ((start - range.visibleStart) / length).coerceIn(0f, 1f) to
+        ((end - range.visibleStart) / length).coerceIn(0f, 1f)
+}
+
+/**
+ * Keep provider fragments separate while giving the last fragment of each visible word
+ * responsibility for any conjunct, vowel mark, or punctuation its own substring misses.
+ */
+internal fun mapShapedTimedRanges(
+    text: String,
+    words: List<ExperimentalWordTimestamp>,
+    isBackground: Boolean = false
+): List<ShapedTimedRange?> {
+    var cursor = 0
+    val spans = words.mapIndexed { index, word ->
+        val token = word.text.let {
+            if (isBackground) it.removePrefix(if (index == 0) "(" else "")
+                .removeSuffix(if (index == words.lastIndex) ")" else "")
+            else it
+        }.trim()
+        if (token.isEmpty()) return@mapIndexed null
+        val start = text.indexOf(token, cursor)
+        if (start < 0) return@mapIndexed null
+        val end = start + token.length
+        cursor = end
+        start until end
+    }
+    return spans.mapIndexed { index, span ->
+        if (span == null) return@mapIndexed null
+        val start = span.first
+        val end = span.last + 1
+        var visibleStart = start
+        while (visibleStart > 0 && !text[visibleStart - 1].isWhitespace()) visibleStart--
+        var visibleEnd = end
+        while (visibleEnd < text.length && !text[visibleEnd].isWhitespace()) visibleEnd++
+        val followedByFragment = spans.asSequence().drop(index + 1).filterNotNull()
+            .firstOrNull()?.first?.let { it < visibleEnd } ?: false
+        ShapedTimedRange(
+            start = start,
+            end = end,
+            visibleStart = visibleStart,
+            visibleEnd = visibleEnd,
+            completedStart = if (followedByFragment) start else visibleStart,
+            completedEnd = if (followedByFragment) end else visibleEnd
+        )
+    }
 }
 
 private fun experimentalCharacterProgress(
@@ -465,15 +527,26 @@ fun ExperimentalLyricsView(
     // word-synced upgrade must lay out the same, or the view jumps from centre to left mid-song.
     val hasMultipleVocalists = remember(effectiveLines) { MetroSpeakerLayout.build(effectiveLines) != null }
 
+    // Reset key: only changes on song change (or track identity change), not on same-song lyrics stage upgrades.
+    val lyricsResetKey: Any? = track?.id?.takeIf { it.isNotBlank() } ?: lyrics
+
+    val initialActiveLyricIndex = remember(lyricsResetKey) {
+        if (effectiveLines.isNotEmpty()) {
+            LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value + offsetMs, offsetMs)
+        } else -1
+    }
+
     // Interactive & selection state
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
-    var authoritativeTargetIndex by rememberSaveable { mutableIntStateOf(-1) }
+    var authoritativeTargetIndex by rememberSaveable(lyricsResetKey) { mutableIntStateOf(initialActiveLyricIndex) }
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     var pendingSeekTarget by remember { mutableStateOf<ExperimentalPendingSeekTarget?>(null) }
     // True only once the player's position has been seen moving; gates every forward carry.
     var clockAdvancing by remember { mutableStateOf(false) }
 
-    var deferredCurrentLineIndex by rememberSaveable { mutableIntStateOf(0) }
+    var deferredCurrentLineIndex by rememberSaveable(lyricsResetKey) {
+        mutableIntStateOf(if (initialActiveLyricIndex >= 0) initialActiveLyricIndex else 0)
+    }
     var lastPreviewTime by rememberSaveable { mutableLongStateOf(0L) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(appearance.autoScrollLyrics) }
 
@@ -615,16 +688,35 @@ fun ExperimentalLyricsView(
         }
     }
 
-    val listState = rememberLazyListState()
+    val initialFirstVisibleIndex = remember(lyricsResetKey) {
+        if (initialActiveLyricIndex >= 0) {
+            val mappedIndex = mergedLyricsList.indexOfFirst {
+                it is ExperimentalLyricsListItem.Line && it.index == initialActiveLyricIndex
+            }
+            if (mappedIndex >= 0) (mappedIndex - 1).coerceAtLeast(0) else 0
+        } else 0
+    }
+    val listState = rememberSaveable(lyricsResetKey, saver = LazyListState.Saver) {
+        LazyListState(
+            firstVisibleItemIndex = initialFirstVisibleIndex,
+            firstVisibleItemScrollOffset = 0
+        )
+    }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
     var isUserInteracting by remember { mutableStateOf(false) }
     var hasInitialCentered by remember { mutableStateOf(false) }
     var lastCenteredIndex by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(lyrics, effectiveLines) {
+    // Lyrics for the same song can arrive in stages (cached/plain, then an interim synced
+    // copy, then the final word-synced upgrade) — each delivery is a new `lyrics` object even
+    // though the song hasn't changed. Resetting scroll state on every one of those snapped the
+    // list back to the top and re-jumped to the current line each time, which is the visible
+    // "freeze then jump" during loading. Only hard-reset when the song itself changes; let a
+    // same-song lyrics upgrade flow through the normal (animated) follow-the-line effect below.
+    LaunchedEffect(lyricsResetKey) {
         isAutoScrollEnabled = appearance.autoScrollLyrics
-        authoritativeTargetIndex = -1
-        deferredCurrentLineIndex = 0
+        authoritativeTargetIndex = initialActiveLyricIndex
+        deferredCurrentLineIndex = if (initialActiveLyricIndex >= 0) initialActiveLyricIndex else 0
         isSelectionModeActive = false
         selectedIndices.clear()
         hasInitialCentered = false
@@ -640,8 +732,8 @@ fun ExperimentalLyricsView(
         derivedStateOf {
             val isLineOnlyFallback = !hasWordTimings && isSynced
             val curPos = if (isLineOnlyFallback) currentPositionState + 250L else currentPositionState
-            val curIdx = if (isLineOnlyFallback) {
-                LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState + 250L, offsetMs)
+            val curIdx = if (isLineOnlyFallback || authoritativeTargetIndex < 0) {
+                LyricsEngine.findActiveLyricIndex(effectiveLines, curPos, offsetMs)
             } else {
                 authoritativeTargetIndex
             }
@@ -656,9 +748,10 @@ fun ExperimentalLyricsView(
             if (activeIndicatorIndex >= 0) {
                 activeIndicatorIndex
             } else {
-                mergedLyricsList.indexOfFirst {
+                val lineIdx = mergedLyricsList.indexOfFirst {
                     it is ExperimentalLyricsListItem.Line && it.index == curIdx
-                }.coerceAtLeast(0)
+                }
+                if (lineIdx >= 0) lineIdx else 0
             }
         }
     }
@@ -709,41 +802,41 @@ fun ExperimentalLyricsView(
                     val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * LYRICS_ANCHOR_RATIO)
                     var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
                     if (itemInfo == null) {
-                        val visibleNow = layoutInfo.visibleItemsInfo
-                        if (animate && visibleNow.isNotEmpty()) {
-                            // Off-screen target on an animated move (e.g. auto-resume after the user scrolled
-                            // away): glide there in one motion instead of jumping, estimating the distance
-                            // from the average visible line height. The correction below centres it exactly.
-                            val avgItem = visibleNow.map { it.size }.average().toFloat() + layoutInfo.mainAxisItemSpacing
-                            val anchor = visibleNow.first()
-                            val estimatedCenter = anchor.offset + (targetIndex - anchor.index) * avgItem + avgItem / 2f
-                            val estimatedDelta = estimatedCenter - targetCenterY
-                            val glideMs = (350 + kotlin.math.abs(estimatedDelta) / 6f).toInt().coerceIn(400, 900)
-                            listState.animateScrollBy(
-                                value = estimatedDelta,
-                                animationSpec = tween(durationMillis = glideMs, easing = FastOutSlowInEasing)
-                            )
+                        val currentFirst = listState.firstVisibleItemIndex
+                        val distance = kotlin.math.abs(targetIndex - currentFirst)
+                        // If the target is not visible (e.g. lyrics opened mid-song, or after a long scrub),
+                        // never scroll through all the previously sung lyrics. Pre-position 1 line before
+                        // the target so the visible motion is just a short, elegant 1-line glide into center.
+                        if (distance > 1) {
+                            val preIndex = (targetIndex - 1).coerceAtLeast(0)
+                            listState.scrollToItem(preIndex)
                         } else {
-                            val currentFirst = listState.firstVisibleItemIndex
-                            val distance = kotlin.math.abs(targetIndex - currentFirst)
-                            if (distance > 8) {
-                                val preIndex = if (targetIndex > currentFirst) {
-                                    (targetIndex - 2).coerceAtLeast(0)
-                                } else {
-                                    (targetIndex + 2).coerceAtMost(mergedLyricsList.size - 1)
-                                }
-                                listState.scrollToItem(preIndex)
-                            } else {
-                                listState.scrollToItem(targetIndex)
-                            }
+                            listState.scrollToItem(targetIndex)
                         }
-                        try {
-                            withFrameMillis { }
-                        } catch (_: Exception) {
-                            delay(16L)
+
+                        // Give layout a couple of frames to settle so the animated correction below
+                        // is computed from real, stable item positions.
+                        repeat(2) {
+                            try {
+                                withFrameMillis { }
+                            } catch (_: Exception) {
+                                delay(16L)
+                            }
                         }
                         layoutInfo = listState.layoutInfo
                         itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        if (itemInfo == null) {
+                            listState.scrollToItem(targetIndex)
+                            repeat(2) {
+                                try {
+                                    withFrameMillis { }
+                                } catch (_: Exception) {
+                                    delay(16L)
+                                }
+                            }
+                            layoutInfo = listState.layoutInfo
+                            itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                        }
                     }
 
                     if (itemInfo != null) {
@@ -751,18 +844,13 @@ fun ExperimentalLyricsView(
                         val scrollDelta = itemCenterY - targetCenterY
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
-                                if (animate) {
-                                    val distance = if (lastCenteredIndex >= 0) {
-                                        kotlin.math.abs(targetIndex - lastCenteredIndex)
-                                    } else 1
-                                    val delayMs = (distance * 20).coerceAtMost(200)
+                                // A small leftover delta means the target is already practically centered.
+                                // Snap it rather than running a second animation that reads as an extra scroll.
+                                if (animate && kotlin.math.abs(scrollDelta) > 48f) {
+                                    val durationMs = (180 + kotlin.math.abs(scrollDelta) / 8f).toInt().coerceIn(180, 360)
                                     listState.animateScrollBy(
                                         value = scrollDelta,
-                                        animationSpec = tween(
-                                            durationMillis = 750,
-                                            delayMillis = delayMs,
-                                            easing = FastOutSlowInEasing
-                                        )
+                                        animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
                                     )
                                 } else {
                                     listState.scrollBy(scrollDelta)
@@ -872,8 +960,7 @@ fun ExperimentalLyricsView(
                 if (interacting || selecting) return@collectLatest
                 if (activeIndex !in mergedLyricsList.indices) return@collectLatest
 
-                val shouldAnimate = hasInitialCentered
-                centerActiveLine(activeIndex, shouldAnimate)
+                centerActiveLine(activeIndex, true)
                 lastCenteredIndex = activeIndex
                 hasInitialCentered = true
             }
@@ -1267,7 +1354,9 @@ internal fun ExperimentalLyricsLine(
     val itemModifier = modifier
         .fillMaxWidth()
         .onSizeChanged { onSizeChanged(it.height) }
-        .clip(RoundedCornerShape(8.dp))
+        // Only the selection card needs a shape clip. During playback this outer
+        // clip would crop the child's unbounded blur into a rounded rectangle.
+        .then(if (isSelected && isSelectionModeActive) Modifier.clip(RoundedCornerShape(8.dp)) else Modifier)
         .combinedClickable(
             onClick = onClick,
             onLongClick = onLongClick
@@ -1626,6 +1715,10 @@ private fun ExperimentalWordLevelLyrics(
         }
     }
 
+    val shapedTimedRanges = remember(mainText, effectiveWords, isBackground) {
+        mapShapedTimedRanges(mainText, effectiveWords, isBackground)
+    }
+
     val charToWordData = remember(mainText, effectiveWords, isBackground, graphemeClusters, clusterCharOffsets) {
         val wordIdxMap = IntArray(clusterCount) { -1 }
         val charInWordMap = IntArray(clusterCount)
@@ -1725,7 +1818,6 @@ private fun ExperimentalWordLevelLyrics(
                 drawText(layoutResult, color = lineColor)
             } else {
                 if (drawAsShapedRun) {
-                    val (wordIdxMap, _, _) = charToWordData
                     val wordFactors = effectiveWords.map { word ->
                         val wStartMs = (word.startTime * 1000).toLong()
                         val wEndMs = word.endTime?.let { (it * 1000).toLong() }
@@ -1739,32 +1831,34 @@ private fun ExperimentalWordLevelLyrics(
 
                     effectiveWords.indices.forEach { wIdx ->
                         val (sungFactor, isWordSung, isWordActive) = wordFactors[wIdx]
-                        var left = Float.MAX_VALUE
-                        var right = Float.MIN_VALUE
-                        var top = Float.MAX_VALUE
-                        var bottom = Float.MIN_VALUE
-                        var found = false
-
-                        for (i in 0 until clusterCount) {
-                            if (wordIdxMap[i] == wIdx) {
-                                val charOffset = clusterCharOffsets[i]
-                                val bounds = layoutResult.getBoundingBox(charOffset)
-                                left = minOf(left, bounds.left)
-                                right = maxOf(right, bounds.right)
-                                top = minOf(top, bounds.top)
-                                bottom = maxOf(bottom, bounds.bottom)
-                                found = true
-                            }
-                        }
-
-                        if (found) {
-                            if (isWordSung) {
-                                clipRect(left = left, top = top, right = right, bottom = bottom) {
-                                    drawText(layoutResult, color = expressiveAccent)
-                                }
-                            } else if (isWordActive && sungFactor > 0f) {
-                                clipRect(left = left, top = top, right = right, bottom = bottom) {
-                                    drawText(layoutResult, color = expressiveAccent.copy(alpha = focusedAlpha + (1f - focusedAlpha) * sungFactor))
+                        val range = shapedTimedRanges[wIdx]
+                        if (range != null) {
+                            // Shape the entire visible word once. A fragment can begin inside a
+                            // conjunct, where measuring only its substring returns the whole glyph.
+                            val bounds = layoutResult.getPathForRange(range.visibleStart, range.visibleEnd).getBounds()
+                            if (bounds.isEmpty) return@forEach
+                            val wordLeft = bounds.left - 2f
+                            val wordRight = bounds.right + 2f
+                            val top = bounds.top - 2f
+                            val bottom = bounds.bottom + 2f
+                            if (isWordSung || isWordActive && sungFactor > 0f) {
+                                val (from, to) = shapedFragmentSweep(range, sungFactor, isWordSung)
+                                val width = wordRight - wordLeft
+                                val rtl = mainText.substring(range.visibleStart, range.visibleEnd).containsRtl()
+                                val left = if (rtl) wordRight - width * to else wordLeft + width * from
+                                val right = if (rtl) wordRight - width * from else wordLeft + width * to
+                                if (right > left) {
+                                    clipRect(left = left, top = top, right = right, bottom = bottom) {
+                                        drawText(layoutResult, color = expressiveAccent)
+                                    }
+                                    if (isWordActive && !isWordSung) {
+                                        val edgeWidth = 7.dp.toPx().coerceAtMost(right - left)
+                                        val edgeLeft = if (rtl) left else right - edgeWidth
+                                        val edgeRight = if (rtl) left + edgeWidth else right
+                                        clipRect(left = edgeLeft, top = top, right = edgeRight, bottom = bottom) {
+                                            drawText(layoutResult, color = Color.White.copy(alpha = 0.45f))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1868,7 +1962,7 @@ private fun ExperimentalWordLevelLyrics(
                         )
                     } else 0f
 
-                    val shouldGlow = wordItem?.endTime != null && !isWordSung && sungFactor > 0.001f
+                    val shouldGlow = wordItem?.endTime != null && !isWordSung && charLp > 0.001f && charLp < 0.999f
 
                     var crescendoDeltaX = 0f
                     var crescendoDeltaY = 0f
@@ -1944,22 +2038,25 @@ private fun ExperimentalWordLevelLyrics(
                             if (impactFactor > 0.01f) {
                                 val glowAlpha = (0.35f * impactFactor).coerceIn(0f, 0.4f)
                                 val baseGlowRadius = 12.dp.toPx() * impactFactor
-                                drawIntoCanvas { canvas ->
-                                    glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
-                                    glowPaint.color = expressiveAccent.copy(alpha = glowAlpha).toArgb()
-                                    glowPaint.textSize = lyricStyle.fontSize.toPx()
-                                    glowPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                                    canvas.nativeCanvas.drawText(
-                                        letterLayouts[i].layoutInput.text.text,
-                                        0f,
-                                        letterLayouts[i].firstBaseline,
-                                        glowPaint
-                                    )
+                                clipRect(left = 0f, top = -baseGlowRadius,
+                                    right = charBounds.width * charLp, bottom = charBounds.height + baseGlowRadius) {
+                                    drawIntoCanvas { canvas ->
+                                        glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
+                                        glowPaint.color = expressiveAccent.copy(alpha = glowAlpha).toArgb()
+                                        glowPaint.textSize = lyricStyle.fontSize.toPx()
+                                        glowPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                        canvas.nativeCanvas.drawText(
+                                            letterLayouts[i].layoutInput.text.text,
+                                            0f,
+                                            letterLayouts[i].firstBaseline,
+                                            glowPaint
+                                        )
+                                    }
                                 }
                             }
                         }
                         val allWordsSung = effectiveWords.all { experimentalWordIsComplete(it, smoothPosition) }
-                        val baseAlpha = if (isWordSung || allWordsSung || charLp > 0.99f) 1f else (focusedAlpha + (1f - focusedAlpha) * sungFactor)
+                        val baseAlpha = if (isWordSung || charLp > 0.99f) 1f else focusedAlpha
                         val charAlpha = if (wordIdx == -1) (if (allWordsSung) 1f else focusedAlpha) else baseAlpha
                         drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = charAlpha))
                         if (!isWordSung && charLp > 0f && charLp < 1f) {

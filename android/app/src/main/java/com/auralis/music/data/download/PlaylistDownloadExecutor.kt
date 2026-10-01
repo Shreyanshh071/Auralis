@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class PlaylistDownloadExecutor(private val context: Context) {
     private val repository = PlaylistDownloadRepository(context)
-    private val publicFiles = PlaylistDownloadFiles(context)
+    private val playlistFiles = PlaylistDownloadFiles(context)
 
     suspend fun execute(jobId: String, onProgress: suspend (PlaylistDownloadJobEntity) -> Unit): PlaylistDownloadJobEntity {
         val mutex = locks.getOrPut(jobId) { Mutex() }
@@ -24,7 +24,7 @@ class PlaylistDownloadExecutor(private val context: Context) {
                 .filter { previous ->
                     previous.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
                         AuralisDownloadManager.isDownloaded(previous.trackId) &&
-                        publicFiles.verify(previous.contentUri)
+                        playlistFiles.verify(previous.contentUri)
                 }
                 .associateBy { it.trackId }
                 .toMutableMap()
@@ -36,7 +36,7 @@ class PlaylistDownloadExecutor(private val context: Context) {
                     val source = AuralisDownloadManager.getDownloadedFile(track.id)
                     if (source != null && source.isFile && source.length() > 1024) {
                         try {
-                            val published = publicFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
+                            val published = playlistFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
                             results[track.id] = TrackDownloadResult(
                                 trackId = track.id,
                                 outcome = DownloadOutcome.ALREADY_DOWNLOADED,
@@ -59,7 +59,7 @@ class PlaylistDownloadExecutor(private val context: Context) {
                     if (job.cancelRequested) throw CancellationException("Playlist download cancelled")
                     val previous = results[track.id]
                     if (previous != null && previous.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
-                        AuralisDownloadManager.isDownloaded(track.id) && publicFiles.verify(previous.contentUri)) {
+                        AuralisDownloadManager.isDownloaded(track.id) && playlistFiles.verify(previous.contentUri)) {
                         continue
                     }
                     job = repository.update(job, results.values.toList(), PlaylistDownloadStatus.DOWNLOADING, track.id, false)
@@ -81,17 +81,18 @@ class PlaylistDownloadExecutor(private val context: Context) {
                                 finalResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "verification", "Private source download missing")
                             } else {
                                 try {
-                                    val published = publicFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
+                                    val published = playlistFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
                                     finalResult = TrackDownloadResult(track.id, base.outcome, contentUri = published.first, bytes = published.second)
                                     break
                                 } catch (e: Exception) {
                                     android.util.Log.w("PlaylistDownload", "Publish attempt $attempt failed for ${track.title}: ${e.message}")
-                                    finalResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "public-storage", e.message ?: e.javaClass.simpleName)
+                                    finalResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "playlist-storage", e.message ?: e.javaClass.simpleName)
                                 }
                             }
                         } else {
                             android.util.Log.w("PlaylistDownload", "Download attempt $attempt failed for ${track.title}: ${base.error}")
                             finalResult = base
+                            if (AuralisDownloadManager.isAgeRestrictedError(base.error)) break
                         }
                     }
                     results[track.id] = finalResult
@@ -101,12 +102,12 @@ class PlaylistDownloadExecutor(private val context: Context) {
                 val verified = tracks.map { track ->
                     val result = results[track.id]
                     if (result != null && result.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
-                        AuralisDownloadManager.isDownloaded(track.id) && publicFiles.verify(result.contentUri)) result
-                    else result ?: TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "verification", "Public playlist file missing")
+                        AuralisDownloadManager.isDownloaded(track.id) && playlistFiles.verify(result.contentUri)) result
+                    else result ?: TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "verification", "Playlist download file missing")
                 }
                 val successful = verified.count {
                     it.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
-                        AuralisDownloadManager.isDownloaded(it.trackId) && publicFiles.verify(it.contentUri)
+                        AuralisDownloadManager.isDownloaded(it.trackId) && playlistFiles.verify(it.contentUri)
                 }
                 val status = when {
                     tracks.isEmpty() -> PlaylistDownloadStatus.EMPTY

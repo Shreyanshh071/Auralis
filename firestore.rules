@@ -17,6 +17,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Deletion block prevents stale tokens and uploads from every device (Spark compatible).
+    function accountCanWrite() {
+      return isAuthenticated()
+        && !exists(/databases/$(database)/documents/account_deletion_blocks/$(request.auth.uid));
+    }
+
+    function accountIsDeleting() {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/account_deletion_blocks/$(request.auth.uid));
+    }
+
+    function roomAcceptsWrites(roomId) {
+      let room = get(/databases/$(database)/documents/rooms/$(roomId)).data;
+      return room.status == 'active'
+        && !exists(/databases/$(database)/documents/account_deletion_blocks/$(room.hostId));
+    }
+
     function isOwner(uid) {
       return isAuthenticated() && request.auth.uid == uid;
     }
@@ -68,6 +85,29 @@ service cloud.firestore {
         && request.resource.data.lastSeen is number;
     }
 
+    // Owner may create a minimal blocking record only after recent sign-in. Keep it after
+    // Auth deletion: old ID tokens may still be valid. Admin cleanup can remove it later.
+    match /account_deletion_blocks/{uid} {
+      allow get: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.time.toMillis() / 1000 - request.auth.token.auth_time <= 300
+        && request.resource.data.keys().hasOnly(['requestedAt'])
+        && request.resource.data.requestedAt == request.time;
+      allow update, delete, list: if false;
+    }
+
+    // Account-specific cleanup queries (deletion or departing voter/author). No collection-wide
+    // access: the query must constrain id/author/upvotes to the caller's own UID.
+    match /{path=**}/members/{memberId} {
+      allow read: if accountIsDeleting() && resource.data.id == request.auth.uid;
+    }
+    match /{path=**}/recommendations/{recommendationId} {
+      // Departed voters/authors may read only their own references for cleanup.
+      allow read: if isAuthenticated() &&
+        (resource.data.recommendedByUid == request.auth.uid || request.auth.uid in resource.data.upvotes);
+    }
+
     // ---- User library ----------------------------------------------------
 
     match /users/{uid} {
@@ -77,23 +117,31 @@ service cloud.firestore {
       // No collection-wide listing: it would expose the set of user ids.
       allow list: if false;
 
-      allow create, update: if isOwner(uid) && hasValidUserShape() && withinUserSizeLimit();
+      allow create, update: if isOwner(uid) && accountCanWrite() && hasValidUserShape() && withinUserSizeLimit();
 
-      // Account deletion is not implemented in the client yet. Allowing the owner
-      // to delete their own document is intentional and self-limited.
+      // App-side cleanup on Spark; owner deletion remains self-limited.
       allow delete: if isOwner(uid);
 
       // Listening stats, one document per UTC day, so they survive a reinstall.
       // `events` maps "<startMs>_<trackId>" to one listen.
       match /listening/{day} {
         allow read: if isOwner(uid);
-        allow create, update: if isOwner(uid)
+        allow create, update: if isOwner(uid) && accountCanWrite()
           && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
           && request.resource.data.keys().hasOnly(['events', 'updatedAt'])
           && request.resource.data.events is map
           && request.resource.data.events.size() <= 3000
           && request.resource.data.updatedAt is number;
         allow delete: if isOwner(uid);
+      }
+
+      // Deletion-only room journal survives parent-room removal and process death.
+      match /room_cleanup/{roomId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && accountIsDeleting()
+          && request.resource.data.keys().hasOnly(['roomCode'])
+          && request.resource.data.roomCode == roomId
+          && roomId.size() <= 32;
       }
 
       // No other nested collections are used under users.
@@ -109,18 +157,19 @@ service cloud.firestore {
       allow get: if isAuthenticated();
 
       // Collection-wide listing is denied to prevent scraping active room codes.
-      allow list: if false;
+      allow list: if accountIsDeleting() && resource.data.hostId == request.auth.uid;
 
       // Only the host can create a room, matching their own auth UID.
-      allow create: if isAuthenticated()
+      allow create: if accountCanWrite()
         && request.resource.data.hostId == request.auth.uid
         && request.resource.data.status == 'active'
         && hasValidRoomShape();
 
       // Only the room host can update room state or close the room.
-      allow update: if isAuthenticated()
-        && resource.data.hostId == request.auth.uid
-        && (request.resource.data.status == 'closed' || hasValidRoomShape());
+      allow update: if isAuthenticated() && resource.data.hostId == request.auth.uid
+        && ((accountCanWrite() && (request.resource.data.status == 'closed' || hasValidRoomShape()))
+          || (accountIsDeleting() && request.resource.data.status == 'closed'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])));
 
       // Only the host can delete the room document.
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
@@ -131,13 +180,17 @@ service cloud.firestore {
         allow get, list: if isAuthenticated();
 
         // A user may only create or update their own presence/heartbeat record.
-        allow create, update: if isAuthenticated()
+        allow create, update: if accountCanWrite() && roomAcceptsWrites(roomId)
           && memberId == request.auth.uid
           && request.resource.data.id == request.auth.uid
           && hasValidMemberShape();
 
-        // A user can delete their own member record (leave room).
-        allow delete: if isAuthenticated() && memberId == request.auth.uid;
+        // A user can delete their own member record (leave room). Once the room document is
+        // gone (the host closed it), anyone signed in may clear its leftover member records.
+        allow delete: if isAuthenticated() && (
+          memberId == request.auth.uid ||
+          !exists(/databases/$(database)/documents/rooms/$(roomId))
+        );
       }
 
       // ---- Room Recommendations Subcollection ----
@@ -169,7 +222,7 @@ service cloud.firestore {
         allow get, list: if isRoomMember() || isRoomHost();
 
         // Room members recommend as themselves, starting pending with only their own upvote.
-        allow create: if isRoomMember()
+        allow create: if accountCanWrite() && roomAcceptsWrites(roomId) && isRoomMember()
           && request.resource.data.recommendedByUid == request.auth.uid
           && request.resource.data.status == 'pending'
           && request.resource.data.upvotes == [request.auth.uid]
@@ -177,9 +230,11 @@ service cloud.firestore {
                ['id', 'track', 'recommendedByUid', 'recommendedByName', 'note', 'upvotes', 'createdAt', 'status']);
 
         // Members toggle their own upvote; only the host changes the status.
-        allow update: if (isRoomMember() && onlyChanges(['upvotes']) && togglesOwnUpvoteOnly())
+        allow update: if accountCanWrite() && roomAcceptsWrites(roomId) && ((isRoomMember() && onlyChanges(['upvotes']) && togglesOwnUpvoteOnly())
           || (isRoomHost() && onlyChanges(['status'])
-              && request.resource.data.status in ['pending', 'accepted', 'played', 'declined']);
+              && request.resource.data.status in ['pending', 'accepted', 'played', 'declined']))
+          || (isAuthenticated() && onlyChanges(['upvotes']) && togglesOwnUpvoteOnly()
+            && !(request.auth.uid in request.resource.data.upvotes));
 
         // The recommender or the room host can delete/dismiss recommendations.
         allow delete: if isAuthenticated()

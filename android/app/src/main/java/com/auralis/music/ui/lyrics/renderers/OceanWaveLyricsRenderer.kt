@@ -154,14 +154,15 @@ fun OceanWaveLyricsLine(
 
     val itemModifier = modifier
         .fillMaxWidth()
+        // Keep the unbounded blur outside the alpha layer, which otherwise crops
+        // the blurred text to a rectangular offscreen buffer.
+        .then(if (enableStandardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)
         .graphicsLayer {
             this.alpha = animatedAlpha
             this.scaleX = scale
             this.scaleY = scale
         }
         .padding(vertical = (4 * lineSpacingMultiplier).dp)
-        // Unbounded: the default clips the blur to the line's box, drawing hard-edged rectangles.
-        .then(if (enableStandardBlur && animatedBlur > 0.1f) Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)
 
     Column(
         modifier = itemModifier,

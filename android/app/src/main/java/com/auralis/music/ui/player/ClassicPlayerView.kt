@@ -33,8 +33,6 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.graphics.Brush
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.runtime.mutableFloatStateOf
@@ -2782,56 +2780,12 @@ private fun ClassicQueueContent(
                             )
                         ) { isDragging ->
                             var isHandleHeld by remember { mutableStateOf(false) }
-                            var isRowHeld by remember { mutableStateOf(false) }
-                            // Holding/dragging a row just moves it: no background, border, bold
-                            // title or accent-tinted handle.
+                            // Only the two-line handle starts reordering. The row keeps its
+                            // tap-to-play behavior, without a long-press reorder handler.
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(queueItemShape)
-                                    .pointerInput(queueItem.instanceId, queueLocked) {
-                                        if (queueLocked) return@pointerInput
-                                        awaitEachGesture {
-                                            awaitFirstDown(requireUnconsumed = false)
-                                            var longPressed = false
-                                            try {
-                                                withTimeout(350L) {
-                                                    waitForUpOrCancellation()
-                                                }
-                                            } catch (_: TimeoutCancellationException) {
-                                                longPressed = true
-                                                isRowHeld = true
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            }
-                                            if (longPressed) {
-                                                waitForUpOrCancellation()
-                                                isRowHeld = false
-                                            }
-                                        }
-                                    }
-                                    .then(
-                                        if (!queueLocked) {
-                                            Modifier.longPressDraggableHandle(
-                                                enabled = true,
-                                                onDragStarted = {
-                                                    isRowHeld = true
-                                                    startDragIndex = localQueue.indexOfFirst { it.instanceId == queueItem.instanceId }
-                                                },
-                                                onDragStopped = {
-                                                    isRowHeld = false
-                                                    lastDragEndTime = System.currentTimeMillis()
-                                                    val finalIdx = localQueue.indexOfFirst { it.instanceId == queueItem.instanceId }
-                                                    val startIdx = startDragIndex
-                                                    if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
-                                                        onReorderQueue?.invoke(startIdx, finalIdx)
-                                                    }
-                                                    startDragIndex = -1
-                                                }
-                                            )
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
                                     .clickable(
                                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                         indication = null,

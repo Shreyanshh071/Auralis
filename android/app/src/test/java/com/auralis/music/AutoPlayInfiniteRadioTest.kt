@@ -389,4 +389,52 @@ class AutoPlayInfiniteRadioTest {
         viewModel.closePlayer()
     }
 
+    @Test
+    fun `single downloaded song queue never requests online radio`() = runTest(testDispatcher) {
+        val client = MockInnerTubeClient(listOf(sampleTrack("online", "Online recommendation")))
+        val viewModel = PlayerViewModel(
+            MockLibraryRepo(), MockHistoryRepo(), MockLyricsRepo(), MockSettingsRepo(),
+            innerTubeClient = client
+        )
+        val downloaded = sampleTrack("offline", "Downloaded song")
+        try {
+            runCurrent()
+            viewModel.playTrack(downloaded, listOf(downloaded), isUserQueue = true)
+            advanceUntilIdle()
+            assertEquals(listOf(downloaded), viewModel.uiState.value.queue)
+            assertFalse("Downloads must not start an online radio request", client.requested.isCompleted)
+            viewModel.next()
+            advanceUntilIdle()
+            assertEquals(downloaded.id, viewModel.uiState.value.currentTrack?.id)
+            assertEquals(listOf(downloaded), viewModel.uiState.value.queue)
+            assertFalse(client.requested.isCompleted)
+        } finally {
+            viewModel.closePlayer()
+        }
+    }
+
+    @Test
+    fun `downloaded queue navigation never appends undownloaded recommendations`() = runTest(testDispatcher) {
+        val client = MockInnerTubeClient(listOf(sampleTrack("online", "Online recommendation")))
+        val viewModel = PlayerViewModel(
+            MockLibraryRepo(), MockHistoryRepo(), MockLyricsRepo(), MockSettingsRepo(),
+            innerTubeClient = client
+        )
+        val downloaded = listOf(sampleTrack("offline1", "Downloaded one"), sampleTrack("offline2", "Downloaded two"))
+        try {
+            runCurrent()
+            viewModel.playTrack(downloaded.first(), downloaded, isUserQueue = true)
+            advanceUntilIdle()
+            viewModel.next()
+            assertEquals(downloaded[1].id, viewModel.uiState.value.currentTrack?.id)
+            viewModel.next()
+            advanceUntilIdle()
+            assertEquals(downloaded.first().id, viewModel.uiState.value.currentTrack?.id)
+            assertEquals(downloaded, viewModel.uiState.value.queue)
+            assertFalse(client.requested.isCompleted)
+        } finally {
+            viewModel.closePlayer()
+        }
+    }
+
 }

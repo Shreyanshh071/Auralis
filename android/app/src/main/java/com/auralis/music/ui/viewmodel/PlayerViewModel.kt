@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.auralis.music.data.network.InnerTubeClient
+import com.auralis.music.data.datastore.PlaylistListeningStore
 import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.HistoryRepository
@@ -174,8 +175,48 @@ class PlayerViewModel(
     private var radioAdvanceJob: Job? = null
     private var palettePreloadJob: Job? = null
     private var isAutoRadioMode: Boolean = true
+    @Volatile private var sourcePlaylistId: String? = null
+    @Volatile private var sourcePlaylistTrackIds: Set<String> = emptySet()
+    @Volatile private var listeningHistoryPaused = true
 
     init {
+        context?.let { ctx ->
+            viewModelScope.launch {
+                com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.collect {
+                    listeningHistoryPaused = it.pauseListenHistory
+                }
+            }
+            // Count only playback time that actually advances. Seeks and repeated taps do not
+            // manufacture listening time; the small batch keeps disk writes inexpensive.
+            viewModelScope.launch(Dispatchers.IO) {
+                var previousTrackId: String? = null
+                var previousPosition = -1L
+                var pendingMs = 0L
+                var pendingPlaylistId: String? = null
+                _playbackPositionMs.collect { position ->
+                    val playlistId = sourcePlaylistId
+                    val trackId = audioPlayer?.currentTrack?.value?.id ?: _uiState.value.currentTrack?.id
+                    if (playlistId != pendingPlaylistId || trackId != previousTrackId) {
+                        pendingPlaylistId?.let { if (pendingMs > 0) PlaylistListeningStore.recordListening(ctx, it, pendingMs) }
+                        pendingMs = 0L
+                        pendingPlaylistId = playlistId
+                        previousTrackId = trackId
+                        previousPosition = position
+                    } else {
+                        val delta = position - previousPosition
+                        val playing = audioPlayer?.isPlaying?.value ?: _uiState.value.isPlaying
+                        if (playlistId != null && trackId in sourcePlaylistTrackIds && playing && !listeningHistoryPaused && delta in 1..5000) {
+                            pendingMs += delta
+                            if (pendingMs >= 5000) {
+                                PlaylistListeningStore.recordListening(ctx, playlistId, pendingMs)
+                                pendingMs = 0L
+                            }
+                        }
+                        previousPosition = position
+                    }
+                }
+            }
+        }
         // Collect current track favorite state reactively
         viewModelScope.launch {
             _uiState.map { it.currentTrack?.id }
@@ -567,13 +608,26 @@ class PlayerViewModel(
         isUserQueue: Boolean = false,
         initialPositionMs: Long = 0L,
         sourcePlaylistTitle: String? = null,
-        preserveQueueSource: Boolean = false
+        preserveQueueSource: Boolean = false,
+        sourcePlaylistId: String? = null
     ) {
         // A Listen Together guest's pick goes to the room; this phone changes song only when the
         // host's does. Updating the screen first showed a new cover and lyrics over the old audio.
         if (audioPlayer?.isGuestListenTogether?.value == true) {
             audioPlayer.playTrack(track, newQueue, startIndex, isUserQueue, initialPositionMs, preserveQueueSource)
             return
+        }
+        this.sourcePlaylistId = if (preserveQueueSource) this.sourcePlaylistId else sourcePlaylistId
+        if (!preserveQueueSource) sourcePlaylistTrackIds = if (sourcePlaylistId != null) {
+            (newQueue.ifEmpty { listOf(track) }).mapTo(mutableSetOf()) { it.id }
+        } else emptySet()
+        if (sourcePlaylistId != null) {
+            context?.let { ctx ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    val paused = com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseListenHistory
+                    if (!paused) PlaylistListeningStore.recordSession(ctx, sourcePlaylistId)
+                }
+            }
         }
         val effectiveIsUserQueue = isUserQueue || (sourcePlaylistTitle != null)
         val reqId = currentPlaybackRequestId.incrementAndGet()

@@ -156,14 +156,8 @@ data class NativeRoomState(
 const val ROOM_CLOSING_EMPTY = "empty"
 const val ROOM_CLOSING_IDLE = "idle"
 
-/**
- * Firestore deletes documents whose `expireAt` has passed, once a TTL policy is on for that
- * collection group (Firebase console → Firestore → TTL policies: "rooms" and "members", field expireAt).
- * A live room keeps pushing it forward; a closed or abandoned room is cleaned up after this.
- */
+/** Compatibility expiry metadata; Spark has no automatic TTL/server cleanup configured. */
 private const val ROOM_TTL_MS = 24L * 60 * 60 * 1000
-private const val CLOSED_ROOM_TTL_MS = 60L * 60 * 1000
-
 private fun expiresIn(ms: Long) = com.google.firebase.Timestamp(java.util.Date(System.currentTimeMillis() + ms))
 
 class ListenTogetherManager(
@@ -185,47 +179,33 @@ class ListenTogetherManager(
 
         /**
          * Leaves (guest) or closes (host) the room and waits for the server to have it, at most
-         * [timeoutMs]. The fire-and-forget version below was killed with the app before the write
-         * went out, so the host kept showing a listener who had swiped the app away.
+         * [timeoutMs]. Pending cleanup is saved before any writes and retained for retry
+         * if shutdown interrupts it.
          */
         suspend fun leaveRoomBeforeShutdown(timeoutMs: Long = 2_500L) {
-            val roomCode = activeRoomCode ?: return
-            val isHost = isHostUser
-            val uid = try { FirebaseAuth.getInstance().currentUser?.uid } catch (_: Exception) { null } ?: return
-            try {
-                kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-                    val roomDoc = FirebaseFirestore.getInstance().collection("rooms").document(roomCode)
-                    roomDoc.collection("members").document(uid).delete().await()
-                    if (isHost) roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
-                }
-                android.util.Log.d("ListenTogether", "[Shutdown] Left room=$roomCode (isHost=$isHost)")
-            } catch (e: Exception) {
-                android.util.Log.e("ListenTogether", "[Shutdown] Couldn't leave room=$roomCode: ${e.message}")
-            } finally {
-                activeRoomCode = null
-                isHostUser = false
-            }
+            val code = activeRoomCode ?: return
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+            val task = RoomCleanupCoordinator.enqueue(uid, code, isHostUser)
+            activeRoomCode = null
+            isHostUser = false
+            val complete = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { RoomCleanupCoordinator.process(task) } == true
+            android.util.Log.d("ListenTogether", if (complete) "Shutdown room cleanup confirmed" else "Shutdown room cleanup queued for retry")
+        }
+
+        /** Account deletion owns remote cleanup; don't enqueue a competing room exit. */
+        fun stopLocalSessionForDeletion() {
+            RoomCleanupCoordinator.clearActiveForAccountDeletion()
+            activeRoomCode = null
+            isHostUser = false
         }
 
         fun performTaskRemovedCleanup() {
-            val roomCode = activeRoomCode ?: return
-            val isHost = isHostUser
-            val uid = try { FirebaseAuth.getInstance().currentUser?.uid } catch (_: Exception) { null } ?: return
-            try {
-                val db = FirebaseFirestore.getInstance()
-                val roomDoc = db.collection("rooms").document(roomCode)
-                // Guests only remove their member record: the room document is host-only.
-                roomDoc.collection("members").document(uid).delete()
-                if (isHost) {
-                    roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS))
-                }
-                android.util.Log.d("ListenTogether", "[TaskRemoved Cleanup] Successfully cleaned up room=$roomCode, isHost=$isHost")
-            } catch (e: Exception) {
-                android.util.Log.e("ListenTogether", "[TaskRemoved Cleanup Error]: ${e.message}")
-            } finally {
-                activeRoomCode = null
-                isHostUser = false
-            }
+            val code = activeRoomCode ?: return
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+            RoomCleanupCoordinator.enqueue(uid, code, isHostUser)
+            activeRoomCode = null
+            isHostUser = false
+            android.util.Log.d("ListenTogether", "Task removal room cleanup queued")
         }
     }
 
@@ -336,6 +316,7 @@ class ListenTogetherManager(
         val sentAt = System.currentTimeMillis()
         memberDoc.set(memberData).await()
         lastJoinClockOffset = readClockOffset(memberDoc, sentAt, System.currentTimeMillis())
+        RoomCleanupCoordinator.rememberActive(uid, roomCode, true, now)
         activeRoomCode = roomCode
         isHostUser = true
 
@@ -345,6 +326,7 @@ class ListenTogetherManager(
     suspend fun joinRoom(roomCode: String, memberDisplayName: String): NativeRoomState {
         val uid = ensureAuthenticated()
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        RoomCleanupCoordinator.finishBeforeRejoin(uid, normalizedCode)
 
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
         val snapshot = roomDoc.get().await()
@@ -399,6 +381,7 @@ class ListenTogetherManager(
         }
 
         lastJoinClockOffset = offset
+        RoomCleanupCoordinator.rememberActive(uid, normalizedCode, false, now)
         activeRoomCode = normalizedCode
         isHostUser = false
 
@@ -533,25 +516,16 @@ class ListenTogetherManager(
             ).await()
     }
 
-    suspend fun leaveRoom(roomCode: String, isHost: Boolean) {
-        val uid = auth.currentUser?.uid ?: return
-        val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
-        val roomDoc = firestore.collection("rooms").document(normalizedCode)
-
-        try {
-            // Guests only remove their member record: the room document is host-only.
-            roomDoc.collection("members").document(uid).delete().await()
-            if (isHost) {
-                roomDoc.update("status", "closed", "expireAt", expiresIn(CLOSED_ROOM_TTL_MS)).await()
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("ListenTogether", "[Leave Room Error] code=$normalizedCode, isHost=$isHost: ${e.message}", e)
-        } finally {
+    suspend fun leaveRoom(roomCode: String, isHost: Boolean): Boolean {
+        val uid = auth.currentUser?.uid ?: return false
+        val code = roomCode.trim().uppercase(Locale.ROOT)
+        val task = RoomCleanupCoordinator.enqueue(uid, code, isHost)
+        if (activeRoomCode == code) {
             activeRoomCode = null
             isHostUser = false
         }
-
         stopListening()
+        return kotlinx.coroutines.withTimeoutOrNull(15_000L) { RoomCleanupCoordinator.process(task, firestore) } == true
     }
 
     fun observeRoomState(roomCode: String): Flow<NativeRoomState?> = callbackFlow {

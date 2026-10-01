@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+internal fun importedPlaylistLocalId(source: String, remoteId: String): String =
+    "imported:${source.lowercase(java.util.Locale.ROOT)}:${remoteId.trim()}"
+
 class LibraryRepositoryImpl(
     private val trackDao: TrackDao,
     private val playlistDao: PlaylistDao,
@@ -90,6 +93,33 @@ class LibraryRepositoryImpl(
             coverUrl = coverUrl,
             createdAt = System.currentTimeMillis()
         )
+        playlistDao.upsertPlaylist(playlist.toEntity())
+        return playlist
+    }
+
+    override suspend fun upsertImportedPlaylist(
+        source: String,
+        remoteId: String,
+        title: String,
+        description: String?,
+        coverUrl: String?
+    ): Playlist {
+        require(source.isNotBlank() && remoteId.isNotBlank())
+        return upsertPlaylistById(importedPlaylistLocalId(source, remoteId), title, description, coverUrl)
+    }
+
+    override suspend fun restorePlaylist(id: String, title: String, description: String?, coverUrl: String?): Playlist {
+        require(id.isNotBlank())
+        return upsertPlaylistById(id, title, description, coverUrl)
+    }
+
+    private suspend fun upsertPlaylistById(id: String, title: String, description: String?, coverUrl: String?): Playlist {
+        val existing = playlistDao.getPlaylistEntity(id)
+        if (existing != null) {
+            playlistDao.updatePlaylist(id, title, description, coverUrl)
+            return Playlist(id, title, description, coverUrl, createdAt = existing.createdAt, isCustom = existing.isCustom)
+        }
+        val playlist = Playlist(id = id, title = title, description = description, coverUrl = coverUrl)
         playlistDao.upsertPlaylist(playlist.toEntity())
         return playlist
     }

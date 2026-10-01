@@ -5,21 +5,75 @@ import com.auralis.music.data.local.entity.*
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface TrackDao {
+abstract class TrackDao {
+    // Raw writes are protected: every production caller must pass the transactional guard.
     @Upsert
-    suspend fun upsertTrack(track: TrackEntity)
+    protected abstract suspend fun writeTrack(track: TrackEntity)
 
     @Upsert
-    suspend fun upsertTracks(tracks: List<TrackEntity>)
+    protected abstract suspend fun writeTracks(tracks: List<TrackEntity>)
 
-    @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
-    suspend fun getTrackById(id: String): TrackEntity?
+    @Query("SELECT * FROM artwork_selections WHERE trackId IN (:ids)")
+    protected abstract suspend fun getArtworkSelections(ids: List<String>): List<ArtworkSelectionEntity>
 
-    @Query("SELECT * FROM tracks WHERE id IN (:ids)")
-    suspend fun getTracksByIds(ids: List<String>): List<TrackEntity>
+    @Upsert
+    protected abstract suspend fun writeArtworkSelection(selection: ArtworkSelectionEntity)
+
+    @Query("SELECT * FROM artwork_selections WHERE trackId = :trackId LIMIT 1")
+    abstract suspend fun getArtworkSelection(trackId: String): ArtworkSelectionEntity?
+
+    @Query("SELECT * FROM artwork_selections WHERE trackId = :trackId LIMIT 1")
+    abstract fun observeArtworkSelection(trackId: String): Flow<ArtworkSelectionEntity?>
 
     @Transaction
-    suspend fun upsertTrackPreservingFavorite(track: TrackEntity) {
+    open suspend fun upsertTrack(track: TrackEntity) {
+        writeTrack(ArtworkWriteBoundary.merge(track, getTrackById(track.id), getArtworkSelection(track.id)))
+    }
+
+    @Transaction
+    open suspend fun upsertTracks(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        val ids = tracks.map { it.id }
+        val existing = getTracksByIds(ids).associateBy { it.id }
+        val selections = getArtworkSelections(ids).associateBy { it.trackId }
+        writeTracks(tracks.map { ArtworkWriteBoundary.merge(it, existing[it.id], selections[it.id]) })
+    }
+
+    @Transaction
+    open suspend fun selectArtwork(
+        expected: TrackEntity,
+        decision: com.auralis.music.domain.artwork.ArtworkSelection,
+        expectedRevision: Long
+    ): Boolean {
+        if (expectedRevision < 0 || decision.trackId != expected.id || expected.id.isBlank() ||
+            decision.thumbnail.isBlank() || decision.provider.isBlank() ||
+            decision.providerItemId.isBlank() || decision.evidence.isBlank()) return false
+        if (decision.basis == com.auralis.music.domain.artwork.ArtworkSelectionBasis.VERIFIED_RELEASE &&
+            decision.releaseId.isNullOrBlank()) return false
+        val current = getTrackById(expected.id) ?: return false
+        if (!ArtworkWriteBoundary.sameSnapshot(expected, current)) return false
+        val previous = getArtworkSelection(expected.id)
+        if ((previous?.revision ?: 0) != expectedRevision || expectedRevision == Long.MAX_VALUE) return false
+        val selected = ArtworkSelectionEntity(
+            current.id, current.title, current.artist, current.duration, current.source,
+            decision.thumbnail, decision.album ?: current.album, decision.provider,
+            decision.providerItemId, decision.releaseId, decision.evidence, decision.basis.name,
+            expectedRevision + 1
+        )
+        writeArtworkSelection(selected)
+        writeTrack(current.copy(album = selected.album, thumbnail = selected.thumbnail,
+            dominantColor = if (current.thumbnail == selected.thumbnail) current.dominantColor else null))
+        return true
+    }
+
+    @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
+    abstract suspend fun getTrackById(id: String): TrackEntity?
+
+    @Query("SELECT * FROM tracks WHERE id IN (:ids)")
+    abstract suspend fun getTracksByIds(ids: List<String>): List<TrackEntity>
+
+    @Transaction
+    open suspend fun upsertTrackPreservingFavorite(track: TrackEntity) {
         val existing = getTrackById(track.id)
         if (existing != null) {
             val preserved = track.copy(
@@ -33,7 +87,7 @@ interface TrackDao {
     }
 
     @Transaction
-    suspend fun upsertTracksPreservingFavorite(tracks: List<TrackEntity>) {
+    open suspend fun upsertTracksPreservingFavorite(tracks: List<TrackEntity>) {
         if (tracks.isEmpty()) return
         val existingMap = getTracksByIds(tracks.map { it.id }).associateBy { it.id }
         val preservedTracks = tracks.map { track ->
@@ -51,19 +105,19 @@ interface TrackDao {
     }
 
     @Query("SELECT * FROM tracks WHERE isFavorite = 1 ORDER BY favoriteAddedAt DESC")
-    fun getFavoriteTracksFlow(): Flow<List<TrackEntity>>
+    abstract fun getFavoriteTracksFlow(): Flow<List<TrackEntity>>
 
     @Query("SELECT * FROM tracks WHERE isFavorite = 1 ORDER BY favoriteAddedAt DESC LIMIT :limit")
-    suspend fun getFavoriteTracksList(limit: Int = 20): List<TrackEntity>
+    abstract suspend fun getFavoriteTracksList(limit: Int = 20): List<TrackEntity>
 
     @Query("SELECT isFavorite FROM tracks WHERE id = :id LIMIT 1")
-    fun isFavoriteFlow(id: String): Flow<Boolean?>
+    abstract fun isFavoriteFlow(id: String): Flow<Boolean?>
 
     @Query("UPDATE tracks SET isFavorite = :isFavorite, favoriteAddedAt = :addedAt WHERE id = :id")
-    suspend fun setFavorite(id: String, isFavorite: Boolean, addedAt: Long? = if (isFavorite) System.currentTimeMillis() else null)
+    abstract suspend fun setFavorite(id: String, isFavorite: Boolean, addedAt: Long? = if (isFavorite) System.currentTimeMillis() else null)
 
     @Query("DELETE FROM tracks WHERE id = :id")
-    suspend fun deleteTrack(id: String)
+    abstract suspend fun deleteTrack(id: String)
 }
 
 data class PlaylistWithTracksTuple(
@@ -98,6 +152,9 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
     fun getPlaylistEntityFlow(playlistId: String): Flow<PlaylistEntity?>
+
+    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    suspend fun getPlaylistEntity(playlistId: String): PlaylistEntity?
 
     @Query("""
         SELECT tracks.* FROM tracks 

@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import com.auralis.music.ui.theme.AuralisPushedPage
 import com.auralis.music.ui.theme.auralisPushParent
@@ -40,13 +42,16 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -65,6 +70,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -100,18 +107,25 @@ val PROFILE_CARD_BG: Color
 fun ProfileSheet(
     authUiState: AuthUiState,
     onImportYouTubePlaylist: (String) -> Unit = {},
+    /** Playlists picked from the signed-in YouTube Music library (Profile > YouTube account). */
+    onImportYouTubeLibraryPlaylists: (List<com.auralis.music.data.network.YouTubeMusicLibrary.LibraryPlaylist>) -> Unit = {},
     onClearYouTubeImportMessage: () -> Unit = {},
     isImportingYouTube: Boolean = false,
     youtubeImportMessage: String? = null,
     onOpenPlaylistSelector: () -> Unit,
     onSyncLikedMusic: () -> Unit,
     onDisconnect: () -> Unit,
+    /** Deletes the account and its backed-up data; the password is null for Google accounts. */
+    onDeleteAccount: (password: String?) -> Unit = {},
+    deleteAccountNeedsPassword: Boolean = false,
+    onClearDeleteAccountError: () -> Unit = {},
     onClosePlaylistSelector: () -> Unit,
     onTogglePlaylistSelection: (String) -> Unit,
     onSelectAllPlaylists: () -> Unit,
     onDeselectAllPlaylists: () -> Unit = {},
     onImportSelectedPlaylists: () -> Unit = {},
     onImportSpotifyPlaylist: (String) -> Unit = {},
+    /** Playlists picked from the signed-in Spotify library. */
     onClearSpotifyImportMessage: () -> Unit = {},
     isImportingSpotify: Boolean = false,
     spotifyImportMessage: String? = null,
@@ -132,11 +146,16 @@ fun ProfileSheet(
     val profile = authUiState.profile
     var isSettingsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isDiscordIntegrationOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var youtubeUrlInput by remember { mutableStateOf("") }
-    var spotifyUrlInput by remember { mutableStateOf("") }
+    var isYouTubeAccountOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var isImportPlaylistsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val youTubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
 
     androidx.activity.compose.BackHandler(enabled = true) {
-        if (isDiscordIntegrationOpen) {
+        if (isImportPlaylistsOpen) {
+            isImportPlaylistsOpen = false
+        } else if (isYouTubeAccountOpen) {
+            isYouTubeAccountOpen = false
+        } else if (isDiscordIntegrationOpen) {
             isDiscordIntegrationOpen = false
         } else if (isSettingsOpen) {
             isSettingsOpen = false
@@ -145,8 +164,10 @@ fun ProfileSheet(
         }
     }
 
-    // Settings and Discord push over the profile instead of replacing it on one frame.
+    // Settings, Discord, YouTube, and Import Playlists push over the profile instead of replacing it on one frame.
     val subPage = when {
+        isImportPlaylistsOpen -> ProfileSubPage.IMPORT_PLAYLISTS
+        isYouTubeAccountOpen -> ProfileSubPage.YOUTUBE
         isDiscordIntegrationOpen -> ProfileSubPage.DISCORD
         isSettingsOpen -> ProfileSubPage.SETTINGS
         else -> null
@@ -369,406 +390,128 @@ fun ProfileSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // ── YOUTUBE MUSIC PLAYLIST IMPORTER CARD ──
+            // ── YOUTUBE ACCOUNT CARD (age-restricted songs) ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(18.dp))
                     .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                    .border(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                    .clickable { isYouTubeAccountOpen = true }
                     .padding(14.dp)
             ) {
-                Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF0033).copy(alpha = 0.16f))
+                                .border(1.dp, Color(0xFFFF0033).copy(alpha = 0.5f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.LibraryMusic,
-                                contentDescription = null,
-                                tint = Color(0xFFEF4444),
-                                modifier = Modifier.size(18.dp)
+                                imageVector = if (youTubeSignedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
+                                contentDescription = "YouTube",
+                                tint = Color(0xFFFF0033),
+                                modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
                             Text(
-                                text = "Import YouTube Music Playlist",
+                                text = "YouTube account",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp
                             )
-                        }
-
-                        if (isImportingYouTube) {
-                            CircularProgressIndicator(
-                                color = Color(0xFFEF4444),
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Paste a YouTube Music playlist link to import songs directly into your library.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // YouTube Music Link Input
-                    OutlinedTextField(
-                        value = youtubeUrlInput,
-                        onValueChange = {
-                            youtubeUrlInput = it
-                            onClearYouTubeImportMessage()
-                        },
-                        label = { Text("YouTube Music Link", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                        placeholder = { Text("Paste music.youtube.com/playlist?list=...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFFEF4444),
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            cursorColor = Color(0xFFEF4444)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = {
-                            Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
-                        },
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (youtubeUrlInput.isNotEmpty()) {
-                                    IconButton(onClick = {
-                                        youtubeUrlInput = ""
-                                        onClearYouTubeImportMessage()
-                                    }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = clipboard.primaryClip
-                                        if (clip != null && clip.itemCount > 0) {
-                                             youtubeUrlInput = clip.getItemAt(0).text.toString().trim()
-                                             onClearYouTubeImportMessage()
-                                             Toast.makeText(context, "Pasted YouTube Music link", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // ── GLASSY YOUTUBE MUSIC IMPORT BUTTON ──
-                    Button(
-                        onClick = {
-                            if (youtubeUrlInput.isNotBlank() && !isImportingYouTube) {
-                                onImportYouTubePlaylist(youtubeUrlInput.trim())
-                            }
-                        },
-                        enabled = youtubeUrlInput.isNotBlank() && !isImportingYouTube,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEF4444),
-                            disabledContainerColor = Color(0xFFEF4444).copy(alpha = 0.30f),
-                            contentColor = Color.White,
-                            disabledContentColor = Color.White.copy(alpha = 0.70f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                    ) {
-                        if (isImportingYouTube) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Importing Songs...",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                text = if (youTubeSignedIn) "Age-restricted songs unlocked"
+                                else "Sign in to download age-restricted songs",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
                             )
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Import YT Music Playlist",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Helpful YouTube Music note
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Tip: Make sure your playlist is set to Public or Unlisted in YouTube Music. Normal YouTube video links are blocked to keep your library pure music.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-
-                    if (youtubeImportMessage != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = youtubeImportMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (youtubeImportMessage.startsWith("Imported", ignoreCase = true) || youtubeImportMessage.startsWith("Success", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEF4444),
-                            fontSize = 11.sp
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Open YouTube account",
+                        tint = Color(0xFFFF0033),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // ── SPOTIFY PLAYLIST IMPORTER CARD ──
+            // ── IMPORT PLAYLISTS CARD ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(18.dp))
                     .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, Color(0xFF1DB954).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                    .clickable { isImportPlaylistsOpen = true }
                     .padding(14.dp)
             ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SpotifyLogoIcon(modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
                             Text(
-                                text = "Import Spotify Playlist",
+                                text = "Import playlists",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp
                             )
-                        }
-
-                        if (isImportingSpotify) {
-                            CircularProgressIndicator(
-                                color = Color(0xFF1DB954),
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
+                            Text(
+                                text = "From YouTube Music or Spotify",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Paste any Spotify playlist, album, or track link to import songs into Auralis.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Open Import playlists",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Spotify Link Input
-                    OutlinedTextField(
-                        value = spotifyUrlInput,
-                        onValueChange = {
-                            spotifyUrlInput = it
-                            onClearSpotifyImportMessage()
-                        },
-                        label = { Text("Spotify Link", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                        placeholder = { Text("Paste open.spotify.com/playlist/...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF1DB954),
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            cursorColor = Color(0xFF1DB954)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = {
-                            SpotifyLogoIcon(modifier = Modifier.size(18.dp))
-                        },
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (spotifyUrlInput.isNotEmpty()) {
-                                    IconButton(onClick = {
-                                        spotifyUrlInput = ""
-                                        onClearSpotifyImportMessage()
-                                    }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = clipboard.primaryClip
-                                        if (clip != null && clip.itemCount > 0) {
-                                            spotifyUrlInput = clip.getItemAt(0).text.toString().trim()
-                                            onClearSpotifyImportMessage()
-                                            Toast.makeText(context, "Pasted Spotify link", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // ── GLASSY SPOTIFY IMPORT BUTTON ──
-                    Button(
-                        onClick = {
-                            if (spotifyUrlInput.isNotBlank() && !isImportingSpotify) {
-                                onImportSpotifyPlaylist(spotifyUrlInput.trim())
-                            }
-                        },
-                        enabled = spotifyUrlInput.isNotBlank() && !isImportingSpotify,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1DB954),
-                            disabledContainerColor = Color(0xFF1DB954).copy(alpha = 0.30f),
-                            contentColor = Color.Black,
-                            disabledContentColor = Color.Black.copy(alpha = 0.60f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                    ) {
-                        if (isImportingSpotify) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    color = Color.Black,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Importing Spotify Tracks...",
-                                    color = Color.Black,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Import Spotify Playlist",
-                                    color = Color.Black,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-                    }
-
-                    if (spotifyImportMessage != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = spotifyImportMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (spotifyImportMessage.contains("fail", ignoreCase = true) || spotifyImportMessage.contains("could not", ignoreCase = true)) Color(0xFFEF4444) else Color(0xFF16A34A),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Helpful privacy note
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF1DB954),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Tip: If your playlist is private, briefly toggle it to Public in Spotify to import. Once imported, you can make it Private again anytime — your songs stay saved in Auralis forever!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
                 }
             }
+
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -803,6 +546,30 @@ fun ProfileSheet(
                         )
                     }
                 }
+
+                // ── DELETE ACCOUNT ──
+                var showDeleteDialog by remember { mutableStateOf(false) }
+                Text(
+                    text = "Delete account",
+                    color = Color(0xFFEF4444).copy(alpha = 0.85f),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 10.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onClearDeleteAccountError(); showDeleteDialog = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+                if (showDeleteDialog) {
+                    DeleteAccountDialog(
+                        needsPassword = deleteAccountNeedsPassword,
+                        isDeleting = authUiState.isDeletingAccount,
+                        error = authUiState.deleteAccountError,
+                        onConfirm = onDeleteAccount,
+                        onDismiss = { if (!authUiState.isDeletingAccount) showDeleteDialog = false }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.padding(bottomChromePadding(includeNavigationBar = false)))
@@ -811,6 +578,25 @@ fun ProfileSheet(
 
     AuralisPushedPage(page = subPage) { page ->
         when (page) {
+            ProfileSubPage.IMPORT_PLAYLISTS -> com.auralis.music.ui.screens.ImportPlaylistsScreen(
+                onDismiss = { isImportPlaylistsOpen = false },
+                onNavigateToYouTubeAccount = {
+                    isImportPlaylistsOpen = false
+                    isYouTubeAccountOpen = true
+                },
+                onImportYouTubeLibraryPlaylists = onImportYouTubeLibraryPlaylists,
+                isImportingYouTube = isImportingYouTube,
+                youtubeImportMessage = youtubeImportMessage,
+                onClearYouTubeImportMessage = onClearYouTubeImportMessage,
+                onImportYouTubePlaylist = onImportYouTubePlaylist,
+                onImportSpotifyPlaylist = onImportSpotifyPlaylist,
+                isImportingSpotify = isImportingSpotify,
+                spotifyImportMessage = spotifyImportMessage,
+                onClearSpotifyImportMessage = onClearSpotifyImportMessage
+            )
+            ProfileSubPage.YOUTUBE -> com.auralis.music.ui.screens.YouTubeAccountScreen(
+                onDismiss = { isYouTubeAccountOpen = false }
+            )
             ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
                 onDismiss = { isDiscordIntegrationOpen = false }
             )
@@ -834,7 +620,7 @@ fun ProfileSheet(
     }
 }
 
-private enum class ProfileSubPage { SETTINGS, DISCORD }
+private enum class ProfileSubPage { SETTINGS, DISCORD, YOUTUBE, IMPORT_PLAYLISTS }
 
 @Composable
 private fun GoogleLogoIcon(modifier: Modifier = Modifier) {
@@ -930,4 +716,60 @@ fun SpotifyLogoIcon(modifier: Modifier = Modifier) {
     }
 }
 
-
+/**
+ * Confirms account deletion and says exactly what goes: the sign-in and everything backed up to it.
+ * Data on this phone stays. Email accounts re-enter their password; Google accounts confirm with a
+ * fresh Google sign-in after tapping Delete.
+ */
+@Composable
+private fun DeleteAccountDialog(
+    needsPassword: Boolean,
+    isDeleting: Boolean,
+    error: String?,
+    onConfirm: (password: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete your account?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "This permanently deletes your Auralis account and everything backed up to it: " +
+                        "playlists, liked songs, saved artists and listening stats. It can't be undone.\n\n" +
+                        "Songs and playlists on this phone stay. To remove those too, clear the app's data."
+                )
+                if (needsPassword) {
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        enabled = !isDeleting
+                    )
+                } else {
+                    Text(
+                        "You'll be asked to sign in with Google again to confirm it's you.",
+                        fontSize = 13.sp
+                    )
+                }
+                if (error != null) {
+                    Text(error, color = Color(0xFFEF4444), fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(if (needsPassword) password else null) },
+                enabled = !isDeleting && (!needsPassword || password.isNotBlank())
+            ) {
+                Text(if (isDeleting) "Deleting…" else "Delete", color = Color(0xFFEF4444))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isDeleting) { Text("Cancel") }
+        }
+    )
+}

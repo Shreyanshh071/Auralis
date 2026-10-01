@@ -615,7 +615,7 @@ fun ListenTogetherSheet(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Start a listening room and stream your queue with sub-millisecond precision to all connected friends.",
+                                text = "Start a room and listen together — everyone hears your queue at the same time.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = onSurfaceVariant
                             )

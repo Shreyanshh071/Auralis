@@ -71,7 +71,7 @@ class InvidiousApi(
                 val url = "$baseUrl/api/v1/videos/$videoId"
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Auralis-Music/1.1.0 (Android)")
+                    .header("User-Agent", "Auralis-Music/1.1.1 (Android)")
                     .header("Accept", "application/json")
                     .build()
 
@@ -136,7 +136,7 @@ class InvidiousApi(
                 val url = "$baseUrl/api/v1/search?q=$encodedQuery$typeParam"
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Auralis-Music/1.1.0 (Android)")
+                    .header("User-Agent", "Auralis-Music/1.1.1 (Android)")
                     .header("Accept", "application/json")
                     .build()
 

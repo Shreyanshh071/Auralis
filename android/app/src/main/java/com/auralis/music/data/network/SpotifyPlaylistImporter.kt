@@ -1207,7 +1207,31 @@ class SpotifyPlaylistImporter(
         val current = seen.firstOrNull { it.id == saved.id } ?: return null
         val why = com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(saved, current) ?: return null
         Log.i(TAG, "Re-matched '${saved.title}' (${saved.duration}s): ${saved.id} was $why -> ${pick.id} \"${pick.title}\" (${pick.duration}s)")
-        return saved.copy(id = pick.id, thumbnail = pick.thumbnail.ifBlank { "https://i.ytimg.com/vi/${pick.id}/hqdefault.jpg" })
+        return saved.copy(id = pick.id, thumbnail = artworkForPlaybackMatch(saved, pick))
+    }
+
+    /** A playback recording match does not establish authority over the Spotify release artwork. */
+    private fun artworkForPlaybackMatch(track: Track, candidate: Track): String {
+        if (track.thumbnail.isNotBlank()) return track.thumbnail
+        if (candidate.thumbnail.isBlank() || track.duration <= 0 || candidate.duration <= 0) return ""
+
+        val matcher = com.auralis.music.domain.search.SearchQueryMatcher
+        fun identity(value: String) = matcher.normalize(value)
+        fun artists(value: String) = value.split(Regex("(?i)[,&/]|\\b(?:feat\\.?|ft\\.?|featuring|with)\\s+"))
+            .map(::identity).filter { it.isNotBlank() }.toSet()
+        val credited = artists(track.artist)
+        if (credited.isEmpty() || track.artist.equals("Spotify Artist", ignoreCase = true) ||
+            credited != artists(candidate.artist)) return ""
+        val title = identity(TitleCleaner.cleanTitle(track.title))
+        if (title.isBlank() || title != identity(TitleCleaner.cleanTitle(candidate.title))) return ""
+        // Require known, matching releases; retain edition/version distinctions rather than stripping them.
+        val release = track.album?.takeIf { it.isNotBlank() } ?: return ""
+        val candidateRelease = candidate.album?.takeIf { it.isNotBlank() } ?: return ""
+        if (identity(release) in setOf("single", "unknown", "spotify album", "spotify playlist")) return ""
+        if (identity(release) != identity(candidateRelease)) return ""
+        if (matcher.recordingMismatch(track, candidate) != null ||
+            matcher.recordingMismatch(candidate, track) != null) return ""
+        return candidate.thumbnail
     }
 
     suspend fun enrichTracksWithYouTubeData(
@@ -1241,18 +1265,12 @@ class SpotifyPlaylistImporter(
                                 Log.i(TAG, "Matched Spotify track '${track.title}' -> '${topMatch.id}' (${topMatch.title})")
                                 track.copy(
                                     id = topMatch.id,
-                                    thumbnail = topMatch.thumbnail.ifBlank {
-                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${topMatch.id}/hqdefault.jpg" }
-                                    },
+                                    thumbnail = artworkForPlaybackMatch(track, topMatch),
                                     duration = if (track.duration > 0) track.duration else topMatch.duration
                                 )
                             } else {
                                 Log.w(TAG, "No confident match for Spotify track '${track.title}' by '${track.artist}' (${track.duration}s). Preserving Spotify identity.")
-                                if (track.thumbnail.contains("mosaic.scdn.co") || track.thumbnail.contains("image-cdn")) {
-                                    track.copy(thumbnail = "")
-                                } else {
-                                    track
-                                }
+                                track
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error enriching Spotify track '${track.title}': ${e.message}")

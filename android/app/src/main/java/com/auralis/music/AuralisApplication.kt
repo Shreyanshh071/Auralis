@@ -16,6 +16,12 @@ import kotlinx.coroutines.launch
 class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        com.auralis.music.data.sync.LocalDataOwner.init(this)
+        com.auralis.music.data.sync.RoomCleanupCoordinator.init(this)
+        // Initialize the playback/download session and final cipher implementation.
+        com.auralis.music.data.network.YouTubeSession.init(this)
+        if (timber.log.Timber.treeCount == 0) timber.log.Timber.plant(timber.log.Timber.DebugTree())
+        com.zemer.cipher.ZemerCipher.initialize(this)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
                 com.auralis.music.data.network.AudioStreamResolver.init(this@AuralisApplication)

@@ -56,8 +56,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1404,49 +1402,12 @@ fun NowPlayingModal(
                                             )
                                         ) { isDragging ->
                                             var isHandleHeld by remember { mutableStateOf(false) }
-                                            var isRowHeld by remember { mutableStateOf(false) }
                                             // Same row as the Classic queue: no card, no drag highlight; the current
                                             // song is marked by a play/pause badge on its artwork and a bold title.
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clip(queueItemShape)
-                                                    .pointerInput(item.instanceId) {
-                                                        awaitEachGesture {
-                                                            awaitFirstDown(requireUnconsumed = false)
-                                                            var longPressed = false
-                                                            try {
-                                                                withTimeout(350L) {
-                                                                    waitForUpOrCancellation()
-                                                                }
-                                                            } catch (_: TimeoutCancellationException) {
-                                                                longPressed = true
-                                                                isRowHeld = true
-                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                            }
-                                                            if (longPressed) {
-                                                                waitForUpOrCancellation()
-                                                                isRowHeld = false
-                                                            }
-                                                        }
-                                                    }
-                                                    .longPressDraggableHandle(
-                                                        enabled = true,
-                                                        onDragStarted = {
-                                                            isRowHeld = true
-                                                            startDragIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                                                        },
-                                                        onDragStopped = {
-                                                            isRowHeld = false
-                                                            lastDragEndTime = System.currentTimeMillis()
-                                                            val finalIdx = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                                                            val startIdx = startDragIndex
-                                                            if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
-                                                                onReorderQueue?.invoke(startIdx, finalIdx)
-                                                            }
-                                                            startDragIndex = -1
-                                                        }
-                                                    )
                                                     .clickable(
                                                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                                         indication = null,

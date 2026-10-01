@@ -109,6 +109,12 @@ android {
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/LICENSE-notice.md"
         }
+        // Compress native libraries in the APK (Android unpacks them at install). The Discord Social
+        // SDK is ~33 MB across the four ABIs and was stored uncompressed, making the APK ~45 MB;
+        // compressed it's ~25 MB. Costs a slightly slower install and ~9 MB more once installed.
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
@@ -194,6 +200,11 @@ dependencies {
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5") {
         exclude(group = "com.google.protobuf")
     }
+
+    // YouTube signature/n deciphering and PO tokens for signed-in (age-restricted) downloads.
+    // Vendored module, see zemer-cipher/NOTICE.md. It logs through Timber.
+    implementation(project(":zemer-cipher"))
+    implementation("com.jakewharton.timber:timber:5.0.1")
 
     // High-performance live backdrop blur (Frosted Glass like Photo 2)
     implementation("dev.chrisbanes.haze:haze:1.3.1")

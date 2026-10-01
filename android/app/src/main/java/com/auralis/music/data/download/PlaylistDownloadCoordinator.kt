@@ -2,11 +2,8 @@ package com.auralis.music.data.download
 
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
-import android.app.Activity
-import android.Manifest
 import android.content.ComponentName
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PersistableBundle
 import androidx.work.*
@@ -17,7 +14,6 @@ import kotlinx.serialization.json.Json
 import java.util.concurrent.TimeUnit
 
 object PlaylistDownloadCoordinator {
-    const val LEGACY_STORAGE_PERMISSION_REQUEST = 104
     const val BACKEND_UIDT = "UIDT"
     const val BACKEND_WORK_MANAGER = "WORK_MANAGER"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -26,11 +22,6 @@ object PlaylistDownloadCoordinator {
     val jobs: StateFlow<Map<String, PlaylistDownloadJobEntity>> = _jobs.asStateFlow()
     @Volatile private var appContext: Context? = null
     private var observer: Job? = null
-    @Volatile private var pendingLegacyEnqueue: PendingEnqueue? = null
-    @Volatile private var pendingLegacyRetry: String? = null
-
-    private data class PendingEnqueue(val playlistId: String, val playlistName: String, val tracks: List<Track>)
-
     @Synchronized fun init(context: Context) {
         if (appContext != null) return
         appContext = context.applicationContext
@@ -47,11 +38,6 @@ object PlaylistDownloadCoordinator {
 
     fun enqueue(context: Context, playlistId: String, playlistName: String, tracks: List<Track>) {
         init(context)
-        if (!hasLegacyStoragePermission(context)) {
-            pendingLegacyEnqueue = PendingEnqueue(playlistId, playlistName, tracks)
-            requestLegacyStoragePermission(context)
-            return
-        }
         enqueuePersisted(context, playlistId, playlistName, tracks)
     }
 
@@ -78,11 +64,6 @@ object PlaylistDownloadCoordinator {
 
     fun retry(context: Context, jobId: String) {
         init(context)
-        if (!hasLegacyStoragePermission(context)) {
-            pendingLegacyRetry = jobId
-            requestLegacyStoragePermission(context)
-            return
-        }
         scope.launch {
             val repository = PlaylistDownloadRepository(context)
             val old = repository.get(jobId) ?: return@launch
@@ -90,34 +71,6 @@ object PlaylistDownloadCoordinator {
                 backendForApi(Build.VERSION.SDK_INT))
             scheduleOrPersistFailure(context.applicationContext, repository, job)
         }
-    }
-
-    fun onLegacyStoragePermissionResult(activity: Activity, granted: Boolean) {
-        val enqueue = pendingLegacyEnqueue.also { pendingLegacyEnqueue = null }
-        val retryJobId = pendingLegacyRetry.also { pendingLegacyRetry = null }
-        if (!granted) {
-            android.widget.Toast.makeText(activity, "Storage permission is required to save playlists to Downloads", android.widget.Toast.LENGTH_LONG).show()
-            return
-        }
-        if (enqueue != null) enqueuePersisted(activity, enqueue.playlistId, enqueue.playlistName, enqueue.tracks)
-        if (retryJobId != null) retry(activity, retryJobId)
-    }
-
-    private fun hasLegacyStoragePermission(context: Context): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
-            androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-
-    private fun requestLegacyStoragePermission(context: Context) {
-        val activity = context as? Activity
-        if (activity == null) {
-            android.widget.Toast.makeText(context, "Open Auralis to allow saving playlists to Downloads", android.widget.Toast.LENGTH_LONG).show()
-            return
-        }
-        androidx.core.app.ActivityCompat.requestPermissions(
-            activity,
-            arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-            LEGACY_STORAGE_PERMISSION_REQUEST
-        )
     }
 
     fun cancel(context: Context, jobId: String) {

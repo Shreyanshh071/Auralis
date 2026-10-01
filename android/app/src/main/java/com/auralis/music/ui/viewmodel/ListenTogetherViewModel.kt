@@ -1151,15 +1151,20 @@ class ListenTogetherViewModel(
         )
     }
 
-    fun leaveRoom() {
+    fun leaveRoom(leaveRemotely: Boolean = true) {
         val roomCode = _uiState.value.activeRoom?.code ?: return
         val isHost = _uiState.value.isHost
         roomJanitorJob?.cancel()
         hostClosedSession = null
-        viewModelScope.launch {
+        if (leaveRemotely) viewModelScope.launch {
             try {
-                manager.leaveRoom(roomCode, isHost)
-            } catch (_: Exception) {}
+                if (!manager.leaveRoom(roomCode, isHost)) {
+                    _uiState.update { it.copy(errorMessage = "Left the room. Cloud cleanup is pending and will retry when connected.") }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) {
+                _uiState.update { it.copy(errorMessage = "Room cleanup could not be confirmed. Reopen Auralis to retry.") }
+            }
         }
         roomJob?.cancel()
         membersJob?.cancel()

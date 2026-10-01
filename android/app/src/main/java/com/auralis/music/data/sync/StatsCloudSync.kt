@@ -47,12 +47,16 @@ object StatsCloudSync {
     private val dayFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC)
     private val mutex = Mutex()
 
+    /** Set while an account is being deleted, so no upload re-creates the stats being removed. */
+    @Volatile var paused: Boolean = false
+
     private lateinit var appContext: Context
     private lateinit var statsRepository: StatsRepository
     private val prefs: SharedPreferences
         get() = appContext.getSharedPreferences("auralis_stats_cloud", Context.MODE_PRIVATE)
 
     fun init(context: Context, repository: StatsRepository) {
+        CloudAccountWrites.init(context)
         appContext = context.applicationContext
         statsRepository = repository
     }
@@ -84,6 +88,8 @@ object StatsCloudSync {
     suspend fun restoreIfNeeded() = withContext(Dispatchers.IO) {
         if (!::appContext.isInitialized) return@withContext
         val uid = signedInUid() ?: return@withContext
+        // Another account's listens are on this phone until the switch clears them.
+        if (!LocalDataOwner.belongsTo(uid)) return@withContext
         if (prefs.getBoolean("restored_$uid", false)) return@withContext
         mutex.withLock {
             try {
@@ -121,9 +127,18 @@ object StatsCloudSync {
     }
 
     /** Sends listens recorded since the last upload (plus any that were still growing). */
-    suspend fun upload() = withContext(Dispatchers.IO) {
-        if (!::appContext.isInitialized) return@withContext
+    suspend fun upload() {
+        if (!::appContext.isInitialized || paused) return
+        val uid = signedInUid() ?: return
+        CloudAccountWrites.barrier.write(uid) { uploadUnlocked(uid) }
+    }
+
+    private suspend fun uploadUnlocked(expectedUid: String) = withContext(Dispatchers.IO) {
+        if (!::appContext.isInitialized || paused) return@withContext
         val uid = signedInUid() ?: return@withContext
+        if (uid != expectedUid) return@withContext
+        // Never send one account's listening history to another account.
+        if (!LocalDataOwner.belongsTo(uid)) return@withContext
         mutex.withLock {
             try {
                 // Never upload the old 10s pieces or estimated listens; fix them locally first.
@@ -168,6 +183,22 @@ object StatsCloudSync {
             } catch (e: Exception) {
                 Log.w(TAG, "Upload failed, will retry: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Account switch: removes the previous account's listening data from this phone only (it's
+     * in that account's cloud backup), and lets [newUid]'s own history restore here again.
+     */
+    suspend fun clearLocalForAccountSwitch(newUid: String) = withContext(Dispatchers.IO) {
+        if (!::appContext.isInitialized) return@withContext
+        mutex.withLock {
+            val db = AuralisDatabase.getInstance(appContext)
+            db.historyDao().clearHistory()
+            db.playCountDao().clearPlayCounts()
+            db.playbackEventDao().clearAllEvents()
+            db.searchHistoryDao().clearSearchHistory()
+            prefs.edit().remove("restored_$newUid").remove("watermark_$newUid").apply()
         }
     }
 

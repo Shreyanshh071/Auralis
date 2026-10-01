@@ -40,9 +40,9 @@ class LyricsClient(
     private val jioSaavnSource: JioSaavnLyricsSource = JioSaavnLyricsSource(),
     private val netEaseSource: NetEaseLyricsSource = NetEaseLyricsSource(),
     private val kuGouSource: KuGouLyricsSource = KuGouLyricsSource(),
-    // Not raced: since 2026-09 Musixmatch hands anonymous clients an all-zero token and serves the
-    // same decoy tracks ("Casual" by Doja Cat, cat music) for every search. Kept for callers/tests.
-    @Suppress("unused") private val musixmatchSource: MusixmatchLyricsSource = MusixmatchLyricsSource(),
+    // Word sync for many Indian songs Apple Music only syncs by line (see MusixmatchLyricsSource
+    // for why it uses the Android app id).
+    private val musixmatchSource: MusixmatchLyricsSource = MusixmatchLyricsSource(),
     private val geniusSource: GeniusLyricsSource = GeniusLyricsSource(),
     private val ytMusicSource: YouTubeInnerTubeLyricsSource = YouTubeInnerTubeLyricsSource(),
     private val youLyPlusSource: YouLyPlusLyricsSource = YouLyPlusLyricsSource(),
@@ -249,9 +249,7 @@ class LyricsClient(
             maxGapMs: Long = 0L,
             bestMaxGapMs: Long = 0L,
             hasSpeakers: Boolean = false,
-            bestHasSpeakers: Boolean = false,
-            needsMachineScript: Boolean = false,
-            bestNeedsMachineScript: Boolean = false
+            bestHasSpeakers: Boolean = false
         ): Boolean {
             val isAligned = masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             val bestIsAligned = bestMasterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
@@ -265,12 +263,6 @@ class LyricsClient(
                 (maxGapMs - bestMaxGapMs) >= 18_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
                 tier > bestTier -> true
                 tier < bestTier -> false
-                // Same timing tier: lyrics written in Latin letters (or carrying Apple's own
-                // transliteration) beat Indic-script lyrics that need machine transliteration.
-                // Both display in Latin letters (HinglishScript); timing still ranks first, since
-                // a Hinglish copy synced to another cut is worse than a machine-romanized exact one.
-                !needsMachineScript && bestNeedsMachineScript -> true
-                needsMachineScript && !bestNeedsMachineScript -> false
                 tier == TIER_WORD -> {
                     // Exact-video-match genuine word sync takes precedence over metadata-only word sync
                     if (isExactVideoMatch && !bestIsExactVideoMatch) true
@@ -388,6 +380,17 @@ class LyricsClient(
 
             val missingLinesToInsert = mutableListOf<LyricLine>()
 
+            // Repeated phrases are separate sung occurrences. Only suppress a
+            // duplicate on the same clock, not a chorus heard earlier in the song.
+            fun isEquivalentAtSameTime(line: LyricLine): Boolean {
+                val norm = normalized(line.text)
+                if (norm.isBlank()) return true
+                return (primary.lines.asSequence() + missingLinesToInsert.asSequence()).any {
+                    kotlin.math.abs(it.time - line.time) <= GAP_FILL_MAX_CLOCK_DRIFT_MS &&
+                        sameLineText(normalized(it.text), norm)
+                }
+            }
+
             // 1. Check intro void: only inspect genuine long voids (>= 20s), not standard instrumental intros.
             // Never inject if equivalent text already exists in primary lyrics.
             val primaryFirstTime = primary.lines.firstOrNull { !it.isInstrumental }?.time ?: 0L
@@ -418,7 +421,7 @@ class LyricsClient(
                             it.time in (gapStart + 1200L)..(gapEnd - 1200L) &&
                                 it.text.isNotBlank() &&
                                 !it.isInstrumental &&
-                                !isEquivalentToExisting(it.text)
+                                !isEquivalentAtSameTime(it)
                         }
                         if (fillingLines.isNotEmpty()) {
                             missingLinesToInsert.addAll(fillingLines)
@@ -436,7 +439,7 @@ class LyricsClient(
                         it.time >= (primaryLastTime + 2_000L) &&
                             it.text.isNotBlank() &&
                             !it.isInstrumental &&
-                            !isEquivalentToExisting(it.text)
+                            !isEquivalentAtSameTime(it)
                     }
                     if (outroLines.isNotEmpty()) {
                         missingLinesToInsert.addAll(outroLines)
@@ -646,6 +649,7 @@ class LyricsClient(
             paxsenixSource,
             youLyPlusSource,
             simpMusicSource,
+            musixmatchSource,
             lrcLibSource,
             kuGouSource,
             netEaseSource,
@@ -698,7 +702,6 @@ class LyricsClient(
             var bestTier = TIER_NONE
             var bestScore = 0.0
             var bestMasterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
-            var bestNeedsMachineScript = false
             var completedCount = 0
             var graceDeadlineMs = Long.MAX_VALUE
 
@@ -716,7 +719,8 @@ class LyricsClient(
                 val netEaseActive = providerJobMap[LyricsProvider.NETEASE]?.isActive == true
                 val youLyPlusActive = providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true
                 val simpMusicActive = providerJobMap[LyricsProvider.SIMPMUSIC]?.isActive == true
-                val anyWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || simpMusicActive
+                val musixmatchActive = providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
+                val anyWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || simpMusicActive || musixmatchActive
 
                 val candidate = if (bestCandidate != null) {
                     if (bestTier == TIER_WORD) {
@@ -761,7 +765,6 @@ class LyricsClient(
                 val isCandSynced = (candidate.syncType != SyncType.PLAIN || candidate.lyricsData.syncType != SyncType.PLAIN || candidate.lyricsData.lines.any { it.time > 0L })
                 // Clean first (credits, symbol-only marker lines, source headers, CJK annotations),
                 // then count: a result that was only credits must not survive as empty lyrics.
-                val needsMachineScript = com.auralis.music.data.parser.HinglishScript.isMostlyIndic(candidate.lyricsData)
                 val cleanedData = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(candidate.lyricsData, coreTitle)
                 // Fewer than 3 sung lines isn't a song's lyrics: seen live, NetEase answered
                 // "Jadoo Ki Jhappi" with a single line (a credit) and won because nothing else had.
@@ -847,11 +850,8 @@ class LyricsClient(
                             maxGapMs = candMaxGap,
                             bestMaxGapMs = bestCandMaxGap,
                             hasSpeakers = candHasSpeakers,
-                            bestHasSpeakers = bestHasSpeakers,
-                            needsMachineScript = needsMachineScript,
-                            bestNeedsMachineScript = bestNeedsMachineScript
+                            bestHasSpeakers = bestHasSpeakers
                         )) {
-                        bestNeedsMachineScript = needsMachineScript
                         bestTier = tier
                         bestScore = score
                         bestMasterMatch = masterMatch

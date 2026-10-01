@@ -324,16 +324,6 @@ class MainActivity : ComponentActivity() {
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == com.auralis.music.data.download.PlaylistDownloadCoordinator.LEGACY_STORAGE_PERMISSION_REQUEST) {
-            com.auralis.music.data.download.PlaylistDownloadCoordinator.onLegacyStoragePermissionResult(
-                this,
-                grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
-            )
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         android.util.Log.d("AuralisPlayback", "[MainActivity] onResume")

@@ -15,16 +15,18 @@ import org.junit.Test
 
 class FavoritePreservationTest {
 
-    private class FakeTrackDao : TrackDao {
+    private class FakeTrackDao : TrackDao() {
         val storage = mutableMapOf<String, TrackEntity>()
 
-        override suspend fun upsertTrack(track: TrackEntity) {
+        override suspend fun writeTrack(track: TrackEntity) {
             storage[track.id] = track
         }
 
-        override suspend fun upsertTracks(tracks: List<TrackEntity>) {
-            for (t in tracks) storage[t.id] = t
-        }
+        override suspend fun writeTracks(tracks: List<TrackEntity>) { tracks.forEach { writeTrack(it) } }
+        override suspend fun getArtworkSelections(ids: List<String>): List<com.auralis.music.data.local.entity.ArtworkSelectionEntity> = emptyList()
+        override suspend fun writeArtworkSelection(selection: com.auralis.music.data.local.entity.ArtworkSelectionEntity) {}
+        override suspend fun getArtworkSelection(trackId: String): com.auralis.music.data.local.entity.ArtworkSelectionEntity? = null
+        override fun observeArtworkSelection(trackId: String): Flow<com.auralis.music.data.local.entity.ArtworkSelectionEntity?> = flowOf(null)
 
         override suspend fun getTrackById(id: String): TrackEntity? = storage[id]
 
