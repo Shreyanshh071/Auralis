@@ -153,24 +153,7 @@ class SearchRepositoryImpl(
                         )
                     }
 
-                    // Only match by title if the artist ALSO matches!
-                    val matchByTitleAndArtist = officialSongs
-                        .filter { cand ->
-                            !cand.thumbnail.isNullOrBlank() &&
-                            !cand.thumbnail.contains("i.ytimg.com/vi/") &&
-                            cand.title.equals(t.title, ignoreCase = true) &&
-                            SearchQueryMatcher.isAuthorMatch(cand.artist, t.artist)
-                        }
-                        .maxByOrNull { SearchQueryMatcher.parsePlayCount(it.views) }
-
-                    if (matchByTitleAndArtist != null && !matchByTitleAndArtist.thumbnail.isNullOrBlank()) {
-                        val bestViews = listOfNotNull(t.views, matchByTitleAndArtist.views).maxByOrNull { SearchQueryMatcher.parsePlayCount(it) } ?: t.views
-                        return t.copy(
-                            thumbnail = matchByTitleAndArtist.thumbnail,
-                            album = if (t.album.isNullOrBlank()) matchByTitleAndArtist.album else t.album,
-                            views = bestViews
-                        )
-                    }
+                    // Matching title and artist alone does not establish the same recording or release.
                 }
                 return t
             }
@@ -731,11 +714,9 @@ class SearchRepositoryImpl(
                     !trk.title.contains("remake", ignoreCase = true)
                 }.distinctBy { it.id }
                 val results = if (filtered.isNotEmpty()) filtered else searchHits
-                val albumCover = album.thumbnail
                 return@withContext results.map {
                     it.copy(
-                        artist = if (it.artist.isBlank() || it.artist == "Artist") artistName else it.artist,
-                        thumbnail = if (it.thumbnail.isBlank() && !albumCover.isNullOrBlank()) albumCover else it.thumbnail
+                        artist = if (it.artist.isBlank() || it.artist == "Artist") artistName else it.artist
                     )
                 }
             }
@@ -744,14 +725,14 @@ class SearchRepositoryImpl(
             if (album.id.startsWith("MPRE") || album.id.startsWith("VL") || album.id.startsWith("PL") || album.id.startsWith("OLAK")) {
                 val imported = youtubePlaylistImporter.importPlaylistById(album.id)
                 if (imported != null && imported.tracks.isNotEmpty()) {
-                    val albumCover = imported.coverUrl ?: album.thumbnail
                     val tracksWithAlbumMeta = imported.tracks.map {
                         it.copy(
-                            album = it.album?.ifBlank { album.title } ?: album.title,
+                            album = it.album?.takeIf(String::isNotBlank)
+                                ?: album.title.takeIf { _ -> album.id.startsWith("MPRE") || album.id.startsWith("OLAK") },
                             artist = if (it.artist.isBlank() || it.artist == "Artist" || it.artist == "YouTube Music") {
                                 album.author ?: it.artist
                             } else it.artist,
-                            thumbnail = if (!albumCover.isNullOrBlank()) albumCover else it.thumbnail
+                            thumbnail = it.thumbnail
                         )
                     }
                     return@withContext filterOfficialAlbumTracks(album, tracksWithAlbumMeta)
@@ -776,10 +757,13 @@ class SearchRepositoryImpl(
                 val albumsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_ALBUMS).albums
                 val match = albumsResult.firstOrNull { cand ->
                     val candClean = AlbumMetadataResolver.cleanAlbumTitle(cand.title)
-                    candClean.equals(cleanTitle, ignoreCase = true) ||
+                    val authorMatches = primaryArtist != null && cand.author?.let {
+                        SearchQueryMatcher.isAuthorMatch(it, primaryArtist)
+                    } == true
+                    authorMatches && (candClean.equals(cleanTitle, ignoreCase = true) ||
                     cand.title.equals(album.title, ignoreCase = true) ||
                     (cleanTitle.length > 3 && candClean.contains(cleanTitle, ignoreCase = true)) ||
-                    (candClean.length > 3 && cleanTitle.contains(candClean, ignoreCase = true))
+                    (candClean.length > 3 && cleanTitle.contains(candClean, ignoreCase = true)))
                 }
                 if (match != null) {
                     matchedAlbum = match
@@ -790,14 +774,14 @@ class SearchRepositoryImpl(
             if (matchedAlbum != null && (matchedAlbum.id.startsWith("MPRE") || matchedAlbum.id.startsWith("OLAK") || matchedAlbum.id.startsWith("VL") || matchedAlbum.id.startsWith("PL"))) {
                 val imported = youtubePlaylistImporter.importPlaylistById(matchedAlbum.id)
                 if (imported != null && imported.tracks.isNotEmpty()) {
-                    val albumCover = imported.coverUrl ?: matchedAlbum.thumbnail ?: album.thumbnail
                     val tracksWithAlbumMeta = imported.tracks.map {
                         it.copy(
-                            album = it.album?.ifBlank { album.title } ?: album.title,
+                            album = it.album?.takeIf(String::isNotBlank)
+                                ?: album.title.takeIf { _ -> matchedAlbum.id.startsWith("MPRE") || matchedAlbum.id.startsWith("OLAK") },
                             artist = if (it.artist.isBlank() || it.artist == "Artist" || it.artist == "YouTube Music") {
                                 album.author ?: matchedAlbum.author ?: it.artist
                             } else it.artist,
-                            thumbnail = if (!albumCover.isNullOrBlank()) albumCover else it.thumbnail
+                            thumbnail = it.thumbnail
                         )
                     }
                     return@withContext filterOfficialAlbumTracks(album, tracksWithAlbumMeta)
@@ -820,9 +804,6 @@ class SearchRepositoryImpl(
                     cleanSongAlbum.equals(cleanTitle, ignoreCase = true) ||
                     (cleanTitle.length > 4 && cleanSongAlbum.contains(cleanTitle, ignoreCase = true)) ||
                     (cleanSongAlbum.length > 4 && cleanTitle.contains(cleanSongAlbum, ignoreCase = true))
-                }.map {
-                    val albumCover = album.thumbnail
-                    if (!albumCover.isNullOrBlank() && it.thumbnail.isBlank()) it.copy(thumbnail = albumCover) else it
                 }
                 if (matchingSongs.isNotEmpty()) {
                     return@withContext filterOfficialAlbumTracks(album, matchingSongs.distinctBy { it.id })

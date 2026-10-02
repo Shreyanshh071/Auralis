@@ -184,8 +184,7 @@ object LyricsAlignmentEngine {
 
             // Music video check: if playback is a music video and duration delta exceeds EXACT_MATCH threshold (1.5s),
             // it's a video-edit cut mismatch rather than studio master.
-            // When playbackVideoId is a known studio track or was redirected by AudioStreamResolver to authentic studio audio,
-            // the streamed audio is NOT a music video and should not be falsely rejected by title tokens.
+            // Known music video IDs are redirected to their studio recordings by AudioStreamResolver.
             val isKnownStudioAudio = !playbackVideoId.isNullOrBlank() && (
                 com.auralis.music.data.network.AudioStreamResolver.KNOWN_STUDIO_DURATIONS.containsKey(playbackVideoId) ||
                 com.auralis.music.data.network.AudioStreamResolver.KNOWN_STUDIO_REPLACEMENTS.containsValue(playbackVideoId) ||
@@ -286,15 +285,6 @@ object LyricsAlignmentEngine {
         candidateArtist: String? = null
     ): Boolean {
         if (playbackDurationMs <= 0L) return true
-        val isGenuineExactVideo = lyrics.isExactVideoMatch &&
-            lyrics.provider == com.auralis.music.domain.model.LyricsProvider.UNISON &&
-            !playbackVideoId.isNullOrBlank() &&
-            !playbackVideoId.startsWith("sp_") &&
-            !playbackVideoId.contains("::") &&
-            playbackVideoId.equals(lyrics.matchedVideoId, ignoreCase = true)
-
-        if (isGenuineExactVideo) return true
-
         val masterMatch = evaluateMasterMatch(
             lyrics = lyrics,
             playbackDurationMs = playbackDurationMs,

@@ -833,8 +833,9 @@ object SearchQueryMatcher {
             if (delta > MAX_RECORDING_DELTA_SEC) return "length ${candidate.duration}s vs ${target.duration}s"
         }
 
-        val extraMarkers = versionMarkers(candidate.title) - versionMarkers(target.title)
-        if (extraMarkers.isNotEmpty()) return "version tag ${extraMarkers.joinToString()}"
+        val targetMarkers = versionMarkers(target.title)
+        val candidateMarkers = versionMarkers(candidate.title)
+        if (targetMarkers != candidateMarkers) return "version tag ${candidateMarkers.joinToString()} vs ${targetMarkers.joinToString()}"
 
         // Someone the source never credits, named anywhere on the candidate: "(feat. X)" in its
         // title, its artist list ("Tame Impala & JENNIE"), or its release ("Dracula (with JENNIE)").

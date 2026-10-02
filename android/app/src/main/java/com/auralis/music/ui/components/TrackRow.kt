@@ -57,6 +57,7 @@ fun TrackRow(
         ArtworkCard(
             sizeToConstraints = true,
             url = track.thumbnail,
+            fallbackTrack = track,
             modifier = Modifier.size(52.dp),
             cornerRadius = 8.dp,
             contentDescription = track.title

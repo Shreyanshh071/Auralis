@@ -692,7 +692,6 @@ class YouTubePlaylistImporter(
                     val finalThumbnail = when {
                         !itemThumbUrl.isNullOrBlank() -> itemThumbUrl
                         !videoId.isNullOrBlank() -> "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
-                        !fallbackCover.isNullOrBlank() -> fallbackCover
                         else -> ""
                     }
 

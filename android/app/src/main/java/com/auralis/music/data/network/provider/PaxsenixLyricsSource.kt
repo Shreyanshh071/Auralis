@@ -208,7 +208,7 @@ class PaxsenixLyricsSource(
     ): AppleMusicTrack? {
         if (tracks.isEmpty()) return null
 
-        val cleanQTitle = TitleCleaner.cleanCoreSongTitle(queryTitle).lowercase()
+        val cleanQTitle = TitleCleaner.extractBareSongTitle(queryTitle).lowercase()
         val qVersion = TitleCleaner.extractVersion(queryTitle)
         val isQTimingAltering = LyricsAlignmentEngine.isTimingAlteringVersion(qVersion)
 
@@ -217,7 +217,7 @@ class PaxsenixLyricsSource(
 
         for (t in tracks) {
             var score = 0.0
-            val cleanTTitle = TitleCleaner.cleanCoreSongTitle(t.name).lowercase()
+            val cleanTTitle = TitleCleaner.extractBareSongTitle(t.name).lowercase()
 
             // 1. Title matching
             val titleDice = LyricsMatcher.diceCoefficient(cleanQTitle, cleanTTitle)
@@ -225,9 +225,9 @@ class PaxsenixLyricsSource(
                 score += 40.0
             } else if (titleDice >= 0.8) {
                 score += 30.0
-            } else if (titleDice >= 0.5) {
-                score += 15.0
             } else if (cleanTTitle.contains(cleanQTitle) || cleanQTitle.contains(cleanTTitle)) {
+                score += 15.0
+            } else if (titleDice >= 0.7) {
                 score += 10.0
             } else {
                 continue // Title too dissimilar
@@ -235,8 +235,13 @@ class PaxsenixLyricsSource(
 
             // 2. Artist matching
             val artistMatches = LyricsMatcher.isArtistMatching(queryArtist, t.artistName)
+            val hasKnownQueryArtist = queryArtist.isNotBlank() &&
+                !queryArtist.equals("Unknown Artist", ignoreCase = true) &&
+                !queryArtist.equals("YouTube Music", ignoreCase = true)
             if (artistMatches) {
                 score += 30.0
+            } else if (hasKnownQueryArtist) {
+                continue // Reject candidate with completely mismatched artist
             } else {
                 score -= 20.0
             }

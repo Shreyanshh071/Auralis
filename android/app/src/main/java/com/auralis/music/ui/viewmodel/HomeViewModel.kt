@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.TitleCleaner
+import com.auralis.music.data.network.LibraryArtworkRepair
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.NewUserSeedProvider
 import com.auralis.music.domain.recommendations.TasteProfile
@@ -117,7 +118,8 @@ class HomeViewModel(
     private val context: Context? = null,
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
     private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
-    private val libraryRepository: LibraryRepository? = null
+    private val libraryRepository: LibraryRepository? = null,
+    private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -212,6 +214,52 @@ class HomeViewModel(
                             similarRecommendations = if (it.similarRecommendations.isEmpty()) cachedRecs else it.similarRecommendations,
                             dailyDiscover = if (it.dailyDiscover.isEmpty()) cachedDiscover else it.dailyDiscover
                         )
+                    }
+                }
+            }
+        }
+
+        // Scan saved metadata once. Only missing or suspicious rows receive a verified lookup.
+        if (context != null && libraryRepository != null) {
+            viewModelScope.launch(ioDispatcher) {
+                val prefs = context.getSharedPreferences("auralis_verified_artwork_repair", Context.MODE_PRIVATE)
+                if (prefs.getInt("version", 0) < 11 &&
+                    System.currentTimeMillis() - prefs.getLong("last_attempt_v11", 0L) > 24L * 60 * 60 * 1000) {
+                    try {
+                        val corrected = mutableMapOf<String, Track>()
+                        val outcome = LibraryArtworkRepair(libraryRepository).runDetailed { track ->
+                            corrected[track.id] = track
+                            withContext(Dispatchers.Main) {
+                                audioPlayer?.applyVerifiedTrackMetadata(track)
+                            }
+                            try {
+                                com.auralis.music.data.download.AuralisDownloadManager
+                                    .applyVerifiedTrackMetadata(track, context)
+                            } catch (e: Exception) {
+                                android.util.Log.w("HomeViewModel", "Offline artwork update deferred: ${e.message}")
+                            }
+                        }
+                        if (corrected.isNotEmpty()) {
+                            com.auralis.music.data.network.ArtworkResolver.clearCache()
+                            fun updated(item: SpeedDialItem): SpeedDialItem {
+                                val track = item.track?.id?.let { corrected[it] } ?: return item
+                                return item.copy(image = track.thumbnail,
+                                    track = item.track.copy(album = track.album, thumbnail = track.thumbnail))
+                            }
+                            inMemoryPinnedItems = inMemoryPinnedItems.map(::updated)
+                            HomeRecommendationsCache.savePinnedSpeedDialItems(context, inMemoryPinnedItems)
+                            _uiState.update { state ->
+                                state.copy(speedDialPages = state.speedDialPages.map { page -> page.map(::updated) })
+                            }
+                            HomeRecommendationsCache.saveSpeedDial(context, _uiState.value.speedDialPages)
+                        }
+                        prefs.edit().putLong("last_attempt_v11", System.currentTimeMillis())
+                            .apply {
+                                if (outcome.unresolved == 0) putInt("version", 11)
+                            }.apply()
+                        android.util.Log.i("HomeViewModel", "Verified ${corrected.size} library artwork corrections; ${outcome.unresolved} unresolved")
+                    } catch (e: Exception) {
+                        android.util.Log.w("HomeViewModel", "Artwork repair will retry: ${e.message}")
                     }
                 }
             }

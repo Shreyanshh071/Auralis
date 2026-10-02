@@ -2886,7 +2886,7 @@ private fun openAlbumFor(
     albumArt: String?,
     onAlbumClick: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)?
 ) {
-    val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+            val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
     onAlbumClick?.invoke(
         com.auralis.music.domain.model.PlaylistResult(
             id = albumId?.takeIf { it.isNotBlank() } ?: cached?.albumId?.takeIf { it.isNotBlank() } ?: "album-${track.id}",

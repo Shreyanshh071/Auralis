@@ -40,11 +40,13 @@ class LibraryRepositoryImpl(
     override suspend fun toggleFavorite(track: Track) {
         val existing = trackDao.getTrackById(track.id)
         val nextFav = !(existing?.isFavorite ?: false)
-        trackDao.upsertTrack(track.toEntity(isFavorite = nextFav, favoriteAddedAt = if (nextFav) System.currentTimeMillis() else null))
+        if (existing == null) trackDao.upsertTrack(track.toEntity())
+        trackDao.setFavorite(track.id, nextFav, if (nextFav) System.currentTimeMillis() else null)
     }
 
     override suspend fun setFavorite(track: Track, isFavorite: Boolean) {
-        trackDao.upsertTrack(track.toEntity(isFavorite = isFavorite, favoriteAddedAt = if (isFavorite) System.currentTimeMillis() else null))
+        if (trackDao.getTrackById(track.id) == null) trackDao.upsertTrack(track.toEntity())
+        trackDao.setFavorite(track.id, isFavorite, if (isFavorite) System.currentTimeMillis() else null)
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -128,11 +130,15 @@ class LibraryRepositoryImpl(
         playlistDao.updatePlaylist(playlistId, title, description, coverUrl)
     }
 
-    override suspend fun addTrackToPlaylist(playlistId: String, track: Track) {
-        trackDao.upsertTrackPreservingFavorite(track.toEntity())
+    override suspend fun addTrackToPlaylist(playlistId: String, track: Track): Boolean {
         val orderedTracks = playlistDao.getOrderedTracksForPlaylist(playlistId)
+        if (orderedTracks.any { it.id == track.id }) {
+            return false
+        }
+        trackDao.upsertTrackPreservingFavorite(track.toEntity())
         val nextPos = orderedTracks.size
         playlistDao.insertCrossRef(PlaylistTrackCrossRef(playlistId, track.id, nextPos))
+        return true
     }
 
     override suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
@@ -158,6 +164,17 @@ class LibraryRepositoryImpl(
         }
         playlistDao.replacePlaylistCrossRefs(playlistId, refs)
     }
+
+    override suspend fun updateTrackThumbnail(trackId: String, thumbnail: String) {
+        trackDao.updateThumbnail(trackId, thumbnail)
+    }
+
+    override suspend fun updateVerifiedTrackRelease(trackId: String, expectedAlbum: String?,
+        expectedThumbnail: String, album: String?, thumbnail: String): Boolean =
+        trackDao.updateVerifiedRelease(trackId, expectedAlbum, expectedThumbnail, album, thumbnail) > 0
+
+    override suspend fun getAllTracks(): List<Track> =
+        trackDao.getAllTracks().map { it.toDomain() }
 
     override fun getSavedArtists(): Flow<List<SavedArtist>> {
         return libraryDao.getSavedArtistsFlow().map { list -> list.map { it.toDomain() } }

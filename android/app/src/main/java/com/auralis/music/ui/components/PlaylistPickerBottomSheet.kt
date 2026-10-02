@@ -211,8 +211,12 @@ fun PlaylistPickerBottomSheet(
                                     else Color(0xFF262021)
                                 )
                                 .clickable {
-                                    recentlyAddedId = playlist.id
-                                    onAddToPlaylist(playlist)
+                                    if (alreadyInPlaylist) {
+                                        com.auralis.music.ui.components.AppPillManager.showPill("Already in ${playlist.title}")
+                                    } else {
+                                        recentlyAddedId = playlist.id
+                                        onAddToPlaylist(playlist)
+                                    }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically

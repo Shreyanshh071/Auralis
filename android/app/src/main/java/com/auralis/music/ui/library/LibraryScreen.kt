@@ -433,7 +433,7 @@ fun LibraryScreen(
                             selectedTrackForMenu = null
                         },
                         onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
-                            val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+            val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
                             onOpenAlbum?.invoke(
                                 com.auralis.music.domain.model.PlaylistResult(
                                     id = albumId ?: cached?.albumId ?: "album-${track.id}",
@@ -926,8 +926,9 @@ internal fun getDistinctArtworkTracks(tracks: List<Track>): List<Track> {
         val thumbKey = if (cleanThumb.isNotBlank()) "thumb:$cleanThumb" else null
         val idKey = "track:${track.id}"
 
-        val hasMatch = (albumKey != null && albumKey in seenArtworkKeys) ||
-                (thumbKey != null && thumbKey in seenArtworkKeys)
+        // A shared album label does not make two different track covers identical.
+        val hasMatch = if (thumbKey != null) thumbKey in seenArtworkKeys
+            else albumKey != null && albumKey in seenArtworkKeys
 
         if (!hasMatch) {
             albumKey?.let { seenArtworkKeys.add(it) }
@@ -937,6 +938,15 @@ internal fun getDistinctArtworkTracks(tracks: List<Track>): List<Track> {
         }
     }
     return result
+}
+
+private fun usesTrackCollage(playlist: Playlist, distinctCoverCount: Int): Boolean {
+    if (distinctCoverCount < 4) return false
+    val cover = playlist.coverUrl.orEmpty()
+    if (cover.isBlank()) return true
+    // The editor stores chosen photos as data/content/file URIs. Network covers come from
+    // imports or automatic artwork and should not hide a mixed playlist's four song covers.
+    return !cover.startsWith("data:") && !cover.startsWith("content:") && !cover.startsWith("file:")
 }
 
 /**
@@ -971,6 +981,12 @@ internal fun isAlbumPlaylist(
         if (savedAlbums.any { it.id == id || it.title.equals(cleanTitle, ignoreCase = true) }) {
             return true
         }
+    }
+
+    // Imported collections can carry the playlist title as every track's album metadata.
+    // Distinct track artwork is stronger evidence that this is a playlist, not an album.
+    if (id.startsWith("imported:") && getDistinctArtworkTracks(playlist.tracks).size >= 4) {
+        return false
     }
 
     // 4. Track album metadata consistency
@@ -1032,7 +1048,7 @@ internal fun resolveAlbumArtworkUrl(
     // 4. Cached album artwork in AlbumMetadataResolver across tracks ONLY IF the cached album title matches the playlist title!
     val cleanPlaylistTitle = playlist.title.trim()
     for (track in playlist.tracks) {
-        val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
         if (!cached?.albumArt.isNullOrBlank() &&
             !cached?.albumTitle.isNullOrBlank() &&
             (cached.albumTitle.equals(cleanPlaylistTitle, ignoreCase = true) ||
@@ -1250,7 +1266,7 @@ private fun UserPlaylistGridCard(
                 )
             } else {
                 // Playlist/collection artwork behavior remains unchanged
-                if (!playlist.coverUrl.isNullOrBlank()) {
+                if (!playlist.coverUrl.isNullOrBlank() && !usesTrackCollage(playlist, distinctTracks.size)) {
                     ArtworkCard(
                         url = playlist.coverUrl,
                         fallbackTrack = validTracks.firstOrNull(),
@@ -2029,7 +2045,7 @@ private fun PlaylistDetailView(
                                     cornerRadius = 18.dp,
                                     contentDescription = playlist.title
                                 )
-                            } else if (!playlist.coverUrl.isNullOrBlank()) {
+                            } else if (!playlist.coverUrl.isNullOrBlank() && !usesTrackCollage(playlist, detailDistinctTracks.size)) {
                                 ArtworkCard(
                                     url = playlist.coverUrl,
                                     fallbackTrack = detailValidTracks.firstOrNull(),

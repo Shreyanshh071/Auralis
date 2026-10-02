@@ -130,6 +130,38 @@ open class InnerTubeClient(
      */
     open suspend fun getAlbumTotalPlays(browseId: String): Long = getAlbumPlays(browseId).first
 
+    /** Resolve an album by the browse ID attached to a song, without a fuzzy title search. */
+    open suspend fun getAlbumById(browseId: String): PlaylistResult? = withContext(Dispatchers.IO) {
+        if (!browseId.startsWith("MPRE")) return@withContext null
+        try {
+            val request = Request.Builder()
+                .url("$YT_MUSIC_API/browse?prettyPrint=false")
+                .post(createBrowseContext(browseId).toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+            val body = client.newCall(request).execute().use {
+                if (it.isSuccessful) it.body?.string() else null
+            } ?: return@withContext null
+            val json = JSONObject(body)
+            val header = json.optJSONObject("header")
+            val renderer = header?.optJSONObject("musicDetailHeaderRenderer")
+                ?: header?.optJSONObject("musicResponsiveHeaderRenderer")
+                ?: header?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                    ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")
+                ?: json.optJSONObject("contents")?.optJSONObject("twoColumnBrowseResultsRenderer")
+                    ?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")
+                    ?.optJSONObject("content")?.optJSONObject("sectionListRenderer")
+                    ?.optJSONArray("contents")?.optJSONObject(0)
+                    ?.optJSONObject("musicResponsiveHeaderRenderer")
+            val title = renderer?.optJSONObject("title")?.optJSONArray("runs")
+                ?.optJSONObject(0)?.optString("text").orEmpty()
+            val art = YouTubePlaylistImporter.extractPlaylistThumbnail(json)
+            if (title.isBlank() || art.isNullOrBlank()) return@withContext null
+            PlaylistResult(id = browseId, title = title, thumbnail = art)
+        } catch (_: Exception) { null }
+    }
+
     /** (total plays, number of tracks with a play count) from the album's page; (0, 0) if unreadable. */
     open suspend fun getAlbumPlays(browseId: String): Pair<Long, Int> = withContext(Dispatchers.IO) {
         if (!browseId.startsWith("MPRE")) return@withContext 0L to 0

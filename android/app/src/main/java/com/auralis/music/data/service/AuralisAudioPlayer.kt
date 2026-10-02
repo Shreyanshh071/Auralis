@@ -730,6 +730,18 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
+    fun applyVerifiedTrackMetadata(track: Track) {
+        if (isGuestListenTogether.value) return
+        if (queueManager.applyVerifiedMetadata(track)) {
+            _queueState.value = queueManager.state
+            persistQueue()
+        }
+        val active = _currentTrack.value
+        if (active?.id == track.id) {
+            _currentTrack.value = active.copy(album = track.album, thumbnail = track.thumbnail)
+        }
+    }
+
     fun play(
         track: Track,
         initialSeekMs: Long = 0L,
@@ -1844,12 +1856,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         scope.launch(Dispatchers.IO) {
             val existing = trackDao.getTrackById(track.id)
             val nextFav = !(existing?.isFavorite ?: false)
-            trackDao.upsertTrack(
-                track.toEntity(
-                    isFavorite = nextFav,
-                    favoriteAddedAt = if (nextFav) System.currentTimeMillis() else null
-                )
-            )
+            if (existing == null) trackDao.upsertTrack(track.toEntity())
+            trackDao.setFavorite(track.id, nextFav, if (nextFav) System.currentTimeMillis() else null)
             withContext(Dispatchers.Main) {
                 if (track.id == _currentTrack.value?.id) {
                     _isFavorite.value = nextFav

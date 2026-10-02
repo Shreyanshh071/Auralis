@@ -280,6 +280,7 @@ class LibraryViewModel(
                         } catch (_: Exception) {}
                     }
                 }
+
                 val hasCorruptedTitles = pl.tracks.any {
                     it.title.startsWith("From \"", ignoreCase = true) ||
                     it.title.startsWith("From '", ignoreCase = true)
@@ -296,6 +297,7 @@ class LibraryViewModel(
                     libraryRepository.replacePlaylistTracks(pl.id, enriched)
                 }
             }
+
         } catch (e: Exception) {
             android.util.Log.w("LibraryViewModel", "Enrich existing playlists notice: ${e.message}")
         }
@@ -589,14 +591,54 @@ class LibraryViewModel(
 
     fun addTrackToPlaylist(playlistId: String, track: Track) {
         viewModelScope.launch {
-            libraryRepository.addTrackToPlaylist(playlistId, track)
+            val added = libraryRepository.addTrackToPlaylist(playlistId, track)
+            val playlistTitle = _uiState.value.playlists.firstOrNull { it.id == playlistId }?.title
+            if (added) {
+                _uiState.update { state ->
+                    val updatedPlaylists = state.playlists.map { pl ->
+                        if (pl.id == playlistId && pl.tracks.none { it.id == track.id }) {
+                            pl.copy(tracks = pl.tracks + track)
+                        } else pl
+                    }
+                    val updatedSelected = if (state.selectedPlaylist?.id == playlistId && state.selectedPlaylist.tracks.none { it.id == track.id }) {
+                        state.selectedPlaylist.copy(tracks = state.selectedPlaylist.tracks + track)
+                    } else state.selectedPlaylist
+                    state.copy(playlists = updatedPlaylists, selectedPlaylist = updatedSelected)
+                }
+                val msg = if (!playlistTitle.isNullOrBlank()) "Added to $playlistTitle" else "Added to playlist"
+                com.auralis.music.ui.components.AppPillManager.showPill(msg)
+            } else {
+                val msg = if (!playlistTitle.isNullOrBlank()) "Already in $playlistTitle" else "Already in this playlist"
+                com.auralis.music.ui.components.AppPillManager.showPill(msg)
+            }
         }
     }
 
     fun addTracksToPlaylist(playlistId: String, tracks: List<Track>) {
         viewModelScope.launch {
+            var addedCount = 0
+            val newTracks = mutableListOf<Track>()
             tracks.forEach { track ->
-                libraryRepository.addTrackToPlaylist(playlistId, track)
+                if (libraryRepository.addTrackToPlaylist(playlistId, track)) {
+                    addedCount++
+                    newTracks.add(track)
+                }
+            }
+            if (addedCount > 0) {
+                _uiState.update { state ->
+                    val updatedPlaylists = state.playlists.map { pl ->
+                        if (pl.id == playlistId) {
+                            pl.copy(tracks = pl.tracks + newTracks)
+                        } else pl
+                    }
+                    val updatedSelected = if (state.selectedPlaylist?.id == playlistId) {
+                        state.selectedPlaylist.copy(tracks = state.selectedPlaylist.tracks + newTracks)
+                    } else state.selectedPlaylist
+                    state.copy(playlists = updatedPlaylists, selectedPlaylist = updatedSelected)
+                }
+                com.auralis.music.ui.components.AppPillManager.showPill("Added $addedCount tracks")
+            } else {
+                com.auralis.music.ui.components.AppPillManager.showPill("Tracks already in playlist")
             }
         }
     }
@@ -977,4 +1019,4 @@ class LibraryViewModel(
 }
 
 private const val RECORDING_REVIEW_KEY = "recording_review_version"
-private const val RECORDING_REVIEW_VERSION = 1
+private const val RECORDING_REVIEW_VERSION = 2

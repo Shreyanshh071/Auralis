@@ -487,6 +487,7 @@ fun HomeScreen(
                                         ArtworkCard(
                                             sizeToConstraints = true,
                                             url = track.thumbnail,
+                                            fallbackTrack = track,
                                             modifier = Modifier.size(48.dp),
                                             cornerRadius = 8.dp,
                                             contentDescription = track.title
@@ -584,6 +585,7 @@ fun HomeScreen(
                             ) {
                                 ArtworkCard(
                                     url = track.thumbnail,
+                                    fallbackTrack = track,
                                     modifier = Modifier
                                         .size(115.dp)
                                         .clip(RoundedCornerShape(14.dp)),
@@ -691,6 +693,7 @@ fun HomeScreen(
                                 ) {
                                     ArtworkCard(
                                         url = track.thumbnail,
+                                        fallbackTrack = track,
                                         modifier = Modifier.size(115.dp).clip(RoundedCornerShape(12.dp)),
                                         cornerRadius = 12.dp,
                                         contentDescription = track.title
@@ -765,6 +768,7 @@ fun HomeScreen(
                                         ) {
                                             ArtworkCard(
                                                 url = track.thumbnail,
+                                                fallbackTrack = track,
                                                 modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
                                                 cornerRadius = 12.dp,
                                                 contentDescription = track.title
@@ -861,7 +865,7 @@ fun HomeScreen(
                 onArtistClick(Artist(id = "", name = track.artist))
             },
             onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
-                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
                 onAlbumClick(
                     PlaylistResult(
                         id = albumId ?: cached?.albumId ?: "album-${track.id}",
@@ -1063,7 +1067,8 @@ private fun SpeedDialTile(
     ) {
         if (!item.image.isNullOrBlank()) {
             ArtworkCard(
-                url = item.image,
+                url = item.track?.thumbnail ?: item.image,
+                fallbackTrack = item.track,
                 modifier = Modifier.fillMaxSize(),
                 cornerRadius = 14.dp,
                 contentDescription = item.name

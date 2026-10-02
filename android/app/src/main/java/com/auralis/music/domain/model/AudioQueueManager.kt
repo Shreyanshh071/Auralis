@@ -34,6 +34,23 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
     private val playNextQueue = ArrayDeque<Track>()
     private val addToQueueList = ArrayDeque<Track>()
 
+    /** Replace metadata without changing playback order, index, shuffle, or user queue priority. */
+    fun applyVerifiedMetadata(track: Track): Boolean {
+        if (state.queue.none { it.id == track.id }) return false
+        fun corrected(item: Track): Track = if (item.id == track.id) {
+            item.copy(album = track.album, thumbnail = track.thumbnail)
+        } else item
+        state = state.copy(queue = state.queue.map(::corrected))
+        originalQueue = originalQueue.map(::corrected)
+        val next = playNextQueue.map(::corrected)
+        playNextQueue.clear()
+        playNextQueue.addAll(next)
+        val later = addToQueueList.map(::corrected)
+        addToQueueList.clear()
+        addToQueueList.addAll(later)
+        return true
+    }
+
     private fun syncUserQueuesWithUpcoming() {
         if (state.currentIndex < 0 || state.currentIndex >= state.queue.size - 1) {
             playNextQueue.clear()

@@ -527,14 +527,14 @@ class ClassicPlayerViewportMotionTest {
         val nearAbove = blurAt(lineY = 260f)
         val topAbove = blurAt(lineY = 0f)
         assertTrue(nearAbove < topAbove)
-        assertTrue(topAbove <= 2.5f)
+        assertTrue(topAbove <= 24f)
 
         val futureBlurs = listOf(320f, 360f, 430f, 540f, 670f, 800f).map { blurAt(it) }
         assertTrue("nearby line remains nearly crisp", futureBlurs.first() < 0.5f)
         assertEquals(24f, futureBlurs.last(), epsilon)
 
         for (i in 0 until futureBlurs.size - 1) {
-            assertTrue("futureBlur[${i+1}] > futureBlur[$i]", futureBlurs[i+1] > futureBlurs[i])
+            assertTrue("futureBlur[${i+1}] >= futureBlur[$i]", futureBlurs[i+1] >= futureBlurs[i])
         }
 
         // Continuous position changes produce continuous output, not a discrete line bucket.

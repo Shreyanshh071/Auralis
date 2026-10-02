@@ -718,17 +718,15 @@ class SpotifyPlaylistImporter(
             }
 
             val albumObj = trackData.optJSONObject("albumOfTrack") ?: trackData.optJSONObject("album")
-            val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
+            // A playlist title is not the release name of every song in it.
+            val albumName = albumObj?.optString("name")?.takeIf { it.isNotBlank() }
 
             val coverSources = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
                 ?: albumObj?.optJSONArray("images")
                 ?: trackData.optJSONObject("coverArt")?.optJSONArray("sources")
                 ?: trackData.optJSONArray("images")
                 ?: trackData.optJSONObject("visuals")?.optJSONObject("avatarImage")?.optJSONArray("sources")
-            var trackArtwork = coverSources?.optJSONObject(0)?.optString("url") ?: ""
-            if (trackArtwork.isBlank() && defaultCoverUrl.isNotBlank()) {
-                trackArtwork = defaultCoverUrl
-            }
+            val trackArtwork = coverSources?.optJSONObject(0)?.optString("url") ?: ""
 
             val durationObj = trackData.optJSONObject("trackDuration")
             val durationMs = durationObj?.optLong("totalMilliseconds")
@@ -1010,7 +1008,7 @@ class SpotifyPlaylistImporter(
         }
         val artist = if (artistNames.isNotEmpty()) artistNames.joinToString(", ") else "Spotify Artist"
         val albumObj = root.optJSONObject("album")
-        val albumName = albumObj?.optString("name", "Single") ?: "Single"
+        val albumName = albumObj?.optString("name")?.takeIf { it.isNotBlank() }
         val coverUrl = albumObj?.optJSONArray("images")?.optJSONObject(0)?.optString("url")
         val durationMs = root.optLong("duration_ms", 0L)
 
@@ -1073,7 +1071,7 @@ class SpotifyPlaylistImporter(
             }
 
             val albumObj = trackObj.optJSONObject("album")
-            val albumName = albumObj?.optString("name", defaultAlbum)?.ifBlank { defaultAlbum } ?: defaultAlbum
+            val albumName = albumObj?.optString("name")?.takeIf { it.isNotBlank() }
             val trackArtwork = albumObj?.optJSONArray("images")?.optJSONObject(0)?.optString("url") ?: ""
 
             val durationMs = trackObj.optLong("duration_ms", 0L)
@@ -1207,7 +1205,10 @@ class SpotifyPlaylistImporter(
         val current = seen.firstOrNull { it.id == saved.id } ?: return null
         val why = com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(saved, current) ?: return null
         Log.i(TAG, "Re-matched '${saved.title}' (${saved.duration}s): ${saved.id} was $why -> ${pick.id} \"${pick.title}\" (${pick.duration}s)")
-        return saved.copy(id = pick.id, thumbnail = pick.thumbnail.ifBlank { "https://i.ytimg.com/vi/${pick.id}/hqdefault.jpg" })
+        return saved.copy(
+            id = pick.id,
+            thumbnail = saved.thumbnail
+        )
     }
 
     suspend fun enrichTracksWithYouTubeData(
@@ -1221,11 +1222,18 @@ class SpotifyPlaylistImporter(
         val completedCounter = AtomicInteger(0)
 
         coroutineScope {
-            tracks.map { track ->
-                async {
-                    semaphore.withPermit {
-                        try {
-                            // Yield briefly only if user is actively resolving current live playback
+              tracks.map { track ->
+                  async {
+                      semaphore.withPermit {
+                          try {
+                              // A saved YouTube ID is already the selected recording. Re-running
+                              // a catalog search for every playlist on launch can silently swap
+                              // it for a remix, remaster, or video with the same display title.
+                              if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) {
+                                  completedCounter.incrementAndGet()
+                                  return@withPermit track
+                              }
+                              // Yield briefly only if user is actively resolving current live playback
                             while (AudioStreamResolver.isPlaybackResolving) {
                                 kotlinx.coroutines.delay(100)
                             }
@@ -1241,9 +1249,10 @@ class SpotifyPlaylistImporter(
                                 Log.i(TAG, "Matched Spotify track '${track.title}' -> '${topMatch.id}' (${topMatch.title})")
                                 track.copy(
                                     id = topMatch.id,
-                                    thumbnail = topMatch.thumbnail.ifBlank {
-                                        track.thumbnail.ifBlank { "https://i.ytimg.com/vi/${topMatch.id}/hqdefault.jpg" }
-                                    },
+                                    // Matching audio must not replace Spotify's release cover
+                                    // with a YouTube music-video frame or playlist thumbnail.
+                                    // The playback match establishes an audio ID, not release artwork.
+                                    thumbnail = track.thumbnail,
                                     duration = if (track.duration > 0) track.duration else topMatch.duration
                                 )
                             } else {
@@ -1329,7 +1338,7 @@ class SpotifyPlaylistImporter(
                             id = "sp_$trId",
                             title = trTitle.trim(),
                             artist = if (trArtist.isBlank()) "Spotify Artist" else trArtist,
-                            album = "Spotify Playlist",
+                            album = null,
                             thumbnail = "",
                             duration = 0L, // unknown; filled from the matched YouTube track
                             source = TrackSource.YOUTUBE
@@ -1422,16 +1431,14 @@ class SpotifyPlaylistImporter(
                     trackArtwork = itemArt
                 }
 
-                val effectiveThumb = if (!trackArtwork.isNullOrBlank()) trackArtwork
-                    else if (!coverUrl.isNullOrBlank()) coverUrl
-                    else ""
+                val effectiveThumb = trackArtwork ?: if (itemType == SpotifyItemType.ALBUM) (coverUrl ?: "") else ""
 
                 tracks.add(
                     Track(
                         id = "sp_$trackId",
                         title = trackTitle.trim(),
                         artist = if (trackSubtitle.isBlank() || trackSubtitle == "Artist") "Spotify Artist" else trackSubtitle,
-                        album = title,
+                        album = if (itemType == SpotifyItemType.ALBUM) title else null,
                         thumbnail = effectiveThumb,
                         duration = durationSec,
                         source = TrackSource.YOUTUBE
@@ -1479,8 +1486,8 @@ class SpotifyPlaylistImporter(
                             id = "sp_$trackId",
                             title = trackTitle.trim(),
                             artist = trackArtist,
-                            album = title,
-                            thumbnail = coverUrl.ifBlank { "" },
+                            album = if (itemType == SpotifyItemType.ALBUM) title else null,
+                            thumbnail = if (itemType == SpotifyItemType.ALBUM) coverUrl.ifBlank { "" } else "",
                             duration = durationMs / 1000L,
                             source = TrackSource.YOUTUBE
                         )

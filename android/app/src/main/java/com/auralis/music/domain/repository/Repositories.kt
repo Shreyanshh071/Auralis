@@ -17,11 +17,15 @@ interface LibraryRepository {
     suspend fun restorePlaylist(id: String, title: String, description: String? = null, coverUrl: String? = null): Playlist =
         createPlaylist(title, description, coverUrl)
     suspend fun updatePlaylist(playlistId: String, title: String, description: String? = null, coverUrl: String? = null)
-    suspend fun addTrackToPlaylist(playlistId: String, track: Track)
+    suspend fun addTrackToPlaylist(playlistId: String, track: Track): Boolean
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)
     suspend fun deletePlaylist(playlistId: String)
     suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>)
     suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>)
+    suspend fun updateTrackThumbnail(trackId: String, thumbnail: String) {}
+    suspend fun updateVerifiedTrackRelease(trackId: String, expectedAlbum: String?,
+        expectedThumbnail: String, album: String?, thumbnail: String): Boolean = false
+    suspend fun getAllTracks(): List<Track> = emptyList()
 
     fun getSavedArtists(): Flow<List<SavedArtist>>
     fun isArtistSaved(artistId: String): Flow<Boolean>
