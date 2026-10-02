@@ -913,6 +913,7 @@ class LyricsClient(
                     .filter { cand ->
                         val lines = cand.lyricsData.lines
                         if (lines.isEmpty() || cand.confidence < 50) return@filter false
+                        if (com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cand.lyricsData)) return@filter false
                         if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cand.lyricsData, durationSec)) return@filter false
                         if (com.auralis.music.data.parser.LyricsValidator.hasNonMonotonicWordTimestamps(cand.lyricsData)) return@filter false
 

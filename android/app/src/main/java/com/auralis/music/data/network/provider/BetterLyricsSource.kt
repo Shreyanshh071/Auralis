@@ -129,8 +129,8 @@ class BetterLyricsSource(
                 Triple(resp.isSuccessful, resp.code, if (resp.isSuccessful) resp.body?.string() else null)
             }
             if (!isSuccess) {
-                // If query with duration fails with 401 or 404, retry immediately without duration
-                if (useDuration && (code == 401 || code == 404)) {
+                // If query with duration fails with 404, retry immediately without duration. Never retry 401 (auth failure).
+                if (useDuration && code == 404) {
                     return fetchFromBetterLyrics(
                         cleanTitle = cleanTitle,
                         artistToUse = artistToUse,

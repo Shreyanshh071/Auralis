@@ -64,6 +64,47 @@ object LyricsValidator {
             return true
         }
 
+        // 6. Defective / synthetic micro-stutter lines (e.g. consecutive identical lines spaced < 350ms apart,
+        // or multiple lines with impossibly short duration < 200ms indicating corrupt machine-generated sync)
+        if (hasDefectiveMicroTiming(lyricsData)) {
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Detects defective, corrupted, or synthetic machine-generated lyrics where timestamps
+     * stutter or collapse into physically impossible micro-durations.
+     *
+     * Example: Corrupted crowdsourced NetEase YRC for "All I Need" contains identical lines
+     * ("S'alright") spaced 180ms apart with 180ms line durations and truncated shorthand wording.
+     */
+    fun hasDefectiveMicroTiming(lyricsData: LyricsData?): Boolean {
+        if (lyricsData == null || lyricsData.lines.isEmpty()) return false
+        val lines = lyricsData.lines.filter { !it.isInstrumental && it.text.isNotBlank() }
+        if (lines.size < 2) return false
+
+        for (i in 0 until lines.size - 1) {
+            val curr = lines[i]
+            val next = lines[i + 1]
+            if (curr.isBackground || next.isBackground) continue
+
+            val normCurr = curr.text.lowercase().filter { it.isLetterOrDigit() }
+            val normNext = next.text.lowercase().filter { it.isLetterOrDigit() }
+            if (normCurr.isEmpty() || normNext.isEmpty()) continue
+
+            val timeDelta = next.time - curr.time
+
+            // Consecutive identical lines stamped with physically impossible vocal delta (< 350ms)
+            // or impossible micro-duration (< 250ms) indicating machine-generated stutter timestamps.
+            val currDuration = curr.endTime?.let { it - curr.time }
+                ?: curr.words?.sumOf { it.duration ?: 0L }?.takeIf { it > 0L }
+
+            if (normCurr == normNext && (timeDelta in 0 until 350L || (currDuration != null && currDuration in 1 until 250L))) {
+                return true
+            }
+        }
         return false
     }
 
