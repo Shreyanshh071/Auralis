@@ -122,6 +122,34 @@ object TitleCleaner {
         BRACKETED_TAG_REGEX.replace(title, " ").replace(MULTI_SPACE, " ").trim().ifBlank { title.trim() }
 
     /**
+     * Extracts the bare canonical song title by stripping bracketed noise,
+     * parenthetical tags, version suffixes (e.g. " - Orchestral Version", " (Remix)"),
+     * and movie soundtrack attributions.
+     * e.g. "Let Down - Orchestral Version" -> "Let Down"
+     * e.g. "Let You (Orchestral Version)" -> "Let You"
+     * e.g. "Anarkali Disco Chali (Hyper Mix)[Remix By Dj Shiva]" -> "Anarkali Disco Chali"
+     */
+    fun extractBareSongTitle(rawTitle: String): String {
+        var title = withoutBracketedTags(cleanCoreSongTitle(rawTitle))
+        if (title.contains(" - ")) {
+            val parts = title.split(" - ", limit = 2)
+            if (parts.size == 2) {
+                val p1 = parts[1].trim()
+                if (extractVersion(p1) != null || p1.startsWith("from ", ignoreCase = true) || p1.startsWith("ost", ignoreCase = true)) {
+                    title = parts[0].trim()
+                }
+            }
+        }
+        if (title.contains(": ")) {
+            val parts = title.split(": ", limit = 2)
+            if (parts.size == 2 && extractVersion(parts[1]) != null) {
+                title = parts[0].trim()
+            }
+        }
+        return title.trim(' ', '-', '|', ':', '_', '/').ifBlank { rawTitle.trim() }
+    }
+
+    /**
      * Extracts version information (e.g. "Remix", "Acoustic", "Live", "Taylor's Version") from a raw title string.
      */
     fun extractVersion(rawTitle: String): String? {

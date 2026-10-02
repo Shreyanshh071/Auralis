@@ -35,10 +35,21 @@ class ListeningHistoryDeduplicationTest {
 
         override suspend fun getTrackById(id: String): TrackEntity? = storage[id]
         override suspend fun getTracksByIds(ids: List<String>): List<TrackEntity> = ids.mapNotNull { storage[it] }
+        override suspend fun getAllTracks(): List<TrackEntity> = storage.values.toList()
         override fun getFavoriteTracksFlow(): Flow<List<TrackEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
         override suspend fun getFavoriteTracksList(limit: Int): List<TrackEntity> = emptyList()
         override fun isFavoriteFlow(id: String): Flow<Boolean?> = kotlinx.coroutines.flow.flowOf(false)
         override suspend fun setFavorite(id: String, isFavorite: Boolean, addedAt: Long?) {}
+        override suspend fun updateThumbnail(id: String, thumbnail: String) {
+            storage[id] = storage[id]?.copy(thumbnail = thumbnail) ?: return
+        }
+        override suspend fun updateVerifiedRelease(id: String, expectedAlbum: String?,
+            expectedThumbnail: String, album: String?, thumbnail: String): Int {
+            val current = storage[id] ?: return 0
+            if (current.album != expectedAlbum || current.thumbnail != expectedThumbnail) return 0
+            storage[id] = current.copy(album = album, thumbnail = thumbnail)
+            return 1
+        }
         override suspend fun deleteTrack(id: String) { storage.remove(id) }
     }
 

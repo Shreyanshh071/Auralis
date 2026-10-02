@@ -366,11 +366,8 @@ object AudioStreamResolver {
                 return null
             }
 
-            // CRITICAL: Immediately register matched YouTube ID so that YouTube Web Engine fallback
-            // can play the track even if ExoPlayer extraction times out or fails!
+            // Register the selected source so the web player can use it if extraction fails.
             matchedVideoIdCache[originalVideoId] = bestCandidate.id
-            diagLog("[Diag-Resolver] Registered match: Spotify '$title' ($originalVideoId) -> YouTube '${bestCandidate.title}' (${bestCandidate.id})")
-
             ensureNewPipeInitialized()
             val candidatesToTry = (listOf(bestCandidate) + scoredCandidates.filter { it.id != bestCandidate.id }).take(2)
             for (candidate in candidatesToTry) {

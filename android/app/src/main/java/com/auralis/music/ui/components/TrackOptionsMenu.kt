@@ -92,7 +92,7 @@ fun TrackOptionsMenu(
 
     // Authentic Album Resolution (Apple Music / iTunes query for true parent album)
     val cachedAlbum = remember(track.id, track.title, track.artist) {
-        AlbumMetadataResolver.getCached(track.title, track.artist)
+                AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
     }
     val isRedundantTrackAlbum = remember(track.album, track.title) {
         AlbumMetadataResolver.needsResolving(track.album, track.title)
@@ -642,14 +642,19 @@ fun TrackOptionsMenu(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(userPlaylists, key = { it.id }) { playlist ->
+                            val alreadyInPlaylist = playlist.tracks.any { it.id == track.id }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable {
-                                        onAddToPlaylist(playlist)
-                                        showPlaylistPicker = false
-                                        onDismiss()
+                                        if (alreadyInPlaylist) {
+                                            com.auralis.music.ui.components.AppPillManager.showPill("Already in ${playlist.title}")
+                                        } else {
+                                            onAddToPlaylist(playlist)
+                                            showPlaylistPicker = false
+                                            onDismiss()
+                                        }
                                     }
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -677,9 +682,9 @@ fun TrackOptionsMenu(
                                     )
                                 }
                                 Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Add",
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    imageVector = if (alreadyInPlaylist) Icons.Default.Check else Icons.Default.Add,
+                                    contentDescription = if (alreadyInPlaylist) "Already in playlist" else "Add",
+                                    tint = if (alreadyInPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -794,4 +799,3 @@ private fun TrackOptionRow(
         }
     }
 }
-

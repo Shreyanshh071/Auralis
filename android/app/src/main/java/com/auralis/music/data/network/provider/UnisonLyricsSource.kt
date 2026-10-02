@@ -268,7 +268,10 @@ class UnisonLyricsSource(
 
         val aligned = LyricsMatcher.autoAlignLyrics(withMetadata, targetDurSec, candDuration)
 
-        val confidence = defaultConfidence ?: LyricsMatcher.calculateConfidence(
+        val isTitleMatch = LyricsMatcher.isTitleMatching(query.title, candTitle)
+        if (!isTitleMatch) return null
+
+        val calculatedConfidence = LyricsMatcher.calculateConfidence(
             queryTitle = query.title,
             queryArtist = query.artist,
             candidateTitle = candTitle,
@@ -277,6 +280,12 @@ class UnisonLyricsSource(
             candidateDurationSec = candDuration,
             queryAlbum = query.album
         )
+
+        val confidence = if (isExactVideoMatch && calculatedConfidence >= 50) {
+            defaultConfidence ?: calculatedConfidence
+        } else {
+            calculatedConfidence
+        }
 
         if (confidence < 50) return null
 

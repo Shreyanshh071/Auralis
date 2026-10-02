@@ -111,14 +111,14 @@ object LyricsMatcher {
      * Flexible track title matcher with version awareness and Indic transliteration cross-checking.
      */
     fun isTitleMatching(queryTitle: String, candTitle: String): Boolean {
-        val qClean = TitleCleaner.cleanCoreSongTitle(queryTitle).lowercase().trim()
-        val cClean = TitleCleaner.cleanCoreSongTitle(candTitle).lowercase().trim()
-        if (qClean.isBlank() || cClean.isBlank()) return false
-        if (qClean == cClean) return true
+        val qBare = TitleCleaner.extractBareSongTitle(queryTitle).lowercase().trim()
+        val cBare = TitleCleaner.extractBareSongTitle(candTitle).lowercase().trim()
+        if (qBare.isBlank() || cBare.isBlank()) return false
+        if (qBare == cBare) return true
 
         // Reject multi-song mashup/medleys when query is a single song
-        val isQueryMashup = qClean.contains("mashup") || qClean.contains("medley") || qClean.contains(" / ")
-        val isCandMashup = cClean.contains("mashup") || cClean.contains("medley") || cClean.contains(" / ") || cClean.contains("sangeet mix") || cClean.contains("sangeet")
+        val isQueryMashup = qBare.contains("mashup") || qBare.contains("medley") || qBare.contains(" / ")
+        val isCandMashup = cBare.contains("mashup") || cBare.contains("medley") || cBare.contains(" / ") || cBare.contains("sangeet mix") || cBare.contains("sangeet")
         if (!isQueryMashup && isCandMashup) {
             return false
         }
@@ -126,25 +126,25 @@ object LyricsMatcher {
         // Subtitle / Soundtrack / Parenthetical extension match:
         // e.g. query "Sunflower", candidate "Sunflower (Spider-Man: Into the Spider-Verse)"
         // or query "Starboy", candidate "Starboy (feat. Daft Punk)"
-        val cWithoutSub = cClean.substringBefore(" (").substringBefore(" [").substringBefore(" - ").substringBefore(": ").trim()
-        val qWithoutSub = qClean.substringBefore(" (").substringBefore(" [").substringBefore(" - ").substringBefore(": ").trim()
-        if ((cWithoutSub.isNotBlank() && qClean == cWithoutSub) ||
-            (qWithoutSub.isNotBlank() && cClean == qWithoutSub) ||
+        val cWithoutSub = cBare.substringBefore(" (").substringBefore(" [").substringBefore(" - ").substringBefore(": ").trim()
+        val qWithoutSub = qBare.substringBefore(" (").substringBefore(" [").substringBefore(" - ").substringBefore(": ").trim()
+        if ((cWithoutSub.isNotBlank() && qBare == cWithoutSub) ||
+            (qWithoutSub.isNotBlank() && cBare == qWithoutSub) ||
             (qWithoutSub.isNotBlank() && qWithoutSub == cWithoutSub)
         ) {
             return true
         }
 
         // Prefix check for small queries: if candidate starts with full query and subsequent text is parenthetical/separator
-        if (cClean.startsWith(qClean) && (cClean.length == qClean.length || cClean[qClean.length] in " ([-:")) {
+        if (cBare.startsWith(qBare) && (cBare.length == qBare.length || cBare[qBare.length] in " ([-:")) {
             return true
         }
-        if (qClean.startsWith(cClean) && (qClean.length == cClean.length || qClean[cClean.length] in " ([-:")) {
+        if (qBare.startsWith(cBare) && (qBare.length == cBare.length || qBare[cBare.length] in " ([-:")) {
             return true
         }
 
-        val qPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(qClean)
-        val cPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(cClean)
+        val qPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(qBare)
+        val cPhonetic = IndicScriptNormalizer.transliterateToPhoneticLatin(cBare)
         if (qPhonetic == cPhonetic) return true
 
         val qCanonical = IndicScriptNormalizer.toPhoneticCanonical(qPhonetic)
@@ -165,13 +165,6 @@ object LyricsMatcher {
         val intersection = qSet.intersect(cSet).size
         val dice = (2.0 * intersection) / (qSet.size + cSet.size)
 
-        if (dice >= 0.60) return true
-
-        // When query is small (1 or 2 words), candidate must not contain unrelated song names (dice >= 0.50)
-        if (qTokens.size <= 2 && dice < 0.50) {
-            return false
-        }
-
         val matches = qTokens.count { qWord ->
             cSet.any { cWord ->
                 qWord == cWord || (qWord.length >= 4 && cWord.length >= 4 && (qWord.contains(cWord) || cWord.contains(qWord)))
@@ -179,6 +172,16 @@ object LyricsMatcher {
         }
         val matchRatio = matches.toDouble() / qTokens.size
         val cMatchRatio = matches.toDouble() / cTokens.size
+
+        // When query is small (1 or 2 words), ALL query words must be present in candidate.
+        // A single shared common word (e.g. "Let" between "Let Down" and "Let You", or "Bad" between "Bad Guy" and "Bad Boy")
+        // is NOT a match and represents a completely different song!
+        if (qTokens.size <= 2) {
+            if (matchRatio < 1.0) return false
+            return cTokens.size <= 4 && (dice >= 0.50 || cMatchRatio >= 0.50)
+        }
+
+        if (dice >= 0.70) return true
 
         return (matchRatio >= 0.80 && cMatchRatio >= 0.50) || (matches >= 2 && matches == qTokens.size && cMatchRatio >= 0.50)
     }
@@ -196,8 +199,8 @@ object LyricsMatcher {
         queryAlbum: String? = null,
         candidateAlbum: String? = null
     ): Int {
-        val qCoreTitle = TitleCleaner.cleanCoreSongTitle(queryTitle)
-        val cCoreTitle = TitleCleaner.cleanCoreSongTitle(candidateTitle)
+        val qCoreTitle = TitleCleaner.extractBareSongTitle(queryTitle)
+        val cCoreTitle = TitleCleaner.extractBareSongTitle(candidateTitle)
 
         val qPhoneticCore = IndicScriptNormalizer.transliterateToPhoneticLatin(qCoreTitle)
         val cPhoneticCore = IndicScriptNormalizer.transliterateToPhoneticLatin(cCoreTitle)
@@ -214,7 +217,9 @@ object LyricsMatcher {
         val phoneticTitleDice = diceCoefficient(qPhoneticCore, cPhoneticCore)
         val canonicalTitleDice = diceCoefficient(qCanonicalCore, cCanonicalCore)
         val isExact = if (qCoreTitle.equals(cCoreTitle, ignoreCase = true) || qPhoneticCore.equals(cPhoneticCore, ignoreCase = true) || qCanonicalCore.equals(cCanonicalCore, ignoreCase = true)) 1.0 else 0.0
-        val titleScore = maxOf(isExact, directTitleDice, phoneticTitleDice, canonicalTitleDice, 0.85)
+        val isPrefix = cCanonicalCore.startsWith(qCanonicalCore) || qCanonicalCore.startsWith(cCanonicalCore)
+        val rawTitleScore = maxOf(isExact, directTitleDice, phoneticTitleDice, canonicalTitleDice)
+        val titleScore = if (isExact == 1.0) 1.0 else if (isPrefix) maxOf(rawTitleScore, 0.85) else rawTitleScore
 
         // 2. Artist Score (0.0 to 1.0)
         val qArtistClean = TitleCleaner.cleanArtist(queryArtist)
@@ -226,6 +231,18 @@ object LyricsMatcher {
         )
         val isArtistMatch = if (isArtistMatching(queryArtist, candidateArtist)) 0.95 else 0.0
         val artistScore = maxOf(directArtistDice, phoneticArtistDice, isArtistMatch)
+
+        val hasKnownQueryArtist = qArtistClean.isNotBlank() &&
+            !qArtistClean.equals("Unknown Artist", ignoreCase = true) &&
+            !qArtistClean.equals("YouTube Music", ignoreCase = true)
+        val hasKnownCandArtist = cArtistClean.isNotBlank() &&
+            !cArtistClean.equals("Unknown Artist", ignoreCase = true)
+
+        // Strict guard 1: If both artists are known non-generic entities and have ZERO relationship,
+        // it CANNOT be the same song (e.g. "Alessandro Veloz" or "Radiohead" vs "Cheryl").
+        if (hasKnownQueryArtist && hasKnownCandArtist && artistScore == 0.0) {
+            return 0
+        }
 
         // 3. Duration Score (0.0 to 1.0)
         val durationScore: Double = if (queryDurationSec != null && queryDurationSec > 0 &&
@@ -244,8 +261,8 @@ object LyricsMatcher {
             0.80
         }
 
-        // Strict guard: if artist fails AND duration fails (>25s mismatch), it is a different song with same name
-        if (artistScore == 0.0 && durationScore == 0.0) {
+        // Strict guard 2: if artist fails AND duration fails (>15s mismatch), it is a different song
+        if (artistScore == 0.0 && durationScore <= 0.40) {
             return 0
         }
 
@@ -254,12 +271,38 @@ object LyricsMatcher {
             ?: queryAlbum?.let { TitleCleaner.extractVersion(it) }
         val cVersion = TitleCleaner.extractVersion(candidateTitle)
             ?: candidateAlbum?.let { TitleCleaner.extractVersion(it) }
+
+        val isQTimingAltering = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isTimingAlteringVersion(qVersion)
+        val isCTimingAltering = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isTimingAlteringVersion(cVersion)
+
         val versionScore: Double = when {
             qVersion == null && cVersion == null -> 1.0
             qVersion != null && cVersion != null && (qVersion.equals(cVersion, ignoreCase = true) || qVersion.contains(cVersion, ignoreCase = true) || cVersion.contains(qVersion, ignoreCase = true)) -> 1.0
-            qVersion != null && cVersion == null -> 0.40
-            qVersion == null && cVersion != null -> 0.30
+            isQTimingAltering && !isCTimingAltering -> 0.10 // Severely penalize matching studio cut when acoustic/live/remix/orchestral requested
+            !isQTimingAltering && isCTimingAltering -> 0.10
             else -> 0.20
+        }
+
+        // Strict guard 3: Instrumental / Orchestral version protection
+        // When query is an orchestral, instrumental, piano, or karaoke version,
+        // it must match the exact core song and have compatible artist
+        val isQueryInstrumentalOrOrchestral = qVersion != null && (
+            qVersion.equals("Orchestral", ignoreCase = true) ||
+            qVersion.equals("Instrumental", ignoreCase = true) ||
+            qVersion.equals("Karaoke", ignoreCase = true) ||
+            qVersion.equals("Piano Version", ignoreCase = true)
+        )
+        if (isQueryInstrumentalOrOrchestral && (artistScore == 0.0 || isExact == 0.0)) {
+            return 0
+        }
+
+        // Version clash penalty when timing-altering versions differ
+        val versionClashPenalty = if ((isQTimingAltering || isCTimingAltering) &&
+            (qVersion == null || cVersion == null || !qVersion.equals(cVersion, ignoreCase = true))
+        ) {
+            25
+        } else {
+            0
         }
 
         // 5. Album Score & Consistency Check
@@ -276,7 +319,7 @@ object LyricsMatcher {
         }
 
         val composite = (titleScore * 0.40) + (artistScore * 0.30) + (durationScore * 0.20) + (versionScore * 0.10)
-        return ((composite * 100).toInt() + albumBonus).coerceIn(0, 100)
+        return ((composite * 100).toInt() + albumBonus - versionClashPenalty).coerceIn(0, 100)
     }
 
     /**

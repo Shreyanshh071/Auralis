@@ -14,9 +14,11 @@ object ArtworkResolver {
 
     private val resolvedArtworkCache = ConcurrentHashMap<String, String>()
 
-    private fun getCacheKey(track: Track): String {
-        return "${track.title.trim()}:::${track.artist.trim()}".lowercase()
+    fun clearCache() {
+        resolvedArtworkCache.clear()
     }
+
+    private fun getCacheKey(track: Track): String = ArtworkIdentity.cacheKey(track)
 
     fun getArtwork(track: Track): String? {
         if (!track.thumbnail.isNullOrBlank()) return track.thumbnail
@@ -25,12 +27,8 @@ object ArtworkResolver {
             return android.net.Uri.fromFile(localArt).toString()
         }
         val key = getCacheKey(track)
-        val cached = resolvedArtworkCache[key] ?: resolvedArtworkCache[track.id]
+        val cached = resolvedArtworkCache[key]
         if (!cached.isNullOrBlank()) return cached
-        val matchedYtId = AudioStreamResolver.getMatchedVideoId(track.id)
-        if (!matchedYtId.isNullOrBlank() && matchedYtId.length in 8..15) {
-            return "https://i.ytimg.com/vi/$matchedYtId/hqdefault.jpg"
-        }
         return null
     }
 
@@ -38,7 +36,6 @@ object ArtworkResolver {
         if (url.isNotBlank()) {
             val key = getCacheKey(track)
             resolvedArtworkCache[key] = url
-            resolvedArtworkCache[track.id] = url
         }
     }
 
@@ -48,10 +45,11 @@ object ArtworkResolver {
 
         val key = getCacheKey(track)
         try {
-            val master = com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(track.title, track.artist, null)
+            val master = com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(
+                track.title, track.artist, null, getCacheKey(track), track.album, track.duration
+            )
             if (!master.isNullOrBlank()) {
                 resolvedArtworkCache[key] = master
-                resolvedArtworkCache[track.id] = master
                 return@withContext master
             }
         } catch (_: Exception) {}
@@ -64,13 +62,14 @@ object ArtworkResolver {
             }
             val searchClient = InnerTubeClient()
             val songs = searchClient.search(query, InnerTubeClient.FILTER_SONGS).songs
-            val match = songs.firstOrNull { it.thumbnail.isNotBlank() }
-                ?: searchClient.search(query).songs.firstOrNull { it.thumbnail.isNotBlank() }
+            val match = songs.firstOrNull { ArtworkIdentity.matches(track, it, !track.album.isNullOrBlank()) }
+                ?: searchClient.search(query).songs.firstOrNull {
+                    ArtworkIdentity.matches(track, it, !track.album.isNullOrBlank())
+                }
 
             val resolvedThumb = match?.thumbnail
             if (!resolvedThumb.isNullOrBlank()) {
                 resolvedArtworkCache[key] = resolvedThumb
-                resolvedArtworkCache[track.id] = resolvedThumb
                 return@withContext resolvedThumb
             }
         } catch (_: Exception) {}

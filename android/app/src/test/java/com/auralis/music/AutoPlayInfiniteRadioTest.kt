@@ -58,7 +58,7 @@ class AutoPlayInfiniteRadioTest {
         override fun getPlaylist(playlistId: String): Flow<Playlist?> = flowOf(null)
         override suspend fun createPlaylist(title: String, description: String?, coverUrl: String?): Playlist = Playlist(id = "1", title = title, coverUrl = coverUrl)
         override suspend fun updatePlaylist(playlistId: String, title: String, description: String?, coverUrl: String?) {}
-        override suspend fun addTrackToPlaylist(playlistId: String, track: Track) {}
+        override suspend fun addTrackToPlaylist(playlistId: String, track: Track): Boolean = true
         override suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) {}
         override suspend fun deletePlaylist(playlistId: String) {}
         override suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>) {}

@@ -726,7 +726,7 @@ fun ArtistScreen(
             onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
             onGoToArtist = null, // Already on ArtistScreen
             onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
-                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist)
+                val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
                 onAlbumClick(
                     com.auralis.music.domain.model.PlaylistResult(
                         id = albumId ?: cached?.albumId ?: "album-${track.id}",

@@ -118,6 +118,19 @@ object AuralisDownloadManager {
     fun getDownloadedArtworkFile(trackId: String): File? =
         store?.artworkFile(trackId)?.takeIf { it.exists() && it.length() > 500 }
 
+    /** Keep an existing offline song's metadata and artwork aligned with a verified library repair. */
+    suspend fun applyVerifiedTrackMetadata(track: Track, context: Context) {
+        if (track.thumbnail.isBlank()) return
+        awaitInitialized(context)
+        val downloadStore = store ?: return
+        val saved = _downloadedTracks.value.firstOrNull { it.id == track.id } ?: return
+        val artFile = downloadStore.artworkFile(track.id)
+        val localArt = if (downloadArtworkBytes(track.thumbnail, artFile)) {
+            Uri.fromFile(artFile).toString()
+        } else track.thumbnail
+        publishDownloads(downloadStore.add(saved.copy(album = track.album, thumbnail = localArt)))
+    }
+
     fun isDownloaded(trackId: String): Boolean = getDownloadedFile(trackId) != null
 
     fun isDownloading(trackId: String): Boolean =
@@ -417,7 +430,7 @@ object AuralisDownloadManager {
                             if (!matched.isNullOrBlank() && matched.length in 8..15) {
                                 "https://i.ytimg.com/vi/$matched/hq720.jpg"
                             } else {
-                                com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(track.title, track.artist, null)
+                                com.auralis.music.data.network.ArtworkResolver.resolveArtwork(track)
                             }
                         }
                     }

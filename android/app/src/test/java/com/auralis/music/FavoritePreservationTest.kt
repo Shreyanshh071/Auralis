@@ -31,6 +31,8 @@ class FavoritePreservationTest {
         override suspend fun getTracksByIds(ids: List<String>): List<TrackEntity> =
             ids.mapNotNull { storage[it] }
 
+        override suspend fun getAllTracks(): List<TrackEntity> = storage.values.toList()
+
         override fun getFavoriteTracksFlow(): Flow<List<TrackEntity>> =
             flowOf(storage.values.filter { it.isFavorite }.sortedByDescending { it.favoriteAddedAt })
 
@@ -47,9 +49,43 @@ class FavoritePreservationTest {
             }
         }
 
+        override suspend fun updateThumbnail(id: String, thumbnail: String) {
+            val existing = storage[id]
+            if (existing != null) {
+                storage[id] = existing.copy(thumbnail = thumbnail)
+            }
+        }
+
+        override suspend fun updateVerifiedRelease(id: String, expectedAlbum: String?,
+            expectedThumbnail: String, album: String?, thumbnail: String): Int {
+            val current = storage[id] ?: return 0
+            if (current.album != expectedAlbum || current.thumbnail != expectedThumbnail) return 0
+            storage[id] = current.copy(album = album, thumbnail = thumbnail)
+            return 1
+        }
+
         override suspend fun deleteTrack(id: String) {
             storage.remove(id)
         }
+    }
+
+    @Test
+    fun `playlist and history upserts cannot replace a verified release`() = runBlocking {
+        val dao = FakeTrackDao()
+        val verified = TrackEntity(
+            id = "fWoHu4gUtE4", title = "Babuaan", artist = "Pawan Singh, Shilpi Raj",
+            album = "Babuaan (From Sooryavansham)", duration = 221,
+            thumbnail = "https://example.com/verified.jpg"
+        )
+        dao.upsertTrackPreservingFavorite(verified)
+        dao.upsertTracksPreservingFavorite(listOf(verified.copy(
+            album = "aaaaa", thumbnail = "https://example.com/other-song.jpg")))
+        val result = dao.getTrackById(verified.id)!!
+        assertEquals(verified.album, result.album)
+        assertEquals(verified.thumbnail, result.thumbnail)
+        assertEquals(0, dao.updateVerifiedRelease(verified.id, "aaaaa", "stale",
+            "Different Album", "https://example.com/stale.jpg"))
+        assertEquals(verified.thumbnail, dao.getTrackById(verified.id)!!.thumbnail)
     }
 
     @Test

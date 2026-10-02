@@ -69,12 +69,14 @@ object AlbumMetadataResolver {
     /**
      * Synchronously retrieves a previously resolved authentic album from memory cache.
      */
-    fun getCached(trackTitle: String, artistName: String): ResolvedAlbum? {
+    fun getCached(trackTitle: String, artistName: String, knownAlbum: String? = null): ResolvedAlbum? {
         val cleanTitle = cleanTrackTitle(trackTitle)
         val cleanArtist = artistName
             .split(",", "&", "feat.", "ft.", "/").firstOrNull()?.trim()
             ?: artistName.trim()
-        val cacheKey = "${cleanArtist.lowercase()}::${cleanTitle.lowercase()}"
+        val cleanKnownAlbum = knownAlbum?.let { cleanAlbumTitle(it) }
+            ?.takeIf { !needsResolving(it, trackTitle) }
+        val cacheKey = "${cleanArtist.lowercase()}::${cleanTitle.lowercase()}::${cleanKnownAlbum.orEmpty().lowercase()}"
         synchronized(memoryCache) {
             return memoryCache.get(cacheKey)
         }
@@ -164,7 +166,8 @@ object AlbumMetadataResolver {
             .split(",", "&", "feat.", "ft.", "/").firstOrNull()?.trim()
             ?: artistName.trim()
 
-        val cacheKey = "${cleanArtist.lowercase()}::${cleanTitle.lowercase()}"
+        // The same song can occur on an album, a single, and a compilation with different art.
+        val cacheKey = "${cleanArtist.lowercase()}::${cleanTitle.lowercase()}::${cleanKnownAlbum.orEmpty().lowercase()}"
         synchronized(memoryCache) {
             val cached = memoryCache.get(cacheKey)
             if (cached != null) return@withContext cached

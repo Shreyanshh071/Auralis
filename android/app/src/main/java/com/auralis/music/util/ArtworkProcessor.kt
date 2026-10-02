@@ -7,12 +7,11 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.util.LruCache
 import com.auralis.music.data.network.TitleCleaner
-import com.auralis.music.data.network.NetworkClientProvider
+import com.auralis.music.data.network.ArtworkIdentity
+import com.auralis.music.data.network.InnerTubeClient
+import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import android.content.Context
 import android.content.Intent
@@ -28,7 +27,6 @@ import java.net.URLEncoder
 
 object MasterArtworkResolver {
     private val cache = LruCache<String, String>(400)
-    private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     /**
      * Cleans noisy video titles to extract the pure song title for high-confidence catalog matching.
@@ -46,10 +44,15 @@ object MasterArtworkResolver {
      * Resolves the highest-resolution lossless studio master artwork for a track.
      * Looks up Apple Music / iTunes CDN (1400x1400), YouTube Music InnerTube Google CDN (1200x1200), or Spotify CDN.
      */
-    suspend fun resolveMasterArtworkUrl(title: String?, artist: String?, fallbackUrl: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun resolveMasterArtworkUrl(
+        title: String?, artist: String?, fallbackUrl: String?,
+        identityKey: String? = null, expectedAlbum: String? = null, expectedDuration: Long = 0L
+    ): String? = withContext(Dispatchers.IO) {
         if (title.isNullOrBlank()) return@withContext fallbackUrl
 
-        val cacheKey = "${artist.orEmpty().trim().lowercase()} - ${title.trim().lowercase()}"
+        val cacheKey = listOf(identityKey.orEmpty(), artist.orEmpty().trim().lowercase(),
+            title.trim().lowercase(), expectedAlbum.orEmpty().trim().lowercase(),
+            expectedDuration.toString(), fallbackUrl.orEmpty()).joinToString("::")
         cache.get(cacheKey)?.let { return@withContext it }
 
         // 1. If fallbackUrl is already high-res Google or Spotify or Apple CDN, upgrade it directly
@@ -123,12 +126,14 @@ object MasterArtworkResolver {
                             val item = results.optJSONObject(i) ?: continue
                             val itemArtist = item.optString("artistName", "").trim()
                             val rawArtwork = item.optString("artworkUrl100")
-
-                            val isArtistMatch = cleanArtist.isBlank() ||
-                                    itemArtist.contains(cleanArtist, ignoreCase = true) ||
-                                    cleanArtist.contains(itemArtist, ignoreCase = true)
-
-                            if (isArtistMatch && rawArtwork.isNotBlank()) {
+                            val requested = Track(title = title,
+                                artist = artist.orEmpty().replace(Regex("(?i)\\s*-\\s*topic$"), ""),
+                                album = expectedAlbum, duration = expectedDuration)
+                            val result = Track(title = item.optString("trackName"), artist = itemArtist,
+                                album = item.optString("collectionName"),
+                                duration = item.optLong("trackTimeMillis") / 1000L,
+                                thumbnail = rawArtwork)
+                            if (ArtworkIdentity.matches(requested, result, !expectedAlbum.isNullOrBlank())) {
                                 val master1400 = rawArtwork.replace("100x100bb", "1400x1400bb")
                                 cache.put(cacheKey, master1400)
                                 return@withContext master1400
@@ -139,65 +144,18 @@ object MasterArtworkResolver {
             } catch (_: Exception) {}
         }
 
-        // 3. Fetch authentic 1200x1200 lossless 1:1 square master artwork directly from YouTube Music InnerTube
+        // 3. InnerTube artwork is accepted only with the result's song identity.
+        val requested = Track(title = title,
+            artist = artist.orEmpty().replace(Regex("(?i)\\s*-\\s*topic$"), ""), album = expectedAlbum,
+            duration = expectedDuration)
         for (query in searchQueries) {
             try {
-                val requestBody = JSONObject().apply {
-                    put("query", query)
-                    put("params", "Eg-KAQwIARAAGAAgACgAMABqChAMEAUSAhACEAU%3D") // FILTER_SONGS
-                    put("context", JSONObject().apply {
-                        put("client", JSONObject().apply {
-                            put("clientName", "WEB_REMIX")
-                            put("clientVersion", "1.20241201.01.00")
-                            put("hl", "en")
-                            put("gl", "US")
-                        })
-                    })
-                }
-
-                val ytReq = Request.Builder()
-                    .url("https://music.youtube.com/youtubei/v1/search?prettyPrint=false")
-                    .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
-                    .header("Referer", "https://music.youtube.com/")
-                    .header("Origin", "https://music.youtube.com")
-                    .build()
-
-                val ytResp = NetworkClientProvider.okHttpClient.newCall(ytReq).execute()
-                if (ytResp.isSuccessful) {
-                    val bodyStr = ytResp.body?.string().orEmpty()
-                    val json = JSONObject(bodyStr)
-                    val sectionList = json.optJSONObject("contents")
-                        ?.optJSONObject("tabbedSearchResultsRenderer")
-                        ?.optJSONArray("tabs")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("tabRenderer")
-                        ?.optJSONObject("content")
-                        ?.optJSONObject("sectionListRenderer")
-                        ?.optJSONArray("contents")
-
-                    if (sectionList != null) {
-                        for (s in 0 until sectionList.length()) {
-                            val shelf = sectionList.optJSONObject(s)?.optJSONObject("musicShelfRenderer") ?: continue
-                            val contents = shelf.optJSONArray("contents") ?: continue
-                            for (c in 0 until contents.length()) {
-                                val respItem = contents.optJSONObject(c)?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
-                                val thumbs = respItem.optJSONObject("thumbnail")
-                                    ?.optJSONObject("musicThumbnailRenderer")
-                                    ?.optJSONObject("thumbnail")
-                                    ?.optJSONArray("thumbnails")
-
-                                if (thumbs != null && thumbs.length() > 0) {
-                                    val lastThumb = thumbs.optJSONObject(thumbs.length() - 1)?.optString("url")
-                                    if (!lastThumb.isNullOrBlank() && (lastThumb.contains("googleusercontent.com") || lastThumb.contains("ggpht.com"))) {
-                                        val masterUrl = lastThumb.replace(Regex("""=w\d+-h\d+.*"""), "=w1200-h1200-l90-rj")
-                                            .replace(Regex("""=s\d+.*"""), "=s1200-c")
-                                        cache.put(cacheKey, masterUrl)
-                                        return@withContext masterUrl
-                                    }
-                                }
-                            }
-                        }
-                    }
+                val match = InnerTubeClient().search(query, InnerTubeClient.FILTER_SONGS).songs
+                    .firstOrNull { ArtworkIdentity.matches(requested, it, !expectedAlbum.isNullOrBlank()) }
+                if (match != null) {
+                    val masterUrl = ArtworkProcessor.getHighResArtworkCandidates(match.thumbnail).first()
+                    cache.put(cacheKey, masterUrl)
+                    return@withContext masterUrl
                 }
             } catch (_: Exception) {}
         }
@@ -695,5 +653,3 @@ class CropBlackBarsTransformation : coil.transform.Transformation {
         return ArtworkProcessor.stripBlackBars(input)
     }
 }
-
-

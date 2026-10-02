@@ -45,7 +45,8 @@ class AppViewModelProvider(
                         searchRepository,
                         innerTubeClient,
                         activity.applicationContext,
-                        libraryRepository = libraryRepository
+                        libraryRepository = libraryRepository,
+                        audioPlayer = audioPlayer
                     ) as T
                 }
             }

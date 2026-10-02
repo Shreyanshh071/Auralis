@@ -12,20 +12,29 @@ interface TrackDao {
     @Upsert
     suspend fun upsertTracks(tracks: List<TrackEntity>)
 
+    @Query("UPDATE tracks SET thumbnail = :thumbnail WHERE id = :id")
+    suspend fun updateThumbnail(id: String, thumbnail: String)
+
+    @Query("""UPDATE tracks SET album = :album, thumbnail = :thumbnail
+        WHERE id = :id AND thumbnail = :expectedThumbnail
+          AND (album = :expectedAlbum OR (album IS NULL AND :expectedAlbum IS NULL))""")
+    suspend fun updateVerifiedRelease(id: String, expectedAlbum: String?, expectedThumbnail: String,
+        album: String?, thumbnail: String): Int
+
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun getTrackById(id: String): TrackEntity?
 
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun getTracksByIds(ids: List<String>): List<TrackEntity>
 
+    @Query("SELECT * FROM tracks")
+    suspend fun getAllTracks(): List<TrackEntity>
+
     @Transaction
     suspend fun upsertTrackPreservingFavorite(track: TrackEntity) {
         val existing = getTrackById(track.id)
         if (existing != null) {
-            val preserved = track.copy(
-                isFavorite = existing.isFavorite,
-                favoriteAddedAt = existing.favoriteAddedAt
-            )
+            val preserved = TrackMetadataGuard.merge(existing, track)
             upsertTrack(preserved)
         } else {
             upsertTrack(track)
@@ -35,14 +44,13 @@ interface TrackDao {
     @Transaction
     suspend fun upsertTracksPreservingFavorite(tracks: List<TrackEntity>) {
         if (tracks.isEmpty()) return
-        val existingMap = getTracksByIds(tracks.map { it.id }).associateBy { it.id }
-        val preservedTracks = tracks.map { track ->
+        val unique = tracks.distinctBy { it.id }
+        val existingMap = unique.map { it.id }.chunked(900)
+            .flatMap { getTracksByIds(it) }.associateBy { it.id }
+        val preservedTracks = unique.map { track ->
             val existing = existingMap[track.id]
             if (existing != null) {
-                track.copy(
-                    isFavorite = existing.isFavorite,
-                    favoriteAddedAt = existing.favoriteAddedAt
-                )
+                TrackMetadataGuard.merge(existing, track)
             } else {
                 track
             }
