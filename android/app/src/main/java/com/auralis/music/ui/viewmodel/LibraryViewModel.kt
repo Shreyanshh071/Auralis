@@ -48,6 +48,7 @@ data class LibraryUiState(
     val selectedPlaylist: Playlist? = null,
     val selectedSmartCollection: SmartCollectionType? = null,
     val isGridView: Boolean = true,
+    val isPlaylistLocked: Boolean = true,
     val sortOrder: String = "Date added",
     val recentPlayedAtByTrackId: Map<String, Long> = emptyMap(),
     val isImporting: Boolean = false,
@@ -306,6 +307,10 @@ class LibraryViewModel(
 
     fun toggleGridView() {
         _uiState.update { it.copy(isGridView = !it.isGridView) }
+    }
+
+    fun togglePlaylistLocked() {
+        _uiState.update { it.copy(isPlaylistLocked = !it.isPlaylistLocked) }
     }
 
     fun setSortOrder(sort: String) {

@@ -3,6 +3,7 @@ package com.auralis.music.ui.library
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ColorFilter
@@ -101,6 +102,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
@@ -168,6 +170,8 @@ import com.auralis.music.ui.viewmodel.LibraryFilter
 import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.SmartCollectionType
 import com.auralis.music.ui.components.bottomChromePadding
+import com.auralis.music.ui.components.detectContainerReorderDrag
+import androidx.compose.ui.geometry.Offset
 import java.util.Locale
 
 val CREAM_ICON_COLOR: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
@@ -272,10 +276,20 @@ fun LibraryScreen(
     onDeletePlaylistJob: (String) -> Unit = {},
     onRetryPlaylistJob: (String) -> Unit = {},
     isTrackPinned: ((String) -> Boolean)? = null,
+    onTogglePlaylistLocked: (() -> Unit)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val themePrimary = MaterialTheme.colorScheme.primary
+    var localPlaylistLocked by rememberSaveable { mutableStateOf(true) }
+    val isPlaylistLocked = if (onTogglePlaylistLocked != null) uiState.isPlaylistLocked else localPlaylistLocked
+    val togglePlaylistLocked = {
+        if (onTogglePlaylistLocked != null) {
+            onTogglePlaylistLocked()
+        } else {
+            localPlaylistLocked = !localPlaylistLocked
+        }
+    }
     var isGridView by remember { mutableStateOf(uiState.isGridView) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -401,7 +415,9 @@ fun LibraryScreen(
                     onReorderTracks = { from, to ->
                         onReorderPlaylistTracks?.invoke(selectedPl.id, from, to)
                     },
-                    onMenuClick = { track -> selectedTrackForMenu = track }
+                    onMenuClick = { track -> selectedTrackForMenu = track },
+                    isPlaylistLocked = isPlaylistLocked,
+                    onTogglePlaylistLocked = togglePlaylistLocked
                 )
 
                 // Render Track Options Menu for playlist tracks
@@ -1603,6 +1619,36 @@ internal fun <T> applyTargetSwap(
     return true
 }
 
+/**
+ * Determines whether a touch event is within the bounds of a playlist row's drag handle.
+ *
+ * Enforces handle-only reordering by ensuring that:
+ * 1. The touch falls vertically within a visible song item row.
+ * 2. The touch falls horizontally strictly within the drag handle hit target,
+ *    excluding song artwork, title, artist, row padding, and the overflow options menu.
+ */
+internal fun isPlaylistReorderHandleTouch(
+    downOffset: Offset,
+    viewportWidth: Float,
+    isRtl: Boolean,
+    visibleSongItems: List<PlaylistReorderItemInfo>,
+    density: Float,
+    handleMinXOffsetDp: Float = 110f,
+    handleMaxXOffsetDp: Float = 58f
+): Boolean {
+    if (viewportWidth <= 0f || density <= 0f) return false
+    val hitItem = visibleSongItems.find { info ->
+        downOffset.y.toInt() in info.offset..(info.offset + info.size)
+    } ?: return false
+
+    val (handleMinX, handleMaxX) = if (isRtl) {
+        (handleMaxXOffsetDp * density) to (handleMinXOffsetDp * density)
+    } else {
+        (viewportWidth - (handleMinXOffsetDp * density)) to (viewportWidth - (handleMaxXOffsetDp * density))
+    }
+    return downOffset.x in handleMinX..handleMaxX
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 private data class PlaylistTrackItem(
     val instanceId: String,
@@ -1627,11 +1673,14 @@ private fun PlaylistDetailView(
     onPlayNextTrack: ((Track) -> Unit)? = null,
     onAddToQueueTrack: ((Track) -> Unit)? = null,
     onReorderTracks: ((Int, Int) -> Unit)? = null,
-    onMenuClick: (Track) -> Unit
+    onMenuClick: (Track) -> Unit,
+    isPlaylistLocked: Boolean = true,
+    onTogglePlaylistLocked: () -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val haptic = LocalHapticFeedback.current
     val density = androidx.compose.ui.platform.LocalDensity.current
+    val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
     var showOptionsMenu by remember { mutableStateOf(false) }
     var initialMenuDialog by remember { mutableStateOf<PlaylistDialogType?>(null) }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -1660,6 +1709,15 @@ private fun PlaylistDetailView(
         saver = androidx.compose.foundation.lazy.LazyListState.Saver
     ) {
         androidx.compose.foundation.lazy.LazyListState()
+    }
+
+    LaunchedEffect(isPlaylistLocked) {
+        if (isPlaylistLocked) {
+            isDragging = false
+            draggingInstanceId = null
+            originalDragIndex = -1
+            reorderState.reset()
+        }
     }
 
     LaunchedEffect(validPlaylistTracks) {
@@ -1924,10 +1982,21 @@ private fun PlaylistDetailView(
                 state = playlistListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(isCustomSort) {
-                        if (!isCustomSort) return@pointerInput
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { startOffset ->
+                    .pointerInput(isCustomSort, isPlaylistLocked) {
+                        if (!isCustomSort || isPlaylistLocked) return@pointerInput
+                        detectContainerReorderDrag(
+                            isHandleArea = { offset ->
+                                isPlaylistReorderHandleTouch(
+                                    downOffset = offset,
+                                    viewportWidth = playlistListState.layoutInfo.viewportSize.width.toFloat(),
+                                    isRtl = layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl,
+                                    visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo
+                                        .filter { it.contentType == "song" }
+                                        .map { PlaylistReorderItemInfo(key = it.key, offset = it.offset, size = it.size) },
+                                    density = density.density
+                                )
+                            },
+                            onDragStart = { downOffset, currentOffset ->
                                 if (localItems.isEmpty() || localItems.size != validPlaylistTracks.size) {
                                     localItems.clear()
                                     localItems.addAll(
@@ -1941,7 +2010,7 @@ private fun PlaylistDetailView(
                                 }
                                 val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
                                 val hitItem = visibleSongItems.find { info ->
-                                    startOffset.y.toInt() in info.offset..(info.offset + info.size)
+                                    downOffset.y.toInt() in info.offset..(info.offset + info.size)
                                 }
                                 if (hitItem != null) {
                                     val hitInstanceId = hitItem.key as? String
@@ -1950,16 +2019,15 @@ private fun PlaylistDetailView(
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         originalDragIndex = idx
                                         draggingInstanceId = hitInstanceId
-                                        grabOffsetY = startOffset.y - hitItem.offset.toFloat()
-                                        currentPointerY = startOffset.y
+                                        grabOffsetY = downOffset.y - hitItem.offset.toFloat()
+                                        currentPointerY = currentOffset.y
                                         reorderState.reset()
                                         isDragging = true
                                     }
                                 }
                             },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                currentPointerY = change.position.y
+                            onDrag = { currentOffset ->
+                                currentPointerY = currentOffset.y
                                 checkTargetSwap(currentPointerY)
                             },
                             onDragEnd = {
@@ -2348,6 +2416,31 @@ private fun PlaylistDetailView(
                                 }
                             }
 
+                            if (isCustomSort) {
+                                IconButton(
+                                    onClick = {
+                                        val newLocked = !isPlaylistLocked
+                                        if (newLocked) {
+                                            isDragging = false
+                                            draggingInstanceId = null
+                                            originalDragIndex = -1
+                                            reorderState.reset()
+                                        }
+                                        onTogglePlaylistLocked()
+                                        Toast.makeText(
+                                            context,
+                                            if (newLocked) "Playlist locked" else "Playlist unlocked: drag the handles to reorder",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaylistLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                        contentDescription = if (isPlaylistLocked) "Unlock playlist reordering" else "Lock playlist reordering",
+                                        tint = if (isPlaylistLocked) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.75f)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2368,7 +2461,7 @@ private fun PlaylistDetailView(
                         track = track,
                         isCurrent = isCurrent,
                         isPlaying = isPlaying,
-                        isCustomSort = isCustomSort,
+                        isCustomSort = isCustomSort && !isPlaylistLocked,
                         isItemBeingDragged = isItemBeingDragged,
                         isDragging = isDragging,
                         onPlayTrack = onPlayTrackWithList,
@@ -2445,7 +2538,7 @@ private fun PlaylistDetailView(
                         }
 
                         Box(
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(40.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -3348,11 +3441,18 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    if (!isDragging) {
-                        onPlayTrack(track)
+                .combinedClickable(
+                    onClick = {
+                        if (!isDragging) {
+                            onPlayTrack(track)
+                        }
+                    },
+                    onLongClick = {
+                        if (!isDragging) {
+                            onMenuClick(track)
+                        }
                     }
-                }
+                )
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -3399,7 +3499,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
 
             if (isCustomSort) {
                 Box(
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(40.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

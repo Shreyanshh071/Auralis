@@ -54,6 +54,7 @@ fun LibraryScreen(
     onDeletePlaylistJob: (String) -> Unit = {},
     onRetryPlaylistJob: (String) -> Unit = {},
     isTrackPinned: ((String) -> Boolean)? = null,
+    onTogglePlaylistLocked: (() -> Unit)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -98,6 +99,7 @@ fun LibraryScreen(
         isExternalCreateDialogOpen = isExternalCreateDialogOpen,
         onCloseExternalCreateDialog = onCloseExternalCreateDialog,
         isTrackPinned = isTrackPinned,
+        onTogglePlaylistLocked = onTogglePlaylistLocked,
         onPinTrackToSpeedDial = onPinTrackToSpeedDial,
         modifier = modifier
     )

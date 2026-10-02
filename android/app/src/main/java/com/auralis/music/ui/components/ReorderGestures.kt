@@ -91,8 +91,10 @@ suspend fun PointerInputScope.detectReorderDrag(
  * 1. Immediate drag occurs when user touches the drag handle area (`isHandleArea` == true)
  *    and moves past touch slop, consuming the event in Initial pass so that LazyColumn
  *    scrolling and child clickables never intercept or cancel the drag gesture.
- * 2. Press-and-hold (long-press timeout) when the user touches elsewhere on a row,
- *    leaving normal taps and list scrolls intact.
+ * 2. Press-and-hold (long-press timeout) when the user rests their thumb on the handle,
+ *    initiating drag with haptic feedback.
+ * 3. Touches outside the handle area (isHandleArea == false) never initiate drag,
+ *    leaving normal taps, overflow menus, and vertical list scrolls intact.
  *
  * Operates in container coordinate space to eliminate layout jump feedback loops.
  */
@@ -116,7 +118,10 @@ suspend fun PointerInputScope.detectContainerReorderDrag(
                     while (true) {
                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
 
                         val dy = change.position.y - down.position.y
                         val dx = change.position.x - down.position.x
@@ -131,24 +136,6 @@ suspend fun PointerInputScope.detectContainerReorderDrag(
             } catch (e: androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException) {
                 dragStarted = true
             }
-        } else {
-            try {
-                withTimeout(viewConfiguration.longPressTimeoutMillis) {
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-
-                        val dy = change.position.y - down.position.y
-                        val dx = change.position.x - down.position.x
-                        if (kotlin.math.hypot(dx, dy) > touchSlop) {
-                            break
-                        }
-                    }
-                }
-            } catch (e: androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException) {
-                dragStarted = true
-            }
         }
 
         if (dragStarted) {
@@ -156,7 +143,11 @@ suspend fun PointerInputScope.detectContainerReorderDrag(
             try {
                 while (true) {
                     val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                    if (change == null) {
+                        onDragCancel()
+                        break
+                    }
                     if (!change.pressed) {
                         change.consume()
                         onDragEnd()

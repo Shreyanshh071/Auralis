@@ -1206,6 +1206,7 @@ fun AuralisApp(
                                                 isPlaying = playerUiState.isPlaying,
                                                 userName = authUiState.profile.displayName.ifBlank { "You" },
                                                 userAvatarUrl = authUiState.profile.avatarUrl,
+                                                onTogglePlaylistLocked = { libVM.togglePlaylistLocked() },
                                                 onFilterSelect = { libVM.setFilter(it) },
                                                 onCreatePlaylist = { libVM.createPlaylist(it) },
                                                 onDeletePlaylist = { libVM.deletePlaylist(it) },

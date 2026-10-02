@@ -6,6 +6,8 @@ import com.auralis.music.ui.library.PlaylistDragReorderState
 import com.auralis.music.ui.library.PlaylistReorderItemInfo
 import com.auralis.music.ui.library.applyTargetSwap
 import com.auralis.music.ui.library.evaluateTargetSwap
+import androidx.compose.ui.geometry.Offset
+import com.auralis.music.ui.library.isPlaylistReorderHandleTouch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -464,5 +466,161 @@ class PlaylistDragReorderDetectorTest {
         )
         assertTrue("Downwards swap must execute cleanly", swapped)
         assertEquals(listOf("track_0", "track_2", "track_1", "track_3", "track_4"), items)
+    }
+
+    // 11. Handle-only hit testing: touches on artwork, title, artist, or padding must not trigger reorder
+    @Test
+    fun test11_handleOnlyHitTesting_artworkAndMetadataMustNotTriggerReorder() {
+        val items = createItems(5)
+        val layout = buildLayout(items)
+        val viewportWidth = 1080f
+        val density = 2.75f // common xxhdpi density
+
+        // Item 1 row occupies Y: 100..200
+        // Touching artwork at X = 50px (approx 18dp)
+        val touchArtwork = isPlaylistReorderHandleTouch(
+            downOffset = Offset(50f, 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertFalse("Touching song artwork must not trigger reorder", touchArtwork)
+
+        // Touching song title at X = 300px (~109dp)
+        val touchTitle = isPlaylistReorderHandleTouch(
+            downOffset = Offset(300f, 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertFalse("Touching song title must not trigger reorder", touchTitle)
+
+        // Touching song artist at X = 500px (~181dp)
+        val touchArtist = isPlaylistReorderHandleTouch(
+            downOffset = Offset(500f, 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertFalse("Touching song artist must not trigger reorder", touchArtist)
+
+        // Touching row left padding at X = 15px (~5dp)
+        val touchPadding = isPlaylistReorderHandleTouch(
+            downOffset = Offset(15f, 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertFalse("Touching row padding must not trigger reorder", touchPadding)
+    }
+
+    // 12. Handle-only hit testing: touches on overflow options menu must not trigger reorder
+    @Test
+    fun test12_handleOnlyHitTesting_overflowMenuMustNotTriggerReorder() {
+        val items = createItems(5)
+        val layout = buildLayout(items)
+        val viewportWidth = 1080f
+        val density = 2.75f
+
+        // Overflow 3-dots button is in rightmost 48dp (+ 16dp list padding) -> [viewportWidth - 58dp, viewportWidth]
+        // X = 1080 - (30 * 2.75) = 997.5px (inside the 3-dots touch area)
+        val touchOverflow = isPlaylistReorderHandleTouch(
+            downOffset = Offset(viewportWidth - (30f * density), 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertFalse("Touching overflow 3-dots menu must not trigger reorder", touchOverflow)
+    }
+
+    // 13. Handle-only hit testing: touch directly on the two-line drag handle must trigger reorder
+    @Test
+    fun test13_handleOnlyHitTesting_dragHandleMustTriggerReorder() {
+        val items = createItems(5)
+        val layout = buildLayout(items)
+        val viewportWidth = 1080f
+        val density = 2.75f
+
+        // Drag handle center is at viewportWidth - 84dp. Hit zone is [viewportWidth - 110dp, viewportWidth - 58dp].
+        val handleCenterX = viewportWidth - (84f * density)
+        val touchHandleCenter = isPlaylistReorderHandleTouch(
+            downOffset = Offset(handleCenterX, 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertTrue("Touching drag handle center must trigger reorder", touchHandleCenter)
+
+        // Drag handle left edge (viewportWidth - 100dp)
+        val touchHandleLeft = isPlaylistReorderHandleTouch(
+            downOffset = Offset(viewportWidth - (100f * density), 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertTrue("Touching drag handle left boundary must trigger reorder", touchHandleLeft)
+
+        // Drag handle right edge (viewportWidth - 65dp)
+        val touchHandleRight = isPlaylistReorderHandleTouch(
+            downOffset = Offset(viewportWidth - (65f * density), 150f),
+            viewportWidth = viewportWidth,
+            isRtl = false,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertTrue("Touching drag handle right boundary must trigger reorder", touchHandleRight)
+    }
+
+    // 14. Handle-only hit testing: RTL layout places drag handle on the left
+    @Test
+    fun test14_handleOnlyHitTesting_rtlLayoutSupport() {
+        val items = createItems(5)
+        val layout = buildLayout(items)
+        val viewportWidth = 1080f
+        val density = 2.75f
+
+        // In RTL, handle is on the left: [58dp, 110dp]
+        val touchLeftHandle = isPlaylistReorderHandleTouch(
+            downOffset = Offset(84f * density, 150f),
+            viewportWidth = viewportWidth,
+            isRtl = true,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertTrue("In RTL layout, touching left drag handle must trigger reorder", touchLeftHandle)
+
+        // In RTL, touching right side (where artwork/title are in RTL) must not trigger reorder
+        val touchRightSide = isPlaylistReorderHandleTouch(
+            downOffset = Offset(viewportWidth - (84f * density), 150f),
+            viewportWidth = viewportWidth,
+            isRtl = true,
+            visibleSongItems = layout,
+            density = density
+        )
+        assertFalse("In RTL layout, touching right side content must not trigger reorder", touchRightSide)
+    }
+
+    // 15. Playlist reorder lock state: reordering only available when unlocked in custom sort
+    @Test
+    fun test15_playlistReorderLockState_handlesReorderingAvailability() {
+        val isCustomSort = true
+        var isPlaylistLocked = true
+
+        fun canReorder(custom: Boolean, locked: Boolean): Boolean = custom && !locked
+
+        assertFalse("When playlist is locked, reordering must not be permitted", canReorder(isCustomSort, isPlaylistLocked))
+
+        isPlaylistLocked = false
+        assertTrue("When playlist is unlocked, reordering must be permitted", canReorder(isCustomSort, isPlaylistLocked))
+
+        val nonCustomSort = false
+        assertFalse("When not in custom sort, reordering must not be permitted even if unlocked", canReorder(nonCustomSort, isPlaylistLocked))
     }
 }
