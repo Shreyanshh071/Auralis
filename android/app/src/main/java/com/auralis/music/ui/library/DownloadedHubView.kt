@@ -50,6 +50,7 @@ private data class DownloadFolderItem(
     val failedCount: Int,
     val jobId: String? = null,
     val coverUrl: String? = null,
+    val fallbackTrack: Track? = null,
     val isAllSongs: Boolean = false,
     val isIndividualSongs: Boolean = false
 )
@@ -80,6 +81,8 @@ fun DownloadedHubView(
         val list = mutableListOf<DownloadFolderItem>()
         val accountedTrackIds = mutableSetOf<String>()
 
+        val downloadedMap = downloadedTracks.associateBy { it.id }
+
         // 1. Jobs from PlaylistDownloadCoordinator
         for (job in downloadedJobs) {
             val allTracks = PlaylistDownloadCoordinator.tracks(job)
@@ -102,7 +105,22 @@ fun DownloadedHubView(
                 val originalPlaylist = userPlaylists.firstOrNull {
                     it.id == job.playlistId || it.title.equals(job.playlistName, ignoreCase = true)
                 }
+
+                // Check for artwork across original playlist tracks, downloaded store tracks, and job tracks
+                val candidateTrackWithArt = originalPlaylist?.tracks?.firstOrNull { !it.thumbnail.isNullOrBlank() }
+                    ?: downloadedForJob.mapNotNull { downloadedMap[it.id] }.firstOrNull { !it.thumbnail.isNullOrBlank() }
+                    ?: downloadedForJob.firstOrNull { !it.thumbnail.isNullOrBlank() }
+                    ?: allTracks.mapNotNull { downloadedMap[it.id] }.firstOrNull { !it.thumbnail.isNullOrBlank() }
+                    ?: allTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }
+                    ?: originalPlaylist?.tracks?.firstOrNull()
+                    ?: downloadedForJob.firstOrNull()
+                    ?: allTracks.firstOrNull()
+
                 val resolvedCoverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() }
+                    ?: candidateTrackWithArt?.thumbnail?.takeIf { it.isNotBlank() }
+                    ?: candidateTrackWithArt?.id?.let { trackId ->
+                        AuralisDownloadManager.getDownloadedArtworkFile(trackId)?.takeIf { it.exists() && it.length() > 500 }?.let { android.net.Uri.fromFile(it).toString() }
+                    }
 
                 list.add(
                     DownloadFolderItem(
@@ -119,7 +137,8 @@ fun DownloadedHubView(
                         completedCount = job.completedCount,
                         failedCount = job.failedCount,
                         jobId = job.jobId,
-                        coverUrl = resolvedCoverUrl
+                        coverUrl = resolvedCoverUrl,
+                        fallbackTrack = candidateTrackWithArt
                     )
                 )
             }
@@ -128,6 +147,11 @@ fun DownloadedHubView(
         // 2. Individual downloads (tracks not belonging to any downloaded playlist folder)
         val individualTracks = downloadedTracks.filter { it.id !in accountedTrackIds }
         if (individualTracks.isNotEmpty()) {
+            val candidateTrack = individualTracks.firstOrNull { !it.thumbnail.isNullOrBlank() } ?: individualTracks.firstOrNull()
+            val individualCover = candidateTrack?.thumbnail?.takeIf { it.isNotBlank() }
+                ?: candidateTrack?.id?.let { trackId ->
+                    AuralisDownloadManager.getDownloadedArtworkFile(trackId)?.takeIf { it.exists() && it.length() > 500 }?.let { android.net.Uri.fromFile(it).toString() }
+                }
             list.add(
                 DownloadFolderItem(
                     id = "individual_downloads",
@@ -139,7 +163,8 @@ fun DownloadedHubView(
                     completedCount = individualTracks.size,
                     failedCount = 0,
                     jobId = null,
-                    coverUrl = null,
+                    coverUrl = individualCover,
+                    fallbackTrack = candidateTrack,
                     isIndividualSongs = true
                 )
             )
@@ -424,7 +449,7 @@ fun DownloadedHubView(
     jobToDelete?.let { jobId ->
         AlertDialog(
             onDismissRequest = { jobToDelete = null },
-            title = { Text("Delete Playlist Downloads?") },
+            title = { Text("Remove Playlist Downloads?") },
             text = { Text("Remove downloaded tracks for this playlist from your device?") },
             confirmButton = {
                 Button(
@@ -434,7 +459,7 @@ fun DownloadedHubView(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete")
+                    Text("Remove")
                 }
             },
             dismissButton = {
@@ -612,9 +637,15 @@ private fun FolderCardItem(
                     ) {
                         val displayArt = folder.coverUrl
                             ?: folder.downloadedTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
-                        if (!displayArt.isNullOrBlank()) {
+                            ?: folder.fallbackTrack?.thumbnail
+                            ?: folder.fallbackTrack?.id?.let {
+                                AuralisDownloadManager.getDownloadedArtworkFile(it)?.takeIf { f -> f.exists() && f.length() > 500 }?.let { f -> android.net.Uri.fromFile(f).toString() }
+                            }
+
+                        if (!displayArt.isNullOrBlank() || folder.fallbackTrack != null) {
                             ArtworkCard(
                                 url = displayArt,
+                                fallbackTrack = folder.fallbackTrack,
                                 contentDescription = folder.title,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -734,7 +765,7 @@ private fun FolderCardItem(
                             }
                             if (folder.jobId != null) {
                                 DropdownMenuItem(
-                                    text = { Text("Delete downloads", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text("Remove downloaded playlist", color = MaterialTheme.colorScheme.error) },
                                     leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         showMenu = false

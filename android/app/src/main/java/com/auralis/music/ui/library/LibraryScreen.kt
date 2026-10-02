@@ -396,6 +396,8 @@ fun LibraryScreen(
                 PlaylistDetailView(
                     playlist = selectedPl,
                     savedAlbums = uiState.savedAlbums,
+                    downloadedJobs = uiState.downloadedJobs,
+                    onDeletePlaylistJob = onDeletePlaylistJob,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
                     userName = userName,
@@ -903,6 +905,8 @@ fun LibraryScreen(
             onDismiss = { selectedPlaylistForMenu = null },
             onEditPlaylist = onEditPlaylist,
             onAddToQueue = onAddToQueue,
+            downloadedJobs = uiState.downloadedJobs,
+            onDeletePlaylistJob = onDeletePlaylistJob,
             onDeletePlaylist = {
                 onDeletePlaylist(pl.id)
                 selectedPlaylistForMenu = null
@@ -1675,7 +1679,9 @@ private fun PlaylistDetailView(
     onReorderTracks: ((Int, Int) -> Unit)? = null,
     onMenuClick: (Track) -> Unit,
     isPlaylistLocked: Boolean = true,
-    onTogglePlaylistLocked: () -> Unit = {}
+    onTogglePlaylistLocked: () -> Unit = {},
+    downloadedJobs: List<com.auralis.music.data.download.PlaylistDownloadJobEntity> = emptyList(),
+    onDeletePlaylistJob: ((String) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -2573,6 +2579,8 @@ private fun PlaylistDetailView(
             },
             onEditPlaylist = onEditPlaylist,
             onAddToQueue = onAddToQueue,
+            downloadedJobs = downloadedJobs,
+            onDeletePlaylistJob = onDeletePlaylistJob,
             onDeletePlaylist = {
                 showOptionsMenu = false
                 initialMenuDialog = null
@@ -2592,7 +2600,7 @@ private fun PlaylistDetailView(
 // ============================================================================
 
 private enum class PlaylistDialogType {
-    EDIT, EXPORT, DELETE, DELETE_ALL_DOWNLOADS
+    EDIT, EXPORT, DELETE, DELETE_ALL_DOWNLOADS, REMOVE_DOWNLOADS
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2604,7 +2612,9 @@ private fun PlaylistOptionsBottomSheet(
     onEditPlaylist: ((String, String, String?, String?) -> Unit)? = null,
     onAddToQueue: ((List<Track>) -> Unit)? = null,
     onDeletePlaylist: (() -> Unit)? = null,
-    onClearAllDownloads: (() -> Unit)? = null
+    onClearAllDownloads: (() -> Unit)? = null,
+    downloadedJobs: List<com.auralis.music.data.download.PlaylistDownloadJobEntity> = emptyList(),
+    onDeletePlaylistJob: ((String) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -2614,6 +2624,22 @@ private fun PlaylistOptionsBottomSheet(
     var editDesc by remember(playlist.description) { mutableStateOf(playlist.description ?: "") }
     var editCoverUrl by remember(playlist.coverUrl) { mutableStateOf(playlist.coverUrl ?: "") }
     var selectedExportFormat by remember { mutableStateOf("CSV") }
+
+    val isSmartPlaylist = playlist.id.startsWith("smart_")
+    val isDownloadedFolder = playlist.id.startsWith("smart_downloaded_folder_")
+    val associatedJob = remember(playlist.id, playlist.title, downloadedJobs) {
+        downloadedJobs.firstOrNull { job ->
+            job.playlistId == playlist.id ||
+            job.playlistName.equals(playlist.title, ignoreCase = true) ||
+            (isDownloadedFolder && (job.jobId == playlist.id.removePrefix("smart_downloaded_folder_") || job.playlistId == playlist.id.removePrefix("smart_downloaded_folder_")))
+        }
+    }
+    val downloadedTracksCount = remember(playlist.tracks) {
+        playlist.tracks.count { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+    }
+    val hasAnyDownloads = downloadedTracksCount > 0 || (associatedJob != null && (associatedJob.completedCount > 0 || associatedJob.status == "DOWNLOADING"))
+    val isAllDownloaded = playlist.tracks.isNotEmpty() && downloadedTracksCount == playlist.tracks.size
+    val isJobActive = associatedJob?.status == "DOWNLOADING"
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -2702,8 +2728,6 @@ private fun PlaylistOptionsBottomSheet(
                     color = Color.White.copy(alpha = 0.08f),
                     modifier = Modifier.padding(top = 8.dp, bottom = 14.dp)
                 )
-
-                val isSmartPlaylist = playlist.id.startsWith("smart_")
 
                 Column(
                     modifier = Modifier
@@ -2830,35 +2854,71 @@ private fun PlaylistOptionsBottomSheet(
                         )
                     }
 
-                    // ── GROUP 2: DOWNLOAD ──
+                    // ── GROUP 2: DOWNLOAD & OFFLINE ──
                     if (playlist.id != "smart_downloaded") {
-                        val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(Color(0xFF262021))
                         ) {
-                            PlaylistActionRow(
-                                icon = if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
-                                title = if (isAllDownloaded) "Downloaded" else "Download playlist",
-                                subtitle = if (isAllDownloaded) "All ${playlist.tracks.size} songs are available offline" else "Download all songs for offline playback",
-                                iconTint = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f),
-                                titleColor = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White,
-                                onClick = {
-                                    onDismiss()
-                                    com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
-                                        context = context,
-                                        playlistId = playlist.id,
-                                        playlistName = playlist.title,
-                                        tracks = playlist.tracks
+                            if (!isDownloadedFolder) {
+                                val downloadTitle = when {
+                                    isAllDownloaded -> "Downloaded"
+                                    isJobActive -> "Downloading playlist..."
+                                    downloadedTracksCount > 0 -> "Download playlist (${playlist.tracks.size - downloadedTracksCount} remaining)"
+                                    else -> "Download playlist"
+                                }
+                                val downloadSubtitle = when {
+                                    isAllDownloaded -> "All ${playlist.tracks.size} songs are available offline"
+                                    isJobActive -> "Downloading · ${associatedJob?.completedCount ?: 0} of ${playlist.tracks.size} songs"
+                                    downloadedTracksCount > 0 -> "$downloadedTracksCount of ${playlist.tracks.size} songs downloaded"
+                                    else -> "Download all songs for offline playback"
+                                }
+                                val downloadTint = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f)
+                                val downloadTitleColor = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White
+
+                                PlaylistActionRow(
+                                    icon = if (isAllDownloaded) Icons.Default.DownloadDone else if (isJobActive) Icons.Default.Sync else Icons.Default.Download,
+                                    title = downloadTitle,
+                                    subtitle = downloadSubtitle,
+                                    iconTint = downloadTint,
+                                    titleColor = downloadTitleColor,
+                                    onClick = {
+                                        onDismiss()
+                                        com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
+                                            context = context,
+                                            playlistId = playlist.id,
+                                            playlistName = playlist.title,
+                                            tracks = playlist.tracks
+                                        )
+                                    }
+                                )
+                            }
+
+                            // Show "Remove download" if playlist has any downloaded songs or a download job
+                            if (hasAnyDownloads || isDownloadedFolder) {
+                                if (!isDownloadedFolder) {
+                                    HorizontalDivider(
+                                        color = Color.White.copy(alpha = 0.05f),
+                                        modifier = Modifier.padding(horizontal = 16.dp)
                                     )
                                 }
-                            )
+                                PlaylistActionRow(
+                                    icon = Icons.Default.Delete,
+                                    title = if (isDownloadedFolder) "Remove downloaded playlist" else "Remove download",
+                                    subtitle = "Remove offline songs from this device",
+                                    iconTint = Color(0xFFFF5252),
+                                    titleColor = Color(0xFFFF5252),
+                                    onClick = {
+                                        activeDialog = PlaylistDialogType.REMOVE_DOWNLOADS
+                                    }
+                                )
+                            }
                         }
                     }
 
-                    // ── GROUP 3: DELETE ──
+                    // ── GROUP 3: DELETE / REMOVE PLAYLIST ──
                     if (playlist.id == "smart_downloaded") {
                         Column(
                             modifier = Modifier
@@ -2886,7 +2946,7 @@ private fun PlaylistOptionsBottomSheet(
                         ) {
                             PlaylistActionRow(
                                 icon = Icons.Default.Delete,
-                                title = "Delete",
+                                title = "Remove playlist",
                                 subtitle = "Remove this playlist permanently",
                                 iconTint = Color(0xFFFF5252),
                                 titleColor = Color(0xFFFF5252),
@@ -3228,7 +3288,7 @@ private fun PlaylistOptionsBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 title = {
                     Text(
-                        text = "Delete Playlist",
+                        text = "Remove Playlist",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -3237,7 +3297,7 @@ private fun PlaylistOptionsBottomSheet(
                 },
                 text = {
                     Text(
-                        text = "Are you sure you want to delete '${playlist.title}'?",
+                        text = "Are you sure you want to remove '${playlist.title}' from your library?",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 15.sp
@@ -3248,6 +3308,10 @@ private fun PlaylistOptionsBottomSheet(
                         onClick = {
                             activeDialog = null
                             onDismiss()
+                            val targetJobId = associatedJob?.jobId
+                            if (targetJobId != null) {
+                                onDeletePlaylistJob?.invoke(targetJobId)
+                            }
                             onDeletePlaylist?.invoke()
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -3256,7 +3320,74 @@ private fun PlaylistOptionsBottomSheet(
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Delete", fontWeight = FontWeight.Bold)
+                        Text("Remove", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            activeDialog = null
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            )
+        }
+        PlaylistDialogType.REMOVE_DOWNLOADS -> {
+            AlertDialog(
+                onDismissRequest = {
+                    activeDialog = null
+                    onDismiss()
+                },
+                containerColor = CARD_DARK_BG,
+                shape = RoundedCornerShape(24.dp),
+                title = {
+                    Text(
+                        text = "Remove Downloads?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 20.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to remove offline downloads for '${playlist.title}'? This will delete the downloaded audio files from your device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 15.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            activeDialog = null
+                            onDismiss()
+                            val targetJobId = associatedJob?.jobId
+                                ?: if (isDownloadedFolder) playlist.id.removePrefix("smart_downloaded_folder_") else null
+                            if (targetJobId != null) {
+                                onDeletePlaylistJob?.invoke(targetJobId)
+                            }
+                            playlist.tracks.forEach { trk ->
+                                if (com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(trk.id)) {
+                                    com.auralis.music.data.download.AuralisDownloadManager.removeDownload(trk.id)
+                                }
+                            }
+                            if (isDownloadedFolder) {
+                                onDeletePlaylist?.invoke()
+                            }
+                            android.widget.Toast.makeText(context, "Removed downloads for '${playlist.title}'", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Remove", fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {

@@ -55,7 +55,7 @@ object AuralisDownloadManager {
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
         .followRedirects(true)
         .retryOnConnectionFailure(true)
         .build()
@@ -79,6 +79,39 @@ object AuralisDownloadManager {
     @Volatile private var store: DownloadStore? = null
     private val _playlistDownloads = MutableStateFlow<Map<String, PlaylistDownloadState>>(emptyMap())
     val playlistDownloads = _playlistDownloads.asStateFlow()
+
+    private var downloadWakeLock: android.os.PowerManager.WakeLock? = null
+    private var downloadWifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    private fun updateDownloadWakeLocks() {
+        synchronized(jobsLock) {
+            val hasActive = activeDownloadJobs.isNotEmpty()
+            val ctx = appContext ?: return
+            if (hasActive) {
+                if (downloadWakeLock == null) {
+                    val pm = ctx.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                    downloadWakeLock = runCatching {
+                        pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Auralis:DownloadManager")?.apply {
+                            setReferenceCounted(false)
+                        }
+                    }.getOrNull()
+                }
+                if (downloadWifiLock == null) {
+                    val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                    downloadWifiLock = runCatching {
+                        wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Auralis:DownloadManagerWifi")?.apply {
+                            setReferenceCounted(false)
+                        }
+                    }.getOrNull()
+                }
+                runCatching { downloadWakeLock?.acquire(45 * 60 * 1000L) }
+                runCatching { downloadWifiLock?.acquire() }
+            } else {
+                runCatching { if (downloadWakeLock?.isHeld == true) downloadWakeLock?.release() }
+                runCatching { if (downloadWifiLock?.isHeld == true) downloadWifiLock?.release() }
+            }
+        }
+    }
 
     @Synchronized
     fun init(context: Context) {
@@ -132,6 +165,7 @@ object AuralisDownloadManager {
 
     fun cancelActiveDownload(trackId: String) {
         synchronized(jobsLock) { activeDownloadJobs[trackId] }?.cancel()
+        updateDownloadWakeLocks()
     }
 
     private fun requestTrack(track: Track): Deferred<TrackDownloadResult> = synchronized(jobsLock) {
@@ -157,6 +191,7 @@ object AuralisDownloadManager {
         }
         activeDownloadJobs[track.id] = job
         _activeDownloads.update { it + (track.id to 0f) }
+        updateDownloadWakeLocks()
         job.invokeOnCompletion {
             synchronized(jobsLock) {
                 if (activeDownloadJobs[track.id] === job) {
@@ -164,6 +199,7 @@ object AuralisDownloadManager {
                     _activeDownloads.update { it - track.id }
                 }
             }
+            updateDownloadWakeLocks()
         }
         job.start()
         job

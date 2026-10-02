@@ -1,10 +1,15 @@
 package com.auralis.music.data.download
 
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import com.auralis.music.domain.model.Track
 import java.io.File
+import java.io.FileInputStream
 import java.security.MessageDigest
 
 object PlaylistDownloadPaths {
@@ -42,12 +47,71 @@ object PlaylistDownloadPaths {
 }
 
 class PlaylistDownloadFiles(private val context: Context) {
-    private val managed = ManagedPlaylistDownloadStorage(context.filesDir)
+    fun publish(source: File, folderName: String, fileName: String): Pair<String, Long> {
+        require(source.isFile && source.length() > 1024) { "Source download is missing or incomplete" }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            publishMediaStore(source, folderName, fileName)
+        } else {
+            @Suppress("DEPRECATION")
+            val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val dir = PlaylistDownloadPaths.legacyFolder(root, folderName)
+            check(dir.isDirectory || dir.mkdirs()) { "Cannot create playlist download folder" }
+            val target = PlaylistDownloadPaths.legacyFile(root, folderName, fileName)
+            val partial = File(dir, ".${target.name}.partial")
+            partial.delete()
+            source.copyTo(partial, overwrite = true)
+            check(partial.length() == source.length()) { "Playlist download copy is incomplete" }
+            if (target.exists()) target.delete()
+            check(partial.renameTo(target)) { "Unable to finalize playlist download" }
+            target.toURI().toString() to target.length()
+        }
+    }
 
-    // Managed offline copies are app data, not public exports. Android removes
-    // this directory on Clear storage/uninstall, just like the global audio store.
-    fun publish(source: File, folderName: String, fileName: String): Pair<String, Long> =
-        managed.publish(source, folderName, fileName)
+    private fun publishMediaStore(source: File, folderName: String, fileName: String): Pair<String, Long> {
+        val resolver = context.contentResolver
+        val relativePath = PlaylistDownloadPaths.relativePath(folderName)
+        val displayName = PlaylistDownloadPaths.sanitize(fileName, "Track.m4a")
+        findPublished(relativePath, displayName)?.let { (existing, bytes) ->
+            if (bytes == source.length() && verify(existing.toString())) return existing.toString() to bytes
+            resolver.delete(existing, null, null)
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = checkNotNull(resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)) {
+            "Unable to create public playlist download"
+        }
+        try {
+            resolver.openOutputStream(uri, "w")!!.use { output -> FileInputStream(source).use { it.copyTo(output) } }
+            val completed = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+            check(resolver.update(uri, completed, null, null) == 1) { "Unable to finalize public playlist download" }
+            check(verify(uri.toString())) { "Published playlist download could not be verified" }
+            return uri.toString() to source.length()
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+    }
+
+    private fun findPublished(relativePath: String, displayName: String): Pair<Uri, Long>? {
+        val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.SIZE)
+        val normalizedPath = if (relativePath.endsWith("/")) relativePath else "$relativePath/"
+        val altPath = normalizedPath.removeSuffix("/")
+        val selection = "(${MediaStore.MediaColumns.RELATIVE_PATH} = ? OR ${MediaStore.MediaColumns.RELATIVE_PATH} = ?) AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.IS_PENDING} = 0"
+        return context.contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            arrayOf(normalizedPath, altPath, displayName),
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) null
+            else ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0)) to cursor.getLong(1)
+        }
+    }
 
     fun verify(uriString: String?): Boolean {
         if (uriString.isNullOrBlank()) return false
@@ -67,7 +131,17 @@ class PlaylistDownloadFiles(private val context: Context) {
         }
     }
 
-    fun deleteFolderIfEmpty(folderName: String) = managed.deleteFolderIfEmpty(folderName)
+    fun deleteFolderIfEmpty(folderName: String) {
+        val managedFolder = File(context.filesDir, "playlist_downloads/${PlaylistDownloadPaths.sanitize(folderName)}")
+        runCatching {
+            if (managedFolder.isDirectory && managedFolder.listFiles().isNullOrEmpty()) managedFolder.delete()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return
+        @Suppress("DEPRECATION")
+        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val folder = File(root, "Auralis/${PlaylistDownloadPaths.sanitize(folderName)}")
+        runCatching { if (folder.isDirectory && folder.listFiles().isNullOrEmpty()) folder.delete() }
+    }
 }
 
 /** File-only implementation so persistence and boundary checks can be tested without Android. */
@@ -89,8 +163,6 @@ internal class ManagedPlaylistDownloadStorage(filesDir: File) {
         try {
             source.copyTo(partial, overwrite = true)
             check(partial.length() == source.length()) { "Playlist download copy is incomplete" }
-            // Android rename is atomic and replaces the destination. Never delete
-            // the old copy first: a failed copy/finalization must leave it intact.
             check(partial.renameTo(target)) { "Unable to finalize managed playlist download" }
             return target.toURI().toString() to target.length()
         } finally {

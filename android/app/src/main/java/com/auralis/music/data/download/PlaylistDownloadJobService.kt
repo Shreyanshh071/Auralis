@@ -14,11 +14,23 @@ class PlaylistDownloadJobService : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         val jobId = params.extras.getString("jobId") ?: return false
+        val repository = PlaylistDownloadRepository(applicationContext)
+        val initial = runBlocking(Dispatchers.IO) { repository.get(jobId) }
+        if (initial != null) {
+            val tracks = runBlocking(Dispatchers.IO) { repository.tracks(initial) }
+            val current = tracks.firstOrNull { it.id == initial.currentTrackId }?.title
+            val currentTrackIndex = tracks.indexOfFirst { it.id == initial.currentTrackId }.let { if (it >= 0) it + 1 else null }
+            setNotification(
+                params,
+                PlaylistDownloadNotifications.id(jobId),
+                PlaylistDownloadNotifications.running(applicationContext, initial, current, tracks.size, currentTrackIndex),
+                JOB_END_NOTIFICATION_POLICY_DETACH
+            )
+        }
         val task = scope.launch {
-            val repository = PlaylistDownloadRepository(applicationContext)
             try {
-                val initial = repository.get(jobId) ?: return@launch
-                publish(params, initial)
+                val initialJob = repository.get(jobId) ?: return@launch
+                publish(params, initialJob)
                 val final = PlaylistDownloadExecutor(applicationContext).execute(jobId) { publish(params, it) }
                 setNotification(
                     params,
@@ -51,6 +63,10 @@ class PlaylistDownloadJobService : JobService() {
             PlaylistDownloadNotifications.running(applicationContext, job, current, tracks.size, currentTrackIndex),
             JOB_END_NOTIFICATION_POLICY_DETACH
         )
+    }
+
+    override fun onNetworkChanged(params: JobParameters) {
+        // Prevent system warning and allow transfer to adapt across network handoffs
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
