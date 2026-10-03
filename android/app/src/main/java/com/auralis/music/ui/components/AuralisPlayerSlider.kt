@@ -9,12 +9,7 @@ package com.auralis.music.ui.components
 
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -33,10 +28,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -99,17 +97,21 @@ fun AuralisPlayerSlider(
 
     val isWaveStyle = normalizedStyle == "Wavy" || normalizedStyle == "Squiggly"
 
-    // Infinite phase progress (0f..1f) for the Bézier wave cycle
-    val infiniteTransition = rememberInfiniteTransition(label = "sliderWaveTransition")
-    val wavePhaseFraction by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "sliderWavePhase"
-    )
+    // Wave phase is derived from the shared frame clock, not from a per-instance animator.
+    // Player, Lyrics and Queue each host their own slider in the same spot, and a tab switch
+    // shows two at once while one fades. Per-instance phases started at composition, so the
+    // overlap drew two out-of-step waves (a thick, doubled line) and every reopened panel
+    // restarted its wave. Every instance reads the same frame time, so they stay on one crest.
+    // Advances only while playing; paused, the wave flattens (amplitude 0) where it stopped.
+    var waveFrameNanos by remember { mutableLongStateOf(0L) }
+    if (isWaveStyle) {
+        LaunchedEffect(isPlaying) {
+            if (!isPlaying) return@LaunchedEffect
+            while (true) {
+                withFrameNanos { waveFrameNanos = it }
+            }
+        }
+    }
 
     // Wave amplitude animation: flattens to 0.dp when paused, balanced 2.8.dp when playing
     val targetAmplitude = if (!isWaveStyle || !isPlaying) {
@@ -130,21 +132,6 @@ fun AuralisPlayerSlider(
         label = "thumbRadiusAnim"
     )
 
-    // Squiggly drift: 24px per second, advanced frame by frame only while playing,
-    // wrapping every wavelength. Separate from the Wavy style's faster Bézier cycle.
-    var squigglyPhasePx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    if (normalizedStyle == "Squiggly") {
-        androidx.compose.runtime.LaunchedEffect(isPlaying) {
-            if (!isPlaying) return@LaunchedEffect
-            var last = androidx.compose.runtime.withFrameMillis { it }
-            while (true) {
-                androidx.compose.runtime.withFrameMillis { now ->
-                    squigglyPhasePx = (squigglyPhasePx + (now - last) / 1000f * SQUIGGLY_PHASE_SPEED_PX) % SQUIGGLY_WAVELENGTH_PX
-                    last = now
-                }
-            }
-        }
-    }
 
     val cachedWavePath = remember { Path() }
     val cachedInactiveWavePath = remember { Path() }
@@ -339,7 +326,7 @@ fun AuralisPlayerSlider(
                             if (ampPx > 0.2f) {
                                 val totalSpan = (thumbX - startX).coerceAtLeast(1f)
                                 val endTransitionLength = (waveLengthPx * 0.9f).coerceAtMost(totalSpan * 0.6f).coerceAtLeast(1f)
-                                val startAngle = -wavePhaseFraction * (2 * PI).toFloat()
+                                val startAngle = -wavyPhaseFraction(waveFrameNanos) * (2 * PI).toFloat()
                                 val startY = centerY + sin(startAngle) * ampPx
 
                                 cachedWavePath.reset()
@@ -444,7 +431,7 @@ fun AuralisPlayerSlider(
                         val lineAmplitude = SQUIGGLY_AMPLITUDE_PX
                         val heightFraction = (animatedAmplitude.value / 2.8f).coerceIn(0f, 1f)
                         val transitionLength = 1.5f * waveLength
-                        val phaseOffset = squigglyPhasePx
+                        val phaseOffset = squigglyPhasePx(waveFrameNanos)
 
                         fun waveY(x: Float): Float {
                             val coeff = ((thumbX + transitionLength / 2f - x) / transitionLength).coerceIn(0f, 1f)
@@ -533,3 +520,14 @@ private fun formatDuration(millis: Long): String {
 private const val SQUIGGLY_WAVELENGTH_PX = 80f
 private const val SQUIGGLY_AMPLITUDE_PX = 6f
 private const val SQUIGGLY_PHASE_SPEED_PX = 24f
+
+// Wavy: one Bézier cycle every 1.5s. Squiggly: drifts 24px/s, wrapping each wavelength.
+private const val WAVY_CYCLE_NANOS = 1_500_000_000L
+private const val SQUIGGLY_CYCLE_NANOS = (SQUIGGLY_WAVELENGTH_PX / SQUIGGLY_PHASE_SPEED_PX * 1_000_000_000L).toLong()
+
+// Modulo on the Long first: frame times are ~1e13ns, past Float precision.
+private fun wavyPhaseFraction(frameNanos: Long): Float =
+    (frameNanos % WAVY_CYCLE_NANOS).toFloat() / WAVY_CYCLE_NANOS
+
+private fun squigglyPhasePx(frameNanos: Long): Float =
+    (frameNanos % SQUIGGLY_CYCLE_NANOS).toFloat() / SQUIGGLY_CYCLE_NANOS * SQUIGGLY_WAVELENGTH_PX
