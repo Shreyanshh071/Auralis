@@ -409,40 +409,45 @@ object AudioStreamResolver {
         quality: com.auralis.music.domain.model.AudioQuality,
         context: android.content.Context? = null
     ): org.schabi.newpipe.extractor.stream.AudioStream? {
-        val validStreams = audioStreams.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
-        if (validStreams.isEmpty()) return null
+        val playable = audioStreams.filter { !it.content.isNullOrBlank() && !isHostBlacklisted(it.content) }
+        if (playable.isEmpty()) return null
 
-        val isWifi = context?.let { ctx ->
-            try {
-                val cm = ctx.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                val network = cm?.activeNetwork
-                val caps = cm?.getNetworkCapabilities(network)
-                caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
-            } catch (_: Exception) {
-                true
-            }
-        } ?: true
+        // Auto-dubbed and audio-description tracks share the itags of the original,
+        // so max-bitrate alone can land on another language. Keep the original track
+        // (or untyped, single-track videos) whenever one exists.
+        val originalTrack = playable.filter {
+            it.audioTrackType == null || it.audioTrackType == org.schabi.newpipe.extractor.stream.AudioTrackType.ORIGINAL
+        }
+        val validStreams = originalTrack.ifEmpty { playable }
 
-        return when (quality) {
+        val selected = when (quality) {
             com.auralis.music.domain.model.AudioQuality.LOW -> {
                 // Minimum bitrate for mobile data saving (~48-64 kbps Opus/AAC)
-                validStreams.minByOrNull { it.averageBitrate }
+                validStreams.minByOrNull { streamKbps(it) }
             }
             com.auralis.music.domain.model.AudioQuality.STANDARD -> {
-                // Target ~128 kbps (AAC itag 140 or Opus itag 250)
-                validStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - 128_000) }
+                // Target ~128 kbps (AAC itag 140)
+                validStreams.minByOrNull { kotlin.math.abs(streamKbps(it) - 128) }
             }
-            com.auralis.music.domain.model.AudioQuality.HIGH -> {
-                // Highest bitrate available (~160 kbps Opus)
-                validStreams.maxByOrNull { it.averageBitrate }
-            }
+            // AUTO takes the best free stream on any network: Opus 251 (~160 kbps)
+            // when YouTube serves it, else AAC 140.
+            com.auralis.music.domain.model.AudioQuality.HIGH,
             com.auralis.music.domain.model.AudioQuality.AUTO -> {
-                if (isWifi) {
-                    validStreams.maxByOrNull { it.averageBitrate }
-                } else {
-                    validStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - 128_000) }
-                }
+                validStreams.maxByOrNull { streamKbps(it) }
             }
         } ?: validStreams.firstOrNull()
+
+        selected?.let {
+            diagLog(
+                "[Diag-Quality] [$quality] itag=${it.itag} codec=${it.codec} ${streamKbps(it)}kbps " +
+                    "track=${it.audioTrackType ?: "default"} (of ${audioStreams.size} streams, " +
+                    "itags=${validStreams.map { s -> s.itag }})"
+            )
+        }
+        return selected
     }
+
+    /** NewPipe's averageBitrate is kbps; fall back to the DASH bitrate (bps) when it's unknown. */
+    private fun streamKbps(stream: org.schabi.newpipe.extractor.stream.AudioStream): Int =
+        stream.averageBitrate.takeIf { it > 0 } ?: (stream.bitrate / 1000)
 }
