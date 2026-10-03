@@ -177,7 +177,9 @@ class LyricsIntervalIndicatorTest {
         val metroStroke = com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroStrokeWidth
         val metroGap = com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroTrackGapSize
 
-        assertEquals(34.dp, stdSize)
+        // Thinner stroke, sized so the stroke centre sits at Metro's radius (same wave).
+        assertEquals(38.dp, stdSize)
+        assertEquals(metroSize - metroStroke, stdSize - stdStroke)
         assertEquals(3.0.dp, stdStroke)
         assertEquals(3.0.dp, stdGap)
 

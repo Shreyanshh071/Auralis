@@ -1476,7 +1476,12 @@ private fun LyricLineRow(
 ) {
     val isPlain = syncType == SyncType.PLAIN
 
-    val targetBlur = computeLyricsProgressiveBlur(
+    val isFluid = animationMode == LyricsAnimationMode.FLUID
+    val fluidFalloff = com.auralis.music.ui.lyrics.renderers.fluidFalloffIndex(distanceFromCurrent)
+    // Fluid's distance falloff is its own blur curve, but still only when "Standard lyrics blur" is on.
+    val targetBlur = if (isFluid && standardBlur && isSynced && !isPlain && !isUserInteracting && !isSelected) {
+        com.auralis.music.ui.lyrics.renderers.FluidFalloffBlurDp[fluidFalloff]
+    } else computeLyricsProgressiveBlur(
         standardBlur = standardBlur,
         isSynced = isSynced,
         isPlain = isPlain,
@@ -1497,6 +1502,7 @@ private fun LyricLineRow(
 
     val targetScale = when {
         isPlain || isCurrent || isSelected -> 1.0f
+        isFluid -> 0.98f
         isPast -> when (pastDistance) {
             1 -> 0.98f
             2 -> 0.96f
@@ -1516,7 +1522,15 @@ private fun LyricLineRow(
 
     val hasWordTiming = !effectiveWords.isNullOrEmpty()
 
-    val targetAlpha = computeClassicLyricsLayerAlpha(isPlain, isCurrent, isPast, lyricsMode)
+    val targetAlpha = when {
+        // Browsing (scrolled by hand, until Re-sync) only drops the blur so lines stay readable;
+        // the dimming stays, or every line lit up equally and the sung one stopped standing out.
+        isFluid && !isPlain && isCurrent -> 1f
+        isFluid && !isPlain && isUserInteracting ->
+            com.auralis.music.ui.lyrics.renderers.FluidFalloffAlpha[fluidFalloff].coerceAtMost(0.55f)
+        isFluid && !isPlain -> com.auralis.music.ui.lyrics.renderers.FluidFalloffAlpha[fluidFalloff]
+        else -> computeClassicLyricsLayerAlpha(isPlain, isCurrent, isPast, lyricsMode)
+    }
     val animAlpha by animateFloatAsState(
         targetValue = targetAlpha,
         animationSpec = motionTween(AuralisDuration.Standard, AuralisEasing.Standard),
@@ -1528,6 +1542,7 @@ private fun LyricLineRow(
 
     val scaleRatio = (fontSizeSp / 22f).coerceIn(0.7f, 1.6f)
     val baseFontSize = when {
+        isFluid && !isPlain -> (26f * scaleRatio).sp
         isPlain -> (20f * scaleRatio).sp
         isCurrent -> if (lyricsMode == LyricsMode.CINEMA) (28f * scaleRatio).sp else (21f * scaleRatio).sp
         else -> if (lyricsMode == LyricsMode.CINEMA) (22f * scaleRatio).sp else (20f * scaleRatio).sp
@@ -1535,12 +1550,18 @@ private fun LyricLineRow(
     val fontSize = if (line.isBackground) (baseFontSize.value * 0.70f).sp else baseFontSize
     val fontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal
     val fontWeight = when {
+        isFluid && !line.isBackground -> FontWeight.Bold
         line.isBackground -> if (isCurrent) FontWeight.Bold else FontWeight.SemiBold
         isCurrent -> FontWeight.ExtraBold
         else -> FontWeight.SemiBold
     }
 
-    val textColor = Color.White.copy(
+    // Fluid: a line already sung stays lit and one still to come is drawn in the same dim tone as
+    // the unsung part of the playing line; the distance falloff (layer alpha) then applies to both.
+    // Upcoming lines in full white read as lit up even after the falloff.
+    val textColor = if (isFluid) {
+        if (isPast) Color.White else Color.White.copy(alpha = com.auralis.music.ui.lyrics.renderers.FluidUnsungAlpha)
+    } else Color.White.copy(
         alpha = computeClassicLyricsTextAlpha(line.isBackground, isCurrent, isPast)
     )
 
@@ -1625,12 +1646,15 @@ private fun LyricLineRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            // Blur outermost. Under the alpha layer it was cut off at the line's own rectangle (an
+            // alpha < 1 layer composites within its bounds), which is what drew every blurred line
+            // as a box. Metro's view blurs the line directly and never had it.
+            .then(blurModifier)
             .graphicsLayer {
                 alpha = effectiveAlpha
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .then(blurModifier)
             .padding(
                 vertical = if (line.isBackground) 1.dp
                            else (3.dp * (lineSpacingMultiplier / 1.3f).coerceIn(0.85f, 1.4f)),
@@ -1858,6 +1882,18 @@ private fun LyricLineRow(
                         lineSpacingMultiplier = lineSpacingMultiplier,
                         textAlign = textAlign,
                         alignment = horizontalAlignment
+                    )
+                }
+                LyricsAnimationMode.FLUID -> {
+                    val fluidPosition = remember(positionState, offsetMs) {
+                        derivedStateOf { positionState.value + offsetMs }
+                    }
+                    com.auralis.music.ui.lyrics.renderers.FluidLyricLine(
+                        line = line,
+                        words = effectiveWords,
+                        positionMs = fluidPosition,
+                        style = textStyle,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
                 LyricsAnimationMode.METRO_LYRICS -> {

@@ -80,7 +80,8 @@ enum class PlayerBackgroundStyle(val displayName: String) {
     GRADIENT("Gradient"),
     BLUR("Blur"),
     GLOW_MOTION("Glow motion"),
-    APPLE_MUSIC("Apple Music"),
+    // Mini-player only: real liquid glass on the mini player alone (stored key unchanged).
+    APPLE_MUSIC("Liquid glass"),
     LIVE_MESH("Live Mesh");
 
     companion object {

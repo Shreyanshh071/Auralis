@@ -7,6 +7,7 @@ import com.auralis.music.data.local.dao.TrackDao
 import com.auralis.music.data.local.entity.PlaybackEventEntity
 import com.auralis.music.data.local.mapper.toDomain
 import com.auralis.music.data.local.mapper.toEntity
+import com.auralis.music.domain.model.AlbumStat
 import com.auralis.music.domain.model.ArtistStat
 import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.StatsOverview
@@ -106,6 +107,34 @@ class StatsRepositoryImpl(
                         timeListenedMs = events.sumOf { it.event.playTimeMs }
                     )
                 }
+                .sortedByDescending { it.timeListenedMs }
+                .take(limit)
+        }.flowOn(Dispatchers.Default)
+    }
+
+    override fun observeTopAlbums(
+        fromTimestamp: Long,
+        toTimestamp: Long,
+        limit: Int
+    ): Flow<List<AlbumStat>> {
+        return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
+            list.mapNotNull { e ->
+                val album = e.track.album?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                album.lowercase() to e
+            }
+                .groupBy({ it.first }, { it.second })
+                .map { (_, events) ->
+                    // Artwork and spelling from the album's most played track.
+                    val representative = events.groupBy { it.track.id }
+                        .maxByOrNull { (_, e) -> e.sumOf { it.event.playTimeMs } }!!.value.first().track
+                    AlbumStat(
+                        title = representative.album!!.trim(),
+                        artist = displayArtist(representative.artist),
+                        thumbnailUrl = representative.thumbnail.takeIf { it.isNotBlank() },
+                        timeListenedMs = events.sumOf { it.event.playTimeMs }
+                    )
+                }
+                .filter { it.timeListenedMs > 0 }
                 .sortedByDescending { it.timeListenedMs }
                 .take(limit)
         }.flowOn(Dispatchers.Default)

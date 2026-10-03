@@ -9,7 +9,7 @@ object TitleCleaner {
     private val VERSION_KEYWORDS = listOf(
         "remix", "mix", "club mix", "vip mix", "extended mix", "extended version", "extended",
         "acoustic", "acoustic version", "live", "live version", "live at", "live in",
-        "instrumental", "unplugged", "orchestral", "piano version", "slowed + reverb",
+        "instrumental", "karaoke", "off vocal", "unplugged", "orchestral", "piano version", "slowed + reverb",
         "slowed and reverb", "slowed", "sped up", "speed up", "radio edit",
         "taylor's version", "taylors version", "tv",
         "cover", "re-recorded", "part 1", "part 2", "part 3", "vol 1", "vol 2",

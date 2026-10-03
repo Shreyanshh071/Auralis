@@ -1,5 +1,6 @@
 package com.auralis.music.domain.repository
 
+import com.auralis.music.domain.model.AlbumStat
 import com.auralis.music.domain.model.ArtistStat
 import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.StatsOverview
@@ -11,6 +12,7 @@ interface StatsRepository {
     fun observeStatsOverview(fromTimestamp: Long, toTimestamp: Long): Flow<StatsOverview>
     fun observeTopSongs(fromTimestamp: Long, toTimestamp: Long, limit: Int = 20): Flow<List<SongStat>>
     fun observeTopArtists(fromTimestamp: Long, toTimestamp: Long, limit: Int = 10): Flow<List<ArtistStat>>
+    fun observeTopAlbums(fromTimestamp: Long, toTimestamp: Long, limit: Int = 5): Flow<List<AlbumStat>>
     fun observeFirstEventTimestamp(): Flow<Long?>
     suspend fun removeEstimatedListens()
     /** Joins listens that older builds stored as 10s pieces (see ListenChunkMerger). */

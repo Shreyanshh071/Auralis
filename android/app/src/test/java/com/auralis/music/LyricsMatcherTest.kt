@@ -59,4 +59,43 @@ class LyricsMatcherTest {
         )
         assertFalse(rejected)
     }
+
+    @Test
+    fun `orchestral version never takes the vocal original's lyrics`() {
+        // Same artist, same core title, near enough in length: only the version differs.
+        val vocal = LyricsMatcher.calculateConfidence(
+            queryTitle = "Let Down - Orchestral Version",
+            queryArtist = "Some Artist",
+            candidateTitle = "Let Down",
+            candidateArtist = "Some Artist",
+            queryDurationSec = 210,
+            candidateDurationSec = 205
+        )
+        assertEquals(0, vocal)
+
+        val sameVersion = LyricsMatcher.calculateConfidence(
+            queryTitle = "Let Down - Orchestral Version",
+            queryArtist = "Some Artist",
+            candidateTitle = "Let Down (Orchestral Version)",
+            candidateArtist = "Some Artist",
+            queryDurationSec = 210,
+            candidateDurationSec = 209
+        )
+        assertTrue(sameVersion >= 50)
+    }
+
+    @Test
+    fun `karaoke and instrumental versions reject the sung song`() {
+        for (tag in listOf("Karaoke", "Instrumental")) {
+            val confidence = LyricsMatcher.calculateConfidence(
+                queryTitle = "Blinding Lights ($tag)",
+                queryArtist = "The Weeknd",
+                candidateTitle = "Blinding Lights",
+                candidateArtist = "The Weeknd",
+                queryDurationSec = 200,
+                candidateDurationSec = 200
+            )
+            assertEquals(tag, 0, confidence)
+        }
+    }
 }

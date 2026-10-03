@@ -7,6 +7,8 @@ import com.auralis.music.domain.model.OptionStats
 import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.StatsOverview
 import com.auralis.music.domain.repository.StatsRepository
+import com.auralis.music.ui.screens.wrapped.WrappedState
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -144,6 +147,46 @@ class StatsViewModel(
 
     val topArtist: StateFlow<ArtistStat?> = topArtists.map { it.firstOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _wrappedState = MutableStateFlow(WrappedState())
+    val wrappedState: StateFlow<WrappedState> = _wrappedState
+
+    /** Loads this calendar year's listening for Wrapped. Measured listening time only. */
+    fun loadWrapped() {
+        viewModelScope.launch {
+            val zone = ZoneId.systemDefault()
+            val year = LocalDate.now(zone).year
+            val from = LocalDate.of(year, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val to = System.currentTimeMillis()
+            _wrappedState.update { it.copy(year = year, isLoading = true) }
+
+            val overview = async { statsRepository.observeStatsOverview(from, to).first() }
+            val songs = async { statsRepository.observeTopSongs(from, to, limit = 100).first() }
+            val albums = async { statsRepository.observeTopAlbums(from, to, limit = 5).first() }
+            val artists = async { statsRepository.observeTopArtists(from, to, limit = 5).first() }
+
+            val artistsWithPhotos = artists.await().map { artist ->
+                if (artist.thumbnailUrl != null) return@map artist
+                val photo = com.auralis.music.data.network.ArtistPhotoProvider.getCachedPhoto(artist.name)
+                    ?: runCatching {
+                        com.auralis.music.data.network.ArtistPhotoProvider.resolveArtistPhoto(artist.name)
+                    }.getOrNull()
+                if (photo != null) artist.copy(thumbnailUrl = photo) else artist
+            }
+            val stats = overview.await()
+            _wrappedState.value = WrappedState(
+                year = year,
+                isLoading = false,
+                totalMinutes = stats.totalPlayTimeMs / 60_000L,
+                uniqueSongCount = stats.songsCount,
+                uniqueAlbumCount = stats.albumsCount,
+                uniqueArtistCount = stats.artistsCount,
+                topSongs = songs.await(),
+                topAlbums = albums.await(),
+                topArtists = artistsWithPhotos
+            )
+        }
+    }
 
     fun selectOption(option: OptionStats) {
         selectedOption.value = option

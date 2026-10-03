@@ -136,6 +136,8 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -423,6 +425,16 @@ fun ClassicPlayerView(
                                     .background(Color.Black.copy(alpha = 0.35f)),
                                 contentAlignment = Alignment.Center
                             ) {
+                                // Small cover first: usually already in memory from the queue / mini
+                                // player, so a song change never shows an empty box while the
+                                // high-res artwork below fades in over it.
+                                ArtworkCard(
+                                    url = pageTrack.thumbnail,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cornerRadius = 0.dp,
+                                    contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
+                                    crossfade = false
+                                )
                                 AsyncImage(
                                     model = artworkRequest,
                                     contentDescription = pageTrack.title,
@@ -922,7 +934,9 @@ fun ClassicCompactPlaybackControls(
                 .fillMaxWidth()
                 .padding(horizontal = 28.dp)
                 .graphicsLayer { alpha = controlsAlpha },
-            horizontalArrangement = Arrangement.SpaceBetween,
+            // Without the side pills the three transport buttons sit grouped in the middle.
+            horizontalArrangement = if (showTransportPills) Arrangement.SpaceBetween
+                else Arrangement.spacedBy(38.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showTransportPills && onToggleShuffle != null) {
@@ -942,49 +956,41 @@ fun ClassicCompactPlaybackControls(
                 }
             }
 
-            // Previous / Fast Rewind (size 54dp, icon 36dp)
+            // Previous (64dp target, bold rounded double triangle)
             IconButton(
                 onClick = onPreviousClick,
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(64.dp)
                     .tactileBounce(scaleDown = 0.85f)
+                    .semantics { contentDescription = "Previous" }
             ) {
-                Icon(
-                    imageVector = Icons.Filled.FastRewind,
-                    contentDescription = "Previous",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp)
-                )
+                ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
             }
 
-            // Play / Pause (size 72dp, icon 54dp - Exact match to main player)
+            // Play / Pause (76dp target)
             IconButton(
                 onClick = onPlayPauseClick,
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(76.dp)
                     .tactileBounce(scaleDown = 0.88f)
+                    .semantics { contentDescription = if (uiState.isPlaying) "Pause" else "Play" }
             ) {
-                Icon(
-                    imageVector = if (uiState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (uiState.isPlaying) "Pause" else "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(54.dp)
-                )
+                if (uiState.isPlaying) {
+                    ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 36.dp))
+                } else {
+                    ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp, height = 38.dp))
+                }
             }
 
-            // Next / Fast Forward (size 54dp, icon 36dp)
+            // Next (64dp target)
             IconButton(
                 onClick = onNextClick,
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(64.dp)
                     .tactileBounce(scaleDown = 0.85f)
+                    .semantics { contentDescription = "Next" }
             ) {
-                Icon(
-                    imageVector = Icons.Filled.FastForward,
-                    contentDescription = "Next",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp)
-                )
+                ClassicSkipGlyph(forward = true, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
             }
 
             if (showTransportPills && onToggleRepeat != null) {
@@ -1611,6 +1617,7 @@ private fun ClassicPlayerTabOverlay(
     onToggleRepeat: () -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
     onReorderQueue: ((Int, Int) -> Unit)?,
+    onRemoveQueueItem: ((Int) -> Unit)? = null,
     onShowQueueTrackOptions: (Track) -> Unit,
     actualShowOutputPicker: () -> Unit,
     onShowSleepDialog: () -> Unit,
@@ -1676,6 +1683,7 @@ private fun ClassicPlayerTabOverlay(
                 // flight and tore down the queue on the same frames the new song was loading.
                 onSelectQueueTrack = onSelectQueueTrack,
                 onReorderQueue = onReorderQueue,
+                onRemoveQueueItem = onRemoveQueueItem,
                 onShowTrackOptions = onShowQueueTrackOptions,
                 onToggleShuffle = onToggleShuffle,
                 onToggleRepeat = onToggleRepeat,
@@ -1729,6 +1737,7 @@ fun ClassicPlayerContainer(
     onDismiss: () -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
     onReorderQueue: ((Int, Int) -> Unit)? = null,
+    onRemoveQueueItem: ((Int) -> Unit)? = null,
     onShowTrackOptions: () -> Unit,
     onShowQueueTrackOptions: (Track) -> Unit = {},
     onShowSleepDialog: () -> Unit,
@@ -1880,6 +1889,7 @@ fun ClassicPlayerContainer(
                                     onToggleRepeat = onToggleRepeat,
                                     onSelectQueueTrack = onSelectQueueTrack,
                                     onReorderQueue = onReorderQueue,
+                                    onRemoveQueueItem = onRemoveQueueItem,
                                     onShowQueueTrackOptions = onShowQueueTrackOptions,
                                     actualShowOutputPicker = actualShowOutputPicker,
                                     onShowSleepDialog = onShowSleepDialog,
@@ -2379,6 +2389,7 @@ private fun ClassicQueueContent(
     queue: List<Track>,
     onSelectQueueTrack: (Int) -> Unit,
     onReorderQueue: ((Int, Int) -> Unit)? = null,
+    onRemoveQueueItem: ((Int) -> Unit)? = null,
     onShowTrackOptions: (Track) -> Unit,
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
@@ -2523,45 +2534,7 @@ private fun ClassicQueueContent(
             )
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(top = 18.dp, bottom = 10.dp)
-                .graphicsLayer { contentLayer() },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "Playing from",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.72f)
-                )
-                Text(
-                    text = uiState.queueSourceTitle ?: "Queue",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            IconButton(onClick = {
-                queueLocked = !queueLocked
-                Toast.makeText(
-                    queueContext,
-                    if (queueLocked) "Queue locked" else "Queue unlocked: drag the handles to reorder",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }) {
-                Icon(
-                    imageVector = if (queueLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = if (queueLocked) "Unlock queue reordering" else "Lock queue reordering",
-                    tint = if (queueLocked) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.75f)
-                )
-            }
-        }
+        Spacer(Modifier.height(8.dp))
 
         // Controls overlay the list (like the lyrics tab) instead of sitting below it.
         // Resizing the list on every frame of the show/hide animation re-laid out its rows and
@@ -2641,8 +2614,9 @@ private fun ClassicQueueContent(
                     lazyListState = queueListState,
                     scroller = scroller
                 ) { from, to ->
-                    val fromIndex = from.index
-                    val toIndex = to.index
+                    // Keys, not list positions: the section headers sit between the songs.
+                    val fromIndex = localQueue.indexOfFirst { it.instanceId == from.key }
+                    val toIndex = localQueue.indexOfFirst { it.instanceId == to.key }
                     if (!queueLocked && fromIndex in localQueue.indices && toIndex in localQueue.indices) {
                         localQueue.add(toIndex, localQueue.removeAt(fromIndex))
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -2653,36 +2627,62 @@ private fun ClassicQueueContent(
                     syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
                 }
 
-                // Auto-scroll queue to currently playing song only when active track changes,
-                // never merely because Queue becomes active or tab changes.
-                var lastAutoScrolledTrackId by rememberSaveable { mutableStateOf<String?>(null) }
-                val playingTrackId = uiState.currentTrack?.id
-                LaunchedEffect(playingTrackId) {
-                    if (playingTrackId == null || playingTrackId == lastAutoScrolledTrackId) return@LaunchedEffect
-                    lastAutoScrolledTrackId = playingTrackId
-                    val playingTrack = uiState.currentTrack ?: return@LaunchedEffect
-                    val activeIndex = QueueOperations.findActiveTrackIndex(
-                        queue = localQueue.map { it.track },
-                        currentTrack = playingTrack,
-                        currentIndex = queueCurrentIndex
-                    )
-                    if (activeIndex >= 0) {
-                        val approxItemHeight = with(density) { 68.dp.roundToPx() }
-                        val visibleCount = if (queueListState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
-                            queueListState.layoutInfo.visibleItemsInfo.size
-                        } else if (queueListState.layoutInfo.viewportSize.height > 0 && approxItemHeight > 0) {
-                            (queueListState.layoutInfo.viewportSize.height / approxItemHeight).coerceAtLeast(1)
-                        } else {
-                            6
-                        }
-                        val targetScrollIndex = QueueOperations.calculateScrollIndex(
-                            targetIndex = activeIndex,
-                            visibleItemCount = visibleCount,
-                            queueSize = localQueue.size
-                        )
-                        if (!reorderableLazyListState.isAnyItemDragging) {
-                            queueListState.scrollToItem(targetScrollIndex)
-                        }
+                // Songs before the playing one are History; the playing one and the rest are
+                // Continue Playing. History sits above, out of view until scrolled up to.
+                val playingTrack = uiState.currentTrack
+                val targetHistoryCount by remember(localQueue, playingTrack, queueCurrentIndex) {
+                    derivedStateOf {
+                        if (playingTrack == null) 0
+                        else QueueOperations.findActiveTrackIndex(
+                            queue = localQueue.map { it.track },
+                            currentTrack = playingTrack,
+                            currentIndex = queueCurrentIndex
+                        ).coerceAtLeast(0)
+                    }
+                }
+                // The first frames of a song change carry the new audio, artwork, background
+                // colours and lyrics; rows sliding up then lost most of their frames and read as a
+                // jump. The split moves a few frames later, when the slide has quiet frames to run.
+                var historyCount by remember { mutableIntStateOf(targetHistoryCount) }
+                LaunchedEffect(targetHistoryCount) {
+                    if (historyCount != targetHistoryCount) {
+                        repeat(6) { withFrameNanos { } }
+                        historyCount = targetHistoryCount
+                    }
+                }
+                val continueHeaderIndex = if (historyCount > 0) historyCount + 1 else 0
+
+                // Opening the Queue tab lands on Continue Playing with History hidden above.
+                LaunchedEffect(Unit) {
+                    queueListState.scrollToItem(continueHeaderIndex)
+                }
+                // When the song changes, played songs move up into History. The list keeps its first
+                // visible item (normally the Continue Playing header) in place by key, so the
+                // remaining rows simply slide up. Only if something else was at the top is it set
+                // back, in the same layout pass: an animated scroll here ran against the rows' own
+                // placement animation and made them overlap.
+                var lastPlayingTrackId by remember { mutableStateOf(playingTrack?.id) }
+                // Read fresh after the wait: the split moves a few frames after the song changes,
+                // and keying the effect on the index restarted it then, which bailed out as "same
+                // song" and the header never glided up.
+                val latestContinueHeaderIndex by rememberUpdatedState(continueHeaderIndex)
+                LaunchedEffect(playingTrack?.id) {
+                    val id = playingTrack?.id ?: return@LaunchedEffect
+                    if (id == lastPlayingTrackId) return@LaunchedEffect
+                    lastPlayingTrackId = id
+                    if (reorderableLazyListState.isAnyItemDragging) return@LaunchedEffect
+                    // Let the rows finish sliding first; a jump now would cancel their animation
+                    // (this check used to run before the list had re-laid out, so it nearly always
+                    // jumped). Only if the header has really left the screen, e.g. History was
+                    // scrolled into view, glide back to it.
+                    kotlinx.coroutines.delay(PlayerTransitionMotion.QueuePlacementMillis.toLong() + 40L)
+                    // Continue Playing belongs at the top once the song has changed; glide it there
+                    // if History is showing above it (or it has left the screen).
+                    val target = latestContinueHeaderIndex
+                    val headerAtTop = queueListState.firstVisibleItemIndex == target &&
+                        queueListState.firstVisibleItemScrollOffset == 0
+                    if (!headerAtTop) {
+                        queueListState.animateScrollToItem(target)
                     }
                 }
 
@@ -2690,9 +2690,9 @@ private fun ClassicQueueContent(
                 LaunchedEffect(queueListState, localQueue.size) {
                     snapshotFlow {
                         val info = queueListState.layoutInfo
-                        val start = info.visibleItemsInfo.firstOrNull()?.index ?: 0
-                        val end = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                        (start..end).mapNotNull { localQueue.getOrNull(it)?.track }
+                        info.visibleItemsInfo.mapNotNull { visible ->
+                            localQueue.firstOrNull { it.instanceId == visible.key }?.track
+                        }
                     }.collect { visibleTracks ->
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             visibleTracks.forEach { trk ->
@@ -2763,11 +2763,7 @@ private fun ClassicQueueContent(
                     ),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(
-                        items = localQueue,
-                        key = { it.instanceId },
-                        contentType = { "queue_track" }
-                    ) { queueItem ->
+                    val queueRow: @Composable androidx.compose.foundation.lazy.LazyItemScope.(QueueTrackItem, Boolean) -> Unit = { queueItem, inHistory ->
                         val item = queueItem.track
                         val isCurrent = item.id == uiState.currentTrack?.id
                         val primaryColor = MaterialTheme.colorScheme.primary
@@ -2777,7 +2773,9 @@ private fun ClassicQueueContent(
                             key = queueItem.instanceId,
                             animateItemModifier = Modifier.animateItem(
                                 fadeInSpec = null,
-                                placementSpec = PlayerTransitionMotion.queuePlacement,
+                                // A song that has just become History jumps straight to its place
+                                // above (off screen) instead of sliding up through the songs below.
+                                placementSpec = if (inHistory) null else PlayerTransitionMotion.queuePlacement,
                                 fadeOutSpec = null
                             )
                         ) { isDragging ->
@@ -2946,6 +2944,71 @@ private fun ClassicQueueContent(
                             }
                         }
                     }
+
+                    if (historyCount > 0) {
+                        item(key = "queue_history_header", contentType = "queue_header") {
+                            ClassicQueueSectionHeader(
+                                title = "History",
+                                modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null),
+                                action = if (onRemoveQueueItem != null) {
+                                    {
+                                        Text(
+                                            text = "Clear",
+                                            color = Color.White.copy(alpha = 0.75f),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    // Removing the first song each time clears everything before the playing one.
+                                                    repeat(historyCount) { onRemoveQueueItem(0) }
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
+                        items(
+                            items = localQueue.subList(0, historyCount.coerceAtMost(localQueue.size)).toList(),
+                            key = { it.instanceId },
+                            contentType = { "queue_track" }
+                        ) { queueRow(it, true) }
+                    }
+
+                    item(key = "queue_continue_header", contentType = "queue_header") {
+                        ClassicQueueSectionHeader(
+                            title = "Continue Playing",
+                            subtitle = uiState.queueSourceTitle?.let { "From $it" },
+                            modifier = Modifier
+                                .animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+                                .padding(top = if (historyCount > 0) 10.dp else 0.dp),
+                            action = {
+                                IconButton(
+                                    onClick = {
+                                        queueLocked = !queueLocked
+                                        Toast.makeText(
+                                            queueContext,
+                                            if (queueLocked) "Queue locked" else "Queue unlocked: drag the handles to reorder",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (queueLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                        contentDescription = if (queueLocked) "Unlock queue reordering" else "Lock queue reordering",
+                                        tint = if (queueLocked) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.75f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    items(
+                        items = localQueue.subList(historyCount.coerceAtMost(localQueue.size), localQueue.size).toList(),
+                        key = { it.instanceId },
+                        contentType = { "queue_track" }
+                    ) { queueRow(it, false) }
                 }
             }
 
@@ -3082,5 +3145,41 @@ private fun openAudioOutputSettings(context: Context) {
         } catch (_: Exception) {
             Toast.makeText(context, "Audio Output Settings unavailable", Toast.LENGTH_SHORT).show()
         }
+    }
+}
+
+/** Section title row in the classic Queue ("History", "Continue Playing"). */
+@Composable
+private fun ClassicQueueSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    action: (@Composable () -> Unit)? = null
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 2.dp, top = 6.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        action?.invoke()
     }
 }

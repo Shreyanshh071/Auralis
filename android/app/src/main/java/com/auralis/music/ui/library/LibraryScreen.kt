@@ -1,5 +1,7 @@
 package com.auralis.music.ui.library
 
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -544,6 +546,13 @@ fun LibraryScreen(
                 }
             }
 
+            // Source filter pills sit above the sort / search / layout row.
+            var sourceFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
+            LibrarySourcePills(
+                selected = sourceFilter,
+                onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
+            )
+
             // ================================================================
             // 2. SORTING & CONTROLS BAR ("Date added ↓", Search & Grid/List Toggle)
             // ================================================================
@@ -620,7 +629,8 @@ fun LibraryScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                        // Tucked up under the filter pills.
+                        .padding(start = 18.dp, end = 18.dp, top = 0.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -676,6 +686,15 @@ fun LibraryScreen(
                         if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
                     }
                     addAll(uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) })
+                }.filter { playlist ->
+                    val filter = sourceFilter ?: return@filter true
+                    val isSmart = smartCollectionTypeFor(playlist.id) != null
+                    when (filter) {
+                        LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.SPOTIFY -> isSpotifyImport(playlist)
+                        LibrarySourceFilter.YOUTUBE -> isYouTubeMusicImport(playlist)
+                    }
                 },
                 order = uiState.sortOrder,
                 recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
@@ -3436,5 +3455,86 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 )
             }
         }
+    }
+}
+
+/** Library pill filters. No pill selected shows everything. */
+enum class LibrarySourceFilter { PLAYLISTS, ALBUMS, SPOTIFY, YOUTUBE }
+
+/** Imported playlists carry their source in their ID; older Spotify imports used an "sp_" prefix. */
+internal fun isSpotifyImport(playlist: Playlist): Boolean =
+    playlist.id.startsWith("imported:spotify:") || playlist.id.startsWith("sp_")
+
+internal fun isYouTubeMusicImport(playlist: Playlist): Boolean =
+    playlist.id.startsWith("imported:youtube_music:")
+
+@Composable
+private fun LibrarySourcePills(
+    selected: LibrarySourceFilter?,
+    onSelect: (LibrarySourceFilter) -> Unit
+) {
+    androidx.compose.foundation.lazy.LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 0.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(LibrarySourceFilter.entries.toList(), key = { it.name }) { filter ->
+            val isSelected = filter == selected
+            val label = when (filter) {
+                LibrarySourceFilter.PLAYLISTS -> "Playlists"
+                LibrarySourceFilter.ALBUMS -> "Albums"
+                LibrarySourceFilter.SPOTIFY -> "Spotify"
+                LibrarySourceFilter.YOUTUBE -> "YouTube Music"
+            }
+            val container = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.surfaceContainerHigh
+            val content = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+            androidx.compose.material3.Surface(
+                onClick = { onSelect(filter) },
+                shape = CircleShape,
+                color = container,
+                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    when (filter) {
+                        LibrarySourceFilter.PLAYLISTS -> Icon(
+                            Icons.AutoMirrored.Filled.QueueMusic, null, tint = content, modifier = Modifier.size(18.dp)
+                        )
+                        LibrarySourceFilter.ALBUMS -> Icon(
+                            Icons.Rounded.Album, null, tint = content, modifier = Modifier.size(18.dp)
+                        )
+                        LibrarySourceFilter.SPOTIFY -> com.auralis.music.ui.profile.SpotifyLogoIcon(Modifier.size(18.dp))
+                        LibrarySourceFilter.YOUTUBE -> YouTubeMusicMark(Modifier.size(18.dp))
+                    }
+                    Text(
+                        text = label,
+                        color = content,
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Red circle with a white play triangle, marking YouTube Music imports. */
+@Composable
+private fun YouTubeMusicMark(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width
+        drawCircle(Color(0xFFFF0033))
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.40f, w * 0.30f)
+            lineTo(w * 0.72f, w * 0.50f)
+            lineTo(w * 0.40f, w * 0.70f)
+            close()
+        }
+        drawPath(path, Color.White)
     }
 }

@@ -334,11 +334,12 @@ private fun NowPlayingDynamicBackground(
         committedPalette
     }
 
-    val effectivePalette = coordinatedArtworkPalette(
-        isMotionActive = isMoving && isDynamicAccent,
-        motionPalette = motionPalette,
-        committedPalette = committedPalette
-    )
+    // While swiping, the pager-interpolated palette is drawn as is. Otherwise the committed
+    // palette goes to PlayerBackground, whose own blend runs in the draw phase. The old driver
+    // returned a freshly lerped palette every frame, recomposing the background for the whole
+    // 500ms song-change blend.
+    val swipingPalette = isMoving && isDynamicAccent
+    val effectivePalette = if (swipingPalette) motionPalette else committedPalette
 
     val currentPage = pagerState.currentPage
     val direction = if (offsetFraction > 0f) 1 else if (offsetFraction < 0f) -1 else 0
@@ -367,7 +368,7 @@ private fun NowPlayingDynamicBackground(
         modifier = modifier,
         isMiniPlayer = false,
         isPlaying = isPlaying,
-        skipPaletteAnimation = true
+        skipPaletteAnimation = swipingPalette
     )
 }
 
@@ -2022,6 +2023,7 @@ fun NowPlayingModal(
                     onDismiss = onDismiss,
                     onSelectQueueTrack = onSelectQueueTrack,
                     onReorderQueue = onReorderQueue,
+                    onRemoveQueueItem = onRemoveQueueItem,
                     onShowTrackOptions = { showTrackOptions = true },
                     onShowQueueTrackOptions = {
                         queueOptionsIndex = -1

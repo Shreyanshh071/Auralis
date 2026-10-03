@@ -57,15 +57,18 @@ object WavyProgressIndicatorDefaults {
     val indicatorColor: Color = Color.White
     val trackColor: Color = Color.White.copy(alpha = 0.2f)
 
-    // Standard lyrics indicator styling (Auralis Default, Apple Music, Fade, Glow, etc.)
-    val StandardIndicatorSize: Dp = 34.dp
-    val StandardStrokeWidth: Dp = 3.0.dp
-    val StandardTrackGapSize: Dp = 3.0.dp
-
     // MetroLyrics indicator styling
     val MetroIndicatorSize: Dp = 40.dp
     val MetroStrokeWidth: Dp = 5.0.dp
     val MetroTrackGapSize: Dp = 4.0.dp
+
+    // Standard lyrics indicator styling (Auralis Default, Fluid, Fade, Glow, etc.): a thinner line,
+    // but the same wave as Metro. The wave count (one bump per wavelength of circumference) and its
+    // travel speed both follow the radius at the middle of the stroke, so the size is set to give
+    // exactly Metro's radius: at 34dp it had fewer, relatively deeper bumps and turned faster.
+    val StandardStrokeWidth: Dp = 3.0.dp
+    val StandardIndicatorSize: Dp = MetroIndicatorSize - MetroStrokeWidth + StandardStrokeWidth
+    val StandardTrackGapSize: Dp = 3.0.dp
 
     val CircularIndicatorStrokeWidth: Dp = 5.dp
     val CircularTrackStrokeWidth: Dp = 5.dp

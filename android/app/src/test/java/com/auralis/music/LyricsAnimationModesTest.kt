@@ -49,6 +49,7 @@ class LyricsAnimationModesTest {
     fun allAnimationModes_existAndAreDistinct() {
         val expectedModes = listOf(
             LyricsAnimationMode.AURALIS,
+            LyricsAnimationMode.FLUID,
             LyricsAnimationMode.FADE,
             LyricsAnimationMode.GLOW,
             LyricsAnimationMode.APPLE_MUSIC_V2,
@@ -56,18 +57,19 @@ class LyricsAnimationModesTest {
             LyricsAnimationMode.METRO_LYRICS
         )
 
-        assertEquals("Must have exactly 6 distinct animation modes", 6, LyricsAnimationMode.entries.size)
+        assertEquals("Must have exactly 7 distinct animation modes", 7, LyricsAnimationMode.entries.size)
         assertEquals(expectedModes, LyricsAnimationMode.entries)
 
         // Verify distinct display names (no duplicate aliases)
         val displayNames = LyricsAnimationMode.entries.map { it.displayName }
-        assertEquals("Each mode must have a unique display name", 6, displayNames.toSet().size)
+        assertEquals("Each mode must have a unique display name", LyricsAnimationMode.entries.size, displayNames.toSet().size)
     }
 
     @Test
     fun fromDisplayName_resolvesAllModesCorrectly() {
         assertEquals(LyricsAnimationMode.AURALIS, LyricsAnimationMode.fromDisplayName("Auralis (Default)"))
         assertEquals(LyricsAnimationMode.AURALIS, LyricsAnimationMode.fromDisplayName("None"))
+        assertEquals(LyricsAnimationMode.FLUID, LyricsAnimationMode.fromDisplayName("Auralis (Fluid)"))
         assertEquals(LyricsAnimationMode.FADE, LyricsAnimationMode.fromDisplayName("Fade"))
         assertEquals(LyricsAnimationMode.GLOW, LyricsAnimationMode.fromDisplayName("Glow"))
         assertEquals(LyricsAnimationMode.AURALIS, LyricsAnimationMode.fromDisplayName("Slide"))

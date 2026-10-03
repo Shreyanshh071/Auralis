@@ -48,6 +48,7 @@ class AppearanceSettingsDataStore(
         val LANDSCAPE_SCALING = booleanPreferencesKey("landscape_scaling")
         val DYNAMIC_THEME = booleanPreferencesKey("dynamic_theme")
         val DYNAMIC_ICON_COLORS = booleanPreferencesKey("dynamic_icon_colors")
+        val LIQUID_GLASS = booleanPreferencesKey("liquid_glass")
         val APP_THEME = stringPreferencesKey("app_theme")
         val COLOR_PALETTE = stringPreferencesKey("color_palette")
 
@@ -121,6 +122,7 @@ class AppearanceSettingsDataStore(
                 landscapeScaling = preferences[LANDSCAPE_SCALING] ?: false,
                 dynamicTheme = preferences[DYNAMIC_THEME] ?: true,
                 dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: true,
+                liquidGlass = preferences[LIQUID_GLASS] ?: false,
                 appTheme = preferences[APP_THEME] ?: "Follow system",
                 colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic",
 
@@ -183,6 +185,7 @@ class AppearanceSettingsDataStore(
                 preferences[LANDSCAPE_SCALING] = settings.landscapeScaling
                 preferences[DYNAMIC_THEME] = settings.dynamicTheme
                 preferences[DYNAMIC_ICON_COLORS] = settings.dynamicIconColors
+                preferences[LIQUID_GLASS] = settings.liquidGlass
                 preferences[APP_THEME] = settings.appTheme
                 preferences[COLOR_PALETTE] = settings.colorPalette
 
