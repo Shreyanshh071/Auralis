@@ -112,4 +112,3 @@ Kotlin · Jetpack Compose / Material 3 · AndroidX Media3 · Room / DataStore ·
 [Website](https://auralis-self-nu.vercel.app) · [Support the project](https://www.buymeachai.in/shreyanshh071)
 
 Licensed under [GPL-3.0](LICENSE). Third-party components retain their respective notices and licenses.
-
