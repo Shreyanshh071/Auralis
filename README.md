@@ -14,14 +14,14 @@ Auralis is an ad-free music client built with Kotlin, Jetpack Compose, AndroidX 
 
 ## Current release: 1.1.1
 
-This is the **rebuilt selective-port 1.1.1**, based on the known-good 1.1.0 foundation with selected newer features and fixes. It replaces the deleted earlier 1.1.1 release; it is not a re-upload of that APK.
+Auralis 1.1.1 brings playback fixes, improved lyrics, playlist downloads, and better Listen Together cleanup.
 
 - **App version:** 1.1.1; Android version code: 3.
-- **Release source:** [selective-port branch](https://github.com/Shreyanshh071/Auralis/tree/selective-port). The published release tag identifies its exact source commit. The default branch has a different development history; use the release tag to reproduce this APK.
+- **Source code:** [1.1.1 release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.1-rebuilt).
 - **APK:** `Auralis-v1.1.1-universal.apk`, approximately 24.6 MB (23.5 MiB), Android 7.0/API 24 or newer.
 - **Build:** release variant with R8 and resource shrinking, non-debuggable. It uses the project's existing signing certificate for update compatibility; the current Gradle configuration uses the debug signing configuration for release.
 
-### Changes in this rebuilt 1.1.1
+### New in 1.1.1
 
 | Area | Included changes |
 | --- | --- |
@@ -112,3 +112,4 @@ Kotlin · Jetpack Compose / Material 3 · AndroidX Media3 · Room / DataStore ·
 [Website](https://auralis-self-nu.vercel.app) · [Support the project](https://www.buymeachai.in/shreyanshh071)
 
 Licensed under [GPL-3.0](LICENSE). Third-party components retain their respective notices and licenses.
+
