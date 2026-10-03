@@ -35,3 +35,10 @@ data class StatsOverview(
     val artistsCount: Int,
     val albumsCount: Int
 )
+
+data class AlbumStat(
+    val title: String,
+    val artist: String,
+    val thumbnailUrl: String?,
+    val timeListenedMs: Long
+)

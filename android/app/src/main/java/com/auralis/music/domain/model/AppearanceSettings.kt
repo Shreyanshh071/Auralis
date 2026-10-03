@@ -8,6 +8,8 @@ data class AppearanceSettings(
     val dynamicIconColors: Boolean = true,
     val appTheme: String = "Follow system",
     val colorPalette: String = "Dynamic",
+    /** Liquid glass dock and mini player, with scroll-to-minimize. */
+    val liquidGlass: Boolean = false,
 
     // ── Mini-player ──
     val miniPlayerDesign: String = "New mini player",
@@ -62,6 +64,7 @@ data class AppearanceSettings(
 
 enum class LyricsAnimationMode(val displayName: String) {
     AURALIS("Auralis (Default)"),
+    FLUID("Auralis (Fluid)"),
     FADE("Fade"),
     GLOW("Glow"),
     APPLE_MUSIC_V2("Apple Music (Letter by Letter)"),
@@ -93,7 +96,8 @@ enum class LyricsAnimationMode(val displayName: String) {
 enum class MiniPlayerDesign(val displayName: String) {
     EXPANDED("Expanded mini player"),
     NEW("New mini player"),
-    CLASSIC("Classic mini player");
+    CLASSIC("Classic mini player"),
+    MATERIAL3("Material3");
 
     companion object {
         fun fromDisplayName(name: String?): MiniPlayerDesign {
@@ -102,6 +106,7 @@ enum class MiniPlayerDesign(val displayName: String) {
                 ?: when {
                     name.contains("expanded", ignoreCase = true) -> EXPANDED
                     name.contains("classic", ignoreCase = true) -> CLASSIC
+                    name.contains("material", ignoreCase = true) -> MATERIAL3
                     else -> NEW
                 }
         }

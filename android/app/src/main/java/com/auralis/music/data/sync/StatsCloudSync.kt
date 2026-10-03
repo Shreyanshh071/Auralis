@@ -58,6 +58,26 @@ object StatsCloudSync {
     fun init(context: Context, repository: StatsRepository) {
         appContext = context.applicationContext
         statsRepository = repository
+        // One-time: databases wiped before forgetRestores existed still had "restored" set, so
+        // their listens never came back. Restoring again is safe; it skips listens already here.
+        if (!prefs.getBoolean(RESTORE_RECHECK_KEY, false)) {
+            forgetRestores(appContext)
+            prefs.edit().putBoolean(RESTORE_RECHECK_KEY, true).apply()
+        }
+    }
+
+    private const val RESTORE_RECHECK_KEY = "restore_recheck_after_db_reset_1"
+
+    /**
+     * Called when the local database is created or wiped (a destructive migration, e.g. installing
+     * a build with an older schema). The "restored" flags live outside the database, so without
+     * this a wiped phone never pulled its listens back from the account.
+     */
+    fun forgetRestores(context: Context) {
+        val p = context.applicationContext.getSharedPreferences("auralis_stats_cloud", Context.MODE_PRIVATE)
+        val editor = p.edit()
+        p.all.keys.filter { it.startsWith("restored_") }.forEach { editor.remove(it) }
+        editor.apply()
     }
 
     private fun signedInUid(): String? {

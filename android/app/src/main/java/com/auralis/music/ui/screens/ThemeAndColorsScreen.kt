@@ -743,6 +743,48 @@ fun ThemeAndColorsScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // ── 4. LIQUID GLASS ──
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                onClick = { onUpdateSettings(settings.copy(liquidGlass = !settings.liquidGlass)) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Liquid glass",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = onBackground,
+                            fontSize = 17.sp
+                        )
+                        Text(
+                            text = if (com.auralis.music.ui.glass.isLiquidGlassSupported()) {
+                                "Glass dock and mini player. Scrolling down tucks the mini player into the dock."
+                            } else {
+                                "Glass dock and mini player. Live blur needs Android 12, so this phone gets a simpler look."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = onBackground.copy(alpha = 0.60f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    androidx.compose.material3.Switch(
+                        checked = settings.liquidGlass,
+                        onCheckedChange = { onUpdateSettings(settings.copy(liquidGlass = it)) }
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(28.dp))
         }
     }

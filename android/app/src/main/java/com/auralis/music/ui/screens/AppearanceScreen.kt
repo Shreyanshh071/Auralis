@@ -635,7 +635,7 @@ fun AppearanceScreen(
         AppearanceDialogType.MINI_PLAYER_DESIGN -> {
             AppearanceOptionsDialog(
                 title = "Mini-player design",
-                options = listOf("Expanded mini player", "New mini player", "Classic mini player"),
+                options = listOf("Expanded mini player", "New mini player", "Classic mini player", "Material3"),
                 selectedOption = settings.miniPlayerDesign,
                 onSelect = {
                     update { copy(miniPlayerDesign = it) }

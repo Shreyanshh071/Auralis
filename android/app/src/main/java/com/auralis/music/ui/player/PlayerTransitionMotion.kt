@@ -7,8 +7,10 @@ import androidx.compose.ui.unit.IntOffset
 
 /** Presentation timing only; reorder thresholds and track commitment stay with their owners. */
 internal object PlayerTransitionMotion {
-    // Starts moving on the first frame, with a short settle and no spring overshoot.
-    val queuePlacement = tween<IntOffset>(160, easing = LinearOutSlowInEasing)
+    // Rows sliding up as songs move into History: long enough to read as a glide (160ms read as
+    // a snap), easing out softly, no overshoot.
+    const val QueuePlacementMillis = 380
+    val queuePlacement = tween<IntOffset>(QueuePlacementMillis, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f))
 
     // Song-change background blend. Reference crossfades run ~400-600ms; 240ms with a
     // full-speed start (LinearOutSlowIn) read as a colour snap rather than a flow.

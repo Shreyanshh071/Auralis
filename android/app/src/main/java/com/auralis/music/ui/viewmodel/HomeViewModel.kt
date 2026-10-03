@@ -129,7 +129,10 @@ class HomeViewModel(
 
     @Volatile
     internal var inMemoryPinnedItems: List<SpeedDialItem> = emptyList()
-    @Volatile private var mostListenedPlaylistItem: SpeedDialItem? = null
+    /** Up to three most-listened playlists with their measured listening time, highest first. */
+    @Volatile private var mostListenedPlaylistItems: List<Pair<SpeedDialItem, Long>> = emptyList()
+    /** Measured listening time per track ID, used to place playlists among songs. */
+    @Volatile private var trackListenMs: Map<String, Long> = emptyMap()
 
     private val pinPersistenceMutex = Mutex()
     internal val pinSequence = AtomicLong(0)
@@ -163,16 +166,20 @@ class HomeViewModel(
         if (context != null && libraryRepository != null) {
             viewModelScope.launch(ioDispatcher) {
                 PlaylistListeningStore.load(context)
-                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats) { playlists, stats ->
-                    PlaylistSpeedDialRanking.mostListened(playlists, stats)
-                }.distinctUntilChanged().collect { playlist ->
-                    mostListenedPlaylistItem = playlist?.let {
+                val trackListenTimes = com.auralis.music.data.local.AuralisDatabase.getInstance(context)
+                    .playbackEventDao().getListenTimeByTrack()
+                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats, trackListenTimes) { playlists, stats, times ->
+                    val top = PlaylistSpeedDialRanking.mostListened(playlists, stats, PlaylistSpeedDialRanking.MAX_PLAYLISTS)
+                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times.associate { it.trackId to it.totalMs }
+                }.distinctUntilChanged().collect { (ranked, times) ->
+                    trackListenMs = times
+                    mostListenedPlaylistItems = ranked.map { (playlist, listenedMs) ->
                         SpeedDialItem(
-                            id = "playlist-${it.id}",
-                            name = it.title,
+                            id = "playlist-${playlist.id}",
+                            name = playlist.title,
                             type = SpeedDialType.PLAYLIST,
-                            image = it.coverUrl ?: it.tracks.firstOrNull()?.thumbnail
-                        )
+                            image = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
+                        ) to listenedMs
                     }
                     _uiState.update { current ->
                         val pinned = inMemoryPinnedItems
@@ -1032,17 +1039,13 @@ class HomeViewModel(
         // 1. Add all pinned items first
         allItems.addAll(effectivePinned)
 
-        // Reserve one unpinned slot for a playlist with repeat, substantial listening.
-        mostListenedPlaylistItem?.let { playlist ->
-            if (allItems.none { it.id == playlist.id }) allItems.add(playlist)
-        }
-
         // 2. Add unpinned tracks up to limit (always backed by seed tracks so 26 slots are filled)
         val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
         val candidateTracks = topTracks + historyTracks + fallbackCandidates + seedTracks
         val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
+        val trackItems = mutableListOf<SpeedDialItem>()
         for ((idx, t) in uniqueTracks.withIndex()) {
-            if (allItems.size >= 26) break
+            if (allItems.size + trackItems.size >= 26) break
             val trackItemId = "track-${t.id}-$idx"
             // Deduplicate against pinned items using canonical track matching
             val isAlreadyPinned = pinnedIds.contains(t.id) ||
@@ -1057,7 +1060,7 @@ class HomeViewModel(
             if (isAlreadyPinned) continue
 
             val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
-            allItems.add(
+            trackItems.add(
                 SpeedDialItem(
                     id = trackItemId,
                     name = displayName,
@@ -1067,6 +1070,19 @@ class HomeViewModel(
                 )
             )
         }
+
+        // Up to three playlists with repeat, substantial listening, placed among the songs by
+        // listening time: a playlist can outrank songs, and a more-listened song outranks it.
+        val playlists = mostListenedPlaylistItems.filter { (item, _) -> allItems.none { it.id == item.id } }
+        val playlistMs = playlists.associate { (item, ms) -> item.id to ms }
+        val times = trackListenMs
+        val ranked = PlaylistSpeedDialRanking.interleave(
+            items = trackItems,
+            itemMs = { item -> item.track?.id?.let { times[it] } ?: 0L },
+            playlists = playlists.map { it.first },
+            playlistMs = { item -> playlistMs[item.id] ?: 0L }
+        )
+        allItems.addAll(ranked.take((26 - allItems.size).coerceAtLeast(0)))
 
         return packageIntoSpeedDialPages(allItems)
     }

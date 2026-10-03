@@ -112,6 +112,7 @@ fun StatsScreen(
     hasActiveMiniPlayer: Boolean = false,
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
+    onOpenWrapped: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -177,6 +178,16 @@ fun StatsScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onOpenWrapped,
+                        modifier = Modifier.tactileBounce(0.88f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = "Your Wrapped",
+                            tint = textPrimary
+                        )
+                    }
                     Box {
                         IconButton(onClick = { showStatsMenu = true }) {
                             Icon(

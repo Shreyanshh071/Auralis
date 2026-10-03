@@ -1,5 +1,7 @@
 package com.auralis.music.ui.player
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -93,6 +95,7 @@ import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.components.getOptimizedThumbnailUrl
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.glass.liquidGlass
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.auralisIconSwapEnter
@@ -486,6 +489,25 @@ fun MiniPlayer(
         MiniPlayerDesign.CLASSIC.displayName -> {
             if (displayTrack != null) {
                 ClassicMiniPlayerView(
+                    track = displayTrack,
+                    isPlaying = isPlaying,
+                    progressProvider = effectiveProgressProvider,
+                    dominantColor = animGradMid,
+                    isPureBlack = appearance.pureBlackMiniPlayer,
+                    hazeState = hazeState,
+                    activeStyle = activeStyle,
+                    extractedColors = extractedColors,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onPreviousClick = onPreviousClick,
+                    onNextClick = onNextClick,
+                    onClick = onClick,
+                    modifier = miniPlayerModifier
+                )
+            }
+        }
+        MiniPlayerDesign.MATERIAL3.displayName -> {
+            if (displayTrack != null) {
+                Material3MiniPlayerView(
                     track = displayTrack,
                     isPlaying = isPlaying,
                     progressProvider = effectiveProgressProvider,
@@ -1113,6 +1135,12 @@ private fun NewMiniPlayerPillView(
 ) {
     val favoriteEnter = auralisIconSwapEnter()
     val favoriteExit = auralisIconSwapExit()
+    // Liquid glass theme: glass pill, and a compact form while tucked into the minimized dock.
+    val glass = if (isPureBlack) null else com.auralis.music.ui.glass.LocalMiniPlayerGlass.current
+    val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
+    val isCompact by remember(dockCollapse) {
+        derivedStateOf { (dockCollapse?.value ?: 0f) > 0.5f }
+    }
 
     val actualBgColor = if (isPureBlack) {
         Color.Black
@@ -1188,18 +1216,25 @@ private fun NewMiniPlayerPillView(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 5.dp)
-            .shadow(
-                elevation = elevation,
-                shape = pillShape,
-                ambientColor = if (isPureBlack) Color.Black else ambientShadowColor,
-                spotColor = if (isPureBlack) Color.Black else spotShadowColor
+            .then(
+                if (glass != null) {
+                    Modifier.liquidGlass(glass, pillShape).clip(pillShape)
+                } else {
+                    Modifier
+                        .shadow(
+                            elevation = elevation,
+                            shape = pillShape,
+                            ambientColor = if (isPureBlack) Color.Black else ambientShadowColor,
+                            spotColor = if (isPureBlack) Color.Black else spotShadowColor
+                        )
+                        .clip(pillShape)
+                        .then(pillHazeModifier)
+                        .background(effectiveBgColor)
+                        .then(actualBorderModifier)
+                }
             )
-            .clip(pillShape)
-            .then(pillHazeModifier)
-            .background(effectiveBgColor)
-            .then(actualBorderModifier)
     ) {
-        if (!isPureBlack) {
+        if (!isPureBlack && glass == null) {
             PlayerBackground(
                 style = activeStyle,
                 artworkUrl = activeTrack?.thumbnail,
@@ -1293,6 +1328,12 @@ private fun NewMiniPlayerPillView(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = !isCompact,
+                                    enter = fadeIn(tween(220)) + androidx.compose.animation.expandVertically(tween(260)),
+                                    exit = fadeOut(tween(160)) + androidx.compose.animation.shrinkVertically(tween(220))
+                                ) {
+                                Column {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = pageTrack.artist,
@@ -1302,6 +1343,8 @@ private fun NewMiniPlayerPillView(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                }
+                                }
                             }
                         }
                     }
@@ -1315,6 +1358,11 @@ private fun NewMiniPlayerPillView(
                 Modifier.border(0.8.dp, Color.White.copy(alpha = 0.18f), CircleShape)
             } else Modifier
 
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !isCompact,
+                enter = fadeIn(tween(220)) + androidx.compose.animation.expandHorizontally(tween(280)),
+                exit = fadeOut(tween(140)) + androidx.compose.animation.shrinkHorizontally(tween(240))
+            ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1375,6 +1423,7 @@ private fun NewMiniPlayerPillView(
                         )
                     }
                 }
+            }
             }
         }
     }

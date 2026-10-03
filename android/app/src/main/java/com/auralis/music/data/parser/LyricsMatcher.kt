@@ -284,15 +284,22 @@ object LyricsMatcher {
         }
 
         // Strict guard 3: Instrumental / Orchestral version protection
-        // When query is an orchestral, instrumental, piano, or karaoke version,
-        // it must match the exact core song and have compatible artist
+        // An orchestral, instrumental, piano, karaoke or off-vocal version only takes lyrics that
+        // belong to that same version. The vocal original by the same artist used to pass here
+        // (same core title, same artist), so e.g. "Let Down - Orchestral Version" showed the
+        // sung song's lyrics over an instrumental.
         val isQueryInstrumentalOrOrchestral = qVersion != null && (
             qVersion.equals("Orchestral", ignoreCase = true) ||
             qVersion.equals("Instrumental", ignoreCase = true) ||
             qVersion.equals("Karaoke", ignoreCase = true) ||
+            qVersion.equals("Off Vocal", ignoreCase = true) ||
             qVersion.equals("Piano Version", ignoreCase = true)
         )
-        if (isQueryInstrumentalOrOrchestral && (artistScore == 0.0 || isExact == 0.0)) {
+        if (isQueryInstrumentalOrOrchestral && (
+                artistScore == 0.0 || isExact == 0.0 ||
+                cVersion == null || !cVersion.equals(qVersion, ignoreCase = true)
+            )
+        ) {
             return 0
         }
 

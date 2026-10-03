@@ -1,5 +1,9 @@
 package com.auralis.music.ui
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -307,6 +311,7 @@ fun AuralisApp(
     }
     val dismissOffsetY = remember { Animatable(0f) }
     var isStatsOpen by rememberSaveable { mutableStateOf(false) }
+    var isWrappedOpen by rememberSaveable { mutableStateOf(false) }
     var sheetAnimationJob by remember { mutableStateOf<Job?>(null) }
     var dismissAnimationJob by remember { mutableStateOf<Job?>(null) }
 
@@ -409,6 +414,7 @@ fun AuralisApp(
         isProfileOpen = false
         isListenTogetherOpen = false
         isStatsOpen = false
+        isWrappedOpen = false
         searchViewModelState?.closeRecognitionModal()
     }
 
@@ -681,13 +687,76 @@ fun AuralisApp(
     val subScreenMiniGap = rememberUpdatedState(
         if (appearanceSettings.miniPlayerDesign == "Classic mini player") 0.dp else 10.dp
     )
+    // Set further down once the collapse animation exists; read lazily by the chrome below.
+    val chromeCollapse = remember { arrayOfNulls<State<Float>>(1) }
     val mainBottomChrome = remember {
-        BottomChrome { dockInset.value + miniHeight.value * miniPlayerShown.value }
+        // While the mini player is tucked into the minimized dock the page doesn't keep room for
+        // it, so content runs down to the dock row; the room comes back as it rises again.
+        BottomChrome {
+            val tucked = (chromeCollapse[0]?.value ?: 0f).coerceIn(0f, 1f)
+            dockInset.value + miniHeight.value * miniPlayerShown.value * (1f - tucked)
+        }
     }
     // Profile / Settings / History / Stats / Listen Together hide the dock.
     val overlayBottomChrome = remember {
         BottomChrome { (miniHeight.value + subScreenMiniGap.value) * miniPlayerShown.value }
     }
+
+    // ── Liquid glass theme ──
+    // The pages are recorded into glassBackdrop (over the app background, so the glass never
+    // samples transparency); the dock and mini player render it as glass. Scrolling a page down
+    // minimizes the dock and tucks the mini player into the dock row.
+    val glassEnabled = appearanceSettings.liquidGlass
+    // "Liquid glass" as the mini-player background style: glass on the mini player only.
+    val miniPlayerGlass = !appearanceSettings.pureBlackMiniPlayer &&
+        com.auralis.music.ui.player.PlayerBackgroundStyle.fromKey(appearanceSettings.miniPlayerBackgroundStyle) ==
+        com.auralis.music.ui.player.PlayerBackgroundStyle.APPLE_MUSIC
+    // The pages are recorded for glass whenever anything is drawing it.
+    val recordGlassBackdrop = glassEnabled || miniPlayerGlass
+    val glassPageBackground = MaterialTheme.dynamicBackground
+    val glassBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit =
+        remember(glassPageBackground) {
+            {
+                drawRect(glassPageBackground)
+                drawContent()
+            }
+        }
+    val glassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(onDraw = glassBackdropDraw)
+    // Overlays drawn over the pages (Stats, Profile/Settings, History, Listen Together) get their
+    // own recordings, layered on top: otherwise the glass kept showing the page underneath them.
+    // A closed overlay's recording detaches and draws nothing.
+    val statsGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val profileGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val historyGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val togetherGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val combinedGlassBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(
+        glassBackdrop, statsGlassBackdrop, profileGlassBackdrop, historyGlassBackdrop, togetherGlassBackdrop
+    )
+    val dockMinimize = remember { com.auralis.music.ui.glass.DockMinimizeState() }
+    val glassIsDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
+    // Only the pill mini player can tuck into the dock row.
+    // New and Material3 have compact forms that fit beside the minimized dock, so scrolling
+    // collapses them by default, with or without the glass theme.
+    val collapseOnScroll = appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.NEW.displayName ||
+        appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.MATERIAL3.displayName
+    val dockMinimized = collapseOnScroll && dockMinimize.isMinimized && hasMiniPlayer &&
+        (appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.NEW.displayName ||
+            appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.MATERIAL3.displayName) &&
+        !isNowPlayingOpen
+    val dockCollapse = animateFloatAsState(
+        targetValue = if (dockMinimized) 1f else 0f,
+        // A little overshoot so it drops in and settles, like the reference motion.
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 320f),
+        label = "dockCollapse"
+    )
+    val anyGlassContext = remember(combinedGlassBackdrop, glassIsDark) {
+        com.auralis.music.ui.glass.LiquidGlassContext(combinedGlassBackdrop, glassIsDark, dockCollapse)
+    }
+    val glassContext = if (glassEnabled) anyGlassContext else null
+    val miniGlassContext = if (recordGlassBackdrop) anyGlassContext else null
+    chromeCollapse[0] = dockCollapse
+    LaunchedEffect(currentDestination, collapseOnScroll) { dockMinimize.expand() }
+    LaunchedEffect(isPlayerSheetActive) { if (isPlayerSheetActive) dockMinimize.expand() }
 
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
     // Scaffold's bottom bar and Now Playing is a sibling overlay, so the only way the
@@ -698,7 +767,12 @@ fun AuralisApp(
             .fillMaxSize()
             .background(MaterialTheme.dynamicBackground)
     ) {
-    CompositionLocalProvider(LocalBottomChrome provides mainBottomChrome) {
+    CompositionLocalProvider(
+        LocalBottomChrome provides mainBottomChrome,
+        com.auralis.music.ui.glass.LocalLiquidGlass provides glassContext,
+        com.auralis.music.ui.glass.LocalMiniPlayerGlass provides miniGlassContext,
+        com.auralis.music.ui.glass.LocalDockCollapse provides dockCollapse
+    ) {
         val playerSharedScope = this
         val hazeState = remember { dev.chrisbanes.haze.HazeState() }
         // Whatever's directly under an overlay pill: the content pages normally, or the open
@@ -752,7 +826,8 @@ fun AuralisApp(
                             },
                             onCreatePlaylist = {
                                 isExternalCreatePlaylistOpen = true
-                            }
+                            },
+                            onExpandRequest = { dockMinimize.expand() }
                         )
                     }
                 }
@@ -762,6 +837,12 @@ fun AuralisApp(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
+                    .then(
+                        if (collapseOnScroll) Modifier.nestedScroll(dockMinimize.connection) else Modifier
+                    )
+                    .then(
+                        if (recordGlassBackdrop) Modifier.layerBackdrop(glassBackdrop) else Modifier
+                    )
                     .hazeSource(state = hazeState)
                     .hazeSource(state = pillHazeState, zIndex = 0f)
             ) {
@@ -1301,7 +1382,7 @@ fun AuralisApp(
             visible = isListenTogetherOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(togetherGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val ltVM = obtainListenTogetherViewModel()
@@ -1447,7 +1528,7 @@ fun AuralisApp(
             visible = isProfileOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(profileGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val authVM = obtainAuthViewModel()
@@ -1509,7 +1590,7 @@ fun AuralisApp(
             visible = isHistoryOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(historyGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val listeningHistory by viewModelProvider.historyRepository.getHistory().collectAsState(initial = emptyList())
@@ -1540,14 +1621,17 @@ fun AuralisApp(
             visible = isStatsOpen,
             enter = auralisDetailForwardEnter(),
             exit = auralisDetailBackwardExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(statsGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val statsVM = obtainStatsViewModel()
                 val libVM = obtainLibraryViewModel()
                 com.auralis.music.ui.screens.StatsScreen(
                     viewModel = statsVM,
-                    onDismiss = { isStatsOpen = false },
+                    onDismiss = {
+                        isStatsOpen = false
+                        isWrappedOpen = false
+                    },
                     onPlayTrack = { track, queue ->
                         playOrRequest(track) { obtainPlayerViewModel().playTrack(track, queue, queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)) }
                     },
@@ -1572,7 +1656,11 @@ fun AuralisApp(
                     },
                     hasActiveMiniPlayer = (playerUiState.currentTrack ?: audioPlayerTrack) != null,
                     isTrackPinned = { homeViewModel.isTrackPinned(it) },
-                    onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
+                    onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
+                    onOpenWrapped = {
+                        statsVM.loadWrapped()
+                        isWrappedOpen = true
+                    }
                 )
             }
         }
@@ -1907,11 +1995,52 @@ fun AuralisApp(
                             .align(Alignment.BottomCenter)
                             .padding(bottom = targetBottomPadding + bottomInset)
                             .height(miniPlayerHeight)
+                            // Sizes and places everything below (drawing, taps, drags, swipe-to-
+                            // dismiss), so the touch area is exactly the visible mini player:
+                            // the Material3 pill is narrower than the screen and is centred, and
+                            // while the glass dock is minimized the player narrows to the gap
+                            // between the dock circle and its round button. Taps beside it reach
+                            // the page underneath.
+                            .then(run {
+                                val isMaterial3 = appearanceSettings.miniPlayerDesign ==
+                                    com.auralis.music.domain.model.MiniPlayerDesign.MATERIAL3.displayName
+                                // Gap between the minimized dock circle and its round button
+                                // (dock side padding 14 + circle + 8 gap, less the pill's own 10).
+                                val dockSize = if (appearanceSettings.slimBottomNavigationBar) 46.dp else 56.dp
+                                val sideInset = 14.dp + dockSize + 8.dp - if (isMaterial3) 0.dp else 10.dp
+                                val hasDockButton = currentDestination == AppDestination.HOME ||
+                                    (currentDestination == AppDestination.LIBRARY &&
+                                        libraryUiState.selectedPlaylist == null && libraryUiState.selectedSmartCollection == null)
+                                // No round button: run to the dock's own 14dp margin (the New pill
+                                // carries 10dp of padding of its own, Material3 none).
+                                val endInset = if (hasDockButton) sideInset else if (isMaterial3) 14.dp else 4.dp
+                                Modifier.layout { measurable, constraints ->
+                                    val c = dockCollapse.value.coerceIn(0f, 1.1f)
+                                    val start = (sideInset.toPx() * c).toInt()
+                                    val end = (endInset.toPx() * c).toInt()
+                                    val available = (constraints.maxWidth - start - end).coerceAtLeast(0)
+                                    // Material3 is ~300dp and centred normally; as it tucks in it
+                                    // widens to fill the gap snugly, so its edges sit 8dp from the
+                                    // dock circle and the round button (or the dock's 14dp margin).
+                                    val width = if (isMaterial3) {
+                                        val cap = com.auralis.music.ui.player.Material3MiniPlayerMaxWidth.roundToPx()
+                                        if (available <= cap) available
+                                        else (cap + (available - cap) * c.coerceIn(0f, 1f)).toInt()
+                                    } else available
+                                    val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+                                    layout(constraints.maxWidth, placeable.height) {
+                                        placeable.placeRelative(start + (available - width) / 2, 0)
+                                    }
+                                }
+                            })
                             .graphicsLayer {
                                 val p = playerSheetProgress.value
                                 val dismissY = dismissOffsetY.value
                                 val progressFrac = (dismissY / (dismissThresholdPx * 2.2f)).coerceIn(0f, 1f)
-                                translationY = dismissY - (p * with(density) { 36.dp.toPx() })
+                                // Minimized: centre the pill on the dock row instead of above it.
+                                val dockRowCenter = if (appearanceSettings.slimBottomNavigationBar) 3.dp + 23.dp else 6.dp + 28.dp
+                                val tuckY = (targetBottomPadding + miniPlayerHeight / 2 - dockRowCenter).toPx() * dockCollapse.value
+                                translationY = dismissY + tuckY - (p * with(density) { 36.dp.toPx() })
                                 alpha = if (reducedMotion) {
                                     if (isNowPlayingOpen) 0f else (1f - progressFrac)
                                 } else {
@@ -2284,6 +2413,29 @@ fun AuralisApp(
                     }
                 }
             }
+        }
+
+        // Wrapped: full-screen year-in-review story opened from Stats; sits above the player.
+        AnimatedVisibility(
+            visible = isWrappedOpen && isStatsOpen,
+            enter = fadeIn(tween(300)),
+            exit = fadeOut(tween(220)),
+            modifier = Modifier.fillMaxSize().zIndex(1100f)
+        ) {
+            val statsVM = obtainStatsViewModel()
+            val wrappedState by statsVM.wrappedState.collectAsState()
+            com.auralis.music.ui.screens.wrapped.WrappedScreen(
+                state = wrappedState,
+                onClose = { isWrappedOpen = false },
+                onSavePlaylist = { title, tracks, coverUrl, onSaved ->
+                    obtainLibraryViewModel().createPlaylistAndAddTracks(
+                        title = title,
+                        tracks = tracks,
+                        coverUrl = coverUrl,
+                        onCreated = { onSaved() }
+                    )
+                }
+            )
         }
 
         // ── FLOATING PILL NOTIFICATION (Listen Together & System Alerts) ──

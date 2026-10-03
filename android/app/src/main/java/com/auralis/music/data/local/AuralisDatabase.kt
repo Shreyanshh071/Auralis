@@ -78,6 +78,16 @@ abstract class AuralisDatabase : RoomDatabase() {
                 )
                 .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
+                .addCallback(object : RoomDatabase.Callback() {
+                    // A fresh or wiped database has none of the account's listens; let them restore.
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        com.auralis.music.data.sync.StatsCloudSync.forgetRestores(context)
+                    }
+
+                    override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
+                        com.auralis.music.data.sync.StatsCloudSync.forgetRestores(context)
+                    }
+                })
                 .build()
                 .also { instance = it }
             }

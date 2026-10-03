@@ -21,6 +21,9 @@ data class PlaybackEventWithTrackTuple(
     val track: TrackEntity
 )
 
+/** Measured listening time for one track ID, summed over all its listens. */
+data class TrackListenTime(val trackId: String, val totalMs: Long)
+
 @Dao
 interface PlaybackEventDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -85,6 +88,9 @@ interface PlaybackEventDao {
         ORDER BY timestamp DESC
     """)
     suspend fun getEventsInRange(fromTimestamp: Long, toTimestamp: Long): List<PlaybackEventWithTrackTuple>
+
+    @Query("SELECT trackId, SUM(playTimeMs) AS totalMs FROM playback_events GROUP BY trackId")
+    fun getListenTimeByTrack(): Flow<List<TrackListenTime>>
 
     @Query("SELECT MIN(timestamp) FROM playback_events")
     fun getFirstEventTimestamp(): Flow<Long?>

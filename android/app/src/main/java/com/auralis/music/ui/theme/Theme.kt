@@ -1039,12 +1039,13 @@ fun AuralisTheme(
     // Honour the system "remove animations" accessibility preference app-wide
     val reducedMotion = rememberReducedMotion()
 
-    // 4. Smooth theme transition: animate color changes across song transitions
-    val colorScheme = if (reducedMotion) {
-        rawTargetScheme
-    } else {
-        animateColorScheme(rawTargetScheme)
-    }
+    // 4. The theme switches to the new song's colours in one step. Fading it (450ms) changed
+    //    MaterialTheme.colorScheme on every frame, which recomposed nearly the whole app (every
+    //    queue row, header, control and the dock) for the length of the fade: measured on device
+    //    as ~650ms of 25-60ms frames on each song change, which is what made the queue's
+    //    slide-up and the song change itself stutter. The player background still blends,
+    //    in the draw phase only.
+    val colorScheme = rawTargetScheme
 
     // Dynamic artwork ambient tints for LocalAuralisDynamicPalette
     val rawDynamicPalette = remember(activeArtworkPalette, isDark, artworkDominantColor, hasSongArtwork, rawTargetScheme) {
@@ -1073,11 +1074,8 @@ fun AuralisTheme(
         }
     }
 
-    val dynamicPalette = if (reducedMotion) {
-        rawDynamicPalette
-    } else {
-        animateDynamicPalette(rawDynamicPalette)
-    }
+    // Same as the scheme above: one step, not a per-frame app-wide recomposition.
+    val dynamicPalette = rawDynamicPalette
 
 
     // Calculate display density scaling (including responsive landscape scaling)
