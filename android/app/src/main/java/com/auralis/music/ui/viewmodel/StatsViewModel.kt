@@ -18,8 +18,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -99,9 +101,13 @@ class StatsViewModel(
         }
     }
 
-    private val timeRangeFlow = combine(selectedOption, selectedChipIndex, refreshTick) { option, idx, _ ->
-        getTimeRange(option, idx)
-    }
+    data class StatsContent(
+        val option: OptionStats,
+        val chipIndex: Int,
+        val overview: StatsOverview,
+        val songs: List<SongStat>,
+        val artists: List<ArtistStat>
+    )
 
     /** Pull-to-refresh: re-runs every stats query with the current time. */
     suspend fun refresh() {
@@ -109,17 +115,24 @@ class StatsViewModel(
         kotlinx.coroutines.delay(600)
     }
 
-    val statsOverview: StateFlow<StatsOverview> = timeRangeFlow.flatMapLatest { (from, to) ->
-        statsRepository.observeStatsOverview(from, to)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StatsOverview(0L, 0, 0, 0))
+    // Null means the selected period has not loaded; zero is only a real database result.
+    val statsContent: StateFlow<StatsContent?> = combine(selectedOption, selectedChipIndex, refreshTick) { option, idx, _ ->
+        Triple(option, idx, getTimeRange(option, idx))
+    }.flatMapLatest { (option, idx, range) ->
+        val (from, to) = range
+        combine(
+            statsRepository.observeStatsOverview(from, to),
+            statsRepository.observeTopSongs(from, to, limit = 20),
+            statsRepository.observeTopArtists(from, to, limit = 15)
+        ) { overview, songs, artists ->
+            StatsContent(option, idx, overview, songs, artists) as StatsContent?
+        }.onStart { emit(null) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val topSongs: StateFlow<List<SongStat>> = timeRangeFlow.flatMapLatest { (from, to) ->
-        statsRepository.observeTopSongs(from, to, limit = 20)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val topSongs: StateFlow<List<SongStat>> = statsContent.map { it?.songs.orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val rawTopArtists: Flow<List<ArtistStat>> = timeRangeFlow.flatMapLatest { (from, to) ->
-        statsRepository.observeTopArtists(from, to, limit = 15)
-    }
+    private val rawTopArtists: Flow<List<ArtistStat>> = statsContent.filterNotNull().map { it.artists }
 
     val topArtists: StateFlow<List<ArtistStat>> = combine(rawTopArtists, resolvedArtistPhotos) { artists, photos ->
         artists.map { artist ->

@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.dynamicPrimary
 import kotlinx.coroutines.launch
@@ -52,6 +53,7 @@ fun AuralisRefreshBox(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier.fillMaxSize(),
+    indicatorTopInset: Dp = 0.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     val state = rememberPullToRefreshState()
@@ -75,7 +77,7 @@ fun AuralisRefreshBox(
             isRefreshing = isRefreshing,
             gapPx = gapPx,
             color = MaterialTheme.dynamicPrimary,
-            modifier = Modifier.align(Alignment.TopCenter)
+            modifier = Modifier.align(Alignment.TopCenter).offset(y = indicatorTopInset)
         )
     }
 }
@@ -85,6 +87,7 @@ fun AuralisRefreshBox(
 fun AuralisRefreshBox(
     refresh: suspend () -> Unit,
     modifier: Modifier = Modifier.fillMaxSize(),
+    indicatorTopInset: Dp = 0.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     var refreshing by remember { mutableStateOf(false) }
@@ -100,6 +103,7 @@ fun AuralisRefreshBox(
             }
         },
         modifier = modifier,
+        indicatorTopInset = indicatorTopInset,
         content = content
     )
 }

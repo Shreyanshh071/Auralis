@@ -219,6 +219,7 @@ fun ClassicPlayerView(
     queue: List<Track>,
     currentTrackIndex: Int,
     seekBarPositionState: State<Long>,
+    inlineLyricsPositionState: State<Long> = seekBarPositionState,
     totalDurationMs: Long,
     isScrubbing: Boolean,
     onScrubbing: (Boolean, Long) -> Unit,
@@ -475,7 +476,22 @@ fun ClassicPlayerView(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1.0f))
+        Box(
+            modifier = Modifier.weight(1.0f).fillMaxWidth()
+                .graphicsLayer { alpha = 1f - compactHeaderProgress.value },
+            contentAlignment = Alignment.Center
+        ) {
+            if (uiState.showInlineLyrics) {
+                InlinePlayerLyrics(
+                    lyrics = uiState.lyrics,
+                    positionState = inlineLyricsPositionState,
+                    offsetMs = uiState.lyricsOffsetMs,
+                    isLoading = uiState.isLoadingLyrics,
+                    onOpenFullLyrics = onToggleLyrics,
+                    modifier = Modifier.padding(horizontal = 26.dp)
+                )
+            }
+        }
 
         // ── 3. TRACK INFO & ACTIONS ROW (TITLE/ARTIST + OVERFLOW & LIKE BUTTONS) ──
         Row(
@@ -1917,6 +1933,7 @@ fun ClassicPlayerContainer(
             }
 
             ClassicPlayerView(
+                inlineLyricsPositionState = lyricsPositionState,
                 track = track,
                 uiState = uiState,
                 pagerState = pagerState,

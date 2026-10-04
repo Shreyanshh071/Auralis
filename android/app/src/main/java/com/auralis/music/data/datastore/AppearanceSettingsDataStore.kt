@@ -96,6 +96,8 @@ class AppearanceSettingsDataStore(
         val SHOW_LIKED_PLAYLIST = booleanPreferencesKey("show_liked_playlist")
         val SHOW_DOWNLOADED_PLAYLIST = booleanPreferencesKey("show_downloaded_playlist")
         val SHOW_TOP_PLAYLIST = booleanPreferencesKey("show_top_playlist")
+        val SHOW_WEEKLY_MOST_PLAYLIST = booleanPreferencesKey("show_weekly_most_playlist")
+        val SHOW_MONTHLY_MOST_PLAYLIST = booleanPreferencesKey("show_monthly_most_playlist")
         val SHOW_CACHED_PLAYLIST = booleanPreferencesKey("show_cached_playlist")
         val SHOW_UPLOADED_PLAYLIST = booleanPreferencesKey("show_uploaded_playlist")
     }
@@ -173,6 +175,8 @@ class AppearanceSettingsDataStore(
                 showLikedPlaylist = preferences[SHOW_LIKED_PLAYLIST] ?: true,
                 showDownloadedPlaylist = preferences[SHOW_DOWNLOADED_PLAYLIST] ?: true,
                 showTopPlaylist = preferences[SHOW_TOP_PLAYLIST] ?: true,
+                showWeeklyMostPlaylist = preferences[SHOW_WEEKLY_MOST_PLAYLIST] ?: true,
+                showMonthlyMostPlaylist = preferences[SHOW_MONTHLY_MOST_PLAYLIST] ?: true,
                 showCachedPlaylist = preferences[SHOW_CACHED_PLAYLIST] ?: true,
                 showUploadedPlaylist = preferences[SHOW_UPLOADED_PLAYLIST] ?: true
             )
@@ -228,11 +232,23 @@ class AppearanceSettingsDataStore(
                 preferences[SHOW_LIKED_PLAYLIST] = settings.showLikedPlaylist
                 preferences[SHOW_DOWNLOADED_PLAYLIST] = settings.showDownloadedPlaylist
                 preferences[SHOW_TOP_PLAYLIST] = settings.showTopPlaylist
+                preferences[SHOW_WEEKLY_MOST_PLAYLIST] = settings.showWeeklyMostPlaylist
+                preferences[SHOW_MONTHLY_MOST_PLAYLIST] = settings.showMonthlyMostPlaylist
                 preferences[SHOW_CACHED_PLAYLIST] = settings.showCachedPlaylist
                 preferences[SHOW_UPLOADED_PLAYLIST] = settings.showUploadedPlaylist
             }
         } catch (e: Exception) {
             android.util.Log.e("AppearanceSettings", "Failed to update appearance settings", e)
         }
+    }
+
+    suspend fun hideMostPlayedPlaylist(playlistId: String) {
+        val key = when (playlistId) {
+            "smart_top_50" -> SHOW_TOP_PLAYLIST
+            "smart_weekly_most" -> SHOW_WEEKLY_MOST_PLAYLIST
+            "smart_monthly_most" -> SHOW_MONTHLY_MOST_PLAYLIST
+            else -> return
+        }
+        dataStore.edit { it[key] = false }
     }
 }

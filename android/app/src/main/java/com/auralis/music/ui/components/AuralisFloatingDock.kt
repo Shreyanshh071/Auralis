@@ -348,14 +348,12 @@ fun AuralisFloatingDock(
                             )
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(color = if (isDark) Color.White else primaryColor)
-                            ) {
-                                if (currentDestination == AppDestination.HOME) {
-                                    onToggleHomeMenu()
-                                } else if (currentDestination == AppDestination.LIBRARY) {
-                                    onCreatePlaylist()
+                                indication = if (glass != null) null else ripple(color = if (isDark) Color.White else primaryColor),
+                                onClick = {
+                                    if (currentDestination == AppDestination.HOME) onToggleHomeMenu()
+                                    else if (currentDestination == AppDestination.LIBRARY) onCreatePlaylist()
                                 }
-                            },
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         if (currentDestination == AppDestination.HOME) {

@@ -56,6 +56,60 @@ class StatsRegressionTest {
     }
 
     @Test
+    fun statsWaitsForAllQueriesAndDistinguishesEmptyResultsFromLoading() {
+        val statsRepo = mockk<com.auralis.music.domain.repository.StatsRepository>(relaxed = true)
+        every { statsRepo.observeFirstEventTimestamp() } returns flowOf(null)
+        var expected = com.auralis.music.domain.model.StatsOverview(120_000L, 2, 1, 0)
+        every { statsRepo.observeStatsOverview(any(), any()) } answers {
+            val result = expected
+            kotlinx.coroutines.flow.flow {
+                kotlinx.coroutines.delay(100)
+                emit(result)
+            }
+        }
+        every { statsRepo.observeTopSongs(any(), any(), any()) } answers {
+            kotlinx.coroutines.flow.flow {
+                kotlinx.coroutines.delay(200)
+                emit(emptyList<com.auralis.music.domain.model.SongStat>())
+            }
+        }
+        every { statsRepo.observeTopArtists(any(), any(), any()) } answers {
+            kotlinx.coroutines.flow.flow {
+                kotlinx.coroutines.delay(300)
+                emit(emptyList<com.auralis.music.domain.model.ArtistStat>())
+            }
+        }
+        val vm = StatsViewModel(statsRepo)
+        val store = androidx.lifecycle.ViewModelStore()
+        store.put("stats", vm)
+        try {
+            assertNull(vm.statsContent.value)
+            testDispatcher.scheduler.runCurrent()
+            testDispatcher.scheduler.advanceTimeBy(200)
+            testDispatcher.scheduler.runCurrent()
+            assertNull("Summary alone must not expose partially loaded stats", vm.statsContent.value)
+            testDispatcher.scheduler.advanceTimeBy(100)
+            testDispatcher.scheduler.runCurrent()
+            assertEquals(expected, vm.statsContent.value?.overview)
+
+            for (option in OptionStats.entries) {
+                expected = com.auralis.music.domain.model.StatsOverview(0L, 0, 0, 0)
+                vm.selectOption(option)
+                vm.selectChip(1)
+                testDispatcher.scheduler.runCurrent()
+                assertNull("Each selected period starts in loading", vm.statsContent.value)
+                testDispatcher.scheduler.advanceTimeBy(300)
+                testDispatcher.scheduler.runCurrent()
+                assertEquals(option, vm.statsContent.value?.option)
+                assertEquals(1, vm.statsContent.value?.chipIndex)
+                assertEquals("Real empty stats must still display zero", expected, vm.statsContent.value?.overview)
+            }
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
     fun testTimeRangeCalculation_continuousPeriods() {
         val statsRepo = mockk<com.auralis.music.domain.repository.StatsRepository>(relaxed = true)
         every { statsRepo.observeFirstEventTimestamp() } returns flowOf(null)
