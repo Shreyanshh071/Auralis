@@ -608,6 +608,57 @@ fun AppearanceScreen(
                         onCheckedChange = { update { copy(showDownloadedPlaylist = it) } }
                     )
                 }
+                item(key = "item_show_top_most_played") {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.TrendingUp,
+                        title = str(R.string.show_top_most_played_playlist),
+                        subtitle = null,
+                        isChecked = settings.showTopPlaylist,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
+                        onCheckedChange = { update { copy(showTopPlaylist = it) } }
+                    )
+                }
+                item(key = "item_show_weekly_most_played") {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.TrendingUp,
+                        title = str(R.string.show_weekly_most_played_playlist),
+                        subtitle = null,
+                        isChecked = settings.showWeeklyMostPlaylist,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
+                        onCheckedChange = { update { copy(showWeeklyMostPlaylist = it) } }
+                    )
+                }
+                item(key = "item_show_monthly_most_played") {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.TrendingUp,
+                        title = str(R.string.show_monthly_most_played_playlist),
+                        subtitle = null,
+                        isChecked = settings.showMonthlyMostPlaylist,
+                        primaryColor = primaryColor,
+                        surfaceColor = surfaceColor,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant,
+                        onPrimary = onPrimary,
+                        outline = outline,
+                        surfaceVariant = surfaceVariant,
+                        onCheckedChange = { update { copy(showMonthlyMostPlaylist = it) } }
+                    )
+                }
 
             }
         }
@@ -1283,4 +1334,3 @@ private fun SliderStylePreviewCard(
         )
     }
 }
-

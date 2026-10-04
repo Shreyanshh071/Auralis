@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -122,9 +123,15 @@ fun StatsScreen(
     val selectedOption by viewModel.selectedOption.collectAsState()
     val selectedChipIndex by viewModel.selectedChipIndex.collectAsState()
     val firstEventTs by viewModel.firstEventTimestamp.collectAsState()
-    val overview by viewModel.statsOverview.collectAsState()
-    val topSongs by viewModel.topSongs.collectAsState()
-    val topArtists by viewModel.topArtists.collectAsState()
+    val statsContent by viewModel.statsContent.collectAsState()
+    val content = statsContent?.takeIf { it.option == selectedOption && it.chipIndex == selectedChipIndex }
+    val overview = content?.overview
+    val topSongs = content?.songs.orEmpty()
+    val artistPhotos by viewModel.topArtists.collectAsState()
+    val topArtists = content?.artists.orEmpty().map { artist ->
+        val photo = artistPhotos.firstOrNull { it.name == artist.name }?.thumbnailUrl
+        if (photo != null) artist.copy(thumbnailUrl = photo) else artist
+    }
     val topSong = topSongs.firstOrNull()
     val topArtist = topArtists.firstOrNull()
 
@@ -341,6 +348,17 @@ fun StatsScreen(
                     contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(22.dp)
                 ) {
+                    if (overview == null) {
+                        item(key = "stats_loading") {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = themePrimary)
+                            }
+                        }
+                        return@LazyColumn
+                    }
                     // Section: Your Highlights (if any top artist or song)
                     if (topArtist != null || topSong != null) {
                         item(key = "your_highlights") {

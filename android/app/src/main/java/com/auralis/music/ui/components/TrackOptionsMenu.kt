@@ -39,6 +39,13 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.launch
 
+data class SongPresentationActions(
+    val openAmbient: (Track) -> Unit,
+    val openLyrics: (Track) -> Unit
+)
+
+val LocalSongPresentationActions = staticCompositionLocalOf<SongPresentationActions?> { null }
+
 /**
  * YouTube Music style Modal Bottom Sheet for Track Options:
  * - Compact drag handle
@@ -75,6 +82,7 @@ fun TrackOptionsMenu(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
     modifier: Modifier = Modifier
 ) {
+    val presentationActions = LocalSongPresentationActions.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val dynamicSurface = MaterialTheme.colorScheme.surface
@@ -484,6 +492,15 @@ fun TrackOptionsMenu(
                     }
 
                     // ── GROUP 4: DOWNLOAD ──
+                    presentationActions?.let { actions ->
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(actionCardColor)) {
+                            TrackOptionRow(icon = Icons.Default.Fullscreen, title = str(R.string.ambient_mode), subtitle = null,
+                                onClick = { onDismiss(); actions.openAmbient(track) })
+                            TrackOptionRow(icon = Icons.Default.Lyrics, title = str(R.string.show_lyrics), subtitle = null,
+                                onClick = { onDismiss(); actions.openLyrics(track) })
+                        }
+                    }
+
                     val isDownloaded = AuralisDownloadManager.isDownloaded(track.id)
                     val isDownloading = AuralisDownloadManager.isDownloading(track.id)
 

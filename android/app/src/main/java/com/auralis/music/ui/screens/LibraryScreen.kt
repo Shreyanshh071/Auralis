@@ -56,10 +56,12 @@ fun LibraryScreen(
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onRefresh: suspend () -> Unit = {},
+    floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     modifier: Modifier = Modifier
 ) {
     PureLibraryScreen(
         uiState = uiState,
+        floatingHeaderState = floatingHeaderState,
         onRefresh = onRefresh,
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,

@@ -347,12 +347,12 @@ fun auralisPushExit(): ExitTransition = auralisNavigationExit()
  * directional "drill-in" cue distinct from tab switching.
  */
 @Composable
-fun auralisDetailForwardEnter(): EnterTransition {
+fun auralisDetailForwardEnter(durationMillis: Int = 200, gradualFade: Boolean = false): EnterTransition {
     if (LocalReducedMotion.current) return EnterTransition.None
     return slideInHorizontally(
-        animationSpec = tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        animationSpec = tween(durationMillis, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         initialOffsetX = { it / 8 }
-    ) + fadeIn(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    ) + fadeIn(tween(durationMillis, easing = if (gradualFade) androidx.compose.animation.core.LinearEasing else androidx.compose.animation.core.FastOutSlowInEasing))
 }
 
 /**

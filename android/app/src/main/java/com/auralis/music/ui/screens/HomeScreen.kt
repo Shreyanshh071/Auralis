@@ -41,6 +41,9 @@ fun HomeScreen(
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
+    onEditPlaylist: (String, String, String?, String?) -> Unit = { _, _, _, _ -> },
+    onDeletePlaylist: (String) -> Unit = {},
+    onAddPlaylistToQueue: (List<Track>) -> Unit = {},
     onUnpinSpeedDial: ((String) -> Unit)? = null,
     savedAlbums: List<SavedAlbum> = emptyList(),
     isAlbumPinned: ((String) -> Boolean)? = null,
@@ -56,10 +59,12 @@ fun HomeScreen(
     onRecommendToRoom: ((Track) -> Unit)? = null,
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
+    floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     modifier: Modifier = Modifier
 ) {
     PureHomeScreen(
         uiState = uiState,
+        floatingHeaderState = floatingHeaderState,
         currentTrack = currentTrack,
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,
@@ -85,6 +90,9 @@ fun HomeScreen(
         onArtistClick = onArtistClick,
         onAlbumClick = onAlbumClick,
         onPlaylistClick = onPlaylistClick,
+        onEditPlaylist = onEditPlaylist,
+        onDeletePlaylist = onDeletePlaylist,
+        onAddPlaylistToQueue = onAddPlaylistToQueue,
         onUnpinSpeedDial = onUnpinSpeedDial,
         savedAlbums = savedAlbums,
         isAlbumPinned = isAlbumPinned,

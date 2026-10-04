@@ -51,6 +51,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.ui.unit.Dp
+import com.auralis.music.ui.components.LiquidGlassPageHeader
+import com.auralis.music.ui.components.LiquidGlassPageTitle
+import com.auralis.music.ui.components.rememberPageHeaderGlass
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -143,6 +152,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -220,6 +230,9 @@ private fun smartCollectionTypeFor(id: String): SmartCollectionType? = when (id)
     else -> null
 }
 
+private fun isRemovableMostPlayedPlaylist(id: String) =
+    id == "smart_top_50" || id == "smart_weekly_most" || id == "smart_monthly_most"
+
 private fun smartCollectionIconFor(id: String, isJobDownloading: Boolean): ImageVector = when (id) {
     "smart_liked" -> Icons.Default.FavoriteBorder
     "smart_downloaded" -> if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone
@@ -281,8 +294,21 @@ fun LibraryScreen(
     onRetryPlaylistJob: (String) -> Unit = {},
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
+    floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     modifier: Modifier = Modifier
 ) {
+    val appearanceContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val appearanceStore = remember {
+        com.auralis.music.data.datastore.AppearanceSettingsDataStore(appearanceContext)
+    }
+    val appearanceScope = rememberCoroutineScope()
+    fun removePlaylist(id: String) {
+        if (isRemovableMostPlayedPlaylist(id)) {
+            appearanceScope.launch { appearanceStore.hideMostPlayedPlaylist(id) }
+        } else {
+            onDeletePlaylist(id)
+        }
+    }
     val themePrimary = MaterialTheme.colorScheme.primary
     var isGridView by remember { mutableStateOf(uiState.isGridView) }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -416,7 +442,7 @@ fun LibraryScreen(
                     onPlayTrack = { track, list -> onTrackClick(track, list) },
                     onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
                     onDeletePlaylist = {
-                        onDeletePlaylist(selectedPl.id)
+                        removePlaylist(selectedPl.id)
                         onPlaylistSelect(null)
                     },
                     onSyncPlaylist = onSyncPlaylist,
@@ -510,195 +536,235 @@ fun LibraryScreen(
             .fillMaxSize()
             .background(MaterialTheme.dynamicBackground)
     ) {
+        val headerBackdrop = rememberLayerBackdrop()
+        val headerGlass = rememberPageHeaderGlass(headerBackdrop)
+        val gridScrollState = rememberLazyGridState()
+        val listScrollState = rememberLazyListState()
+        val headerScope = rememberCoroutineScope()
+        androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
+            floatingHeaderState?.glass = headerGlass
+            onDispose { floatingHeaderState?.glass = null }
+        }
+        androidx.compose.runtime.SideEffect {
+            floatingHeaderState?.scrollToTop = {
+                headerScope.launch {
+                    if (isGridView) gridScrollState.animateScrollToItem(0)
+                    else listScrollState.animateScrollToItem(0)
+                }
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            // ================================================================
-            // 1. TOP APP BAR: "Library" Title + 3 Action Icons
-            // ================================================================
-            val themeOnBackground = MaterialTheme.dynamicOnBackground
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(start = 16.dp, end = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.ic_auralis_header_logo),
-                        contentDescription = str(R.string.auralis_logo),
-                        colorFilter = ColorFilter.tint(themeOnBackground),
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Text(
-                        text = str(R.string.library),
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = themeOnBackground,
-                        fontSize = 26.sp
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onOpenHistory,
-                        modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                    ) {
-                        Icon(Icons.Default.History, contentDescription = str(R.string.history), tint = themeOnBackground.copy(alpha = 0.85f))
-                    }
-                    IconButton(
-                        onClick = onOpenListenTogether,
-                        modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                    ) {
-                        Icon(Icons.Default.Groups, contentDescription = str(R.string.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
-                    }
-                    IconButton(
-                        onClick = onOpenProfile,
-                        modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                    ) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = str(R.string.profile), tint = themeOnBackground.copy(alpha = 0.85f))
-                    }
-                }
-            }
-
-            // Source filter pills sit above the sort / search / layout row.
             var sourceFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
-            LibrarySourcePills(
-                selected = sourceFilter,
-                onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
-            )
-
-            // ================================================================
-            // 2. SORTING & CONTROLS BAR ("Date added ↓", Search & Grid/List Toggle)
-            // ================================================================
-            if (isSearchActive) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(CARD_DARK_BG)
-                        .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = LIME_TEXT,
-                            modifier = Modifier.size(18.dp)
+            val browseHeader: @Composable () -> Unit = {
+                Column {
+                    // ================================================================
+                    // 1. TOP APP BAR: "Library" Title + 3 Action Icons
+                    // ================================================================
+                    if (headerGlass != null) {
+                        LiquidGlassPageTitle(
+                            str(R.string.library),
+                            scrollOffsetPx = {
+                                if (isGridView) {
+                                    if (gridScrollState.firstVisibleItemIndex == 0) gridScrollState.firstVisibleItemScrollOffset
+                                    else Int.MAX_VALUE
+                                } else {
+                                    if (listScrollState.firstVisibleItemIndex == 0) listScrollState.firstVisibleItemScrollOffset
+                                    else Int.MAX_VALUE
+                                }
+                            }
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterStart
+                    } else {
+                        val themeOnBackground = MaterialTheme.dynamicOnBackground
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .padding(start = 16.dp, end = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (searchQuery.isEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_auralis_header_logo),
+                                    contentDescription = str(R.string.auralis_logo),
+                                    colorFilter = ColorFilter.tint(themeOnBackground),
+                                    modifier = Modifier.size(28.dp)
+                                )
                                 Text(
-                                    text = str(R.string.search_library),
-                                    style = TextStyle(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Normal
-                                    )
+                                    text = str(R.string.library),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = themeOnBackground,
+                                    fontSize = 26.sp
                                 )
                             }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                textStyle = TextStyle(
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Normal
-                                ),
-                                cursorBrush = SolidColor(LIME_TEXT),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                if (searchQuery.isNotEmpty()) {
-                                    searchQuery = ""
-                                } else {
-                                    isSearchActive = false
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = onOpenHistory,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(Icons.Default.History, contentDescription = str(R.string.history), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = str(R.string.clear),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
+                                IconButton(
+                                    onClick = onOpenListenTogether,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(Icons.Default.Groups, contentDescription = str(R.string.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
+                                }
+                                IconButton(
+                                    onClick = onOpenProfile,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(Icons.Default.AccountCircle, contentDescription = str(R.string.profile), tint = themeOnBackground.copy(alpha = 0.85f))
+                                }
+                            }
                         }
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // Tucked up under the filter pills.
-                        .padding(start = 18.dp, end = 18.dp, top = 0.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Sorting Selector
-                    Row(
-                        modifier = Modifier
-                            .clickable { showSortMenu = true }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder)} ↓",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = LIME_TEXT,
-                            fontSize = 15.sp
-                        )
+
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = { isSearchActive = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = str(R.string.search_library_2),
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(22.dp)
-                            )
+                    // Source filter pills sit above the sort / search / layout row.
+                    LibrarySourcePills(
+                        selected = sourceFilter,
+                        horizontalPadding = if (headerGlass != null) 0.dp else 16.dp,
+                        onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
+                    )
+
+                    // ================================================================
+                    // 2. SORTING & CONTROLS BAR ("Date added ↓", Search & Grid/List Toggle)
+                    // ================================================================
+                    if (isSearchActive) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = if (headerGlass != null) 0.dp else 16.dp, vertical = 6.dp)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(CARD_DARK_BG)
+                                .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = LIME_TEXT,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = str(R.string.search_library),
+                                            style = TextStyle(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        textStyle = TextStyle(
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Normal
+                                        ),
+                                        cursorBrush = SolidColor(LIME_TEXT),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            searchQuery = ""
+                                        } else {
+                                            isSearchActive = false
+                                        }
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = str(R.string.clear),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
-                        IconButton(onClick = {
-                            isGridView = !isGridView
-                            onToggleGridView()
-                        }) {
-                            Icon(
-                                imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
-                                contentDescription = if (isGridView) str(R.string.switch_to_list_view) else str(R.string.switch_to_grid_view),
-                                tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
-                                modifier = Modifier.size(22.dp)
-                            )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // Tucked up under the filter pills.
+                                .padding(start = if (headerGlass != null) 2.dp else 18.dp, end = if (headerGlass != null) 2.dp else 18.dp, top = 0.dp, bottom = if (headerGlass != null) 0.dp else 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Sorting Selector
+                            Row(
+                                modifier = Modifier
+                                    .clickable { showSortMenu = true }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder)} ↓",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = LIME_TEXT,
+                                    fontSize = 15.sp
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = { isSearchActive = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = str(R.string.search_library_2),
+                                        tint = MaterialTheme.colorScheme.onBackground,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    isGridView = !isGridView
+                                    onToggleGridView()
+                                }) {
+                                    Icon(
+                                        imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
+                                        contentDescription = if (isGridView) str(R.string.switch_to_list_view) else str(R.string.switch_to_grid_view),
+                                        tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
                         }
                     }
+
+                    if (headerGlass == null) Spacer(modifier = Modifier.height(6.dp))
+
                 }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
+            if (headerGlass == null) browseHeader()
 
             val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
             val displayedPlaylists = sortLibraryPlaylists(
@@ -708,8 +774,8 @@ fun LibraryScreen(
                         if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
                         if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
                         // Empty unless Settings → Content → Wrapped → Most playlists is on (see LibraryViewModel).
-                        if (uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
-                        if (uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
+                        if (appearance.showWeeklyMostPlaylist && uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
+                        if (appearance.showMonthlyMostPlaylist && uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
                         if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
                     }
                     addAll(uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) })
@@ -737,7 +803,13 @@ fun LibraryScreen(
             }
 
 
-            AuralisRefreshBox(refresh = onRefresh) {
+            AuralisRefreshBox(
+                refresh = onRefresh,
+                indicatorTopInset = if (headerGlass != null) com.auralis.music.ui.components.LiquidGlassHeaderHeight else 0.dp,
+                modifier = Modifier.fillMaxSize()
+                    .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier)
+                    .background(MaterialTheme.dynamicBackground)
+            ) {
                 AnimatedContent(
                     targetState = isGridView,
                     transitionSpec = {
@@ -748,12 +820,24 @@ fun LibraryScreen(
                 ) { gridMode ->
                     if (gridMode) {
                         LazyVerticalGrid(
+                            state = gridScrollState,
                             columns = GridCells.Adaptive(minSize = minGridSize),
                             contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
+                            if (headerGlass != null) {
+                                item(key = "library_glass_header", span = { GridItemSpan(maxLineSpan) }) {
+                                    // The grid adds 16dp between rows. Leave just 4dp after the controls.
+                                    Box(Modifier.layout { measurable, constraints ->
+                                        val header = measurable.measure(constraints)
+                                        layout(header.width, (header.height - 12.dp.roundToPx()).coerceAtLeast(0)) {
+                                            header.placeRelative(0, 0)
+                                        }
+                                    }) { browseHeader() }
+                                }
+                            }
                             items(displayedPlaylists, key = { it.id }) { playlist ->
                                 Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                     val smartType = smartCollectionTypeFor(playlist.id)
@@ -782,10 +866,14 @@ fun LibraryScreen(
                         // 📋 1-COLUMN LIST VIEW
                         // ============================================================
                         LazyColumn(
+                            state = listScrollState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (headerGlass != null) {
+                                item(key = "library_glass_header") { browseHeader() }
+                            }
                             items(
                                 items = displayedPlaylists,
                                 key = { it.id },
@@ -816,6 +904,21 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
+        if (floatingHeaderState == null) headerGlass?.let { glass ->
+            LiquidGlassPageHeader(
+                glass = glass,
+                onLogoClick = {
+                    headerScope.launch {
+                        if (isGridView) gridScrollState.animateScrollToItem(0)
+                        else listScrollState.animateScrollToItem(0)
+                    }
+                },
+                onOpenProfile = onOpenProfile,
+                onOpenHistory = onOpenHistory,
+                onOpenListenTogether = onOpenListenTogether,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 
@@ -936,7 +1039,7 @@ fun LibraryScreen(
             onEditPlaylist = onEditPlaylist,
             onAddToQueue = onAddToQueue,
             onDeletePlaylist = {
-                onDeletePlaylist(pl.id)
+                removePlaylist(pl.id)
                 selectedPlaylistForMenu = null
             },
             onClearAllDownloads = {
@@ -2562,13 +2665,13 @@ private fun PlaylistDetailView(
 // 📑 PLAYLIST OPTIONS BOTTOM SHEET & DIALOGS
 // ============================================================================
 
-private enum class PlaylistDialogType {
+internal enum class PlaylistDialogType {
     EDIT, EXPORT, DELETE, DELETE_ALL_DOWNLOADS
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlaylistOptionsBottomSheet(
+internal fun PlaylistOptionsBottomSheet(
     playlist: Playlist,
     initialDialog: PlaylistDialogType? = null,
     onDismiss: () -> Unit,
@@ -2848,7 +2951,7 @@ private fun PlaylistOptionsBottomSheet(
                                 }
                             )
                         }
-                    } else if (!isSmartPlaylist) {
+                    } else if (!isSmartPlaylist || isRemovableMostPlayedPlaylist(playlist.id)) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2858,7 +2961,8 @@ private fun PlaylistOptionsBottomSheet(
                             PlaylistActionRow(
                                 icon = Icons.Default.Delete,
                                 title = str(R.string.delete),
-                                subtitle = str(R.string.remove_this_playlist_permanently),
+                                subtitle = if (isSmartPlaylist) str(R.string.hide_generated_playlist_from_library)
+                                    else str(R.string.remove_this_playlist_permanently),
                                 iconTint = Color(0xFFFF5252),
                                 titleColor = Color(0xFFFF5252),
                                 onClick = {
@@ -3199,7 +3303,8 @@ private fun PlaylistOptionsBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 title = {
                     Text(
-                        text = str(R.string.delete_playlist),
+                        text = if (isRemovableMostPlayedPlaylist(playlist.id)) str(R.string.remove_playlist_from_library)
+                            else str(R.string.delete_playlist),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -3208,7 +3313,9 @@ private fun PlaylistOptionsBottomSheet(
                 },
                 text = {
                     Text(
-                        text = str(R.string.are_you_sure_you_want_to_delete_x, playlist.title),
+                        text = if (isRemovableMostPlayedPlaylist(playlist.id))
+                            str(R.string.hide_generated_playlist_confirmation, playlist.title)
+                        else str(R.string.are_you_sure_you_want_to_delete_x, playlist.title),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 15.sp
@@ -3227,7 +3334,10 @@ private fun PlaylistOptionsBottomSheet(
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text(str(R.string.delete), fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isRemovableMostPlayedPlaylist(playlist.id)) str(R.string.remove) else str(R.string.delete),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 },
                 dismissButton = {
@@ -3500,11 +3610,12 @@ internal fun isYouTubeMusicImport(playlist: Playlist): Boolean =
 @Composable
 private fun LibrarySourcePills(
     selected: LibrarySourceFilter?,
+    horizontalPadding: Dp = 16.dp,
     onSelect: (LibrarySourceFilter) -> Unit
 ) {
     androidx.compose.foundation.lazy.LazyRow(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 0.dp),
+        contentPadding = PaddingValues(start = horizontalPadding, end = horizontalPadding, top = 4.dp, bottom = 0.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(LibrarySourceFilter.entries.toList(), key = { it.name }) { filter ->

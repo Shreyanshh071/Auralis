@@ -55,6 +55,8 @@ data class AppearanceSettings(
     val showLikedPlaylist: Boolean = true,
     val showDownloadedPlaylist: Boolean = true,
     val showTopPlaylist: Boolean = true,
+    val showWeeklyMostPlaylist: Boolean = true,
+    val showMonthlyMostPlaylist: Boolean = true,
     val showCachedPlaylist: Boolean = true,
     val showUploadedPlaylist: Boolean = true
 ) {

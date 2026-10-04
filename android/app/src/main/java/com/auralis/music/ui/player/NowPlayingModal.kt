@@ -489,9 +489,11 @@ fun NowPlayingModal(
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
 
-    LaunchedEffect(uiState.showLyricsView) {
-        if (uiState.showLyricsView && currentTab != NowPlayingTab.LYRICS) {
+    LaunchedEffect(uiState.showLyricsView, uiState.lyricsViewRequestId) {
+        if (uiState.showLyricsView) {
             currentTab = NowPlayingTab.LYRICS
+        } else if (uiState.showInlineLyrics) {
+            currentTab = NowPlayingTab.PLAYER
         }
     }
 
@@ -736,7 +738,7 @@ fun NowPlayingModal(
     // actually advancing; otherwise it mirrors the coarse ticker.
     val lyricsClock = com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = lyricsClockSource,
-        enabled = currentTab == NowPlayingTab.LYRICS && uiState.isPlaying,
+        enabled = (currentTab == NowPlayingTab.LYRICS || (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying,
         fallbackPositionMs = playbackPositionState
     )
 
@@ -1698,6 +1700,17 @@ fun NowPlayingModal(
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
+
+                        if (uiState.showInlineLyrics) {
+                            InlinePlayerLyrics(
+                                lyrics = uiState.lyrics,
+                                positionState = lyricsPositionState,
+                                offsetMs = uiState.lyricsOffsetMs,
+                                isLoading = uiState.isLoadingLyrics,
+                                onOpenFullLyrics = { currentTab = NowPlayingTab.LYRICS },
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
 
                         // ── TRACK INFO & ACTION BUTTONS (ADD TO PLAYLIST + LIKE HEART) ──
                         Row(

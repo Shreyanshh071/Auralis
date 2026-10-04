@@ -393,6 +393,7 @@ fun AuralisApp(
     var isProfileOpen by remember { mutableStateOf(false) }
     var isHistoryOpen by remember { mutableStateOf(false) }
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
+    var isAmbientOpen by rememberSaveable { mutableStateOf(false) }
     var isExternalCreatePlaylistOpen by remember { mutableStateOf(false) }
     var isHomeMenuOpen by remember { mutableStateOf(false) }
 
@@ -761,6 +762,21 @@ fun AuralisApp(
     LaunchedEffect(currentDestination, collapseOnScroll) { dockMinimize.expand() }
     LaunchedEffect(isPlayerSheetActive) { if (isPlayerSheetActive) dockMinimize.expand() }
 
+    fun preparePresentationTrack(track: com.auralis.music.domain.model.Track) {
+        if (track.id != (playerUiState.currentTrack ?: audioPlayerTrack)?.id) {
+            playOrRequest(track) {
+                val index = playerUiState.queue.indexOfFirst { it.id == track.id }
+                obtainPlayerViewModel().playTrack(track,
+                    if (index >= 0) playerUiState.queue else listOf(track), index.coerceAtLeast(0),
+                    preserveQueueSource = index >= 0)
+            }
+        }
+    }
+    val songPresentationActions = com.auralis.music.ui.components.SongPresentationActions(
+        openAmbient = { track -> preparePresentationTrack(track); obtainPlayerViewModel(); isAmbientOpen = true },
+        openLyrics = { track -> preparePresentationTrack(track); obtainPlayerViewModel().showLyrics(); expandPlayer() }
+    )
+
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
     // Scaffold's bottom bar and Now Playing is a sibling overlay, so the only way the
     // two can hand the artwork over is through a shared parent that outlives both.
@@ -772,6 +788,7 @@ fun AuralisApp(
     ) {
     CompositionLocalProvider(
         LocalBottomChrome provides mainBottomChrome,
+        com.auralis.music.ui.components.LocalSongPresentationActions provides songPresentationActions,
         com.auralis.music.ui.glass.LocalLiquidGlass provides glassContext,
         com.auralis.music.ui.glass.LocalMiniPlayerGlass provides miniGlassContext,
         com.auralis.music.ui.glass.LocalDockCollapse provides dockCollapse
@@ -896,6 +913,8 @@ fun AuralisApp(
                     BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         val reducedMotion = LocalReducedMotion.current
                         val slideOffsetPx = constraints.maxWidth.toFloat() / 8f
+                        val homeHeaderState = remember { com.auralis.music.ui.components.LiquidGlassHeaderPageState() }
+                        val libraryHeaderState = remember { com.auralis.music.ui.components.LiquidGlassHeaderPageState() }
 
                         var previousDestination by remember { mutableStateOf(currentDestination) }
                         var activeDestination by remember { mutableStateOf(currentDestination) }
@@ -981,6 +1000,7 @@ fun AuralisApp(
                                         AppDestination.HOME -> {
                                             HomeScreen(
                                                 uiState = homeUiState,
+                                                floatingHeaderState = homeHeaderState,
                                                 currentTrack = playerUiState.currentTrack,
                                                 currentTrackId = playerUiState.currentTrack?.id,
                                                 isPlaying = playerUiState.isPlaying,
@@ -1049,6 +1069,17 @@ fun AuralisApp(
                                                 onPlaylistClick = { playlistId ->
                                                     obtainLibraryViewModel().selectPlaylist(playlistId)
                                                     navigateToDestination(AppDestination.LIBRARY)
+                                                },
+                                                onEditPlaylist = { id, title, desc, coverUrl ->
+                                                    obtainLibraryViewModel().editPlaylist(id, title, desc, coverUrl)
+                                                },
+                                                onDeletePlaylist = { id -> obtainLibraryViewModel().deletePlaylist(id) },
+                                                onAddPlaylistToQueue = { tracks ->
+                                                    when {
+                                                        guestMay { it.guestsMayAddSongs } -> tracks.forEach { obtainListenTogetherViewModel().recommendSong(it) }
+                                                        guestNow() -> notifyGuestControlBlocked()
+                                                        else -> obtainPlayerViewModel().addToQueue(tracks)
+                                                    }
                                                 },
                                                 onUnpinSpeedDial = { homeViewModel.unpinFromSpeedDial(it) },
                                                 savedAlbums = libraryUiState.savedAlbums,
@@ -1294,6 +1325,7 @@ fun AuralisApp(
                                             val libVM = obtainLibraryViewModel()
                                             LibraryScreen(
                                                 uiState = libraryUiState,
+                                                floatingHeaderState = libraryHeaderState,
                                                 onRefresh = { libVM.refresh() },
                                                 currentTrackId = playerUiState.currentTrack?.id,
                                                 isPlaying = playerUiState.isPlaying,
@@ -1384,6 +1416,38 @@ fun AuralisApp(
                                 }
                             }
                         }
+                        // Keep one glass surface stationary while its page content transitions.
+                        val headerPage = when (currentDestination) {
+                            AppDestination.HOME -> homeHeaderState
+                            AppDestination.LIBRARY -> libraryHeaderState
+                            else -> null
+                        }
+                        val libraryHeaderVisible = libraryUiState.selectedPlaylist == null &&
+                            libraryUiState.selectedSmartCollection != com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED
+                        // Use the already-recorded page during the first composition of the other tab.
+                        val pageGlass = headerPage?.glass ?: homeHeaderState.glass ?: libraryHeaderState.glass
+                        if (glassEnabled && headerPage != null && pageGlass != null &&
+                            (currentDestination != AppDestination.LIBRARY || libraryHeaderVisible)) {
+                            com.auralis.music.ui.components.LiquidGlassPageHeader(
+                                glass = pageGlass,
+                                onLogoClick = { headerPage.scrollToTop() },
+                                onOpenProfile = {
+                                    obtainAuthViewModel()
+                                    obtainLibraryViewModel()
+                                    isProfileOpen = true
+                                },
+                                onOpenHistory = { isHistoryOpen = true },
+                                onOpenListenTogether = {
+                                    obtainListenTogetherViewModel()
+                                    isListenTogetherOpen = true
+                                },
+                                onOpenStats = if (currentDestination == AppDestination.HOME) ({
+                                    obtainStatsViewModel()
+                                    isStatsOpen = true
+                                }) else null,
+                                modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
+                            )
+                        }
                     }
                 }
             }
@@ -1392,7 +1456,7 @@ fun AuralisApp(
         // Listen Together Sheet with unified navigation transition
         AnimatedVisibility(
             visible = isListenTogetherOpen,
-            enter = auralisDetailForwardEnter(),
+            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
             exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(togetherGlassBackdrop) else Modifier)
         ) {
@@ -1538,7 +1602,7 @@ fun AuralisApp(
         // Profile & YouTube Music Account Sync Modal Sheet
         AnimatedVisibility(
             visible = isProfileOpen,
-            enter = auralisDetailForwardEnter(),
+            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
             exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(profileGlassBackdrop) else Modifier)
         ) {
@@ -1600,7 +1664,7 @@ fun AuralisApp(
         // Listening History Modal Sheet
         AnimatedVisibility(
             visible = isHistoryOpen,
-            enter = auralisDetailForwardEnter(),
+            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
             exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(historyGlassBackdrop) else Modifier)
         ) {
@@ -1631,7 +1695,7 @@ fun AuralisApp(
         // Listening Stats Modal Sheet
         AnimatedVisibility(
             visible = isStatsOpen,
-            enter = auralisDetailForwardEnter(),
+            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
             exit = auralisDetailBackwardExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(statsGlassBackdrop) else Modifier)
         ) {
@@ -2651,6 +2715,23 @@ fun AuralisApp(
             }
         }
 
+        if (isAmbientOpen) {
+            val vm = obtainPlayerViewModel()
+            val ambientPosition = vm.playbackPositionMs.collectAsState()
+            com.auralis.music.ui.player.AmbientModeScreen(
+                uiState = playerUiState,
+                positionState = ambientPosition,
+                clockSource = vm.playbackClockSource,
+                onDismiss = { isAmbientOpen = false },
+                onSeekTo = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.seekTo(it) },
+                onPlayPause = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.togglePlayPause() },
+                onPrevious = { if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) vm.previous() },
+                onNext = { if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) vm.next() },
+                onShuffle = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.toggleShuffle() },
+                onRepeat = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.toggleRepeat() }
+            )
+        }
+
         if (showUpdaterFromNav) {
             com.auralis.music.ui.screens.UpdaterScreen(
                 onDismiss = { showUpdaterFromNav = false }
@@ -2775,4 +2856,3 @@ private fun MiniPlayerHost(
         )
     }
 }
-

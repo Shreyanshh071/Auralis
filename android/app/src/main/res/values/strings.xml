@@ -177,6 +177,12 @@
     <string name="delete_all_downloads">Delete all downloads</string>
     <string name="remove_all_x_downloaded_songs_from_devic">Remove all %1$s downloaded songs from device</string>
     <string name="remove_this_playlist_permanently">Remove this playlist permanently</string>
+    <string name="hide_generated_playlist_from_library">Remove this playlist from Library</string>
+    <string name="remove_playlist_from_library">Remove from Library?</string>
+    <string name="hide_generated_playlist_confirmation">Remove %1$s from Library? You can show it again in Appearance settings. Your songs and listening history will stay.</string>
+    <string name="show_top_most_played_playlist">Show Top Most Played playlist</string>
+    <string name="show_weekly_most_played_playlist">Show Weekly Most Played playlist</string>
+    <string name="show_monthly_most_played_playlist">Show Monthly Most Played playlist</string>
     <string name="edit_playlist">Edit Playlist</string>
     <string name="playlist_cover_preview">Playlist Cover Preview</string>
     <string name="change_photo">Change photo</string>
@@ -1146,4 +1152,7 @@
     <string name="opt_translate_meaning_into_target_language">Translate meaning into target language</string>
     <string name="opt_phonetic_script_romanization_romaji_piny">Phonetic script / Romanization (Romaji/Pinyin/Hinglish)</string>
     <string name="opt_search">Search</string>
+    <string name="ambient_mode">Ambient Mode</string>
+    <string name="show_lyrics">Show Lyrics</string>
+    <string name="ambient_seek">Playback position</string>
 </resources>

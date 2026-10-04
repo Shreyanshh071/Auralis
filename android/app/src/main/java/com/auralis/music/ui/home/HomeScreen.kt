@@ -18,6 +18,14 @@ import com.auralis.music.R
 import com.auralis.music.ui.components.rememberShimmerBrush
 import com.auralis.music.ui.components.tactileBounce
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.auralis.music.ui.components.LiquidGlassPageHeader
+import com.auralis.music.ui.components.LiquidGlassPageTitle
+import com.auralis.music.ui.components.rememberPageHeaderGlass
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.auralis.music.ui.components.UnfoldIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -132,6 +140,9 @@ fun HomeScreen(
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
+    onEditPlaylist: (String, String, String?, String?) -> Unit = { _, _, _, _ -> },
+    onDeletePlaylist: (String) -> Unit = {},
+    onAddPlaylistToQueue: (List<Track>) -> Unit = {},
     onUnpinSpeedDial: ((String) -> Unit)? = null,
     savedAlbums: List<com.auralis.music.domain.model.SavedAlbum> = emptyList(),
     isAlbumPinned: ((String) -> Boolean)? = null,
@@ -147,14 +158,27 @@ fun HomeScreen(
     onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     modifier: Modifier = Modifier
 ) {
     val showWrappedCard = com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState().value.showWrappedCard
     val context = LocalContext.current
+    val headerBackdrop = rememberLayerBackdrop()
+    val headerGlass = rememberPageHeaderGlass(headerBackdrop)
+    val homeScrollState = rememberLazyListState()
+    val headerScope = rememberCoroutineScope()
+    androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
+        floatingHeaderState?.glass = headerGlass
+        onDispose { floatingHeaderState?.glass = null }
+    }
+    androidx.compose.runtime.SideEffect {
+        floatingHeaderState?.scrollToTop = { headerScope.launch { homeScrollState.animateScrollToItem(0) } }
+    }
     // When Home first appeared: its sections unfold in only during the first moments after launch.
     val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedAlbumForMenu by remember { mutableStateOf<PlaylistResult?>(null) }
+    var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
     var activeMood by remember { mutableStateOf<String?>(null) }
     // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
     // immediately recompose the screen and visible elements without requiring scroll.
@@ -170,8 +194,16 @@ fun HomeScreen(
         CompositionLocalProvider(
             LocalContentColor provides themeOnBackground
         ) {
-            AuralisRefreshBox(isRefreshing = uiState.isRefreshing, onRefresh = onRefresh) {
+            AuralisRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = onRefresh,
+                indicatorTopInset = if (headerGlass != null) com.auralis.music.ui.components.LiquidGlassHeaderHeight else 0.dp,
+                modifier = Modifier.fillMaxSize()
+                    .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier)
+                    .background(themeBackground)
+            ) {
                 LazyColumn(
+                    state = homeScrollState,
                     modifier = Modifier
                         .fillMaxSize(),
                     contentPadding = bottomChromePadding()
@@ -179,7 +211,14 @@ fun HomeScreen(
                     // ================================================================
                     // 1. TOP APP BAR: "Home" Title + Action Icons
                     // ================================================================
-                    item(key = "home_top_bar", contentType = "header") { UnfoldIn(0, openedAtMs) {
+                    item(key = "home_top_bar", contentType = "header") {
+                        if (headerGlass != null) LiquidGlassPageTitle(
+                            str(R.string.home), Modifier.padding(horizontal = 16.dp),
+                            scrollOffsetPx = {
+                                if (homeScrollState.firstVisibleItemIndex == 0) homeScrollState.firstVisibleItemScrollOffset
+                                else Int.MAX_VALUE
+                            }
+                        ) else UnfoldIn(0, openedAtMs) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -368,6 +407,11 @@ fun HomeScreen(
                                                                         item.track?.let { trk ->
                                                                             selectedTrackForMenu = trk
                                                                         }
+                                                                    }
+                                                                    SpeedDialType.PLAYLIST -> {
+                                                                        val playlistId = item.id.removePrefix("playlist-")
+                                                                        selectedPlaylistForMenu = userPlaylists.firstOrNull { it.id == playlistId }
+                                                                            ?: Playlist(id = playlistId, title = item.name, coverUrl = item.image)
                                                                     }
                                                                     else -> {
                                                                         if (item.isPinned) {
@@ -901,7 +945,31 @@ fun HomeScreen(
             }
             }
     }
+    if (floatingHeaderState == null) headerGlass?.let { glass ->
+        LiquidGlassPageHeader(
+            glass = glass,
+            onLogoClick = { headerScope.launch { homeScrollState.animateScrollToItem(0) } },
+            onOpenProfile = onOpenProfile,
+            onOpenStats = onOpenStats,
+            onOpenHistory = onOpenHistory,
+            onOpenListenTogether = onOpenListenTogether,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+    }
 }
+
+    selectedPlaylistForMenu?.let { playlist ->
+        com.auralis.music.ui.library.PlaylistOptionsBottomSheet(
+            playlist = playlist,
+            onDismiss = { selectedPlaylistForMenu = null },
+            onEditPlaylist = onEditPlaylist,
+            onAddToQueue = onAddPlaylistToQueue,
+            onDeletePlaylist = {
+                onDeletePlaylist(playlist.id)
+                selectedPlaylistForMenu = null
+            }
+        )
+    }
 
     // Options Menu Bottom Sheet
     selectedTrackForMenu?.let { track ->

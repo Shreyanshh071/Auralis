@@ -39,6 +39,8 @@ data class PlayerUiState(
     val sleepTimerSeconds: Long = 0,
     val isSleepTimerEndOfSong: Boolean = false,
     val showLyricsView: Boolean = false,
+    val showInlineLyrics: Boolean = false,
+    val lyricsViewRequestId: Int = 0,
     val errorMessage: String? = null,
     val audioLeadingSilenceMs: Long? = null
 )
@@ -1171,6 +1173,10 @@ class PlayerViewModel(
 
     fun setLyricsOffset(offsetMs: Long) {
         _uiState.update { it.copy(lyricsOffsetMs = offsetMs) }
+    }
+
+    fun showLyrics() {
+        _uiState.update { it.copy(showLyricsView = false, showInlineLyrics = true, lyricsViewRequestId = it.lyricsViewRequestId + 1) }
     }
 
     fun toggleLyricsView() {
