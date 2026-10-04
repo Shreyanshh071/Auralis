@@ -1,5 +1,8 @@
 package com.auralis.music.ui.viewmodel
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -167,7 +170,7 @@ class ListenTogetherViewModel(
         ) {
             Log.w("ListenTogether", "[Presence] This phone is no longer in the room -> leaving it here too")
             leaveRoom()
-            showPill("You left the room")
+            showPill(str(R.string.you_left_the_room))
             return
         }
         rosterSnapshot = roster
@@ -198,9 +201,9 @@ class ListenTogetherViewModel(
             }
             for (left in leftMembers) {
                 if (left.isHost) {
-                    showPill("Host (${left.name}) has disconnected", PillType.HOST_DISCONNECTED)
+                    showPill(str(R.string.host_x_has_disconnected, left.name), PillType.HOST_DISCONNECTED)
                 } else {
-                    showPill("${left.name} has left the room", PillType.MEMBER_LEFT)
+                    showPill(str(R.string.x_has_left_the_room, left.name), PillType.MEMBER_LEFT)
                 }
             }
 
@@ -209,7 +212,7 @@ class ListenTogetherViewModel(
                 newM.id != myUid && previousMembers.none { it.id == newM.id }
             }
             for (joined in joinedMembers) {
-                showPill("${joined.name} joined the room", PillType.MEMBER_JOINED)
+                showPill(str(R.string.x_joined_the_room, joined.name), PillType.MEMBER_JOINED)
             }
         }
         previousMembers = newMembers
@@ -314,8 +317,8 @@ class ListenTogetherViewModel(
             val before = knownSlowConnection.put(member.id, member.hasSlowConnection)
             if (before == false && member.hasSlowConnection) {
                 showPill(
-                    if (member.isHost) "${member.name}'s internet is slow right now, so the music may pause for everyone"
-                    else "${member.name}'s internet is slow right now, so they may fall a little behind"
+                    if (member.isHost) str(R.string.x_s_internet_is_slow_right_now_so_the_mu, member.name)
+                    else str(R.string.x_s_internet_is_slow_right_now_so_they_m, member.name)
                 )
             }
         }
@@ -358,7 +361,7 @@ class ListenTogetherViewModel(
                 manager.updateRoomSettings(roomCode, settings)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "Failed updating room settings: ${e.message}", e)
-                showPill("Couldn't update room settings")
+                showPill(str(R.string.couldn_t_update_room_settings))
             }
         }
         // Turning approval off lets the songs already waiting in; turning songs off declines them.
@@ -390,7 +393,7 @@ class ListenTogetherViewModel(
             // The new song starts for everyone by itself once loaded; a "play" now would start it early.
             if (command.type == GuestCommand.PLAY && heldTrackId != null) continue
             if ((command.type == GuestCommand.PLAY || command.type == GuestCommand.TOGGLE) && reopenClosedSessionIfNeeded()) {
-                showPill("${member.name} pressed play")
+                showPill(str(R.string.x_pressed_play, member.name))
                 continue
             }
             if (command.changesSong && trackChangeLockRemainingMs() > 0L) {
@@ -399,11 +402,11 @@ class ListenTogetherViewModel(
             }
             val what = when (command.type) {
                 GuestCommand.TOGGLE -> "played/paused"
-                GuestCommand.PLAY -> "pressed play"
+                GuestCommand.PLAY -> str(R.string.pressed_play)
                 GuestCommand.PAUSE -> "paused"
-                GuestCommand.NEXT -> "skipped to the next song"
-                GuestCommand.PREVIOUS -> "went back a song"
-                GuestCommand.SEEK -> "moved the song position"
+                GuestCommand.NEXT -> str(R.string.skipped_to_the_next_song)
+                GuestCommand.PREVIOUS -> str(R.string.went_back_a_song)
+                GuestCommand.SEEK -> str(R.string.moved_the_song_position)
                 GuestCommand.PLAY_TRACK -> command.track?.let { "played \u201c${it.title}\u201d" } ?: continue
                 else -> continue
             }
@@ -429,7 +432,7 @@ class ListenTogetherViewModel(
                     handledRecommendationIds += rec.id
                     viewModelScope.launch { manager.updateRecommendationStatus(roomCode, rec.id, "accepted") }
                     onHostAddToQueue?.invoke(rec.track)
-                    showPill("${rec.recommendedByName} added ${rec.track.title}")
+                    showPill(str(R.string.x_added_x, rec.recommendedByName, rec.track.title))
                 }
                 // Waits in the host's "Song requests" list; the host hears about it once.
                 com.auralis.music.data.sync.GuestSongDecision.WAIT_FOR_HOST -> {
@@ -463,20 +466,20 @@ class ListenTogetherViewModel(
             when {
                 target != null && player?.currentTrack?.value?.id == target.id -> {
                     player.seekTo(0L)
-                    showPill("Restarted “${target.title}” for ${request.memberName}")
+                    showPill(str(R.string.restarted_x_for_x, target.title, request.memberName))
                 }
                 target != null -> {
                     onHostPlayTrack?.invoke(target)
-                    showPill("Playing “${target.title}” for ${request.memberName}")
+                    showPill(str(R.string.playing_x_for_x, target.title, request.memberName))
                 }
                 else -> {
                     onHostGuestCommand?.invoke(GuestCommand(if (request.skip > 0) GuestCommand.NEXT else GuestCommand.PREVIOUS))
-                    showPill(if (request.skip > 0) "Skipped for ${request.memberName}" else "Went back a song for ${request.memberName}")
+                    showPill(if (request.skip > 0) str(R.string.skipped_for_x, request.memberName) else str(R.string.went_back_a_song_for_x, request.memberName))
                 }
             }
         } else if (request.playNow) {
             onHostPlayTrack?.invoke(request.track)
-            showPill("Playing ${request.memberName}\u2019s pick: \u201c${request.track.title}\u201d")
+            showPill(str(R.string.playing_x_u2019s_pick_u201c_x_u201d, request.memberName, request.track.title))
         } else {
             request.recommendation?.let { addRecommendationToQueue(it) }
         }
@@ -530,23 +533,23 @@ class ListenTogetherViewModel(
                         closingAtMs = now + ListenTogetherSyncMath.ROOM_CLOSE_WARNING_MS
                         closingReason = reason
                         showPill(
-                            if (reason == com.auralis.music.data.sync.ROOM_CLOSING_EMPTY) "Everyone left \u2014 closing the room in 1 minute"
-                            else "Nothing's played for 30 minutes \u2014 closing the room in 1 minute. Play something to keep it open"
+                            if (reason == com.auralis.music.data.sync.ROOM_CLOSING_EMPTY) str(R.string.everyone_left_u2014_closing_the_room_in)
+                            else str(R.string.nothing_s_played_for_30_minutes_u2014_cl)
                         )
                         runCatching { manager.setRoomClosing(roomCode, closingAtMs, reason) }
                     }
                     reason == null && deadline != null -> {
                         closingAtMs = null
                         closingReason = null
-                        showPill("The room is staying open")
+                        showPill(str(R.string.the_room_is_staying_open))
                         runCatching { manager.setRoomClosing(roomCode, null, null) }
                     }
                     deadline != null && now >= deadline -> {
                         Log.d("ListenTogether", "[Host] Closing room $roomCode ($closingReason)")
                         leaveRoom()
                         showPill(
-                            if (closingReason == com.auralis.music.data.sync.ROOM_CLOSING_EMPTY) "Closed the room because everyone left"
-                            else "Closed the room because nothing was playing"
+                            if (closingReason == com.auralis.music.data.sync.ROOM_CLOSING_EMPTY) str(R.string.closed_the_room_because_everyone_left)
+                            else str(R.string.closed_the_room_because_nothing_was_play)
                         )
                         break
                     }
@@ -563,8 +566,8 @@ class ListenTogetherViewModel(
         if (closingAt == null || state.closingReason != com.auralis.music.data.sync.ROOM_CLOSING_IDLE) return
         val canPlay = state.settings.guestsCanControlPlayback || state.settings.guestsCanPlaySongs
         showPill(
-            if (canPlay) "Nothing's played for 30 minutes \u2014 the room closes in 1 minute. Play something to keep it open"
-            else "Nothing's played for 30 minutes \u2014 the room closes in 1 minute unless the host plays something"
+            if (canPlay) str(R.string.nothing_s_played_for_30_minutes_u2014_th)
+            else str(R.string.nothing_s_played_for_30_minutes_u2014_th_2)
         )
     }
 
@@ -591,7 +594,7 @@ class ListenTogetherViewModel(
         Log.d("ListenTogether", "[Host] Holding the new song at 0:00 until this phone and ${guests.size} guest(s) have it loaded")
         holdJob = viewModelScope.launch {
             delay(SYNC_START_NOTICE_MS)
-            if (heldTrackId == trackId) showPill("Waiting for everyone to load the song\u2026")
+            if (heldTrackId == trackId) showPill(str(R.string.waiting_for_everyone_to_load_the_songu20))
             delay(SYNC_START_TIMEOUT_MS - SYNC_START_NOTICE_MS)
             // Stop waiting for slow guests, but still wait for this phone's own copy.
             stopWaitingForGuests = true
@@ -787,12 +790,12 @@ class ListenTogetherViewModel(
             try {
                 manager.sendGuestCommand(room.code, GuestCommand(GuestCommand.PLAY_TRACK, 0L, System.currentTimeMillis(), track))
                 showPill(
-                    if (room.settings.approvalApplies) "Asked the host to play \u201c${track.title}\u201d"
-                    else "Playing \u201c${track.title}\u201d for everyone"
+                    if (room.settings.approvalApplies) str(R.string.asked_the_host_to_play_u201c_x_u201d, track.title)
+                    else str(R.string.playing_u201c_x_u201d_for_everyone, track.title)
                 )
             } catch (e: Exception) {
                 Log.e("ListenTogether", "Failed asking host to play ${track.title}: ${e.message}", e)
-                showPill("Couldn't reach the host \u2014 try again")
+                showPill(str(R.string.couldn_t_reach_the_host_u2014_try_again))
             }
         }
     }
@@ -811,7 +814,7 @@ class ListenTogetherViewModel(
                             val rules = _uiState.value.activeRoom?.settings
                             if (rules?.allows(command) == true) {
                                 if (rules.approvalApplies && (command.type == GuestCommand.NEXT || command.type == GuestCommand.PREVIOUS)) {
-                                    showPill("Asked the host to ${if (command.type == GuestCommand.NEXT) "skip to the next song" else "go back a song"}")
+                                    showPill(str(R.string.asked_the_host_to_x, if (command.type == GuestCommand.NEXT) "skip to the next song" else "go back a song"))
                                 }
                                 applyGuestTapLocally(command)
                                 viewModelScope.launch {
@@ -823,8 +826,8 @@ class ListenTogetherViewModel(
                                 }
                             } else {
                                 showPill(
-                                    if (command.changesSong) "Only the host can change what's playing"
-                                    else "Only the host controls playback"
+                                    if (command.changesSong) str(R.string.only_the_host_can_change_what_s_playing)
+                                    else str(R.string.only_the_host_controls_playback)
                                 )
                             }
                             Unit
@@ -959,7 +962,7 @@ class ListenTogetherViewModel(
                 startRoomJanitor(roomCode)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Create Room Failed]: ${e.message}", e)
-                _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: "Failed to create room") }
+                _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: str(R.string.failed_to_create_room)) }
             }
         }
     }
@@ -999,7 +1002,7 @@ class ListenTogetherViewModel(
                 startObservingRoom(roomCode)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Join Room Failed]: ${e.message}", e)
-                _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: "Failed to join room") }
+                _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: str(R.string.failed_to_join_room)) }
             }
         }
     }
@@ -1218,7 +1221,7 @@ class ListenTogetherViewModel(
         }
         val rules = roomRules()
         if (!rules.guestsMayAddSongs) {
-            showPill("The host has turned off adding songs")
+            showPill(str(R.string.the_host_has_turned_off_adding_songs))
             return
         }
         viewModelScope.launch {
@@ -1230,12 +1233,12 @@ class ListenTogetherViewModel(
                     recommenderName = getEffectiveDisplayName()
                 )
                 showPill(
-                    if (rules.requireApproval) "Sent \"${track.title}\" to the host for approval"
-                    else "Added \"${track.title}\" to the room's queue"
+                    if (rules.requireApproval) str(R.string.sent_x_to_the_host_for_approval, track.title)
+                    else str(R.string.added_x_to_the_room_s_queue, track.title)
                 )
             } catch (e: Exception) {
                 Log.e("ListenTogether", "Failed recommending song: ${e.message}", e)
-                showPill("Couldn't add \"${track.title}\"")
+                showPill(str(R.string.couldn_t_add_x, track.title))
             }
         }
     }
@@ -1312,11 +1315,11 @@ class ListenTogetherViewModel(
                             recommendations = emptyList(),
                             songRequests = emptyList(),
                             isHost = false,
-                            errorMessage = if (state?.status == "closed") "Room was closed by host" else null
+                            errorMessage = if (state?.status == "closed") str(R.string.room_was_closed_by_host) else null
                         )
                     }
                     if (wasGuest) {
-                        showPill("Host has disconnected", PillType.HOST_DISCONNECTED)
+                        showPill(str(R.string.host_has_disconnected), PillType.HOST_DISCONNECTED)
                     }
                 } else {
                     _uiState.update { current ->
@@ -1368,8 +1371,8 @@ class ListenTogetherViewModel(
                 if (!_uiState.value.isHost && isHostGone()) {
                     Log.w("ListenTogether", "[Presence] Host stopped checking in -> leaving room $roomCode")
                     leaveRoom()
-                    _uiState.update { it.copy(errorMessage = "Host has disconnected") }
-                    showPill("Host has disconnected", PillType.HOST_DISCONNECTED)
+                    _uiState.update { it.copy(errorMessage = str(R.string.host_has_disconnected)) }
+                    showPill(str(R.string.host_has_disconnected), PillType.HOST_DISCONNECTED)
                     break
                 }
             }
@@ -1631,7 +1634,7 @@ class ListenTogetherViewModel(
             // Still held at the start (or paused by the host): not playing is expected, not a failure.
             if (state.activeRoom.isPlaying != true) return@launch
             Log.w("ListenTogether", "[Guest Sync] '${hostTrack.title}' (${attempted.id}) hasn't started after 8s -> falling back to this phone's own copy")
-            showPill("Couldn't load that exact song here — playing our own copy instead")
+            showPill(str(R.string.couldn_t_load_that_exact_song_here_playi))
             onSyncTrackChange?.invoke(hostTrack, state.activeRoom.queue, state.activeRoom.queueIndex, estimatedHostPosition(state.activeRoom))
         }
     }

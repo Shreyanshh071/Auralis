@@ -136,8 +136,16 @@ class LibraryRepositoryImpl(
             return false
         }
         trackDao.upsertTrackPreservingFavorite(track.toEntity())
-        val nextPos = orderedTracks.size
-        playlistDao.insertCrossRef(PlaylistTrackCrossRef(playlistId, track.id, nextPos))
+        // Settings → Content → Playlists → Add to playlist position.
+        val position = com.auralis.music.data.datastore.ContentSettingsStore.value.addToPlaylistPosition
+        if (position == com.auralis.music.domain.model.AddToPlaylistPosition.BEGINNING && orderedTracks.isNotEmpty()) {
+            val refs = (listOf(track.id) + orderedTracks.map { it.id }).mapIndexed { index, id ->
+                PlaylistTrackCrossRef(playlistId, id, index)
+            }
+            playlistDao.replacePlaylistCrossRefs(playlistId, refs)
+        } else {
+            playlistDao.insertCrossRef(PlaylistTrackCrossRef(playlistId, track.id, orderedTracks.size))
+        }
         return true
     }
 

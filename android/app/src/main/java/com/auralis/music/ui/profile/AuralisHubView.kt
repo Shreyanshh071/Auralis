@@ -1,5 +1,8 @@
 package com.auralis.music.ui.profile
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,7 +54,7 @@ fun AuralisHubView(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Auralis Modular Hub",
+                        text = str(R.string.auralis_modular_hub),
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
@@ -59,7 +62,7 @@ fun AuralisHubView(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "A dedicated modular space where custom audio, interface, and experimental settings are imported step-by-step.",
+                    text = str(R.string.a_dedicated_modular_space_where_custom_a),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -80,7 +83,7 @@ fun AuralisHubView(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Active Imported Settings",
+                text = str(R.string.active_imported_settings),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 15.sp
@@ -88,33 +91,33 @@ fun AuralisHubView(
         }
 
         AuralisModuleCard(
-            title = "Cloud Sync & Google Integration",
-            status = "Imported",
-            description = "Bi-directional playlist synchronization and account data sync",
+            title = str(R.string.cloud_sync_google_integration),
+            status = str(R.string.imported),
+            description = str(R.string.bi_directional_playlist_synchronization),
             icon = Icons.Default.CloudSync,
             onClick = onNavigateToAccount
         )
 
         AuralisModuleCard(
-            title = "Playlist Migration Engine",
-            status = "Imported",
-            description = "Seamless YouTube and Spotify playlist parser and link importer",
+            title = str(R.string.playlist_migration_engine),
+            status = str(R.string.imported),
+            description = str(R.string.seamless_youtube_and_spotify_playlist_pa),
             icon = Icons.Default.PlaylistAddCheck,
             onClick = onNavigateToAccount
         )
 
         AuralisModuleCard(
-            title = "Zero-Delay Gapless Audio",
-            status = "Imported",
-            description = "Hardware-accelerated pre-buffering pipeline for instantaneous track transitions",
+            title = str(R.string.zero_delay_gapless_audio),
+            status = str(R.string.imported),
+            description = str(R.string.hardware_accelerated_pre_buffering_pipel),
             icon = Icons.Default.Speed,
             onClick = {}
         )
 
         AuralisModuleCard(
-            title = "Dolby Atmos 3D Virtualizer",
-            status = "Imported",
-            description = "Spatial audio DSP enhancement for wide soundstage reproduction",
+            title = str(R.string.dolby_atmos_3d_virtualizer),
+            status = str(R.string.imported),
+            description = str(R.string.spatial_audio_dsp_enhancement_for_wide_s),
             icon = Icons.Default.SurroundSound,
             onClick = {}
         )
@@ -132,7 +135,7 @@ fun AuralisHubView(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Upcoming Settings Slots (Ready to Import)",
+                text = str(R.string.upcoming_settings_slots_ready_to_import),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 14.sp
@@ -140,20 +143,20 @@ fun AuralisHubView(
         }
 
         AuralisPendingModuleSlot(
-            title = "5-Band Graphic Equalizer & Bass Boost",
-            slotDescription = "Custom parametric EQ presets, virtualizer gain, and bass boost curve",
+            title = str(R.string.t_5_band_graphic_equalizer_bass_boost),
+            slotDescription = str(R.string.custom_parametric_eq_presets_virtualizer),
             icon = Icons.Default.Equalizer
         )
 
         AuralisPendingModuleSlot(
-            title = "Crossfade & Boundary Mix",
-            slotDescription = "Customizable smooth audio crossfading between 1s and 12s",
+            title = str(R.string.crossfade_boundary_mix),
+            slotDescription = str(R.string.customizable_smooth_audio_crossfading_be),
             icon = Icons.Default.LinearScale
         )
 
         AuralisPendingModuleSlot(
-            title = "Smart Auto-Sleep Timer",
-            slotDescription = "Automatic gradual fade-out after timer expires or end of current track",
+            title = str(R.string.smart_auto_sleep_timer),
+            slotDescription = str(R.string.automatic_gradual_fade_out_after_timer_e),
             icon = Icons.Default.Snooze
         )
     }
@@ -256,7 +259,7 @@ private fun AuralisPendingModuleSlot(
                         fontSize = 13.sp
                     )
                     Text(
-                        text = "Ready to Import",
+                        text = str(R.string.ready_to_import),
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.60f),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium

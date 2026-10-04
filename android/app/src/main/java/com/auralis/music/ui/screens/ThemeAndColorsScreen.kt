@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -266,7 +269,7 @@ fun ThemeAndColorsScreen(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground,
                         modifier = Modifier.size(20.dp)
                     )
@@ -276,14 +279,14 @@ fun ThemeAndColorsScreen(
 
                 Column {
                     Text(
-                        text = "Theme & Colors",
+                        text = str(R.string.theme_colors),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
                         fontSize = 22.sp
                     )
                     Text(
-                        text = "Customize player & interface palette",
+                        text = str(R.string.customize_player_interface_palette),
                         style = MaterialTheme.typography.bodySmall,
                         color = onBackground.copy(alpha = 0.60f)
                     )
@@ -552,14 +555,14 @@ fun ThemeAndColorsScreen(
                         .padding(18.dp)
                 ) {
                     Text(
-                        text = "Theme Mode",
+                        text = str(R.string.theme_mode),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
                         fontSize = 17.sp
                     )
                     Text(
-                        text = "Appearance and lightness",
+                        text = str(R.string.appearance_and_lightness),
                         style = MaterialTheme.typography.bodySmall,
                         color = onBackground.copy(alpha = 0.60f)
                     )
@@ -574,7 +577,7 @@ fun ThemeAndColorsScreen(
                         // 1. System
                         val isSystemSelected = settings.appTheme == "Follow system"
                         ThemeModeCard(
-                            title = "System",
+                            title = str(R.string.system),
                             selected = isSystemSelected,
                             activeColor = animPreviewPrimary,
                             onClick = { onUpdateSettings(settings.copy(appTheme = "Follow system")) }
@@ -588,7 +591,7 @@ fun ThemeAndColorsScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Sync,
-                                    contentDescription = "System Theme",
+                                    contentDescription = str(R.string.system_theme),
                                     tint = onBackground,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -598,7 +601,7 @@ fun ThemeAndColorsScreen(
                         // 2. Light
                         val isLightSelected = settings.appTheme == "Light Mode"
                         ThemeModeCard(
-                            title = "Light",
+                            title = str(R.string.light),
                             selected = isLightSelected,
                             activeColor = animPreviewPrimary,
                             onClick = { onUpdateSettings(settings.copy(appTheme = "Light Mode")) }
@@ -615,7 +618,7 @@ fun ThemeAndColorsScreen(
                         // 3. Dark
                         val isDarkSelected = settings.appTheme == "Dark Mode" || settings.appTheme == "Midnight Velvet Dark"
                         ThemeModeCard(
-                            title = "Dark",
+                            title = str(R.string.dark),
                             selected = isDarkSelected,
                             activeColor = animPreviewPrimary,
                             onClick = { onUpdateSettings(settings.copy(appTheme = "Dark Mode")) }
@@ -665,14 +668,14 @@ fun ThemeAndColorsScreen(
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 18.dp)) {
                         Text(
-                            text = "Color Palette",
+                            text = str(R.string.color_palette),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = onBackground,
                             fontSize = 17.sp
                         )
                         Text(
-                            text = "Accent harmony and button styling",
+                            text = str(R.string.accent_harmony_and_button_styling),
                             style = MaterialTheme.typography.bodySmall,
                             color = onBackground.copy(alpha = 0.60f)
                         )
@@ -695,7 +698,7 @@ fun ThemeAndColorsScreen(
                         val dynamicBottomRight = if (hasSongArtwork) sharedArtworkPalette.tertiary else (dynamicSysScheme?.tertiary ?: Color(0xFFCCC2DC))
 
                         PaletteOptionItem(
-                            title = "Dynamic",
+                            title = str(R.string.dynamic),
                             selected = isDynamic,
                             activeColor = animPreviewPrimary,
                             onClick = {
@@ -719,7 +722,7 @@ fun ThemeAndColorsScreen(
                         CuratedPalettes.forEach { palette ->
                             val isSelected = !isDynamic && settings.colorPalette == palette.id
                             PaletteOptionItem(
-                                title = palette.name,
+                                title = com.auralis.music.ui.i18n.UiLabels.of(palette.name),
                                 selected = isSelected,
                                 activeColor = if (isDark) palette.primaryDark else palette.primaryLight,
                                 onClick = {
@@ -761,7 +764,7 @@ fun ThemeAndColorsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Liquid glass",
+                            text = str(R.string.liquid_glass),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = onBackground,
@@ -769,9 +772,9 @@ fun ThemeAndColorsScreen(
                         )
                         Text(
                             text = if (com.auralis.music.ui.glass.isLiquidGlassSupported()) {
-                                "Glass dock and mini player. Scrolling down tucks the mini player into the dock."
+                                str(R.string.glass_dock_and_mini_player_scrolling_dow)
                             } else {
-                                "Glass dock and mini player. Live blur needs Android 12, so this phone gets a simpler look."
+                                str(R.string.glass_dock_and_mini_player_live_blur_nee)
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = onBackground.copy(alpha = 0.60f)
@@ -849,7 +852,7 @@ private fun ThemeModeCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "$title Selected",
+                    contentDescription = str(R.string.x_selected, title),
                     tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(15.dp)
                 )
@@ -906,7 +909,7 @@ private fun PaletteOptionItem(
         ) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = "$title Selected",
+                contentDescription = str(R.string.x_selected, title),
                 tint = if (isLightColor(activeColor)) Color(0xFF1B1D22) else Color.White,
                 modifier = Modifier.size(20.dp)
             )

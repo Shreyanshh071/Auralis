@@ -55,10 +55,12 @@ fun LibraryScreen(
     onRetryPlaylistJob: (String) -> Unit = {},
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
+    onRefresh: suspend () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     PureLibraryScreen(
         uiState = uiState,
+        onRefresh = onRefresh,
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,
         userName = userName,

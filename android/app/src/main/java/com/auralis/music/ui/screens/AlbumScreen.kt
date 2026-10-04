@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
@@ -101,7 +104,7 @@ fun AlbumScreen(
     val totalDurationSeconds = tracks.sumOf { it.duration }
     val totalMinutes = totalDurationSeconds / 60
     val durationText = when {
-        totalMinutes >= 60 -> "${totalMinutes / 60} hr ${totalMinutes % 60} min"
+        totalMinutes >= 60 -> str(R.string.x_hr_x_min, totalMinutes / 60, totalMinutes % 60)
         totalMinutes > 0 -> "$totalMinutes min"
         else -> ""
     }
@@ -137,7 +140,7 @@ fun AlbumScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = str(R.string.back),
                             tint = Color.White
                         )
                     }
@@ -148,13 +151,13 @@ fun AlbumScreen(
                     ) {
                         IconButton(
                             onClick = {
-                                val shareText = "Listen to ${album.title} by ${album.author ?: "Various Artists"} on Auralis Music\n\nDownload Auralis: https://auralis-self-nu.vercel.app/"
+                                val shareText = str(R.string.listen_to_x_by_x_on_auralis_music_downlo, album.title, album.author ?: "Various Artists")
                                 val sendIntent = Intent().apply {
                                     action = Intent.ACTION_SEND
                                     putExtra(Intent.EXTRA_TEXT, shareText)
                                     type = "text/plain"
                                 }
-                                context.startActivity(Intent.createChooser(sendIntent, "Share Album"))
+                                context.startActivity(Intent.createChooser(sendIntent, str(R.string.share_album)))
                             },
                             modifier = Modifier
                                 .size(42.dp)
@@ -163,7 +166,7 @@ fun AlbumScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
-                                contentDescription = "Share",
+                                contentDescription = str(R.string.share),
                                 tint = Color.White
                             )
                         }
@@ -177,7 +180,7 @@ fun AlbumScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Album Options",
+                                contentDescription = str(R.string.album_options),
                                 tint = Color.White
                             )
                         }
@@ -252,9 +255,9 @@ fun AlbumScreen(
 
                     // Subtitle (Tracks count + Duration)
                     val infoParts = buildList {
-                        add("Album")
+                        add(str(R.string.album))
                         if (tracks.isNotEmpty()) {
-                            add("${tracks.size} songs")
+                            add(str(R.string.x_songs, tracks.size))
                         }
                         if (durationText.isNotBlank()) {
                             add(durationText)
@@ -293,12 +296,12 @@ fun AlbumScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Play",
+                                contentDescription = str(R.string.play),
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Play",
+                                text = str(R.string.play),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )
@@ -323,12 +326,12 @@ fun AlbumScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Shuffle,
-                                contentDescription = "Shuffle",
+                                contentDescription = str(R.string.shuffle),
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Shuffle",
+                                text = str(R.string.shuffle),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp
                             )
@@ -357,7 +360,7 @@ fun AlbumScreen(
             } else if (tracks.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Tracks",
+                        text = str(R.string.tracks),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -444,7 +447,7 @@ fun AlbumScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
+                                    contentDescription = str(R.string.options),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -461,7 +464,7 @@ fun AlbumScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No tracks found for this album.",
+                            text = str(R.string.no_tracks_found_for_this_album),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -548,10 +551,10 @@ fun AlbumScreen(
                         putExtra(Intent.EXTRA_SUBJECT, album.title)
                         putExtra(
                             Intent.EXTRA_TEXT,
-                            "Check out the album '${album.title}' by ${album.author ?: "Various Artists"} on Auralis Music!\nhttps://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                            str(R.string.check_out_the_album_x_by_x_on_auralis_mu, album.title, album.author ?: "Various Artists", album.id.removePrefix("VL"))
                         )
                     }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share Album"))
+                    context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_album)))
                 },
                 onPlayNext = { onPlayNextAlbum?.invoke(album) },
                 onAddToQueue = { onAddToQueueAlbum?.invoke(album) },

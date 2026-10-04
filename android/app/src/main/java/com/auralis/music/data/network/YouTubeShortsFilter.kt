@@ -21,7 +21,7 @@ internal object YouTubeShortsFilter {
         "gaming", "sports", "news & politics", "comedy", "education", "science & technology",
         "howto & style", "autos & vehicles", "pets & animals", "travel & events"
     )
-    private val metadataClient = OkHttpClient.Builder()
+    private val metadataClient = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(2, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.SECONDS)
         .callTimeout(3, TimeUnit.SECONDS)

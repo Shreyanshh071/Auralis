@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -94,7 +97,7 @@ fun TrackRow(
                 if (com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(track.id)) {
                     Icon(
                         imageVector = Icons.Default.DownloadDone,
-                        contentDescription = "Downloaded",
+                        contentDescription = str(R.string.downloaded),
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                         modifier = Modifier
                             .size(14.dp)
@@ -118,7 +121,7 @@ fun TrackRow(
             IconButton(onClick = onFavoriteToggle) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favorite",
+                    contentDescription = str(R.string.favorite),
                     tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -129,7 +132,7 @@ fun TrackRow(
             IconButton(onClick = onMoreClick) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Options",
+                    contentDescription = str(R.string.options),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

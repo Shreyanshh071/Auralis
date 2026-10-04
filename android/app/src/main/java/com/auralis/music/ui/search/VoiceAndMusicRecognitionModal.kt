@@ -1,5 +1,8 @@
 package com.auralis.music.ui.search
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -268,14 +271,14 @@ fun VoiceAndMusicRecognitionModal(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground,
                         modifier = Modifier.size(22.dp)
                     )
                 }
 
                 Text(
-                    text = if (state.mode == RecognitionMode.MUSIC_IDENTIFY) "Music Recognition" else "Speak to Search",
+                    text = if (state.mode == RecognitionMode.MUSIC_IDENTIFY) str(R.string.music_recognition) else str(R.string.speak_to_search_2),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -293,7 +296,7 @@ fun VoiceAndMusicRecognitionModal(
                     ) {
                         Icon(
                             imageVector = Icons.Default.History,
-                            contentDescription = "History",
+                            contentDescription = str(R.string.history),
                             tint = onBackground,
                             modifier = Modifier.size(22.dp)
                         )
@@ -309,7 +312,7 @@ fun VoiceAndMusicRecognitionModal(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
+                            contentDescription = str(R.string.close),
                             tint = onBackground,
                             modifier = Modifier.size(20.dp)
                         )
@@ -328,12 +331,12 @@ fun VoiceAndMusicRecognitionModal(
             ) {
                 // ── SUBTITLE & STATUS ──
                 Text(
-                    text = if (!hasAudioPermission) "Microphone permission required"
-                           else if (isListening) "Listening for music around you..."
-                           else if (isProcessing) "Analyzing audio with Shazam..."
+                    text = if (!hasAudioPermission) str(R.string.microphone_permission_required)
+                           else if (isListening) str(R.string.listening_for_music_around_you)
+                           else if (isProcessing) str(R.string.analyzing_audio_with_shazam)
                            else if (isSuccess) state.statusMessage
                            else if (isError) state.statusMessage
-                           else "Tap to listen",
+                           else str(R.string.tap_to_listen_2),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (isError) Color(0xFFFF8A80)
                             else if (isSuccess) primaryColor
@@ -399,11 +402,11 @@ fun VoiceAndMusicRecognitionModal(
                         )
                         Text(
                             text = when {
-                                isProcessing -> "Processing..."
-                                isListening -> "Listening..."
-                                isSuccess -> "Song Identified"
-                                isError -> "Try Again"
-                                else -> "Tap to Listen"
+                                isProcessing -> str(R.string.processing)
+                                isListening -> str(R.string.listening)
+                                isSuccess -> str(R.string.song_identified)
+                                isError -> str(R.string.try_again_2)
+                                else -> str(R.string.tap_to_listen)
                             },
                             color = primaryColor,
                             fontWeight = FontWeight.SemiBold,
@@ -472,7 +475,7 @@ fun VoiceAndMusicRecognitionModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isListening) "Cancel" else "Close",
+                            text = if (isListening) str(R.string.cancel) else str(R.string.close),
                             color = onBackground,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
@@ -537,7 +540,7 @@ fun VoiceAndMusicRecognitionModal(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Play",
+                                    contentDescription = str(R.string.play),
                                     tint = Color.Black,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -579,7 +582,7 @@ fun VoiceAndMusicRecognitionModal(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Google Sound Search",
+                            str(R.string.google_sound_search),
                             color = onBackground,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
@@ -620,7 +623,7 @@ fun VoiceAndMusicRecognitionModal(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Recognition History",
+                            text = str(R.string.recognition_history),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = onBackground
@@ -628,7 +631,7 @@ fun VoiceAndMusicRecognitionModal(
 
                         if (historyItems.isNotEmpty()) {
                             TextButton(onClick = onClearHistory) {
-                                Text("Clear All", color = Color(0xFFFF8A80))
+                                Text(str(R.string.clear_all), color = Color(0xFFFF8A80))
                             }
                         }
                     }
@@ -638,12 +641,12 @@ fun VoiceAndMusicRecognitionModal(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search history...", color = onBackground.copy(alpha = 0.5f)) },
+                            placeholder = { Text(str(R.string.search_history_2), color = onBackground.copy(alpha = 0.5f)) },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor) },
                             trailingIcon = {
                                 if (searchQuery.isNotEmpty()) {
                                     IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = onBackground)
+                                        Icon(Icons.Default.Clear, contentDescription = str(R.string.clear), tint = onBackground)
                                     }
                                 }
                             },
@@ -677,7 +680,7 @@ fun VoiceAndMusicRecognitionModal(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = if (searchQuery.isBlank()) "No recognition history yet" else "No matches found",
+                                    text = if (searchQuery.isBlank()) str(R.string.no_recognition_history_yet) else str(R.string.no_matches_found),
                                     color = onBackground.copy(alpha = 0.6f),
                                     fontSize = 16.sp
                                 )
@@ -762,7 +765,7 @@ fun VoiceAndMusicRecognitionModal(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.PlayArrow,
-                                                contentDescription = "Play",
+                                                contentDescription = str(R.string.play),
                                                 tint = primaryColor,
                                                 modifier = Modifier.size(24.dp)
                                             )
@@ -773,7 +776,7 @@ fun VoiceAndMusicRecognitionModal(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.DeleteOutline,
-                                                contentDescription = "Delete",
+                                                contentDescription = str(R.string.delete),
                                                 tint = onBackground.copy(alpha = 0.4f),
                                                 modifier = Modifier.size(20.dp)
                                             )

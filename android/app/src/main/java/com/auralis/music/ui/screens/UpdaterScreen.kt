@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -80,13 +83,13 @@ fun UpdaterScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Updater",
+                    text = str(R.string.updater),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -106,7 +109,7 @@ fun UpdaterScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Current version",
+                            text = str(R.string.current_version),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -126,14 +129,14 @@ fun UpdaterScreen(
                                     .padding(horizontal = 18.dp, vertical = 18.dp)
                             ) {
                                 Text(
-                                    text = "Version: $currentVersion",
+                                    text = str(R.string.version_x, currentVersion),
                                     color = onSurface,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "universal - FOSS",
+                                    text = str(R.string.universal_foss),
                                     color = onSurfaceVariant,
                                     fontSize = 13.sp
                                 )
@@ -146,7 +149,7 @@ fun UpdaterScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Update settings",
+                            text = str(R.string.update_settings),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -163,7 +166,7 @@ fun UpdaterScreen(
                             Column {
                                 UpdaterSwitchRow(
                                     icon = Icons.Default.Update,
-                                    title = "Automatically check for updates",
+                                    title = str(R.string.automatically_check_for_updates),
                                     checked = settings.autoCheckUpdates,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setAutoCheckUpdates(isChecked) }
@@ -177,7 +180,7 @@ fun UpdaterScreen(
 
                                 UpdaterSwitchRow(
                                     icon = Icons.Default.NotificationsNone,
-                                    title = "Enable update notifications",
+                                    title = str(R.string.enable_update_notifications),
                                     checked = settings.enableNotifications,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setEnableNotifications(isChecked) }
@@ -192,7 +195,7 @@ fun UpdaterScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Check for updates",
+                            text = str(R.string.check_for_updates_2),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -219,9 +222,9 @@ fun UpdaterScreen(
                                                 showUpdateDialog = true
                                             } else {
                                                 if (info.error != null) {
-                                                    Toast.makeText(context, "Update check: ${info.error}", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, str(R.string.update_check_x, info.error), Toast.LENGTH_SHORT).show()
                                                 } else {
-                                                    Toast.makeText(context, "Auralis is up to date (v$currentVersion)", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, str(R.string.auralis_is_up_to_date_v_x, currentVersion), Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
@@ -255,7 +258,7 @@ fun UpdaterScreen(
                                 Spacer(modifier = Modifier.width(14.dp))
 
                                 Text(
-                                    text = if (isChecking) "Checking for updates..." else "Check for updates",
+                                    text = if (isChecking) str(R.string.checking_for_updates) else str(R.string.check_for_updates_2),
                                     color = onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp,
@@ -285,13 +288,13 @@ fun UpdaterScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("New Version Available", fontWeight = FontWeight.Bold, color = onBackground)
+                        Text(str(R.string.new_version_available), fontWeight = FontWeight.Bold, color = onBackground)
                     }
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = "Auralis v${info.latestVersion} is ready to install.",
+                            text = str(R.string.auralis_v_x_is_ready_to_install, info.latestVersion),
                             fontWeight = FontWeight.SemiBold,
                             color = primaryColor,
                             fontSize = 14.5.sp
@@ -318,7 +321,7 @@ fun UpdaterScreen(
                                     trackColor = primaryColor.copy(alpha = 0.2f)
                                 )
                                 Text(
-                                    text = if (downloadProgress > 0f) "Downloading update... ${(downloadProgress * 100).toInt()}%" else "Starting download...",
+                                    text = if (downloadProgress > 0f) str(R.string.downloading_update_x, (downloadProgress * 100).toInt()) else str(R.string.starting_download),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = onSurfaceVariant
                                 )
@@ -345,7 +348,7 @@ fun UpdaterScreen(
                                     if (res.isSuccess) {
                                         showUpdateDialog = false
                                     } else {
-                                        Toast.makeText(context, "Download failed: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, str(R.string.download_failed_x, res.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
                                     }
                                 }
                             } else {
@@ -356,19 +359,19 @@ fun UpdaterScreen(
                                     }
                                     context.startActivity(intent)
                                 } catch (_: Exception) {
-                                    Toast.makeText(context, "Could not open download link", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, str(R.string.could_not_open_download_link), Toast.LENGTH_SHORT).show()
                                 }
                                 showUpdateDialog = false
                             }
                         }
                     ) {
-                        Text(if (isDownloading) "Downloading..." else "Update Now", fontWeight = FontWeight.Bold)
+                        Text(if (isDownloading) str(R.string.downloading_2) else str(R.string.update_now), fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     if (!isDownloading) {
                         TextButton(onClick = { showUpdateDialog = false }) {
-                            Text("Later", color = onSurfaceVariant)
+                            Text(str(R.string.later), color = onSurfaceVariant)
                         }
                     }
                 }

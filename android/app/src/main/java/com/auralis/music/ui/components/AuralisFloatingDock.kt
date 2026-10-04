@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import com.auralis.music.ui.glass.liquidGlass
@@ -358,14 +361,14 @@ fun AuralisFloatingDock(
                         if (currentDestination == AppDestination.HOME) {
                             Icon(
                                 imageVector = Icons.Default.MoreHoriz,
-                                contentDescription = "Menu",
+                                contentDescription = str(R.string.menu),
                                 tint = contentColor,
                                 modifier = Modifier.size(24.dp)
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = "Create",
+                                contentDescription = str(R.string.create),
                                 tint = contentColor,
                                 modifier = Modifier.size(24.dp)
                             )

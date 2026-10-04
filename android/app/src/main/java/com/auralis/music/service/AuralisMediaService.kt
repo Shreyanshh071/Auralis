@@ -1,5 +1,7 @@
 package com.auralis.music.service
 
+import com.auralis.music.ui.i18n.str
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -557,25 +559,25 @@ class AuralisMediaService : MediaSessionService() {
 
         val prevAction = NotificationCompat.Action.Builder(
             R.drawable.ic_media_skip_previous,
-            "Previous",
+            str(R.string.previous),
             prevPending
         ).build()
 
         val playPauseAction = NotificationCompat.Action.Builder(
             if (shouldShowPause) R.drawable.ic_media_pause_circle else R.drawable.ic_media_play_circle,
-            if (shouldShowPause) "Pause" else "Play",
+            if (shouldShowPause) str(R.string.pause) else str(R.string.play),
             playPausePending
         ).build()
 
         val nextAction = NotificationCompat.Action.Builder(
             R.drawable.ic_media_skip_next,
-            "Next",
+            str(R.string.next),
             nextPending
         ).build()
 
         val favAction = NotificationCompat.Action.Builder(
             if (isFav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
-            if (isFav) "Favorited" else "Favorite",
+            if (isFav) str(R.string.favorited) else str(R.string.favorite),
             favPending
         ).build()
 
@@ -739,7 +741,7 @@ class AuralisMediaService : MediaSessionService() {
                 "Auralis Media Playback",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Media playback and lock-screen controls for Auralis"
+                description = str(R.string.media_playback_and_lock_screen_controls)
                 setShowBadge(false)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }

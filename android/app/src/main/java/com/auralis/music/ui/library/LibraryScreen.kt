@@ -1,5 +1,8 @@
 package com.auralis.music.ui.library
 
+import com.auralis.music.ui.components.AuralisRefreshBox
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.animation.*
@@ -211,6 +214,8 @@ private fun smartCollectionTypeFor(id: String): SmartCollectionType? = when (id)
     "smart_liked" -> SmartCollectionType.LIKED
     "smart_downloaded" -> SmartCollectionType.DOWNLOADED
     "smart_top_50" -> SmartCollectionType.MY_TOP_50
+    "smart_weekly_most" -> SmartCollectionType.WEEKLY_MOST
+    "smart_monthly_most" -> SmartCollectionType.MONTHLY_MOST
     "smart_cached" -> SmartCollectionType.CACHED
     else -> null
 }
@@ -218,7 +223,7 @@ private fun smartCollectionTypeFor(id: String): SmartCollectionType? = when (id)
 private fun smartCollectionIconFor(id: String, isJobDownloading: Boolean): ImageVector = when (id) {
     "smart_liked" -> Icons.Default.FavoriteBorder
     "smart_downloaded" -> if (isJobDownloading) Icons.Default.Sync else Icons.Default.DownloadDone
-    "smart_top_50" -> Icons.Default.Leaderboard
+    "smart_top_50", "smart_weekly_most", "smart_monthly_most" -> Icons.Default.Leaderboard
     else -> Icons.Default.CloudDownload
 }
 
@@ -235,6 +240,7 @@ private fun smartCollectionSubtitleFor(playlist: Playlist, isJobDownloading: Boo
 @Composable
 fun LibraryScreen(
     uiState: LibraryUiState,
+    onRefresh: suspend () -> Unit = {},
     currentTrackId: String?,
     isPlaying: Boolean,
     userName: String = "You",
@@ -296,8 +302,8 @@ fun LibraryScreen(
     val likedPlaylist = remember(uiState.favorites) {
         Playlist(
             id = "smart_liked",
-            title = "Liked",
-            description = "Auto-saved tracks",
+            title = str(R.string.liked),
+            description = str(R.string.auto_saved_tracks),
             tracks = uiState.favorites,
             createdAt = Long.MAX_VALUE
         )
@@ -305,7 +311,7 @@ fun LibraryScreen(
     val downloadedPlaylist = remember(uiState.downloadedTracks) {
         Playlist(
             id = "smart_downloaded",
-            title = "Downloaded",
+            title = str(R.string.downloaded),
             description = "${uiState.downloadedTracks.size} offline songs",
             tracks = uiState.downloadedTracks,
             createdAt = Long.MAX_VALUE - 1
@@ -317,17 +323,35 @@ fun LibraryScreen(
     val top50Playlist = remember(uiState.top50Tracks) {
         Playlist(
             id = "smart_top_50",
-            title = "Top Most Played",
-            description = "Your most played tracks",
+            title = str(R.string.top_most_played),
+            description = str(R.string.your_most_played_tracks),
             tracks = uiState.top50Tracks,
             createdAt = Long.MAX_VALUE - 2
+        )
+    }
+    val weeklyMostPlaylist = remember(uiState.weeklyMostTracks) {
+        Playlist(
+            id = "smart_weekly_most",
+            title = str(R.string.weekly_most_played),
+            description = str(R.string.most_played_in_the_last_7_days),
+            tracks = uiState.weeklyMostTracks,
+            createdAt = Long.MAX_VALUE - 4
+        )
+    }
+    val monthlyMostPlaylist = remember(uiState.monthlyMostTracks) {
+        Playlist(
+            id = "smart_monthly_most",
+            title = str(R.string.monthly_most_played),
+            description = str(R.string.most_played_in_the_last_30_days),
+            tracks = uiState.monthlyMostTracks,
+            createdAt = Long.MAX_VALUE - 5
         )
     }
     val cachedPlaylist = remember(uiState.cachedTracks) {
         Playlist(
             id = "smart_cached",
-            title = "Cached Streamed",
-            description = "Locally buffered tracks",
+            title = str(R.string.cached_streamed),
+            description = str(R.string.locally_buffered_tracks),
             tracks = uiState.cachedTracks,
             createdAt = Long.MAX_VALUE - 3
         )
@@ -508,12 +532,12 @@ fun LibraryScreen(
                 ) {
                     Image(
                         painter = painterResource(R.drawable.ic_auralis_header_logo),
-                        contentDescription = "Auralis Logo",
+                        contentDescription = str(R.string.auralis_logo),
                         colorFilter = ColorFilter.tint(themeOnBackground),
                         modifier = Modifier.size(28.dp)
                     )
                     Text(
-                        text = "Library",
+                        text = str(R.string.library),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = themeOnBackground,
@@ -529,19 +553,19 @@ fun LibraryScreen(
                         onClick = onOpenHistory,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.History, contentDescription = "History", tint = themeOnBackground.copy(alpha = 0.85f))
+                        Icon(Icons.Default.History, contentDescription = str(R.string.history), tint = themeOnBackground.copy(alpha = 0.85f))
                     }
                     IconButton(
                         onClick = onOpenListenTogether,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = themeOnBackground.copy(alpha = 0.85f))
+                        Icon(Icons.Default.Groups, contentDescription = str(R.string.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
                     }
                     IconButton(
                         onClick = onOpenProfile,
                         modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                     ) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = themeOnBackground.copy(alpha = 0.85f))
+                        Icon(Icons.Default.AccountCircle, contentDescription = str(R.string.profile), tint = themeOnBackground.copy(alpha = 0.85f))
                     }
                 }
             }
@@ -585,7 +609,7 @@ fun LibraryScreen(
                         ) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Search library...",
+                                    text = str(R.string.search_library),
                                     style = TextStyle(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 15.sp,
@@ -618,7 +642,7 @@ fun LibraryScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Clear",
+                                contentDescription = str(R.string.clear),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -642,7 +666,7 @@ fun LibraryScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${uiState.sortOrder} ↓",
+                            text = "${com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder)} ↓",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = LIME_TEXT,
@@ -654,7 +678,7 @@ fun LibraryScreen(
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(
                                 imageVector = Icons.Default.Search,
-                                contentDescription = "Search Library",
+                                contentDescription = str(R.string.search_library_2),
                                 tint = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -665,7 +689,7 @@ fun LibraryScreen(
                         }) {
                             Icon(
                                 imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
-                                contentDescription = if (isGridView) "Switch to List View" else "Switch to Grid View",
+                                contentDescription = if (isGridView) str(R.string.switch_to_list_view) else str(R.string.switch_to_grid_view),
                                 tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -683,6 +707,9 @@ fun LibraryScreen(
                         if (appearance.showLikedPlaylist) add(likedPlaylist)
                         if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
                         if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
+                        // Empty unless Settings → Content → Wrapped → Most playlists is on (see LibraryViewModel).
+                        if (uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
+                        if (uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
                         if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
                     }
                     addAll(uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) })
@@ -710,77 +737,79 @@ fun LibraryScreen(
             }
 
 
-            AnimatedContent(
-                targetState = isGridView,
-                transitionSpec = {
-                    gridFadeEnter togetherWith gridFadeExit using SizeTransform(clip = false)
-                },
-                modifier = Modifier.fillMaxSize(),
-                label = "libraryLayoutMode"
-            ) { gridMode ->
-                if (gridMode) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = minGridSize),
-                        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(displayedPlaylists, key = { it.id }) { playlist ->
-                            Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                val smartType = smartCollectionTypeFor(playlist.id)
-                                if (smartType != null) {
-                                    SmartLibraryCard(
-                                        title = playlist.title,
-                                        subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                        icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                        tracks = playlist.tracks,
-                                        onClick = { onSmartCollectionClick(smartType) },
-                                        onLongClick = { selectedPlaylistForMenu = playlist }
-                                    )
-                                } else {
-                                    UserPlaylistGridCard(
-                                        playlist = playlist,
-                                        savedAlbums = uiState.savedAlbums,
-                                        onClick = { onPlaylistSelect(playlist) },
-                                        onLongClick = { selectedPlaylistForMenu = playlist }
-                                    )
+            AuralisRefreshBox(refresh = onRefresh) {
+                AnimatedContent(
+                    targetState = isGridView,
+                    transitionSpec = {
+                        gridFadeEnter togetherWith gridFadeExit using SizeTransform(clip = false)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    label = "libraryLayoutMode"
+                ) { gridMode ->
+                    if (gridMode) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = minGridSize),
+                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(displayedPlaylists, key = { it.id }) { playlist ->
+                                Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
+                                    val smartType = smartCollectionTypeFor(playlist.id)
+                                    if (smartType != null) {
+                                        SmartLibraryCard(
+                                            title = playlist.title,
+                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                            tracks = playlist.tracks,
+                                            onClick = { onSmartCollectionClick(smartType) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    } else {
+                                        UserPlaylistGridCard(
+                                            playlist = playlist,
+                                            savedAlbums = uiState.savedAlbums,
+                                            onClick = { onPlaylistSelect(playlist) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                } else {
-                    // ============================================================
-                    // 📋 1-COLUMN LIST VIEW
-                    // ============================================================
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(
-                            items = displayedPlaylists,
-                            key = { it.id },
-                            contentType = { if (smartCollectionTypeFor(it.id) != null) "smart_row" else "playlist" }
-                        ) { playlist ->
-                            Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                val smartType = smartCollectionTypeFor(playlist.id)
-                                if (smartType != null) {
-                                    SmartLibraryListRow(
-                                        title = playlist.title,
-                                        subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                        icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                        tracks = playlist.tracks,
-                                        onClick = { onSmartCollectionClick(smartType) },
-                                        onLongClick = { selectedPlaylistForMenu = playlist }
-                                    )
-                                } else {
-                                    UserPlaylistListRow(
-                                        playlist = playlist,
-                                        savedAlbums = uiState.savedAlbums,
-                                        onClick = { onPlaylistSelect(playlist) },
-                                        onLongClick = { selectedPlaylistForMenu = playlist }
-                                    )
+                    } else {
+                        // ============================================================
+                        // 📋 1-COLUMN LIST VIEW
+                        // ============================================================
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(
+                                items = displayedPlaylists,
+                                key = { it.id },
+                                contentType = { if (smartCollectionTypeFor(it.id) != null) "smart_row" else "playlist" }
+                            ) { playlist ->
+                                Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
+                                    val smartType = smartCollectionTypeFor(playlist.id)
+                                    if (smartType != null) {
+                                        SmartLibraryListRow(
+                                            title = playlist.title,
+                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                            tracks = playlist.tracks,
+                                            onClick = { onSmartCollectionClick(smartType) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    } else {
+                                        UserPlaylistListRow(
+                                            playlist = playlist,
+                                            savedAlbums = uiState.savedAlbums,
+                                            onClick = { onPlaylistSelect(playlist) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -795,7 +824,7 @@ fun LibraryScreen(
         val sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
         AlertDialog(
             onDismissRequest = { showSortMenu = false },
-            title = { Text("Sort Playlists By", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
+            title = { Text(str(R.string.sort_playlists_by), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
             containerColor = CARD_DARK_BG,
             text = {
                 Column {
@@ -813,7 +842,7 @@ fun LibraryScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = opt,
+                                text = com.auralis.music.ui.i18n.UiLabels.of(opt),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 color = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.onBackground,
@@ -828,7 +857,7 @@ fun LibraryScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showSortMenu = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                TextButton(onClick = { showSortMenu = false }) { Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         )
     }
@@ -842,7 +871,7 @@ fun LibraryScreen(
             containerColor = CARD_DARK_BG,
             title = {
                 Text(
-                    text = "New Playlist",
+                    text = str(R.string.new_playlist),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -854,7 +883,7 @@ fun LibraryScreen(
                         onValueChange = { playlistInput = it },
                         placeholder = {
                             Text(
-                                "Playlist title",
+                                str(R.string.playlist_title),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 13.sp
                             )
@@ -885,7 +914,7 @@ fun LibraryScreen(
                     )
                 ) {
                     Text(
-                        text = "Create",
+                        text = str(R.string.create),
                         color = Color.Black,
                         fontWeight = FontWeight.Bold
                     )
@@ -893,7 +922,7 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -1355,7 +1384,7 @@ private fun UserPlaylistGridCard(
         Spacer(modifier = Modifier.height(2.dp))
 
         Text(
-            text = "${playlist.tracks.size} songs",
+            text = str(R.string.x_songs, playlist.tracks.size),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp
@@ -1500,7 +1529,7 @@ private fun UserPlaylistListRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${playlist.tracks.size} songs",
+                text = str(R.string.x_songs, playlist.tracks.size),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp
@@ -1866,7 +1895,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = str(R.string.back),
                     tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
@@ -1877,7 +1906,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                    contentDescription = "Search",
+                    contentDescription = str(R.string.search),
                     tint = if (isSearchActive) LIME_TEXT else Color.White,
                     modifier = Modifier.size(24.dp)
                 )
@@ -1913,7 +1942,7 @@ private fun PlaylistDetailView(
                     ) {
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Search in playlist...",
+                                text = str(R.string.search_in_playlist),
                                 style = TextStyle(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 15.sp,
@@ -1941,7 +1970,7 @@ private fun PlaylistDetailView(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Clear",
+                                contentDescription = str(R.string.clear),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -2149,7 +2178,7 @@ private fun PlaylistDetailView(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit Playlist Photo and Name",
+                                        contentDescription = str(R.string.edit_playlist_photo_and_name),
                                         tint = Color.White,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -2261,7 +2290,7 @@ private fun PlaylistDetailView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
-                                    contentDescription = "Shuffle",
+                                    contentDescription = str(R.string.shuffle),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -2284,7 +2313,7 @@ private fun PlaylistDetailView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Play",
+                                    contentDescription = str(R.string.play),
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -2303,7 +2332,7 @@ private fun PlaylistDetailView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Playlist Options",
+                                    contentDescription = str(R.string.playlist_options),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -2341,7 +2370,7 @@ private fun PlaylistDetailView(
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = "Sort Options",
+                                        contentDescription = str(R.string.sort_options),
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -2358,7 +2387,7 @@ private fun PlaylistDetailView(
                                         DropdownMenuItem(
                                             text = {
                                                 Text(
-                                                    text = option.label,
+                                                    text = com.auralis.music.ui.i18n.UiLabels.of(option.label),
                                                     color = if (sortOption == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                                     fontWeight = if (sortOption == option) FontWeight.Bold else FontWeight.Normal,
                                                     fontSize = 14.sp
@@ -2485,7 +2514,7 @@ private fun PlaylistDetailView(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DragHandle,
-                                contentDescription = "Drag to reorder song",
+                                contentDescription = str(R.string.drag_to_reorder_song),
                                 tint = Color.White.copy(alpha = 0.45f),
                                 modifier = Modifier.size(20.dp)
                             )
@@ -2494,7 +2523,7 @@ private fun PlaylistDetailView(
                         IconButton(onClick = {}) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Options",
+                                contentDescription = str(R.string.options),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -2631,7 +2660,7 @@ private fun PlaylistOptionsBottomSheet(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "${playlist.tracks.size} songs",
+                            text = str(R.string.x_songs, playlist.tracks.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.65f),
                             maxLines = 1,
@@ -2668,7 +2697,7 @@ private fun PlaylistOptionsBottomSheet(
                                 .clickable {
                                     onDismiss()
                                     onAddToQueue?.invoke(playlist.tracks)
-                                    Toast.makeText(context, "Added ${playlist.tracks.size} tracks to queue", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, str(R.string.added_x_tracks_to_queue, playlist.tracks.size), Toast.LENGTH_SHORT).show()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -2678,13 +2707,13 @@ private fun PlaylistOptionsBottomSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PlaylistAdd,
-                                    contentDescription = "Add to queue",
+                                    contentDescription = str(R.string.add_to_queue),
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Add to queue",
+                                    text = str(R.string.add_to_queue),
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
@@ -2706,10 +2735,10 @@ private fun PlaylistOptionsBottomSheet(
                                         putExtra(Intent.EXTRA_SUBJECT, playlist.title)
                                         putExtra(
                                             Intent.EXTRA_TEXT,
-                                            "Listen to '${playlist.title}' on Auralis Music (${playlist.tracks.size} songs)\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                                            str(R.string.listen_to_x_on_auralis_music_x_songs_dow, playlist.title, playlist.tracks.size)
                                         )
                                     }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share Playlist"))
+                                    context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_playlist)))
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -2719,13 +2748,13 @@ private fun PlaylistOptionsBottomSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
+                                    contentDescription = str(R.string.share),
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Share",
+                                    text = str(R.string.share),
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
@@ -2746,8 +2775,8 @@ private fun PlaylistOptionsBottomSheet(
                         if (!isSmartPlaylist) {
                             PlaylistActionRow(
                                 icon = Icons.Default.Edit,
-                                title = "Edit",
-                                subtitle = "Edit playlist name and cover",
+                                title = str(R.string.edit),
+                                subtitle = str(R.string.edit_playlist_name_and_cover),
                                 onClick = {
                                     editTitle = playlist.title
                                     editDesc = playlist.description ?: ""
@@ -2764,8 +2793,8 @@ private fun PlaylistOptionsBottomSheet(
 
                         PlaylistActionRow(
                             icon = Icons.Default.Share,
-                            title = "Export playlist",
-                            subtitle = "Export tracks to file",
+                            title = str(R.string.export_playlist),
+                            subtitle = str(R.string.export_tracks_to_file),
                             onClick = {
                                 activeDialog = PlaylistDialogType.EXPORT
                             }
@@ -2783,8 +2812,8 @@ private fun PlaylistOptionsBottomSheet(
                         ) {
                             PlaylistActionRow(
                                 icon = if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
-                                title = if (isAllDownloaded) "Downloaded" else "Download playlist",
-                                subtitle = if (isAllDownloaded) "All ${playlist.tracks.size} songs are available offline" else "Download all songs for offline playback",
+                                title = if (isAllDownloaded) str(R.string.downloaded) else str(R.string.download_playlist),
+                                subtitle = if (isAllDownloaded) str(R.string.all_x_songs_are_available_offline, playlist.tracks.size) else str(R.string.download_all_songs_for_offline_playback),
                                 iconTint = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f),
                                 titleColor = if (isAllDownloaded) Color(0xFF4CAF50) else Color.White,
                                 onClick = {
@@ -2810,8 +2839,8 @@ private fun PlaylistOptionsBottomSheet(
                         ) {
                             PlaylistActionRow(
                                 icon = Icons.Default.Delete,
-                                title = "Delete all downloads",
-                                subtitle = "Remove all ${playlist.tracks.size} downloaded songs from device",
+                                title = str(R.string.delete_all_downloads),
+                                subtitle = str(R.string.remove_all_x_downloaded_songs_from_devic, playlist.tracks.size),
                                 iconTint = Color(0xFFFF5252),
                                 titleColor = Color(0xFFFF5252),
                                 onClick = {
@@ -2828,8 +2857,8 @@ private fun PlaylistOptionsBottomSheet(
                         ) {
                             PlaylistActionRow(
                                 icon = Icons.Default.Delete,
-                                title = "Delete",
-                                subtitle = "Remove this playlist permanently",
+                                title = str(R.string.delete),
+                                subtitle = str(R.string.remove_this_playlist_permanently),
                                 iconTint = Color(0xFFFF5252),
                                 titleColor = Color(0xFFFF5252),
                                 onClick = {
@@ -2856,7 +2885,7 @@ private fun PlaylistOptionsBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 title = {
                     Text(
-                        text = "Edit Playlist",
+                        text = str(R.string.edit_playlist),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -2886,7 +2915,7 @@ private fun PlaylistOptionsBottomSheet(
                                 url = previewUrl,
                                 modifier = Modifier.fillMaxSize(),
                                 cornerRadius = 16.dp,
-                                contentDescription = "Playlist Cover Preview"
+                                contentDescription = str(R.string.playlist_cover_preview)
                             )
 
                             // Camera overlay badge
@@ -2902,13 +2931,13 @@ private fun PlaylistOptionsBottomSheet(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PhotoCamera,
-                                        contentDescription = "Change photo",
+                                        contentDescription = str(R.string.change_photo),
                                         tint = Color.White,
                                         modifier = Modifier.size(28.dp)
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Change Photo",
+                                        text = str(R.string.change_photo_2),
                                         color = Color.White,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
@@ -2928,14 +2957,14 @@ private fun PlaylistOptionsBottomSheet(
                             ) {
                                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp), tint = LIME_TEXT)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Choose Photo", color = LIME_TEXT, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(str(R.string.choose_photo), color = LIME_TEXT, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
 
                             if (editCoverUrl.isNotBlank()) {
                                 TextButton(
                                     onClick = { editCoverUrl = "" }
                                 ) {
-                                    Text("Reset Photo", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                    Text(str(R.string.reset_photo), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -2944,7 +2973,7 @@ private fun PlaylistOptionsBottomSheet(
                         OutlinedTextField(
                             value = editTitle,
                             onValueChange = { editTitle = it },
-                            label = { Text("Playlist Name", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            label = { Text(str(R.string.playlist_name), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -2962,7 +2991,7 @@ private fun PlaylistOptionsBottomSheet(
                         OutlinedTextField(
                             value = editDesc,
                             onValueChange = { editDesc = it },
-                            label = { Text("Description (optional)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            label = { Text(str(R.string.description_optional), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -2981,7 +3010,7 @@ private fun PlaylistOptionsBottomSheet(
                         onClick = {
                             if (editTitle.isNotBlank()) {
                                 onEditPlaylist?.invoke(playlist.id, editTitle, editDesc, editCoverUrl.ifBlank { null })
-                                Toast.makeText(context, "Playlist updated", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, str(R.string.playlist_updated), Toast.LENGTH_SHORT).show()
                             }
                             activeDialog = null
                             onDismiss()
@@ -2989,7 +3018,7 @@ private fun PlaylistOptionsBottomSheet(
                         colors = ButtonDefaults.buttonColors(containerColor = LIME_TEXT),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.save), color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -2997,7 +3026,7 @@ private fun PlaylistOptionsBottomSheet(
                         activeDialog = null
                         onDismiss()
                     }) {
-                        Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             )
@@ -3012,7 +3041,7 @@ private fun PlaylistOptionsBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 title = {
                     Text(
-                        text = "Export playlist",
+                        text = str(R.string.export_playlist),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -3038,7 +3067,7 @@ private fun PlaylistOptionsBottomSheet(
                             )
                             Spacer(modifier = Modifier.width(14.dp))
                             Text(
-                                text = "Export as CSV",
+                                text = str(R.string.export_as_csv),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onBackground
@@ -3062,7 +3091,7 @@ private fun PlaylistOptionsBottomSheet(
                             )
                             Spacer(modifier = Modifier.width(14.dp))
                             Text(
-                                text = "Export as M3U",
+                                text = str(R.string.export_as_m3u),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onBackground
@@ -3080,7 +3109,7 @@ private fun PlaylistOptionsBottomSheet(
                             activeDialog = null
                             onDismiss()
                         }) {
-                            Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                            Text(str(R.string.cancel), color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
                         }
                         Spacer(modifier = Modifier.width(4.dp))
                         TextButton(onClick = {
@@ -3109,20 +3138,20 @@ private fun PlaylistOptionsBottomSheet(
                                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                                 val file = java.io.File(downloadsDir, fileName)
                                 file.writeText(content)
-                                Toast.makeText(context, "Saved to Downloads: $fileName", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, str(R.string.saved_to_downloads_x, fileName), Toast.LENGTH_LONG).show()
                             } catch (e: Exception) {
                                 try {
                                     val file = java.io.File(context.getExternalFilesDir(null), fileName)
                                     file.writeText(content)
-                                    Toast.makeText(context, "Saved: ${file.absolutePath}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, str(R.string.saved_x, file.absolutePath), Toast.LENGTH_LONG).show()
                                 } catch (e2: Exception) {
-                                    Toast.makeText(context, "Error saving: ${e2.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, str(R.string.error_saving_x, e2.localizedMessage), Toast.LENGTH_SHORT).show()
                                 }
                             }
                             activeDialog = null
                             onDismiss()
                         }) {
-                            Text("Save to Documents", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                            Text(str(R.string.save_to_documents), color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
                         }
                         Spacer(modifier = Modifier.width(4.dp))
                         TextButton(onClick = {
@@ -3149,11 +3178,11 @@ private fun PlaylistOptionsBottomSheet(
                                 putExtra(Intent.EXTRA_SUBJECT, "Playlist Export: ${playlist.title}")
                                 putExtra(Intent.EXTRA_TEXT, content)
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Playlist Export"))
+                            context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_playlist_export)))
                             activeDialog = null
                             onDismiss()
                         }) {
-                            Text("Share", color = LIME_TEXT, fontWeight = FontWeight.Bold)
+                            Text(str(R.string.share), color = LIME_TEXT, fontWeight = FontWeight.Bold)
                         }
                     }
                 },
@@ -3170,7 +3199,7 @@ private fun PlaylistOptionsBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 title = {
                     Text(
-                        text = "Delete Playlist",
+                        text = str(R.string.delete_playlist),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -3179,7 +3208,7 @@ private fun PlaylistOptionsBottomSheet(
                 },
                 text = {
                     Text(
-                        text = "Are you sure you want to delete '${playlist.title}'?",
+                        text = str(R.string.are_you_sure_you_want_to_delete_x, playlist.title),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 15.sp
@@ -3198,7 +3227,7 @@ private fun PlaylistOptionsBottomSheet(
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Delete", fontWeight = FontWeight.Bold)
+                        Text(str(R.string.delete), fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -3209,7 +3238,7 @@ private fun PlaylistOptionsBottomSheet(
                         },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                        Text(str(R.string.cancel), color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
                     }
                 }
             )
@@ -3224,7 +3253,7 @@ private fun PlaylistOptionsBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 title = {
                     Text(
-                        text = "Delete all downloads?",
+                        text = str(R.string.delete_all_downloads_2),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -3233,7 +3262,7 @@ private fun PlaylistOptionsBottomSheet(
                 },
                 text = {
                     Text(
-                        text = "Are you sure you want to delete all ${playlist.tracks.size} downloaded songs? This will permanently remove all offline audio files from your device.",
+                        text = str(R.string.are_you_sure_you_want_to_delete_all_x_do, playlist.tracks.size),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 15.sp
@@ -3252,7 +3281,7 @@ private fun PlaylistOptionsBottomSheet(
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Delete All", fontWeight = FontWeight.Bold)
+                        Text(str(R.string.delete_all), fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -3263,7 +3292,7 @@ private fun PlaylistOptionsBottomSheet(
                         },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Cancel", color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
+                        Text(str(R.string.cancel), color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
                     }
                 }
             )
@@ -3439,7 +3468,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 ) {
                     Icon(
                         imageVector = Icons.Default.DragHandle,
-                        contentDescription = "Drag to reorder song",
+                        contentDescription = str(R.string.drag_to_reorder_song),
                         tint = Color.White.copy(alpha = 0.45f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -3449,7 +3478,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             IconButton(onClick = { onMenuClick(track) }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Options",
+                    contentDescription = str(R.string.options),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
@@ -3483,7 +3512,7 @@ private fun LibrarySourcePills(
             val label = when (filter) {
                 LibrarySourceFilter.PLAYLISTS -> "Playlists"
                 LibrarySourceFilter.ALBUMS -> "Albums"
-                LibrarySourceFilter.SPOTIFY -> "Spotify"
+                LibrarySourceFilter.SPOTIFY -> str(R.string.spotify)
                 LibrarySourceFilter.YOUTUBE -> "YouTube Music"
             }
             val container = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.surfaceContainerHigh

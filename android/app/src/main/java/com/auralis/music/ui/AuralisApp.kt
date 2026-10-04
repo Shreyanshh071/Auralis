@@ -1,5 +1,8 @@
 package com.auralis.music.ui
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -516,7 +519,7 @@ fun AuralisApp(
                     if (act != null) {
                         authVM.signInWithGoogle(act)
                     } else {
-                        android.widget.Toast.makeText(context, "Activity not found for Google Sign-In", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, str(R.string.activity_not_found_for_google_sign_in), android.widget.Toast.LENGTH_SHORT).show()
                     }
                 },
                 onSignUpWithEmail = { email, password, name ->
@@ -552,19 +555,19 @@ fun AuralisApp(
     fun guestControlBlocked(): Boolean = guestNow() && !guestMay { it.guestsCanControlPlayback }
     /** Next/previous change the song: that follows "Guests can play songs" (or approval), not playback control. */
     fun guestSkipBlocked(): Boolean = guestNow() && !guestMay { it.guestsMayPlaySongs }
-    fun notifyGuestSkipBlocked() = com.auralis.music.ui.components.AppPillManager.showPill("Only the host can change what's playing")
+    fun notifyGuestSkipBlocked() = com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.only_the_host_can_change_what_s_playing))
 
     /** True (and tells the user) while next/previous is locked after a song change in the room. */
     fun skipLocked(): Boolean {
         val waitMs = listenTogetherViewModelState?.trackChangeLockRemainingMs() ?: 0L
         if (waitMs <= 0L) return false
         val seconds = ((waitMs + 999L) / 1000L).coerceAtLeast(1L)
-        com.auralis.music.ui.components.AppPillManager.showPill("Song just changed \u2014 you can skip again in ${seconds}s")
+        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.song_just_changed_u2014_you_can_skip_aga, seconds))
         return true
     }
 
     fun notifyGuestControlBlocked() {
-        com.auralis.music.ui.components.AppPillManager.showPill("Only the host can change what's playing")
+        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.only_the_host_can_change_what_s_playing))
     }
 
     /**
@@ -647,7 +650,7 @@ fun AuralisApp(
             }
             currentLT.onHostAddToQueue = { track ->
                 currentPV.addToQueue(listOf(track))
-                android.widget.Toast.makeText(context, "Added \"${track.title}\" to room queue", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, str(R.string.added_x_to_room_queue, track.title), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -869,13 +872,13 @@ fun AuralisApp(
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Room: ${room.code} (${listenTogetherUiState.members.size} connected)",
+                                        text = str(R.string.room_x_x_connected, room.code, listenTogetherUiState.members.size),
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        text = if (listenTogetherUiState.isHost) "Streaming to room" else "Synced with host (controls locked)",
+                                        text = if (listenTogetherUiState.isHost) str(R.string.streaming_to_room) else str(R.string.synced_with_host_controls_locked),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                     )
@@ -994,11 +997,11 @@ fun AuralisApp(
                                                 },
                                                 onPlayNext = { track ->
                                                     obtainPlayerViewModel().playNext(track)
-                                                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddToQueue = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
-                                                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onStartRadio = { track ->
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
@@ -1030,6 +1033,13 @@ fun AuralisApp(
                                                     obtainStatsViewModel()
                                                     isStatsOpen = true
                                                 },
+                                                onRefresh = { homeViewModel.refresh() },
+                                                // Wrapped lives above Stats (it renders only while Stats is open).
+                                                onOpenWrapped = {
+                                                    obtainStatsViewModel().loadWrapped()
+                                                    isStatsOpen = true
+                                                    isWrappedOpen = true
+                                                },
                                                 onArtistClick = { artist ->
                                                     openArtistDetail(artist)
                                                 },
@@ -1045,7 +1055,7 @@ fun AuralisApp(
                                                 isAlbumPinned = { albumId -> homeViewModel.isAlbumPinned(albumId) },
                                                 onPinAlbumToSpeedDial = { album ->
                                                     val isNowPinned = homeViewModel.togglePinAlbum(album)
-                                                    val msg = if (isNowPinned) "Pinned \"${album.title}\" to Speed dial" else "Unpinned \"${album.title}\" from Speed dial"
+                                                    val msg = if (isNowPinned) str(R.string.pinned_x_to_speed_dial, album.title) else str(R.string.unpinned_x_from_speed_dial, album.title)
                                                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onToggleSaveAlbum = { obtainLibraryViewModel().toggleSaveAlbum(it) },
@@ -1055,7 +1065,7 @@ fun AuralisApp(
                                                         if (tracks.isNotEmpty()) {
                                                             val shuffled = tracks.shuffled()
                                                             obtainPlayerViewModel().playTrack(shuffled.first(), shuffled, 0)
-                                                            android.widget.Toast.makeText(context, "Shuffling: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.shuffling_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1064,7 +1074,7 @@ fun AuralisApp(
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().playNext(tracks)
-                                                            android.widget.Toast.makeText(context, "Playing next: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1073,7 +1083,7 @@ fun AuralisApp(
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().addToQueue(tracks)
-                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to queue", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_queue, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1082,7 +1092,7 @@ fun AuralisApp(
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainLibraryViewModel().addTracksToPlaylist(plId, tracks)
-                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_playlist, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1090,7 +1100,7 @@ fun AuralisApp(
                                                     val albumTitle = title.ifBlank { album.title }
                                                     android.widget.Toast.makeText(
                                                         context,
-                                                        "Adding \"$albumTitle\" to Library...",
+                                                        str(R.string.adding_x_to_library, albumTitle),
                                                         android.widget.Toast.LENGTH_SHORT
                                                     ).show()
                                                     coroutineScope.launch {
@@ -1113,14 +1123,14 @@ fun AuralisApp(
                                                                 album.title,
                                                                 tracks
                                                             )
-                                                            android.widget.Toast.makeText(context, "Downloading ${album.title} (${tracks.size} songs)...", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.downloading_x_x_songs, album.title, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
                                                 isInListenTogetherRoom = guestCanAddSongs,
                                                 onRecommendToRoom = { trk ->
                                                     obtainListenTogetherViewModel().recommendSong(trk)
-                                                    android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.recommended_x_to_room, trk.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 isTrackPinned = { homeViewModel.isTrackPinned(it) },
                                                 onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
@@ -1132,6 +1142,7 @@ fun AuralisApp(
                                             val libVM = obtainLibraryViewModel()
                                             com.auralis.music.ui.explore.ExploreScreen(
                                                 uiState = searchUiState,
+                                                onRefresh = { searchVM.refresh() },
                                                 recognitionState = recognitionState,
                                                 currentTrackId = playerUiState.currentTrack?.id,
                                                 isPlaying = playerUiState.isPlaying,
@@ -1147,7 +1158,7 @@ fun AuralisApp(
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().playNext(tracks)
-                                                            android.widget.Toast.makeText(context, "Playing next: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1156,7 +1167,7 @@ fun AuralisApp(
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().addToQueue(tracks)
-                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to queue", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_queue, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1166,7 +1177,7 @@ fun AuralisApp(
                                                         if (tracks.isNotEmpty()) {
                                                             val shuffled = tracks.shuffled()
                                                             obtainPlayerViewModel().playTrack(shuffled.first(), shuffled, 0)
-                                                            android.widget.Toast.makeText(context, "Shuffling: ${album.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.shuffling_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1180,14 +1191,14 @@ fun AuralisApp(
                                                                 album.title,
                                                                 tracks
                                                             )
-                                                            android.widget.Toast.makeText(context, "Downloading ${album.title} (${tracks.size} songs)...", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.downloading_x_x_songs, album.title, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
                                                 isAlbumPinned = { albumId -> homeViewModel.isAlbumPinned(albumId) },
                                                 onPinAlbumToSpeedDial = { album ->
                                                     val isNowPinned = homeViewModel.togglePinAlbum(album)
-                                                    val msg = if (isNowPinned) "Pinned \"${album.title}\" to Speed dial" else "Unpinned \"${album.title}\" from Speed dial"
+                                                    val msg = if (isNowPinned) str(R.string.pinned_x_to_speed_dial, album.title) else str(R.string.unpinned_x_from_speed_dial, album.title)
                                                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddAlbumToPlaylist = { plId, album ->
@@ -1195,7 +1206,7 @@ fun AuralisApp(
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             libVM.addTracksToPlaylist(plId, tracks)
-                                                            android.widget.Toast.makeText(context, "Added ${tracks.size} songs to playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_playlist, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1203,7 +1214,7 @@ fun AuralisApp(
                                                     val albumTitle = title.ifBlank { album.title }
                                                     android.widget.Toast.makeText(
                                                         context,
-                                                        "Adding \"$albumTitle\" to Library...",
+                                                        str(R.string.adding_x_to_library, albumTitle),
                                                         android.widget.Toast.LENGTH_SHORT
                                                     ).show()
                                                     coroutineScope.launch {
@@ -1216,7 +1227,7 @@ fun AuralisApp(
                                                             onCreated = {
                                                                 android.widget.Toast.makeText(
                                                                     context,
-                                                                    "Added album playlist \"$albumTitle\" to Library (${tracks.size} songs)",
+                                                                    str(R.string.added_album_playlist_x_to_library_x_song, albumTitle, tracks.size),
                                                                     android.widget.Toast.LENGTH_SHORT
                                                                 ).show()
                                                             }
@@ -1242,11 +1253,11 @@ fun AuralisApp(
                                                 },
                                                 onPlayNext = { track ->
                                                     obtainPlayerViewModel().playNext(track)
-                                                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddToQueue = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
-                                                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onStartRadio = { track ->
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
@@ -1272,7 +1283,7 @@ fun AuralisApp(
                                                 isInListenTogetherRoom = guestCanAddSongs,
                                                 onRecommendToRoom = { trk ->
                                                     obtainListenTogetherViewModel().recommendSong(trk)
-                                                    android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.recommended_x_to_room, trk.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 isTrackPinned = { homeViewModel.isTrackPinned(it) },
                                                 onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
@@ -1283,6 +1294,7 @@ fun AuralisApp(
                                             val libVM = obtainLibraryViewModel()
                                             LibraryScreen(
                                                 uiState = libraryUiState,
+                                                onRefresh = { libVM.refresh() },
                                                 currentTrackId = playerUiState.currentTrack?.id,
                                                 isPlaying = playerUiState.isPlaying,
                                                 userName = authUiState.profile.displayName.ifBlank { "You" },
@@ -1306,7 +1318,7 @@ fun AuralisApp(
                                                 onAddToPlaylist = { plId, track -> libVM.addTrackToPlaylist(plId, track) },
                                                 onRemoveFromPlaylist = { plId, trackId ->
                                                     libVM.removeTrackFromPlaylist(plId, trackId)
-                                                    android.widget.Toast.makeText(context, "Removed from playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.removed_from_playlist), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onImportYouTubePlaylist = { libVM.importYouTubePlaylist(it) },
                                                 onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
@@ -1339,11 +1351,11 @@ fun AuralisApp(
                                                 },
                                                 onPlayNext = { track ->
                                                     obtainPlayerViewModel().playNext(track)
-                                                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddToQueueTrack = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
-                                                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onStartRadio = { track ->
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
@@ -1357,7 +1369,7 @@ fun AuralisApp(
                                                 isInListenTogetherRoom = guestCanAddSongs,
                                                 onRecommendToRoom = { trk ->
                                                     obtainListenTogetherViewModel().recommendSong(trk)
-                                                    android.widget.Toast.makeText(context, "Recommended \"${trk.title}\" to room!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.recommended_x_to_room, trk.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onReorderPlaylistTracks = { plId, from, to ->
                                                     libVM.reorderPlaylistTracks(plId, from, to)
@@ -1440,10 +1452,10 @@ fun AuralisApp(
                 title = {
                     Text(
                         when {
-                            songRequest.skip > 0 -> "Skip to the next song?"
-                            songRequest.skip < 0 -> "Go back a song?"
-                            songRequest.playNow -> "Play this song now?"
-                            else -> "Add this song to the queue?"
+                            songRequest.skip > 0 -> str(R.string.skip_to_the_next_song)
+                            songRequest.skip < 0 -> str(R.string.go_back_a_song)
+                            songRequest.playNow -> str(R.string.play_this_song_now)
+                            else -> str(R.string.add_this_song_to_the_queue)
                         }
                     )
                 },
@@ -1472,15 +1484,15 @@ fun AuralisApp(
                         }
                         if (listenTogetherUiState.songRequests.size > 1) {
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text("${listenTogetherUiState.songRequests.size - 1} more waiting")
+                            Text(str(R.string.x_more_waiting, listenTogetherUiState.songRequests.size - 1))
                         }
                     }
                 },
                 confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = { ltVM.allowSongRequest(songRequest) }) { Text("Allow") }
+                    androidx.compose.material3.TextButton(onClick = { ltVM.allowSongRequest(songRequest) }) { Text(str(R.string.allow)) }
                 },
                 dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { ltVM.declineSongRequest(songRequest) }) { Text("Decline") }
+                    androidx.compose.material3.TextButton(onClick = { ltVM.declineSongRequest(songRequest) }) { Text(str(R.string.decline)) }
                 }
             )
         }
@@ -1493,7 +1505,7 @@ fun AuralisApp(
                 LaunchedEffect(Unit) {
                     android.widget.Toast.makeText(
                         context,
-                        "Your internet is slow right now, so songs may pause while they load",
+                        str(R.string.your_internet_is_slow_right_now_so_songs),
                         android.widget.Toast.LENGTH_LONG
                     ).show()
                     ltVM.dismissSlowConnectionPrompt()
@@ -1501,23 +1513,23 @@ fun AuralisApp(
             } else {
                 androidx.compose.material3.AlertDialog(
                     onDismissRequest = { ltVM.dismissSlowConnectionPrompt() },
-                    title = { Text("Your internet is slow right now") },
+                    title = { Text(str(R.string.your_internet_is_slow_right_now)) },
                     text = {
                         Text(
-                            "Music keeps pausing to load, so you may fall behind the room. " +
-                                "Data Saver quality needs much less data and keeps you in sync. " +
-                                "It starts with the next song, and you can change it back in Settings."
+                            str(R.string.music_keeps_pausing_to_load_so_you_may_f) +
+                                str(R.string.data_saver_quality_needs_much_less_data) +
+                                str(R.string.it_starts_with_the_next_song_and_you_can)
                         )
                     },
                     confirmButton = {
                         androidx.compose.material3.TextButton(onClick = {
                             obtainPlayerViewModel().updateAudioQuality(com.auralis.music.domain.model.AudioQuality.LOW)
                             ltVM.dismissSlowConnectionPrompt()
-                            android.widget.Toast.makeText(context, "Switched to Data Saver quality", android.widget.Toast.LENGTH_SHORT).show()
-                        }) { Text("Use Data Saver") }
+                            android.widget.Toast.makeText(context, str(R.string.switched_to_data_saver_quality), android.widget.Toast.LENGTH_SHORT).show()
+                        }) { Text(str(R.string.use_data_saver)) }
                     },
                     dismissButton = {
-                        androidx.compose.material3.TextButton(onClick = { ltVM.dismissSlowConnectionPrompt() }) { Text("Not now") }
+                        androidx.compose.material3.TextButton(onClick = { ltVM.dismissSlowConnectionPrompt() }) { Text(str(R.string.not_now)) }
                     }
                 )
             }
@@ -1605,11 +1617,11 @@ fun AuralisApp(
                     onClearHistory = { homeViewModel.clearHistory() },
                     onPlayNext = { track ->
                         obtainPlayerViewModel().playNext(track)
-                        android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     onAddToQueue = { track ->
                         obtainPlayerViewModel().addToQueue(listOf(track))
-                        android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     onDismiss = { isHistoryOpen = false }
                 )
@@ -1648,11 +1660,11 @@ fun AuralisApp(
                     },
                     onPlayNext = { track ->
                         obtainPlayerViewModel().playNext(track)
-                        android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     onAddToQueue = { track ->
                         obtainPlayerViewModel().addToQueue(listOf(track))
-                        android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     hasActiveMiniPlayer = (playerUiState.currentTrack ?: audioPlayerTrack) != null,
                     isTrackPinned = { homeViewModel.isTrackPinned(it) },
@@ -2230,12 +2242,12 @@ fun AuralisApp(
                 userPlaylists = libraryUiState.playlists,
                 onAddToPlaylist = { playlist ->
                     libVM.addTrackToPlaylist(playlist.id, curTrack)
-                    android.widget.Toast.makeText(context, "Added to ${playlist.title}", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, str(R.string.added_to_x, playlist.title), android.widget.Toast.LENGTH_SHORT).show()
                     showMiniPlayerTrackOptions = false
                 },
                 onCreatePlaylistAndAdd = { title ->
                     libVM.createPlaylistAndAddTrack(title, curTrack)
-                    android.widget.Toast.makeText(context, "Created and added to $title", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, str(R.string.created_and_added_to_x, title), android.widget.Toast.LENGTH_SHORT).show()
                     showMiniPlayerTrackOptions = false
                 },
                 onDismiss = { showMiniPlayerTrackOptions = false }
@@ -2362,7 +2374,7 @@ fun AuralisApp(
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Music Recognition",
+                                text = str(R.string.music_recognition),
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -2404,7 +2416,7 @@ fun AuralisApp(
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Shuffle",
+                                text = str(R.string.shuffle),
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -2708,14 +2720,14 @@ private fun MiniPlayerHost(
                 else playerViewModel.togglePlayPause()
             },
             onNextClick = {
-                if (guestSkipBlocked()) com.auralis.music.ui.components.AppPillManager.showPill("Only the host can change what's playing")
+                if (guestSkipBlocked()) com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.only_the_host_can_change_what_s_playing))
                 else if (!skipLocked()) {
                     android.util.Log.d("AuralisPlayback", "[MiniPlayerHost] onNextClick -> playerViewModel.next()")
                     playerViewModel.next()
                 }
             },
             onPreviousClick = {
-                if (guestSkipBlocked()) com.auralis.music.ui.components.AppPillManager.showPill("Only the host can change what's playing")
+                if (guestSkipBlocked()) com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.only_the_host_can_change_what_s_playing))
                 else if (!skipLocked()) {
                     android.util.Log.d("AuralisPlayback", "[MiniPlayerHost] onPreviousClick -> playerViewModel.previous()")
                     playerViewModel.previous()

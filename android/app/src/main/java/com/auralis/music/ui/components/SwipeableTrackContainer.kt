@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -132,13 +135,13 @@ fun SwipeableTrackContainer(
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play Next",
+                        contentDescription = str(R.string.play_next_2),
                         tint = Color(0xFFFFB84D),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Play Next",
+                        text = str(R.string.play_next_2),
                         color = Color(0xFFFFB84D),
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -151,7 +154,7 @@ fun SwipeableTrackContainer(
             val bgColor = if (isDelete) Color(0xFF331414) else Color(0xFF162B1E)
             val accentColor = if (isDelete) Color(0xFFFF5252) else Color(0xFF4CAF50)
             val icon = if (isDelete) Icons.Default.Delete else Icons.AutoMirrored.Filled.PlaylistAdd
-            val label = if (isDelete) "Remove" else "Add to Queue"
+            val label = if (isDelete) str(R.string.remove) else str(R.string.add_to_queue_2)
 
             Box(
                 modifier = Modifier

@@ -53,7 +53,7 @@ object AuralisDownloadManager {
 
     @Volatile private var appContext: Context? = null
 
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .followRedirects(true)

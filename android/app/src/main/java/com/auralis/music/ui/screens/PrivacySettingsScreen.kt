@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -74,13 +77,13 @@ fun PrivacySettingsScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Privacy",
+                    text = str(R.string.privacy),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -100,7 +103,7 @@ fun PrivacySettingsScreen(
                 item(key = "privacy_listen_history") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Listen history",
+                            text = str(R.string.listen_history),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -117,7 +120,7 @@ fun PrivacySettingsScreen(
                             Column {
                                 PrivacySwitchRow(
                                     icon = Icons.Default.History,
-                                    title = "Pause listen history",
+                                    title = str(R.string.pause_listen_history),
                                     checked = settings.pauseListenHistory,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setPauseListenHistory(isChecked) }
@@ -134,7 +137,7 @@ fun PrivacySettingsScreen(
 
                                 PrivacyActionRow(
                                     icon = Icons.Default.HistoryToggleOff,
-                                    title = "Clear listen history",
+                                    title = str(R.string.clear_listen_history),
                                     onClick = { showClearHistoryConfirm = true },
                                     primaryColor = primaryColor,
                                     onSurface = onSurface
@@ -148,7 +151,7 @@ fun PrivacySettingsScreen(
                 item(key = "privacy_search_history") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Search history",
+                            text = str(R.string.search_history),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -165,7 +168,7 @@ fun PrivacySettingsScreen(
                             Column {
                                 PrivacySwitchRow(
                                     icon = Icons.Default.SearchOff,
-                                    title = "Pause search history",
+                                    title = str(R.string.pause_search_history),
                                     checked = settings.pauseSearchHistory,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setPauseSearchHistory(isChecked) }
@@ -182,7 +185,7 @@ fun PrivacySettingsScreen(
 
                                 PrivacyActionRow(
                                     icon = Icons.Default.ClearAll,
-                                    title = "Clear search history",
+                                    title = str(R.string.clear_search_history),
                                     onClick = { showClearSearchConfirm = true },
                                     primaryColor = primaryColor,
                                     onSurface = onSurface
@@ -196,7 +199,7 @@ fun PrivacySettingsScreen(
                 item(key = "privacy_misc") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Misc",
+                            text = str(R.string.misc),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -212,8 +215,8 @@ fun PrivacySettingsScreen(
                         ) {
                             PrivacySwitchRow(
                                 icon = Icons.Default.PhonelinkLock,
-                                title = "Disable screenshot",
-                                subtitle = "When this option is on, screenshots and the app's view in Recents are disabled.",
+                                title = str(R.string.disable_screenshot),
+                                subtitle = str(R.string.when_this_option_is_on_screenshots_and_t),
                                 checked = settings.disableScreenshot,
                                 onCheckedChange = { isChecked ->
                                     scope.launch { dataStore.setDisableScreenshot(isChecked) }
@@ -233,10 +236,10 @@ fun PrivacySettingsScreen(
             AlertDialog(
                 onDismissRequest = { showClearHistoryConfirm = false },
                 containerColor = surfaceColor,
-                title = { Text("Clear listen history?", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.clear_listen_history_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Text(
-                        "All your listening history and top played statistics will be permanently removed from this device.",
+                        str(R.string.all_your_listening_history_and_top_playe),
                         color = onSurfaceVariant,
                         fontSize = 13.5.sp
                     )
@@ -252,23 +255,23 @@ fun PrivacySettingsScreen(
                                     db.playbackEventDao().clearAllEvents()
                                     historyRepository?.clearHistory()
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        Toast.makeText(context, "Listen history cleared", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.listen_history_cleared), Toast.LENGTH_SHORT).show()
                                     }
                                 } catch (e: Exception) {
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        Toast.makeText(context, "Error clearing history: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.error_clearing_history_x, e.message), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
                             showClearHistoryConfirm = false
                         }
                     ) {
-                        Text("Clear", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.clear), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearHistoryConfirm = false }) {
-                        Text("Cancel", color = onSurfaceVariant)
+                        Text(str(R.string.cancel), color = onSurfaceVariant)
                     }
                 }
             )
@@ -279,10 +282,10 @@ fun PrivacySettingsScreen(
             AlertDialog(
                 onDismissRequest = { showClearSearchConfirm = false },
                 containerColor = surfaceColor,
-                title = { Text("Clear search history?", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.clear_search_history_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Text(
-                        "All previous search queries and recent suggestions will be permanently deleted.",
+                        str(R.string.all_previous_search_queries_and_recent_s),
                         color = onSurfaceVariant,
                         fontSize = 13.5.sp
                     )
@@ -296,23 +299,23 @@ fun PrivacySettingsScreen(
                                     db.searchHistoryDao().clearSearchHistory()
                                     searchRepository?.clearSearchHistory()
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        Toast.makeText(context, "Search history cleared", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.search_history_cleared), Toast.LENGTH_SHORT).show()
                                     }
                                 } catch (e: Exception) {
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        Toast.makeText(context, "Error clearing search history: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.error_clearing_search_history_x, e.message), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
                             showClearSearchConfirm = false
                         }
                     ) {
-                        Text("Clear", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.clear), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearSearchConfirm = false }) {
-                        Text("Cancel", color = onSurfaceVariant)
+                        Text(str(R.string.cancel), color = onSurfaceVariant)
                     }
                 }
             )

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.history
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -123,13 +126,13 @@ fun HistorySheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
+                            contentDescription = str(R.string.close),
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(24.dp)
                         )
                     }
                     Text(
-                        text = "Listening History",
+                        text = str(R.string.listening_history),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -144,7 +147,7 @@ fun HistorySheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Clear History",
+                            contentDescription = str(R.string.clear_history),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(22.dp)
                         )
@@ -183,7 +186,7 @@ fun HistorySheet(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "History is paused in Privacy Settings. Tap to resume.",
+                            text = str(R.string.history_is_paused_in_privacy_settings_ta),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onErrorContainer
@@ -216,14 +219,14 @@ fun HistorySheet(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "No listening history yet",
+                            text = str(R.string.no_listening_history_yet),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tracks you listen to will appear here",
+                            text = str(R.string.tracks_you_listen_to_will_appear_here),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -240,7 +243,7 @@ fun HistorySheet(
                 ) {
                     item {
                         Text(
-                            text = "${history.size} recently played songs",
+                            text = str(R.string.x_recently_played_songs, history.size),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
@@ -314,7 +317,7 @@ fun HistorySheet(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove",
+                                        contentDescription = str(R.string.remove),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -335,7 +338,7 @@ fun HistorySheet(
             shape = RoundedCornerShape(24.dp),
             title = {
                 Text(
-                    text = "Clear Listening History?",
+                    text = str(R.string.clear_listening_history),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -344,7 +347,7 @@ fun HistorySheet(
             },
             text = {
                 Text(
-                    text = "This will remove all played tracks from your listening history.",
+                    text = str(R.string.this_will_remove_all_played_tracks_from),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 15.sp
@@ -362,7 +365,7 @@ fun HistorySheet(
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Clear History", fontWeight = FontWeight.Bold)
+                    Text(str(R.string.clear_history), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -370,7 +373,7 @@ fun HistorySheet(
                     onClick = { showClearDialog = false },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Cancel", color = HISTORY_LIME, fontWeight = FontWeight.SemiBold)
+                    Text(str(R.string.cancel), color = HISTORY_LIME, fontWeight = FontWeight.SemiBold)
                 }
             }
         )

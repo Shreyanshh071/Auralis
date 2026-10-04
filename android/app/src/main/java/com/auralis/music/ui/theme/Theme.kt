@@ -1132,7 +1132,7 @@ fun AuralisTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = Typography,
+            typography = scriptSafeTypography(Typography, androidx.compose.ui.platform.LocalConfiguration.current.locales[0]),
             content = content
         )
     }

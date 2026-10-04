@@ -11,7 +11,7 @@ object NetworkClientProvider {
             maxRequests = 128
             maxRequestsPerHost = 64
         }
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .connectTimeout(12, TimeUnit.SECONDS)
@@ -66,7 +66,7 @@ object NetworkClientProvider {
             maxRequests = 128
             maxRequestsPerHost = 32
         }
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
             .dispatcher(dispatcher)
             .dns(ResilientLyricsDns)
             .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))

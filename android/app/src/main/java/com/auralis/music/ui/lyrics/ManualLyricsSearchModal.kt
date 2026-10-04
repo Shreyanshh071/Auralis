@@ -1,5 +1,8 @@
 package com.auralis.music.ui.lyrics
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,14 +58,14 @@ fun ManualLyricsSearchModal(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Search Lyrics Manually",
+                    text = str(R.string.search_lyrics_manually),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(onClick = handleDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                        contentDescription = str(R.string.close),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -71,7 +74,7 @@ fun ManualLyricsSearchModal(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Edit keywords to search across LRCLIB, JioSaavn, NetEase, KuGou, and Genius.",
+                text = str(R.string.edit_keywords_to_search_across_lrclib_ji),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -81,7 +84,7 @@ fun ManualLyricsSearchModal(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Song Title") },
+                label = { Text(str(R.string.song_title)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp)
@@ -92,7 +95,7 @@ fun ManualLyricsSearchModal(
             OutlinedTextField(
                 value = artist,
                 onValueChange = { artist = it },
-                label = { Text("Artist Name") },
+                label = { Text(str(R.string.artist_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp)
@@ -123,7 +126,7 @@ fun ManualLyricsSearchModal(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Find Lyrics",
+                    text = str(R.string.find_lyrics),
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -98,7 +101,7 @@ fun PlaylistPickerBottomSheet(
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Add to playlist",
+                        text = str(R.string.add_to_playlist),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -118,7 +121,7 @@ fun PlaylistPickerBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                        contentDescription = str(R.string.close),
                         tint = Color.White.copy(alpha = 0.75f)
                     )
                 }
@@ -145,13 +148,13 @@ fun PlaylistPickerBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "New Playlist",
+                        contentDescription = str(R.string.new_playlist),
                         tint = dynamicPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "New Playlist",
+                        text = str(R.string.new_playlist),
                         color = dynamicPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp
@@ -178,13 +181,13 @@ fun PlaylistPickerBottomSheet(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "No custom playlists yet",
+                            text = str(R.string.no_custom_playlists_yet_2),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.copy(alpha = 0.7f)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap 'New Playlist' above to create your first!",
+                            text = str(R.string.tap_new_playlist_above_to_create_your_fi),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.5f)
                         )
@@ -212,7 +215,7 @@ fun PlaylistPickerBottomSheet(
                                 )
                                 .clickable {
                                     if (alreadyInPlaylist) {
-                                        com.auralis.music.ui.components.AppPillManager.showPill("Already in ${playlist.title}")
+                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
                                     } else {
                                         recentlyAddedId = playlist.id
                                         onAddToPlaylist(playlist)
@@ -259,7 +262,7 @@ fun PlaylistPickerBottomSheet(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "${playlist.tracks.size} tracks",
+                                    text = str(R.string.x_tracks, playlist.tracks.size),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White.copy(alpha = 0.6f)
                                 )
@@ -268,7 +271,7 @@ fun PlaylistPickerBottomSheet(
                             if (isAdded || alreadyInPlaylist) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Added",
+                                    contentDescription = str(R.string.added),
                                     tint = dynamicPrimary,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -284,12 +287,12 @@ fun PlaylistPickerBottomSheet(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("New Playlist", fontWeight = FontWeight.Bold) },
+            title = { Text(str(R.string.new_playlist), fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist Name") },
+                    label = { Text(str(R.string.playlist_name)) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -309,12 +312,12 @@ fun PlaylistPickerBottomSheet(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
                 ) {
-                    Text("Create & Add", fontWeight = FontWeight.Bold)
+                    Text(str(R.string.create_add), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -141,7 +144,7 @@ fun AlbumOptionsMenu(
                             overflow = TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(2.dp))
-                        val typePrefix = if (isSingleOrEp) "Single" else "Album"
+                        val typePrefix = if (isSingleOrEp) str(R.string.single) else str(R.string.album)
                         val artistName = album.author ?: ""
                         val subtitle = if (artistName.isNotBlank()) "$typePrefix • $artistName" else typePrefix
                         Text(
@@ -162,7 +165,7 @@ fun AlbumOptionsMenu(
                             onToggleFavorite()
                             android.widget.Toast.makeText(
                                 context,
-                                if (newFav) "Saved to Library" else "Removed from Library",
+                                if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
                                 android.widget.Toast.LENGTH_SHORT
                             ).show()
                         },
@@ -170,7 +173,7 @@ fun AlbumOptionsMenu(
                     ) {
                         Icon(
                             imageVector = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (localIsFavorite) "Saved" else "Save",
+                            contentDescription = if (localIsFavorite) str(R.string.saved) else str(R.string.save),
                             tint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                             modifier = Modifier.size(24.dp)
                         )
@@ -213,13 +216,13 @@ fun AlbumOptionsMenu(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
-                                    contentDescription = "Shuffle",
+                                    contentDescription = str(R.string.shuffle),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Shuffle",
+                                    text = str(R.string.shuffle),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
@@ -246,13 +249,13 @@ fun AlbumOptionsMenu(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
+                                    contentDescription = str(R.string.share),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Share",
+                                    text = str(R.string.share),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
@@ -272,8 +275,8 @@ fun AlbumOptionsMenu(
                     ) {
                         AlbumOptionRow(
                             icon = Icons.AutoMirrored.Filled.QueueMusic,
-                            title = "Play next",
-                            subtitle = "Add to the top of your queue",
+                            title = str(R.string.play_next),
+                            subtitle = str(R.string.add_to_the_top_of_your_queue),
                             onClick = {
                                 onPlayNext()
                                 onDismiss()
@@ -287,8 +290,8 @@ fun AlbumOptionsMenu(
 
                         AlbumOptionRow(
                             icon = Icons.AutoMirrored.Filled.QueueMusic,
-                            title = "Add to queue",
-                            subtitle = "Add to the bottom of your queue",
+                            title = str(R.string.add_to_queue),
+                            subtitle = str(R.string.add_to_the_bottom_of_your_queue),
                             onClick = {
                                 onAddToQueue()
                                 onDismiss()
@@ -302,8 +305,8 @@ fun AlbumOptionsMenu(
 
                         AlbumOptionRow(
                             icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                            title = "Add to playlist",
-                            subtitle = "Directly add album playlist to library",
+                            title = str(R.string.add_to_playlist),
+                            subtitle = str(R.string.directly_add_album_playlist_to_library),
                             onClick = {
                                 onCreatePlaylistAndAdd(album.title)
                                 onDismiss()
@@ -317,8 +320,8 @@ fun AlbumOptionsMenu(
 
                         AlbumOptionRow(
                             icon = Icons.Default.Add,
-                            title = "Add to other playlist",
-                            subtitle = "Add album tracks to an existing playlist",
+                            title = str(R.string.add_to_other_playlist),
+                            subtitle = str(R.string.add_album_tracks_to_an_existing_playlist),
                             onClick = {
                                 showPlaylistPicker = true
                             }
@@ -334,8 +337,8 @@ fun AlbumOptionsMenu(
                     ) {
                         AlbumOptionRow(
                             icon = if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add,
-                            title = if (localIsPinned) "Unpin from Speed dial" else "Pin to Speed dial",
-                            subtitle = if (localIsPinned) "Remove from Home speed dial" else "Add to Home speed dial",
+                            title = if (localIsPinned) str(R.string.unpin_from_speed_dial) else str(R.string.pin_to_speed_dial),
+                            subtitle = if (localIsPinned) str(R.string.remove_from_home_speed_dial) else str(R.string.add_to_home_speed_dial),
                             onClick = {
                                 localIsPinned = !localIsPinned
                                 onPinToSpeedDial()
@@ -352,8 +355,8 @@ fun AlbumOptionsMenu(
                     ) {
                         AlbumOptionRow(
                             icon = Icons.Default.Download,
-                            title = "Download",
-                            subtitle = "Make available for offline playback",
+                            title = str(R.string.download),
+                            subtitle = str(R.string.make_available_for_offline_playback),
                             onClick = {
                                 onDownload()
                                 onDismiss()
@@ -372,7 +375,7 @@ fun AlbumOptionsMenu(
                         ) {
                             AlbumOptionRow(
                                 icon = Icons.Default.Person,
-                                title = "View artist",
+                                title = str(R.string.view_artist),
                                 subtitle = artistName,
                                 onClick = {
                                     onViewArtist()
@@ -396,12 +399,12 @@ fun AlbumOptionsMenu(
                     IconButton(onClick = { showPlaylistPicker = false }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = str(R.string.back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Text(
-                        text = "Add album to playlist",
+                        text = str(R.string.add_album_to_playlist),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -409,7 +412,7 @@ fun AlbumOptionsMenu(
                     IconButton(onClick = { showCreatePlaylistDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "New Playlist",
+                            contentDescription = str(R.string.new_playlist),
                             tint = dynamicPrimary
                         )
                     }
@@ -426,7 +429,7 @@ fun AlbumOptionsMenu(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "No custom playlists yet.",
+                                text = str(R.string.no_custom_playlists_yet),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
@@ -439,7 +442,7 @@ fun AlbumOptionsMenu(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("Create Playlist", fontWeight = FontWeight.Bold)
+                                Text(str(R.string.create_playlist), fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -480,7 +483,7 @@ fun AlbumOptionsMenu(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "${playlist.tracks.size} songs",
+                                        text = str(R.string.x_songs, playlist.tracks.size),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
@@ -502,13 +505,13 @@ fun AlbumOptionsMenu(
                 newPlaylistName = ""
             },
             title = {
-                Text("New Playlist", fontWeight = FontWeight.Bold)
+                Text(str(R.string.new_playlist), fontWeight = FontWeight.Bold)
             },
             text = {
                 OutlinedTextField(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist Name") },
+                    label = { Text(str(R.string.playlist_name)) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = dynamicPrimary,
@@ -529,7 +532,7 @@ fun AlbumOptionsMenu(
                     },
                     enabled = newPlaylistName.isNotBlank()
                 ) {
-                    Text("Create & Add", fontWeight = FontWeight.Bold, color = dynamicPrimary)
+                    Text(str(R.string.create_add), fontWeight = FontWeight.Bold, color = dynamicPrimary)
                 }
             },
             dismissButton = {
@@ -537,7 +540,7 @@ fun AlbumOptionsMenu(
                     showCreatePlaylistDialog = false
                     newPlaylistName = ""
                 }) {
-                    Text("Cancel")
+                    Text(str(R.string.cancel))
                 }
             },
             containerColor = dynamicSurface,

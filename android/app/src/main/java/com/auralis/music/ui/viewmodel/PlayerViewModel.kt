@@ -751,7 +751,7 @@ class PlayerViewModel(
         radioJob = viewModelScope.launch {
             try {
                 val radioTracks = withContext(Dispatchers.IO) {
-                    innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title)
+                    com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title) }
                 }
                 if (!_playerSettings.value.autoLoadMore || !isAutoRadioMode || requestId != currentPlaybackRequestId.get()) return@launch
                 if (radioTracks.isNotEmpty()) {
@@ -913,7 +913,7 @@ class PlayerViewModel(
             if (curTrack != null) {
                 try {
                     val fetched = kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                        innerTubeClient.getRadioTracks(curTrack.id, curTrack.artist, curTrack.title)
+                        com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRadioTracks(curTrack.id, curTrack.artist, curTrack.title) }
                     } ?: emptyList()
                     if (!_playerSettings.value.autoLoadMore || reqId != currentPlaybackRequestId.get()) return@launch
                     val existingIds = queueManager.state.queue.map { it.id }.toSet()
@@ -954,7 +954,7 @@ class PlayerViewModel(
             if (nextCandidate == null && curTrack != null && curTrack.artist.isNotBlank()) {
                 try {
                     val artistSongs = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                        innerTubeClient.search("${curTrack.artist} songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS).songs
+                        com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.search("${curTrack.artist} songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS).songs }
                     } ?: emptyList()
                     if (!_playerSettings.value.autoLoadMore || reqId != currentPlaybackRequestId.get()) return@launch
                     val existingIds = queueManager.state.queue.map { it.id }.toSet()

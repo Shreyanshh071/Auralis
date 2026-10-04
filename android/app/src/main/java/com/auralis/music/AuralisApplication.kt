@@ -14,8 +14,16 @@ import kotlinx.coroutines.launch
  * and 300MB disk cache to ensure 60-120fps ultra-smooth scrolling.
  */
 class AuralisApplication : Application(), ImageLoaderFactory {
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(com.auralis.music.ui.i18n.AppLanguage.wrap(base))
+    }
+
     override fun onCreate() {
         super.onCreate()
+        com.auralis.music.ui.i18n.AppLanguage.init(this)
+        // First: network code reads hl/gl, result filters and the proxy from here on every request.
+        com.auralis.music.data.datastore.ContentSettingsStore.init(this)
+        com.auralis.music.data.network.ContentProxy.install()
         // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
         com.auralis.music.data.network.YouTubeSession.init(this)
         com.auralis.music.data.sync.LocalDataOwner.init(this)

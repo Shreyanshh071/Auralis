@@ -61,9 +61,9 @@ open class InnerTubeClient(
     open suspend fun getHome(params: String? = null, continuation: String? = null): Pair<List<HomeChip>, List<HomeSection>> = withContext(Dispatchers.IO) {
         try {
             val requestBody = if (continuation != null) {
-                createContinuationContext(continuation)
+                createContinuationContext(continuation, localizedLabels = true)
             } else {
-                createBrowseContext("FEmusic_home", params)
+                createBrowseContext("FEmusic_home", params, localizedLabels = true)
             }
 
             val url = if (continuation != null) {
@@ -847,7 +847,7 @@ open class InnerTubeClient(
      */
     suspend fun getExplore(): List<HomeSection> = withContext(Dispatchers.IO) {
         try {
-            val requestBody = createBrowseContext("FEmusic_explore")
+            val requestBody = createBrowseContext("FEmusic_explore", localizedLabels = true)
             val request = Request.Builder()
                 .url("$YT_MUSIC_API/browse?prettyPrint=false")
                 .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -879,6 +879,25 @@ open class InnerTubeClient(
      * Fetches full YouTube Music Artist Page including header portrait, subscriber count,
      * bio description, top songs, albums, singles, and similar artists.
      */
+    private enum class ArtistShelfKind { SONGS, RELEASES, ARTISTS, OTHER }
+
+    /** What an artist-page shelf holds, judged from its items' endpoints (language independent). */
+    private fun artistShelfKind(shelf: JSONObject): ArtistShelfKind {
+        val contents = shelf.optJSONArray("contents") ?: return ArtistShelfKind.OTHER
+        val first = contents.optJSONObject(0) ?: return ArtistShelfKind.OTHER
+        if (first.has("musicResponsiveListItemRenderer")) return ArtistShelfKind.SONGS
+        val twoRow = first.optJSONObject("musicTwoRowItemRenderer") ?: return ArtistShelfKind.OTHER
+        val pageType = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+            ?.optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType")
+        return when (pageType) {
+            "MUSIC_PAGE_TYPE_ALBUM" -> ArtistShelfKind.RELEASES
+            "MUSIC_PAGE_TYPE_ARTIST" -> ArtistShelfKind.ARTISTS
+            else -> ArtistShelfKind.OTHER
+        }
+    }
+
     suspend fun getArtistPage(artist: Artist): ArtistPage? = withContext(Dispatchers.IO) {
         try {
             var effectiveChannelId = artist.id
@@ -937,6 +956,9 @@ open class InnerTubeClient(
 
             // Parse subscriber count
             val subButton = header?.optJSONObject("subscriptionButton")?.optJSONObject("subscribeButtonRenderer")
+            // e.g. "25.1M monthly audience" (immersive header only).
+            val monthlyAudience = header?.optJSONObject("monthlyListenerCount")?.optJSONArray("runs")
+                ?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotBlank() }
             val subscribers = subButton?.optJSONObject("longSubscriberCountText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
                 ?: subButton?.optJSONObject("subscriberCountText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
                 ?: subButton?.optJSONObject("shortSubscriberCountText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
@@ -984,6 +1006,7 @@ open class InnerTubeClient(
                 ?.optJSONObject("sectionListRenderer")
                 ?.optJSONArray("contents") ?: JSONArray()
 
+            var albumShelvesSeen = 0
             for (i in 0 until sectionList.length()) {
                 val secObj = sectionList.optJSONObject(i) ?: continue
                 val shelf = secObj.optJSONObject("musicShelfRenderer")
@@ -991,8 +1014,17 @@ open class InnerTubeClient(
 
                 val shelfHeader = shelf.optJSONObject("header")?.optJSONObject("musicShelfBasicHeaderRenderer")
                     ?: shelf.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                val shelfTitle = shelfHeader?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.lowercase()
+                val rawShelfTitle = shelfHeader?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.lowercase()
                     ?: "songs"
+                // English titles name the shelf directly. Localized ones (content language) don't
+                // match those words, so name it from what it holds instead; see artistShelfKind.
+                val englishTitle = listOf("song", "album", "single", "ep", "fan", "like", "similar").any { rawShelfTitle.contains(it) }
+                val shelfTitle = if (englishTitle) rawShelfTitle else when (artistShelfKind(shelf)) {
+                    ArtistShelfKind.SONGS -> "songs"
+                    ArtistShelfKind.ARTISTS -> "fans might also like"
+                    ArtistShelfKind.RELEASES -> if (albumShelvesSeen++ == 0) "albums" else "singles"
+                    ArtistShelfKind.OTHER -> rawShelfTitle
+                }
 
                 val contents = shelf.optJSONArray("contents") ?: JSONArray()
 
@@ -1080,6 +1112,7 @@ open class InnerTubeClient(
                 bannerUrl = bannerUrl,
                 description = description,
                 subscribers = subscribers,
+                monthlyAudience = monthlyAudience,
                 topSongs = resolvedTopSongs.distinctBy { it.id },
                 albums = albums.distinctBy { it.id },
                 singles = singles.distinctBy { it.id },
@@ -1238,14 +1271,28 @@ open class InnerTubeClient(
         var albumName: String? = null
         if (subtitleRuns != null) {
             val names = mutableListOf<String>()
+            var linkedArtist: String? = null
             for (k in 0 until subtitleRuns.length()) {
-                val rText = subtitleRuns.optJSONObject(k)?.optString("text")?.trim() ?: continue
+                val run = subtitleRuns.optJSONObject(k) ?: continue
+                val rText = run.optString("text").trim()
                 if (rText != "•" && rText.isNotBlank()) {
                     names.add(rText)
                 }
+                val pageType = run.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                    ?.optJSONObject("browseEndpointContextSupportedConfigs")
+                    ?.optJSONObject("browseEndpointContextMusicConfig")
+                    ?.optString("pageType")
+                if (linkedArtist == null && pageType == "MUSIC_PAGE_TYPE_ARTIST") linkedArtist = rText
             }
-            if (names.isNotEmpty()) artistName = names[0]
-            if (names.size > 1) albumName = names[1]
+            // Prefer the run that links to an artist: the first plain run is often the item type
+            // ("Song", "Video", or its translation when the home feed is localized).
+            if (linkedArtist != null) {
+                artistName = linkedArtist
+                albumName = names.getOrNull(names.indexOf(linkedArtist) + 1)
+            } else {
+                if (names.isNotEmpty()) artistName = names[0]
+                if (names.size > 1) albumName = names[1]
+            }
         }
 
         val thumbnails = twoRow.optJSONObject("thumbnailRenderer")
@@ -1537,10 +1584,23 @@ open class InnerTubeClient(
             }
             endSection()
 
-            for (section in sections) {
+            // Language-independent fallbacks, for localized responses (Settings → Content →
+            // content language) where "Song" / "1.3B plays" arrive as e.g. "गाना" / "1.3 अ॰ बार चलाया गया":
+            //  - the item-type label is the leading unlinked section followed by an artist link;
+            //  - the count is the last unlinked section with digits that isn't a duration or a year.
+            val labelIndex = if (sections.size >= 2 && !sections[0].artistLink && sections[0].albumId == null &&
+                sections[1].artistLink) 0 else -1
+            val countIndex = sections.indices.lastOrNull { i ->
+                val sec = sections[i]
+                i != labelIndex && !sec.artistLink && sec.albumId == null && sec.text.any(Char::isDigit) &&
+                    !sec.text.matches(Regex("""\d+:\d+(:\d+)?""")) && !sec.text.matches(Regex("""\d{4}"""))
+            } ?: -1
+
+            for ((index, section) in sections.withIndex()) {
                 val text = section.text
                 val lowerText = text.lowercase()
                 when {
+                    index == labelIndex -> itemType = if (typeKeywords.contains(lowerText)) lowerText else "label"
                     section.albumId != null -> {
                         albumName = text
                         albumIdStr = section.albumId
@@ -1552,6 +1612,7 @@ open class InnerTubeClient(
                     text.matches(Regex("""\d+:\d+(:\d+)?""")) -> durationSec = parseDurationToSeconds(text)
                     lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener") || lowerText.contains("subscriber") -> viewsStr = text
                     typeKeywords.contains(lowerText) -> itemType = lowerText
+                    index == countIndex && artistName != "Unknown Artist" -> viewsStr = text
                     artistName == "Unknown Artist" -> artistName = text
                     albumName == null -> albumName = text
                 }
@@ -1706,22 +1767,22 @@ open class InnerTubeClient(
         }
     }
 
-    private fun createBrowseContext(browseId: String, params: String? = null): JSONObject {
+    private suspend fun createBrowseContext(browseId: String, params: String? = null, localizedLabels: Boolean = false): JSONObject {
         return JSONObject().apply {
             put("browseId", browseId)
             if (!params.isNullOrBlank()) put("params", params)
-            put("context", createClientContext())
+            put("context", createClientContext(localizedLabels))
         }
     }
 
-    private fun createContinuationContext(continuation: String): JSONObject {
+    private suspend fun createContinuationContext(continuation: String, localizedLabels: Boolean = false): JSONObject {
         return JSONObject().apply {
             put("continuation", continuation)
-            put("context", createClientContext())
+            put("context", createClientContext(localizedLabels))
         }
     }
 
-    private fun createWebRemixContext(query: String, params: String? = null): JSONObject {
+    private suspend fun createWebRemixContext(query: String, params: String? = null): JSONObject {
         return JSONObject().apply {
             put("query", query)
             if (!params.isNullOrBlank()) put("params", params)
@@ -1729,13 +1790,19 @@ open class InnerTubeClient(
         }
     }
 
-    private fun createClientContext(): JSONObject {
+    /**
+     * Country (`gl`) always follows Settings → Content. The language (`hl`) does for home and
+     * explore ([localizedLabels]) and for anything run inside [LocalizedContent] (search screen,
+     * artist pages, radio); Auralis's own matching lookups stay English, see [LocalizedContent].
+     */
+    private suspend fun createClientContext(localizedLabels: Boolean = false): JSONObject {
+        val hl = if (localizedLabels || LocalizedContent.isActive()) ContentLocale.hl() else "en"
         return JSONObject().apply {
             put("client", JSONObject().apply {
                 put("clientName", "WEB_REMIX")
                 put("clientVersion", "1.20241201.01.00")
-                put("hl", "en")
-                put("gl", "US")
+                put("hl", hl)
+                put("gl", ContentLocale.gl())
             })
         }
     }

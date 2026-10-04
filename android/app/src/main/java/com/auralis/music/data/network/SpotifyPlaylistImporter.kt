@@ -43,7 +43,7 @@ data class SpotifyAccessToken(
 
 class SpotifyPlaylistImporter(
     private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)

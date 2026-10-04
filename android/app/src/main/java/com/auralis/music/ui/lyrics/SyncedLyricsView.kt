@@ -1,5 +1,8 @@
 package com.auralis.music.ui.lyrics
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -215,7 +218,7 @@ fun SyncedLyricsView(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Syncing Lyrics...",
+                    text = str(R.string.syncing_lyrics),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.70f)
                 )
@@ -263,13 +266,13 @@ fun SyncedLyricsView(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Instrumental Track",
+                    text = str(R.string.instrumental_track),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "This composition appears to have no vocals.",
+                    text = str(R.string.this_composition_appears_to_have_no_voca),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -282,11 +285,11 @@ fun SyncedLyricsView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
+                            contentDescription = str(R.string.search),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Search Lyrics Manually")
+                        Text(str(R.string.search_lyrics_manually))
                     }
                 }
             }
@@ -298,7 +301,7 @@ fun SyncedLyricsView(
         Box(modifier = modifier.fillMaxSize(), contentAlignment = loadingAlignment) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "Lyrics not available",
+                    text = str(R.string.lyrics_not_available),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     textAlign = TextAlign.Center
@@ -311,11 +314,11 @@ fun SyncedLyricsView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
+                            contentDescription = str(R.string.search),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Search Lyrics Manually")
+                        Text(str(R.string.search_lyrics_manually))
                     }
                 }
             }
@@ -953,7 +956,7 @@ fun SyncedLyricsView(
                                                     if (selectedIndices.size < 5) {
                                                         selectedIndices + index
                                                     } else {
-                                                        android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
+                                                        android.widget.Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), android.widget.Toast.LENGTH_SHORT).show()
                                                         selectedIndices
                                                     }
                                                 }
@@ -979,7 +982,7 @@ fun SyncedLyricsView(
                                                 if (selectedIndices.size < 5) {
                                                     selectedIndices + index
                                                 } else {
-                                                    android.widget.Toast.makeText(context, "Select up to 5 lines for showoff", android.widget.Toast.LENGTH_SHORT).show()
+                                                    android.widget.Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), android.widget.Toast.LENGTH_SHORT).show()
                                                     selectedIndices
                                                 }
                                             }
@@ -1056,13 +1059,13 @@ fun SyncedLyricsView(
             ) {
                 Icon(
                     imageVector = Icons.Default.Sync,
-                    contentDescription = "Re-sync",
+                    contentDescription = str(R.string.re_sync),
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Re-sync",
+                    text = str(R.string.re_sync),
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
@@ -1097,7 +1100,7 @@ fun SyncedLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Cancel Selection",
+                        contentDescription = str(R.string.cancel_selection),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -1123,11 +1126,11 @@ fun SyncedLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
-                        contentDescription = "Share",
+                        contentDescription = str(R.string.share),
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Share", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(str(R.string.share), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 }
             }
         }
@@ -1915,6 +1918,13 @@ private fun LyricLineRow(
                 }
             }
         }
+
+        RomanizedLine(
+            text = line.text,
+            color = Color.White.copy(alpha = if (isCurrent) 0.72f else 0.36f),
+            fontSize = (fontSize.value * 0.46f).coerceIn(12f, 17f).sp,
+            textAlign = textAlign
+        )
 
         if (!line.translatedText.isNullOrBlank()) {
             val cleanTranslation = remember(line.translatedText) {

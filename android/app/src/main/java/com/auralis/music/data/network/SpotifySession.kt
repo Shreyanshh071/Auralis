@@ -51,7 +51,7 @@ object SpotifySession {
     val accountLabel: StateFlow<String> = _accountLabel.asStateFlow()
 
     private val client by lazy {
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()

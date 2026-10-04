@@ -36,7 +36,7 @@ class NewPipeDownloader private constructor(
         }
 
         val instance: NewPipeDownloader by lazy {
-            val builder = OkHttpClient.Builder()
+            val builder = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
                 .connectionPool(NetworkClientProvider.okHttpClient.connectionPool)
                 .dispatcher(NetworkClientProvider.okHttpClient.dispatcher)
                 .connectTimeout(10, TimeUnit.SECONDS)

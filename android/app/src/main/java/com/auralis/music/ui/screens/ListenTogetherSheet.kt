@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -176,7 +179,7 @@ fun ListenTogetherSheet(
                         )
                     }
                     Text(
-                        text = "Listen Together",
+                        text = str(R.string.listen_together),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
@@ -190,7 +193,7 @@ fun ListenTogetherSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                        contentDescription = str(R.string.close),
                         tint = onBackground,
                         modifier = Modifier.size(24.dp)
                     )
@@ -222,7 +225,7 @@ fun ListenTogetherSheet(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (uiState.isHost) "BROADCASTING AS HOST" else "SYNCED WITH HOST",
+                                text = if (uiState.isHost) str(R.string.broadcasting_as_host) else str(R.string.synced_with_host),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = primaryColor,
@@ -241,7 +244,7 @@ fun ListenTogetherSheet(
                                 .clickable {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Room Code", room.code))
-                                    Toast.makeText(context, "Room code copied: ${room.code}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, str(R.string.room_code_copied_x, room.code), Toast.LENGTH_SHORT).show()
                                 }
                                 .padding(horizontal = 24.dp, vertical = 12.dp)
                         ) {
@@ -256,7 +259,7 @@ fun ListenTogetherSheet(
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy",
+                                    contentDescription = str(R.string.copy),
                                     modifier = Modifier.size(20.dp),
                                     tint = primaryColor
                                 )
@@ -265,7 +268,7 @@ fun ListenTogetherSheet(
 
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tap code to copy and invite friends",
+                            text = str(R.string.tap_code_to_copy_and_invite_friends),
                             style = MaterialTheme.typography.labelSmall,
                             color = onSurfaceVariant
                         )
@@ -368,7 +371,7 @@ fun ListenTogetherSheet(
                 ) {
                     Column {
                         Text(
-                            text = "Connected Listeners (${uiState.members.size})",
+                            text = str(R.string.connected_listeners_x, uiState.members.size),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = onBackground
@@ -447,7 +450,7 @@ fun ListenTogetherSheet(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (uiState.isHost) "End Broadcast Session" else "Leave Room", fontWeight = FontWeight.Bold)
+                    Text(if (uiState.isHost) str(R.string.end_broadcast_session) else str(R.string.leave_room), fontWeight = FontWeight.Bold)
                 }
 
             } else {
@@ -462,7 +465,7 @@ fun ListenTogetherSheet(
                 ) {
                     Column {
                         Text(
-                            text = "Your Identity",
+                            text = str(R.string.your_identity),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = onBackground
@@ -472,7 +475,7 @@ fun ListenTogetherSheet(
                         OutlinedTextField(
                             value = uiState.myDisplayName,
                             onValueChange = onNameChange,
-                            label = { Text("Display Name", color = onSurfaceVariant) },
+                            label = { Text(str(R.string.display_name), color = onSurfaceVariant) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = primaryColor,
@@ -509,7 +512,7 @@ fun ListenTogetherSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Join Room",
+                            text = str(R.string.join_room),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (selectedTab == 0) Color.Black else onBackground
@@ -526,7 +529,7 @@ fun ListenTogetherSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Host Room",
+                            text = str(R.string.host_room),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (selectedTab == 1) Color.Black else onBackground
@@ -548,14 +551,14 @@ fun ListenTogetherSheet(
                     ) {
                         Column {
                             Text(
-                                text = "Enter Room Code",
+                                text = str(R.string.enter_room_code),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Enter the 6-character room code provided by your host:",
+                                text = str(R.string.enter_the_6_character_room_code_provided),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = onSurfaceVariant
                             )
@@ -591,7 +594,7 @@ fun ListenTogetherSheet(
                                 } else {
                                     Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Connect & Sync Now", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Text(str(R.string.connect_sync_now), color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -608,14 +611,14 @@ fun ListenTogetherSheet(
                     ) {
                         Column {
                             Text(
-                                text = "Start Live Broadcast",
+                                text = str(R.string.start_live_broadcast),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Start a room and listen together — everyone hears your queue at the same time.",
+                                text = str(R.string.start_a_room_and_listen_together_everyon),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = onSurfaceVariant
                             )
@@ -644,7 +647,7 @@ fun ListenTogetherSheet(
                                 } else {
                                     Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Create Broadcast Room", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Text(str(R.string.create_broadcast_room), color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -680,8 +683,8 @@ private fun RoomRuleRows(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         RoomRuleRow(
             icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-            title = "Guests can add songs",
-            subtitle = "Songs they add go into your queue",
+            title = str(R.string.guests_can_add_songs),
+            subtitle = str(R.string.songs_they_add_go_into_your_queue),
             checked = settings.guestsCanAddSongs,
             enabled = true,
             onCheckedChange = { onChange(settings.copy(guestsCanAddSongs = it)) },
@@ -689,8 +692,8 @@ private fun RoomRuleRows(
         )
         RoomRuleRow(
             icon = Icons.Default.PlayArrow,
-            title = "Guests can control playback",
-            subtitle = "Play, pause and seek for everyone",
+            title = str(R.string.guests_can_control_playback),
+            subtitle = str(R.string.play_pause_and_seek_for_everyone),
             checked = settings.guestsCanControlPlayback,
             enabled = true,
             onCheckedChange = { onChange(settings.copy(guestsCanControlPlayback = it)) },
@@ -698,8 +701,8 @@ private fun RoomRuleRows(
         )
         RoomRuleRow(
             icon = Icons.Default.MusicNote,
-            title = "Guests can play songs",
-            subtitle = "Pick any song or skip next/previous, for everyone",
+            title = str(R.string.guests_can_play_songs),
+            subtitle = str(R.string.pick_any_song_or_skip_next_previous_for),
             checked = settings.guestsCanPlaySongs,
             enabled = true,
             onCheckedChange = { onChange(settings.copy(guestsCanPlaySongs = it)) },
@@ -707,8 +710,8 @@ private fun RoomRuleRows(
         )
         RoomRuleRow(
             icon = Icons.Default.Lock,
-            title = "Require approval",
-            subtitle = "Guests can ask to add or play any song; you allow or decline each one",
+            title = str(R.string.require_approval),
+            subtitle = str(R.string.guests_can_ask_to_add_or_play_any_song_y),
             checked = settings.requireApproval,
             enabled = true,
             onCheckedChange = { onChange(settings.copy(requireApproval = it)) },
@@ -789,7 +792,7 @@ private fun RoomRulesCard(
             .padding(horizontal = 18.dp, vertical = 14.dp)
     ) {
         Column {
-            Text("Room rules", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
+            Text(str(R.string.room_rules), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
             Spacer(modifier = Modifier.height(6.dp))
             RoomRuleRows(settings, onChange, primaryColor, textColor, secondaryTextColor)
         }
@@ -817,7 +820,7 @@ private fun SongRequestsCard(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                text = "Song requests (${requests.size})",
+                text = str(R.string.song_requests_x, requests.size),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = textColor
@@ -833,10 +836,10 @@ private fun SongRequestsCard(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(rec.track.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${rec.track.artist} · from ${rec.recommendedByName}", style = MaterialTheme.typography.bodySmall, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(str(R.string.x_from_x, rec.track.artist, rec.recommendedByName), style = MaterialTheme.typography.bodySmall, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     TextButton(onClick = { onDecline(rec) }) {
-                        Text("Decline", color = secondaryTextColor, fontWeight = FontWeight.SemiBold)
+                        Text(str(R.string.decline), color = secondaryTextColor, fontWeight = FontWeight.SemiBold)
                     }
                     Button(
                         onClick = { onApprove(rec) },
@@ -844,7 +847,7 @@ private fun SongRequestsCard(
                         shape = RoundedCornerShape(12.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Text("Allow", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.allow), color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -862,15 +865,15 @@ private fun GuestPermissionsCard(
 ) {
     val lines = listOf(
         when {
-            settings.requireApproval -> "You can ask to add songs; the host allows them"
-            settings.guestsCanAddSongs -> "You can add songs to the queue (song menu > Add to room queue)"
-            else -> "Only the host adds songs"
+            settings.requireApproval -> str(R.string.you_can_ask_to_add_songs_the_host_allows)
+            settings.guestsCanAddSongs -> str(R.string.you_can_add_songs_to_the_queue_song_menu)
+            else -> str(R.string.only_the_host_adds_songs)
         },
-        if (settings.guestsCanControlPlayback) "You can play, pause and seek for everyone"
-        else "Only the host controls playback",
+        if (settings.guestsCanControlPlayback) str(R.string.you_can_play_pause_and_seek_for_everyone)
+        else str(R.string.only_the_host_controls_playback),
         if (settings.requireApproval) "You can ask to play any song; the host allows it"
-        else if (settings.guestsCanPlaySongs) "You can play any song or skip, for everyone"
-        else "Only the host picks what plays next"
+        else if (settings.guestsCanPlaySongs) str(R.string.you_can_play_any_song_or_skip_for_everyo)
+        else str(R.string.only_the_host_picks_what_plays_next)
     )
     Box(
         modifier = Modifier
@@ -881,7 +884,7 @@ private fun GuestPermissionsCard(
             .padding(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("What you can do", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
+            Text(str(R.string.what_you_can_do), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
             lines.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = secondaryTextColor) }
         }
     }

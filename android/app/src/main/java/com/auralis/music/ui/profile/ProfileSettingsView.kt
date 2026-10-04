@@ -1,5 +1,8 @@
 package com.auralis.music.ui.profile
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,80 +50,80 @@ fun ProfileSettingsView(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // ── 1. APPEARANCE SECTION ──
-        SettingsSectionHeader(title = "Appearance", icon = Icons.Default.Palette)
+        SettingsSectionHeader(title = str(R.string.appearance), icon = Icons.Default.Palette)
 
         SettingsClickableCard(
-            title = "Appearance Settings",
-            subtitle = "Theme, Mini-player, Player, Lyrics, Gestures & Layout",
+            title = str(R.string.appearance_settings),
+            subtitle = str(R.string.theme_mini_player_player_lyrics_gestures),
             icon = Icons.Default.ColorLens,
             onClick = { showAppearanceScreen = true }
         )
 
         // ── 2. AUDIO QUALITY SECTION ──
-        SettingsSectionHeader(title = "Audio Quality", icon = Icons.Default.GraphicEq)
+        SettingsSectionHeader(title = str(R.string.audio_quality), icon = Icons.Default.GraphicEq)
 
         SettingsClickableCard(
-            title = "Streaming Quality",
-            subtitle = "${settings.audioQuality.displayName} • ${settings.audioQuality.description}",
+            title = str(R.string.streaming_quality),
+            subtitle = "${com.auralis.music.ui.i18n.UiLabels.of(settings.audioQuality.displayName)} • ${com.auralis.music.ui.i18n.UiLabels.of(settings.audioQuality.description)}",
             icon = Icons.Default.HighQuality,
             onClick = { showQualityDialog = true }
         )
 
         // ── 3. SPATIAL AUDIO SECTION ──
-        SettingsSectionHeader(title = "Spatial Audio", icon = Icons.Default.Headphones)
+        SettingsSectionHeader(title = str(R.string.spatial_audio), icon = Icons.Default.Headphones)
 
         SettingsSwitchCard(
-            title = "3D Spatial Soundstage",
-            subtitle = "Android audio virtualization when supported",
+            title = str(R.string.t_3d_spatial_soundstage),
+            subtitle = str(R.string.android_audio_virtualization_when_suppor),
             icon = Icons.Default.SurroundSound,
             isChecked = settings.spatialAudio,
             onCheckedChange = onToggleSpatialAudio
         )
 
         // ── 4. PLAYBACK SECTION ──
-        SettingsSectionHeader(title = "Playback", icon = Icons.Default.PlayCircleOutline)
+        SettingsSectionHeader(title = str(R.string.playback), icon = Icons.Default.PlayCircleOutline)
 
         SettingsSwitchCard(
-            title = "Gapless Playback",
-            subtitle = "Preload the next track for smoother transitions",
+            title = str(R.string.gapless_playback),
+            subtitle = str(R.string.preload_the_next_track_for_smoother_tran),
             icon = Icons.Default.SyncAlt,
             isChecked = settings.gaplessPlayback,
             onCheckedChange = onToggleGaplessPlayback
         )
 
         SettingsSwitchCard(
-            title = "Remove Silence",
-            subtitle = "Skip quiet passages during playback",
+            title = str(R.string.remove_silence),
+            subtitle = str(R.string.skip_quiet_passages_during_playback),
             icon = Icons.Default.VolumeOff,
             isChecked = settings.skipSilence,
             onCheckedChange = onToggleSkipSilence
         )
 
         // ── 5. STORAGE SECTION ──
-        SettingsSectionHeader(title = "Storage", icon = Icons.Default.Storage)
+        SettingsSectionHeader(title = str(R.string.storage), icon = Icons.Default.Storage)
 
         SettingsClickableCard(
-            title = "Clear Cache",
-            subtitle = "Free up temporary stream buffers and cached artwork images",
+            title = str(R.string.clear_cache),
+            subtitle = str(R.string.free_up_temporary_stream_buffers_and_cac),
             icon = Icons.Default.CleaningServices,
             onClick = {
                 onClearCache()
-                Toast.makeText(context, "Audio and artwork cache cleared!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, str(R.string.audio_and_artwork_cache_cleared), Toast.LENGTH_SHORT).show()
             }
         )
 
         // ── 6. UPDATER SECTION ──
-        SettingsSectionHeader(title = "Updater", icon = Icons.Default.SystemUpdate)
+        SettingsSectionHeader(title = str(R.string.updater), icon = Icons.Default.SystemUpdate)
 
         SettingsClickableCard(
-            title = "Updater",
-            subtitle = "Check for updates and configure auto-update settings",
+            title = str(R.string.updater),
+            subtitle = str(R.string.check_for_updates_and_configure_auto_upd),
             icon = Icons.Default.SystemUpdate,
             onClick = { showUpdaterScreen = true }
         )
 
         // ── 7. AURALIS SECTION ──
-        SettingsSectionHeader(title = "Auralis", icon = Icons.Default.Stars)
+        SettingsSectionHeader(title = str(R.string.auralis), icon = Icons.Default.Stars)
 
         AuralisHubView(
             onNavigateToAccount = onNavigateToAccount
@@ -142,7 +145,7 @@ fun ProfileSettingsView(
             containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
-                    text = "Select Audio Quality",
+                    text = str(R.string.select_audio_quality),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -171,13 +174,13 @@ fun ProfileSettingsView(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = q.displayName,
+                                    text = com.auralis.music.ui.i18n.UiLabels.of(q.displayName),
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                     fontSize = 15.sp
                                 )
                                 Text(
-                                    text = q.description,
+                                    text = com.auralis.music.ui.i18n.UiLabels.of(q.description),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 12.sp
                                 )

@@ -1,5 +1,7 @@
 package com.auralis.music.service
 
+import com.auralis.music.ui.i18n.str
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -68,7 +70,7 @@ class AuralisFirebaseMessagingService : FirebaseMessagingService() {
                 "App Updates",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications when new Auralis releases and features are available"
+                description = str(R.string.notifications_when_new_auralis_releases)
             }
             notificationManager.createNotificationChannel(channel)
         }

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.lyrics
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.annotation.SuppressLint
 import android.graphics.BlurMaskFilter
 import android.graphics.Paint
@@ -979,7 +982,7 @@ fun ExperimentalLyricsView(
         if (effectiveLines.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "No lyrics available",
+                    text = str(R.string.no_lyrics_available),
                     fontSize = 18.sp,
                     color = Color.White.copy(alpha = 0.5f)
                 )
@@ -1066,7 +1069,7 @@ fun ExperimentalLyricsView(
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "Unsynced Lyrics",
+                                                text = str(R.string.unsynced_lyrics),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = Color.White.copy(alpha = 0.85f)
@@ -1109,7 +1112,7 @@ fun ExperimentalLyricsView(
                                             } else if (selectedIndices.size < 5) {
                                                 selectedIndices.add(index)
                                             } else {
-                                                Toast.makeText(context, "Select up to 5 lines for showoff", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), Toast.LENGTH_SHORT).show()
                                             }
                                         } else if (appearance.changeLyricsOnTap) {
                                             val reqId = ++scrollRequestId
@@ -1173,12 +1176,12 @@ fun ExperimentalLyricsView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
+                                    contentDescription = str(R.string.search),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Search Synced Lyrics",
+                                    text = str(R.string.search_synced_lyrics),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -1209,13 +1212,13 @@ fun ExperimentalLyricsView(
             ) {
                 Icon(
                     imageVector = Icons.Default.Sync,
-                    contentDescription = "Re-sync",
+                    contentDescription = str(R.string.re_sync),
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Re-sync",
+                    text = str(R.string.re_sync),
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
@@ -1250,7 +1253,7 @@ fun ExperimentalLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Cancel Selection",
+                        contentDescription = str(R.string.cancel_selection),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -1278,11 +1281,11 @@ fun ExperimentalLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
-                        contentDescription = "Share",
+                        contentDescription = str(R.string.share),
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Share", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(str(R.string.share), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 }
             }
         }
@@ -1605,6 +1608,13 @@ internal fun ExperimentalLyricsLine(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+
+                RomanizedLine(
+                    text = line.text,
+                    color = (if (isActiveLine) expressiveAccent else lineColor).copy(alpha = 0.65f),
+                    fontSize = 13.sp,
+                    textAlign = agentTextAlign
+                )
 
                 line.translatedText?.let { trans ->
                     Text(

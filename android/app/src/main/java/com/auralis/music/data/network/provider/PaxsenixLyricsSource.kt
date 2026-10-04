@@ -42,7 +42,7 @@ data class AppleMusicTrack(
  * 6. Parses TTML via [TtmlParser], guaranteeing zero synthetic word timestamps and complete master integrity.
  */
 class PaxsenixLyricsSource(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(6, TimeUnit.SECONDS)
         .callTimeout(8, TimeUnit.SECONDS)

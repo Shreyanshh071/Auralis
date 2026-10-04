@@ -165,3 +165,32 @@ val Typography = Typography(
         letterSpacing = 0.4.sp
     )
 )
+
+
+/**
+ * The type scale uses negative letter spacing and tight line heights tuned for Latin text. Letter
+ * spacing splits joined scripts (Devanagari, Bengali, Arabic, Thai…) into separate clusters, so
+ * Android measures them too narrow and wraps "होम" as "हो / म"; the tight line height clips their
+ * vowel marks. For those languages, drop the letter spacing and let the font decide line height.
+ */
+fun scriptSafeTypography(base: androidx.compose.material3.Typography, locale: java.util.Locale): androidx.compose.material3.Typography {
+    if (locale.language !in JOINED_OR_TALL_SCRIPT_LANGUAGES) return base
+    fun TextStyle.safe() = copy(
+        letterSpacing = androidx.compose.ui.unit.TextUnit.Unspecified,
+        lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified
+    )
+    return base.copy(
+        displayLarge = base.displayLarge.safe(), displayMedium = base.displayMedium.safe(), displaySmall = base.displaySmall.safe(),
+        headlineLarge = base.headlineLarge.safe(), headlineMedium = base.headlineMedium.safe(), headlineSmall = base.headlineSmall.safe(),
+        titleLarge = base.titleLarge.safe(), titleMedium = base.titleMedium.safe(), titleSmall = base.titleSmall.safe(),
+        bodyLarge = base.bodyLarge.safe(), bodyMedium = base.bodyMedium.safe(), bodySmall = base.bodySmall.safe(),
+        labelLarge = base.labelLarge.safe(), labelMedium = base.labelMedium.safe(), labelSmall = base.labelSmall.safe()
+    )
+}
+
+private val JOINED_OR_TALL_SCRIPT_LANGUAGES = setOf(
+    "hi", "mr", "ne", "bn", "as", "pa", "gu", "or", "ta", "te", "kn", "ml", "si", // Indic
+    "ar", "fa", "ur", "ps", "he", "iw", "yi",                                     // Arabic / Hebrew
+    "th", "lo", "km", "my",                                                       // Southeast Asian
+    "ja", "ko", "zh", "am", "ka", "hy"
+)

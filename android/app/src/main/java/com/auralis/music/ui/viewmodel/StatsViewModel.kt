@@ -37,6 +37,9 @@ class StatsViewModel(
     val selectedOption = MutableStateFlow(OptionStats.CONTINUOUS)
     val selectedChipIndex = MutableStateFlow(0)
 
+    /** Bumped by [refresh]: ranges are relative to "now", which is fixed when they're computed. */
+    private val refreshTick = MutableStateFlow(0)
+
     val firstEventTimestamp: StateFlow<Long?> = statsRepository.observeFirstEventTimestamp()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -96,8 +99,14 @@ class StatsViewModel(
         }
     }
 
-    private val timeRangeFlow = combine(selectedOption, selectedChipIndex) { option, idx ->
+    private val timeRangeFlow = combine(selectedOption, selectedChipIndex, refreshTick) { option, idx, _ ->
         getTimeRange(option, idx)
+    }
+
+    /** Pull-to-refresh: re-runs every stats query with the current time. */
+    suspend fun refresh() {
+        refreshTick.value += 1
+        kotlinx.coroutines.delay(600)
     }
 
     val statsOverview: StateFlow<StatsOverview> = timeRangeFlow.flatMapLatest { (from, to) ->

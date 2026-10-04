@@ -1,5 +1,7 @@
 package com.auralis.music.ui.lyrics.share
 
+import com.auralis.music.ui.i18n.str
+
 import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -175,7 +177,7 @@ fun LyricShareBottomSheet(
         ) {
             // Header
             Text(
-                text = "Customize colors",
+                text = str(R.string.customize_colors),
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = Color.White,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
@@ -183,7 +185,7 @@ fun LyricShareBottomSheet(
 
             // Segmented style picker
             Text(
-                text = "Player background style",
+                text = str(R.string.player_background_style),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.padding(bottom = 10.dp)
@@ -199,7 +201,7 @@ fun LyricShareBottomSheet(
                 listOf(
                     LyricCardStyle.BLUR to "Blur",
                     LyricCardStyle.GRADIENT to "Gradient",
-                    LyricCardStyle.SOLID to "Solid"
+                    LyricCardStyle.SOLID to str(R.string.solid)
                 ).forEach { (style, label) ->
                     val isSelected = selectedStyle == style
                     Box(
@@ -388,13 +390,13 @@ fun LyricShareBottomSheet(
                         ) {
                             androidx.compose.foundation.Image(
                                 painter = painterResource(id = R.drawable.ic_notification),
-                                contentDescription = "Auralis Logo",
+                                contentDescription = str(R.string.auralis_logo),
                                 modifier = Modifier.size(15.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Auralis",
+                            text = str(R.string.auralis),
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
@@ -416,13 +418,13 @@ fun LyricShareBottomSheet(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit Lyric",
+                                contentDescription = str(R.string.edit_lyric),
                                 tint = selectedTextColor.copy(alpha = 0.90f),
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Edit",
+                                text = str(R.string.edit),
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = selectedTextColor.copy(alpha = 0.90f)
                             )
@@ -436,7 +438,7 @@ fun LyricShareBottomSheet(
             // ── COLOR SWATCHES ──
             // 1. Background Color Swatches
             Text(
-                text = "Background color",
+                text = str(R.string.background_color),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.Start)
@@ -461,7 +463,7 @@ fun LyricShareBottomSheet(
 
             // 2. Text Color Swatches
             Text(
-                text = "Text color",
+                text = str(R.string.text_color),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.Start)
@@ -486,7 +488,7 @@ fun LyricShareBottomSheet(
 
             // 3. Secondary Text Color Swatches
             Text(
-                text = "Secondary text color",
+                text = str(R.string.secondary_text_color),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.Start)
@@ -538,9 +540,9 @@ fun LyricShareBottomSheet(
                                 withContext(Dispatchers.Main) {
                                     isExporting = false
                                     if (uri != null) {
-                                        Toast.makeText(context, "Saved to Gallery! 📷", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.saved_to_gallery), Toast.LENGTH_SHORT).show()
                                     } else {
-                                        Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.failed_to_save_image), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -556,11 +558,11 @@ fun LyricShareBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Download,
-                        contentDescription = "Save to Gallery",
+                        contentDescription = str(R.string.save_to_gallery),
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save", fontWeight = FontWeight.SemiBold)
+                    Text(str(R.string.save), fontWeight = FontWeight.SemiBold)
                 }
 
                 // Share Button
@@ -599,11 +601,11 @@ fun LyricShareBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
-                        contentDescription = "Share",
+                        contentDescription = str(R.string.share),
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(str(R.string.share), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
@@ -613,7 +615,7 @@ fun LyricShareBottomSheet(
     if (isEditingText) {
         AlertDialog(
             onDismissRequest = { isEditingText = false },
-            title = { Text("Edit Lyric Text") },
+            title = { Text(str(R.string.edit_lyric_text)) },
             text = {
                 OutlinedTextField(
                     value = editTextBuffer,
@@ -631,12 +633,12 @@ fun LyricShareBottomSheet(
                         isEditingText = false
                     }
                 ) {
-                    Text("Done")
+                    Text(str(R.string.done))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { isEditingText = false }) {
-                    Text("Cancel")
+                    Text(str(R.string.cancel))
                 }
             }
         )

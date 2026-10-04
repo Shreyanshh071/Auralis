@@ -1,5 +1,8 @@
 package com.auralis.music.ui.player
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.AnimatedContent
@@ -753,7 +756,7 @@ private fun ExpandedMiniPlayerView(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Person,
-                        contentDescription = "Artist: ${track.artist}",
+                        contentDescription = str(R.string.artist_x, track.artist),
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )
@@ -778,7 +781,7 @@ private fun ExpandedMiniPlayerView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous Track",
+                            contentDescription = str(R.string.previous_track),
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
@@ -795,7 +798,7 @@ private fun ExpandedMiniPlayerView(
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
                             tint = Color.Black,
                             modifier = Modifier.size(22.dp)
                         )
@@ -811,7 +814,7 @@ private fun ExpandedMiniPlayerView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next Track",
+                            contentDescription = str(R.string.next_track),
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
@@ -834,7 +837,7 @@ private fun ExpandedMiniPlayerView(
                     ) { fav ->
                         Icon(
                             imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (fav) "Favorited" else "Favorite",
+                            contentDescription = if (fav) str(R.string.favorited) else str(R.string.favorite),
                             tint = if (fav) Color(0xFFFF4081) else Color.White,
                             modifier = Modifier.size(20.dp)
                         )
@@ -1033,7 +1036,7 @@ private fun ClassicMiniPlayerView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous Track",
+                            contentDescription = str(R.string.previous_track),
                             tint = Color.White,
                             modifier = Modifier.size(24.dp)
                         )
@@ -1049,7 +1052,7 @@ private fun ClassicMiniPlayerView(
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
                             tint = Color.White,
                             modifier = Modifier.size(28.dp)
                         )
@@ -1065,7 +1068,7 @@ private fun ClassicMiniPlayerView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next Track",
+                            contentDescription = str(R.string.next_track),
                             tint = Color.White,
                             modifier = Modifier.size(24.dp)
                         )
@@ -1378,7 +1381,7 @@ private fun NewMiniPlayerPillView(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Person,
-                        contentDescription = "Artist: ${activeTrack?.artist ?: ""}",
+                        contentDescription = str(R.string.artist_x, activeTrack?.artist ?: ""),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(18.dp)
                     )
@@ -1395,7 +1398,7 @@ private fun NewMiniPlayerPillView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Add to playlist",
+                        contentDescription = str(R.string.add_to_playlist),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(19.dp)
                     )
@@ -1417,7 +1420,7 @@ private fun NewMiniPlayerPillView(
                     ) { fav ->
                         Icon(
                             imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (fav) "Favorited" else "Favorite",
+                            contentDescription = if (fav) str(R.string.favorited) else str(R.string.favorite),
                             tint = if (fav) Color(0xFFFF4081) else Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp)
                         )
@@ -1554,7 +1557,7 @@ private fun MiniPlayerArtworkDisc(
                 ) { playing ->
                     Icon(
                         imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (playing) "Pause" else "Play",
+                        contentDescription = if (playing) str(R.string.pause) else str(R.string.play),
                         tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )

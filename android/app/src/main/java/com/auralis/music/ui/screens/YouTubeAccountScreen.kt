@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.webkit.CookieManager
@@ -118,12 +121,12 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = str(R.string.back),
                             tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                     Text(
-                        text = "YouTube account",
+                        text = str(R.string.youtube_account),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -158,7 +161,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (signedIn) "Signed in to YouTube" else "Not signed in to YouTube",
+                                    text = if (signedIn) str(R.string.signed_in_to_youtube) else str(R.string.not_signed_in_to_youtube),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface,
@@ -178,7 +181,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                         Spacer(Modifier.height(14.dp))
                         Text(
                             text = if (signedIn) {
-                                "Your YouTube account is connected. You can now download age-restricted music and directly import your YouTube Music playlists—including private ones—without needing to set them to public. (Make sure your account is age-verified on YouTube)."
+                                str(R.string.your_youtube_account_is_connected_you_ca)
                             } else {
                                 "Signing in to a YouTube account is required to download age-restricted music. It also lets you directly import your YouTube Music playlists—including private ones—without having to make them public."
                             },
@@ -193,7 +196,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                                 onClick = { signOutOfYouTube() },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Sign out of YouTube", color = MaterialTheme.colorScheme.error)
+                                Text(str(R.string.sign_out_of_youtube), color = MaterialTheme.colorScheme.error)
                             }
                         } else {
                             Button(
@@ -201,7 +204,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                                 colors = ButtonDefaults.buttonColors(containerColor = YOUTUBE_RED, contentColor = Color.White),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Sign in to YouTube", fontWeight = FontWeight.SemiBold)
+                                Text(str(R.string.sign_in_to_youtube), fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -220,7 +223,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Your YouTube sign-in stays on this device. It is only used to download age-restricted music and import your playlists, and is never sent to Auralis servers.",
+                        text = str(R.string.your_youtube_sign_in_stays_on_this_devic),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
@@ -281,7 +284,7 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
                 delay(500)
             }
             finishing = false
-            error = "Couldn't finish signing in. Make sure you completed Google's sign-in, then try again."
+            error = str(R.string.couldn_t_finish_signing_in_make_sure_you)
         }
     }
 
@@ -323,12 +326,12 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
                 IconButton(onClick = onCancel) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Cancel",
+                        contentDescription = str(R.string.cancel),
                         tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
                 Text(
-                    text = "Sign in to YouTube",
+                    text = str(R.string.sign_in_to_youtube),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 17.sp

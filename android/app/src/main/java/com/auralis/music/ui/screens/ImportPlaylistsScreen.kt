@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
@@ -111,7 +114,7 @@ fun ImportPlaylistsScreen(
             Spacer(Modifier.height(18.dp))
 
             Text(
-                text = "Import by link",
+                text = str(R.string.import_by_link),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -165,13 +168,13 @@ private fun ImportHeader(onDismiss: () -> Unit) {
         IconButton(onClick = onDismiss) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
+                contentDescription = str(R.string.back),
                 tint = MaterialTheme.colorScheme.onBackground
             )
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = "Import playlists",
+            text = str(R.string.import_playlists),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
@@ -180,7 +183,7 @@ private fun ImportHeader(onDismiss: () -> Unit) {
     }
 
     Text(
-        text = "Transfer music from YouTube Music (via account or link) or Spotify (via link) directly into your Auralis library.",
+        text = str(R.string.transfer_music_from_youtube_music_via_ac),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 13.sp,
@@ -222,7 +225,7 @@ private fun YouTubeAccountCard(
                 ) {
                     Icon(
                         imageVector = if (signedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                        contentDescription = "YouTube Music",
+                        contentDescription = str(R.string.youtube_music),
                         tint = YOUTUBE_RED,
                         modifier = Modifier.size(20.dp)
                     )
@@ -230,7 +233,7 @@ private fun YouTubeAccountCard(
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "YouTube Music Account",
+                        text = str(R.string.youtube_music_account),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -238,8 +241,8 @@ private fun YouTubeAccountCard(
                     )
                     Text(
                         text = if (signedIn) {
-                            if (accountLabel.isNotBlank()) accountLabel else "Signed in"
-                        } else "Sign in to pick playlists directly",
+                            if (accountLabel.isNotBlank()) accountLabel else str(R.string.signed_in)
+                        } else str(R.string.sign_in_to_pick_playlists_directly),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
@@ -253,7 +256,7 @@ private fun YouTubeAccountCard(
 
             if (signedIn) {
                 Text(
-                    text = "Import Liked Music and playlists directly from your YouTube account—including private playlists—without pasting links or setting them to public.",
+                    text = str(R.string.import_liked_music_and_playlists_directl),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
@@ -282,9 +285,9 @@ private fun YouTubeAccountCard(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = when {
-                                isLoadingPlaylists -> "Loading playlists..."
-                                playlists != null && playlists.isNotEmpty() -> "Choose playlists (${playlists.size} available)"
-                                else -> "Choose playlists to import"
+                                isLoadingPlaylists -> str(R.string.loading_playlists)
+                                playlists != null && playlists.isNotEmpty() -> str(R.string.choose_playlists_x_available, playlists.size)
+                                else -> str(R.string.choose_playlists_to_import)
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -302,7 +305,7 @@ private fun YouTubeAccountCard(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = importMessage ?: "Importing...",
+                            text = importMessage ?: str(R.string.importing),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp
                         )
@@ -317,7 +320,7 @@ private fun YouTubeAccountCard(
                 }
             } else {
                 Text(
-                    text = "Sign in to your YouTube account to pick and import any of your playlists (including private ones) and Liked Music directly into Auralis.",
+                    text = str(R.string.sign_in_to_your_youtube_account_to_pick),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
@@ -345,7 +348,7 @@ private fun YouTubeAccountCard(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Sign in to YouTube",
+                            text = str(R.string.sign_in_to_youtube),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -389,7 +392,7 @@ private fun YouTubeLinkCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "YouTube Music Link",
+                        text = str(R.string.youtube_music_link),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -409,7 +412,7 @@ private fun YouTubeLinkCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Paste a YouTube Music playlist link to import songs directly into your library.",
+                text = str(R.string.paste_a_youtube_music_playlist_link_to_i),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -424,8 +427,8 @@ private fun YouTubeLinkCard(
                     youtubeUrlInput = it
                     onClearMessage()
                 },
-                label = { Text("YouTube Music Link", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                placeholder = { Text("Paste music.youtube.com/playlist?list=...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
+                label = { Text(str(R.string.youtube_music_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
+                placeholder = { Text(str(R.string.paste_music_youtube_com_playlist_list), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFFEF4444),
@@ -448,7 +451,7 @@ private fun YouTubeLinkCard(
                                 youtubeUrlInput = ""
                                 onClearMessage()
                             }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Close, contentDescription = str(R.string.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                             }
                         }
                         IconButton(
@@ -458,12 +461,12 @@ private fun YouTubeLinkCard(
                                 if (clip != null && clip.itemCount > 0) {
                                     youtubeUrlInput = clip.getItemAt(0).text.toString().trim()
                                     onClearMessage()
-                                    Toast.makeText(context, "Pasted YouTube Music link", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, str(R.string.pasted_youtube_music_link), Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ContentPaste, contentDescription = str(R.string.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -497,7 +500,7 @@ private fun YouTubeLinkCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Importing Songs...",
+                        text = str(R.string.importing_songs),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -515,7 +518,7 @@ private fun YouTubeLinkCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Import YT Music Playlist",
+                            text = str(R.string.import_yt_music_playlist),
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -543,7 +546,7 @@ private fun YouTubeLinkCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Tip: Make sure your playlist is set to Public or Unlisted in YouTube Music. Normal YouTube video links are blocked to keep your library pure music.",
+                    text = str(R.string.tip_make_sure_your_playlist_is_set_to_pu),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
@@ -592,7 +595,7 @@ private fun SpotifyLinkCard(
                     SpotifyLogoIcon(modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Spotify Link",
+                        text = str(R.string.spotify_link),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -612,7 +615,7 @@ private fun SpotifyLinkCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Paste any Spotify playlist, album, or track link to import songs into Auralis.",
+                text = str(R.string.paste_any_spotify_playlist_album_or_trac),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -627,8 +630,8 @@ private fun SpotifyLinkCard(
                     spotifyUrlInput = it
                     onClearMessage()
                 },
-                label = { Text("Spotify Link", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                placeholder = { Text("Paste open.spotify.com/playlist/...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
+                label = { Text(str(R.string.spotify_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
+                placeholder = { Text(str(R.string.paste_open_spotify_com_playlist), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF1DB954),
@@ -651,7 +654,7 @@ private fun SpotifyLinkCard(
                                 spotifyUrlInput = ""
                                 onClearMessage()
                             }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Close, contentDescription = str(R.string.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                             }
                         }
                         IconButton(
@@ -661,12 +664,12 @@ private fun SpotifyLinkCard(
                                 if (clip != null && clip.itemCount > 0) {
                                     spotifyUrlInput = clip.getItemAt(0).text.toString().trim()
                                     onClearMessage()
-                                    Toast.makeText(context, "Pasted Spotify link", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, str(R.string.pasted_spotify_link), Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ContentPaste, contentDescription = str(R.string.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -700,7 +703,7 @@ private fun SpotifyLinkCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Importing Songs...",
+                        text = str(R.string.importing_songs),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -718,7 +721,7 @@ private fun SpotifyLinkCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Import Spotify Playlist",
+                            text = str(R.string.import_spotify_playlist),
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -746,7 +749,7 @@ private fun SpotifyLinkCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Tip: If your playlist is private, briefly toggle it to Public in Spotify to import. Once imported, you can make it Private again anytime — your songs stay saved in Auralis forever!",
+                    text = str(R.string.tip_if_your_playlist_is_private_briefly),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
@@ -824,7 +827,7 @@ fun YouTubePlaylistPickerBottomSheet(
                     .padding(bottom = 4.dp)
             ) {
                 Text(
-                    text = "Your YouTube Music playlists",
+                    text = str(R.string.your_youtube_music_playlists),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -843,7 +846,7 @@ fun YouTubePlaylistPickerBottomSheet(
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = if (allSelected) "Clear" else "Select all",
+                            text = if (allSelected) str(R.string.clear) else str(R.string.select_all),
                             color = YOUTUBE_RED,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp
@@ -857,7 +860,7 @@ fun YouTubePlaylistPickerBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                        contentDescription = str(R.string.close),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
@@ -865,7 +868,7 @@ fun YouTubePlaylistPickerBottomSheet(
             }
 
             Text(
-                text = "Private playlists included. Liked Music is added to your liked songs; importing a playlist you already have updates it.",
+                text = str(R.string.private_playlists_included_liked_music_i),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -894,13 +897,13 @@ fun YouTubePlaylistPickerBottomSheet(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "Couldn't load your playlists from YouTube Music.",
+                            text = str(R.string.couldn_t_load_your_playlists_from_youtub),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
                         Spacer(Modifier.height(8.dp))
                         TextButton(onClick = onRetry) {
-                            Text("Try again", color = YOUTUBE_RED, fontWeight = FontWeight.Bold)
+                            Text(str(R.string.try_again), color = YOUTUBE_RED, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -912,7 +915,7 @@ fun YouTubePlaylistPickerBottomSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No playlists found in your YouTube Music account.",
+                            text = str(R.string.no_playlists_found_in_your_youtube_music),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
@@ -1036,14 +1039,14 @@ fun YouTubePlaylistPickerBottomSheet(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Importing...",
+                        text = str(R.string.importing),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
                 } else {
                     Text(
                         text = when {
-                            selected.isEmpty() -> "Select playlists to import"
+                            selected.isEmpty() -> str(R.string.select_playlists_to_import)
                             else -> "Import ${selected.size} ${if (selected.size == 1) "playlist" else "playlists"}"
                         },
                         fontWeight = FontWeight.Bold,

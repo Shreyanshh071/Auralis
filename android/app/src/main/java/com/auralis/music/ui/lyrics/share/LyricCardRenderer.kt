@@ -1,5 +1,7 @@
 package com.auralis.music.ui.lyrics.share
 
+import com.auralis.music.ui.i18n.str
+
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -342,7 +344,7 @@ object LyricCardRenderer {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
-        val chooser = Intent.createChooser(shareIntent, "Share Lyric Card").apply {
+        val chooser = Intent.createChooser(shareIntent, str(R.string.share_lyric_card)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(chooser)

@@ -34,6 +34,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicLong
@@ -163,6 +165,26 @@ class HomeViewModel(
     }
 
     init {
+        // Settings → Content → Quick picks: rebuild the row as soon as the mode changes.
+        viewModelScope.launch(ioDispatcher) {
+            com.auralis.music.data.datastore.ContentSettingsStore.current
+                .map { it.quickPicksMode }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { fetchQuickPicks() }
+        }
+        // App language change: content language "System default" follows it, so reload too.
+        viewModelScope.launch(ioDispatcher) {
+            com.auralis.music.ui.i18n.AppLanguage.changes.drop(1).collect { refresh() }
+        }
+        // Settings → Content → content language / country: reload so the feed shows them now.
+        viewModelScope.launch(ioDispatcher) {
+            com.auralis.music.data.datastore.ContentSettingsStore.current
+                .map { it.contentLanguage to it.contentCountry }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { refresh() }
+        }
         if (context != null && libraryRepository != null) {
             viewModelScope.launch(ioDispatcher) {
                 PlaylistListeningStore.load(context)
@@ -345,11 +367,11 @@ class HomeViewModel(
      * Phase 2: Asynchronous background coroutines for heavy discovery algorithms
      *          (Daily Discover, Similar recommendations, Community Playlists, Quick Picks).
      */
-    fun loadHomeData() {
+    fun loadHomeData(): kotlinx.coroutines.Job {
         // Do not display blocking skeleton if Speed Dial or recommendations are already present
         _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty(), error = null) }
 
-        viewModelScope.launch(ioDispatcher) {
+        return viewModelScope.launch(ioDispatcher) {
             try {
                 // Phase 1: Ultra-fast local SQLite queries (completes in ~5-15ms)
                 val history = historyRepository.getHistory().first()
@@ -398,7 +420,7 @@ class HomeViewModel(
                     try {
                         val (chips, sections) = innerTubeClient.getHome()
                         val cleanChips = chips.filter { !isUnwantedNoiseChip(it) }
-                        val cleanSections = sections.filter { !isUnwantedNoiseSection(it) }
+                        val cleanSections = orderHomeSections(sections.filter { !isUnwantedNoiseSection(it) })
                         _uiState.update {
                             it.copy(
                                 homeChips = cleanChips,
@@ -487,10 +509,17 @@ class HomeViewModel(
     }
 
 
+    /** Pull-to-refresh: reloads everything and keeps the spinner up until the load finishes. */
     fun refresh() {
+        if (_uiState.value.isRefreshing) return
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true) }
-            loadHomeData()
+            kotlinx.coroutines.withTimeoutOrNull(20_000L) {
+                coroutineScope {
+                    launch { loadHomeData().join() }
+                    launch { fetchQuickPicks() }
+                }
+            }
             _uiState.update { it.copy(isRefreshing = false) }
         }
     }
@@ -529,7 +558,7 @@ class HomeViewModel(
                             try {
                                 val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(seed.id)
                                 if (browseId != null || params != null) {
-                                    val related = innerTubeClient.getRelated(browseId, params)
+                                    val related = com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRelated(browseId, params) }
                                     val candidate = related.firstOrNull { it.id != seed.id }
                                     if (candidate != null) {
                                         discoveries.add(
@@ -634,7 +663,7 @@ class HomeViewModel(
                     launch(Dispatchers.IO) {
                         try {
                             val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(track.id)
-                            val related = innerTubeClient.getRelated(browseId, params).take(10)
+                            val related = com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRelated(browseId, params) }.take(10)
                             if (related.isNotEmpty()) {
                                 songShelves[track.id] = (
                                     SimilarRecommendation(
@@ -711,6 +740,29 @@ class HomeViewModel(
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
         try {
             val history = historyRepository.getHistory().first().map { it.track }
+
+            // Settings → Content → Quick picks → "Last song listened": the row is that song's radio.
+            // Falls through to the usual mix when there's no history or the radio comes back empty.
+            if (com.auralis.music.data.datastore.ContentSettingsStore.value.quickPicksMode ==
+                com.auralis.music.domain.model.QuickPicksMode.LAST_LISTEN
+            ) {
+                val last = history.firstOrNull { it.source == com.auralis.music.domain.model.TrackSource.YOUTUBE }
+                if (last != null) {
+                    val radio = try {
+                        com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRadioTracks(last.id, last.artist, last.title) }
+                    } catch (_: Exception) { emptyList() }
+                    val picks = radio.filter { it.id != last.id }
+                        .distinctBy { it.id }
+                        .fold(mutableListOf<Track>()) { acc, t ->
+                            if (acc.none { TrackDeduplicator.isDuplicateTrack(it, t) }) acc.add(t); acc
+                        }
+                        .take(24)
+                    if (picks.isNotEmpty()) {
+                        _uiState.update { it.copy(quickPicks = picks) }
+                        return@withContext
+                    }
+                }
+            }
             val heavyRotation = historyRepository.getRecentHeavyRotation()
             val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
             val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
@@ -757,7 +809,7 @@ class HomeViewModel(
                             try {
                                 val seedTrack = userKnownTracks.firstOrNull()
                                 if (seedTrack != null) {
-                                    val radio = innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title).take(6)
+                                    val radio = com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title) }.take(6)
                                     if (radio.isNotEmpty()) {
                                         pool.addAll(radio)
                                         remoteAdded = true
@@ -795,6 +847,11 @@ class HomeViewModel(
                             section.title.contains("Hits", ignoreCase = true)) {
                             fallbackList.addAll(section.items)
                         }
+                    }
+                    // Those titles are English; with another content language none match, so
+                    // take the leading shelves instead (YouTube puts the personal ones first).
+                    if (fallbackList.isEmpty()) {
+                        sections.take(3).forEach { fallbackList.addAll(it.items) }
                     }
                 } catch (_: Exception) {}
 
@@ -878,6 +935,21 @@ class HomeViewModel(
     }
 
     /**
+     * Settings → Content → Randomize home order: a weighted shuffle of the YouTube shelves, so a
+     * shelf YouTube ranks higher still tends to stay higher (Efraimidis–Spirakis keys, weight
+     * falling with the original position). Off → YouTube's order.
+     */
+    private fun orderHomeSections(sections: List<HomeSection>): List<HomeSection> {
+        if (!com.auralis.music.data.datastore.ContentSettingsStore.value.randomizeHomeOrder) return sections
+        return sections.withIndex()
+            .sortedByDescending { (index, _) ->
+                val weight = 1.0 / (1.0 + index * 0.5)
+                Math.pow(kotlin.random.Random.nextDouble(), 1.0 / weight)
+            }
+            .map { it.value }
+    }
+
+    /**
      * Community Playlists & Curated Mixes
      */
     private suspend fun fetchCommunityPlaylists() = withContext(Dispatchers.IO) {
@@ -921,7 +993,7 @@ class HomeViewModel(
                 } else {
                     innerTubeClient.getHome()
                 }
-                val cleanSections = sections.filter { !isUnwantedNoiseSection(it) }
+                val cleanSections = orderHomeSections(sections.filter { !isUnwantedNoiseSection(it) })
                 _uiState.update {
                     it.copy(dynamicSections = cleanSections, isLoading = false)
                 }

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.player
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -185,7 +188,7 @@ internal fun Material3MiniPlayerView(
             ) {
             Icon(
                 imageVector = Icons.Outlined.SkipPrevious,
-                contentDescription = "Previous",
+                contentDescription = str(R.string.previous),
                 tint = Color.White,
                 modifier = Modifier
                     .size(36.dp)
@@ -202,7 +205,7 @@ internal fun Material3MiniPlayerView(
             ) {
             Icon(
                 imageVector = Icons.Outlined.SkipNext,
-                contentDescription = "Next",
+                contentDescription = str(R.string.next),
                 tint = Color.White,
                 modifier = Modifier
                     .size(36.dp)
@@ -287,7 +290,7 @@ private fun CookiePlayButton(isPlaying: Boolean, onClick: () -> Unit, modifier: 
     ) {
         Icon(
             imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-            contentDescription = if (isPlaying) "Pause" else "Play",
+            contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
             tint = Color.Black,
             modifier = Modifier.size(26.dp)
         )

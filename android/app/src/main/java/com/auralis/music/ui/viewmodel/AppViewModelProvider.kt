@@ -79,7 +79,8 @@ class AppViewModelProvider(
                         youtubeImporter,
                         spotifyImporter,
                         historyRepository,
-                        activity.getSharedPreferences("auralis_import_matching", android.content.Context.MODE_PRIVATE)
+                        activity.getSharedPreferences("auralis_import_matching", android.content.Context.MODE_PRIVATE),
+                        statsRepository
                     ) as T
                 }
             }
