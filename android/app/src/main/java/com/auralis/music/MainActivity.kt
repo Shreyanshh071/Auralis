@@ -73,6 +73,15 @@ class MainActivity : ComponentActivity() {
         return null
     }
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(com.auralis.music.ui.i18n.AppLanguage.wrap(newBase))
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        com.auralis.music.ui.i18n.AppLanguage.onConfigurationChanged(this, newConfig)
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -81,6 +90,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.auralis.music.ui.i18n.AppLanguage.attach(this)
         super.onCreate(savedInstanceState)
         holdSplashUntilHomeArtworkIsReady()
         DiscordSocialSdkInit.setEngineActivity(this)

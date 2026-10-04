@@ -25,7 +25,7 @@ class SearchSuggestionsClient(
         // 1. Ultra-fast Google Suggestion API (< 20ms response time)
         try {
             val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=$encoded"
+            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&hl=${ContentLocale.hl()}&gl=${ContentLocale.gl()}&q=$encoded"
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0")
@@ -51,8 +51,8 @@ class SearchSuggestionsClient(
                     put("client", JSONObject().apply {
                         put("clientName", "WEB_REMIX")
                         put("clientVersion", "1.20241201.01.00")
-                        put("hl", "en")
-                        put("gl", "US")
+                        put("hl", ContentLocale.hl())
+                        put("gl", ContentLocale.gl())
                     })
                 })
             }

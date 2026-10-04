@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 object AiLyricsTranslator {
 
     private const val TAG = "AiLyricsTranslator"
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()

@@ -1,5 +1,7 @@
 package com.auralis.music.ui.home
 
+import com.auralis.music.ui.i18n.str
+
 import com.auralis.music.ui.theme.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -49,7 +51,9 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.auralis.music.ui.components.AuralisRefreshBox
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -123,6 +127,8 @@ fun HomeScreen(
     onOpenProfile: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenStats: () -> Unit = {},
+    onOpenWrapped: () -> Unit = {},
+    onRefresh: () -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -143,6 +149,7 @@ fun HomeScreen(
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val showWrappedCard = com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState().value.showWrappedCard
     val context = LocalContext.current
     // When Home first appeared: its sections unfold in only during the first moments after launch.
     val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
@@ -163,93 +170,448 @@ fun HomeScreen(
         CompositionLocalProvider(
             LocalContentColor provides themeOnBackground
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize(),
-                contentPadding = bottomChromePadding()
-            ) {
-                // ================================================================
-                // 1. TOP APP BAR: "Home" Title + Action Icons
-                // ================================================================
-                item(key = "home_top_bar", contentType = "header") { UnfoldIn(0, openedAtMs) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                            .padding(start = 16.dp, end = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+            AuralisRefreshBox(isRefreshing = uiState.isRefreshing, onRefresh = onRefresh) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize(),
+                    contentPadding = bottomChromePadding()
+                ) {
+                    // ================================================================
+                    // 1. TOP APP BAR: "Home" Title + Action Icons
+                    // ================================================================
+                    item(key = "home_top_bar", contentType = "header") { UnfoldIn(0, openedAtMs) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Image(
-                                painter = painterResource(R.drawable.ic_auralis_header_logo),
-                                contentDescription = "Auralis Logo",
-                                colorFilter = ColorFilter.tint(themeOnBackground),
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Text(
-                                text = "Home",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = themeOnBackground,
-                                fontSize = 26.sp
-                            )
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .padding(start = 16.dp, end = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(
-                                onClick = onOpenStats,
-                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Equalizer,
-                                    contentDescription = "Stats",
-                                    tint = themeOnBackground.copy(alpha = 0.85f)
+                                Image(
+                                    painter = painterResource(R.drawable.ic_auralis_header_logo),
+                                    contentDescription = str(R.string.auralis_logo),
+                                    colorFilter = ColorFilter.tint(themeOnBackground),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Text(
+                                    text = str(R.string.home),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = themeOnBackground,
+                                    fontSize = 26.sp
                                 )
                             }
-                            IconButton(
-                                onClick = onOpenHistory,
-                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.History, contentDescription = "History", tint = themeOnBackground.copy(alpha = 0.85f))
-                            }
-                            IconButton(
-                                onClick = onOpenListenTogether,
-                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                            ) {
-                                Icon(Icons.Default.Groups, contentDescription = "Listen Together", tint = themeOnBackground.copy(alpha = 0.85f))
-                            }
-                            IconButton(
-                                onClick = onOpenProfile,
-                                modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                            ) {
-                                Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = themeOnBackground.copy(alpha = 0.85f))
+                                IconButton(
+                                    onClick = onOpenStats,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Equalizer,
+                                        contentDescription = str(R.string.stats),
+                                        tint = themeOnBackground.copy(alpha = 0.85f)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onOpenHistory,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(Icons.Default.History, contentDescription = str(R.string.history), tint = themeOnBackground.copy(alpha = 0.85f))
+                                }
+                                IconButton(
+                                    onClick = onOpenListenTogether,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(Icons.Default.Groups, contentDescription = str(R.string.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
+                                }
+                                IconButton(
+                                    onClick = onOpenProfile,
+                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
+                                ) {
+                                    Icon(Icons.Default.AccountCircle, contentDescription = str(R.string.profile), tint = themeOnBackground.copy(alpha = 0.85f))
+                                }
                             }
                         }
-                    }
-                } }
+                    } }
 
-            // ── SKELETON GHOST TILES ON INITIAL LOAD ──
-            if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
-                item(key = "home_skeleton", contentType = "skeleton") {
-                    HomeGhostTilesSkeleton(
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                // ── SKELETON GHOST TILES ON INITIAL LOAD ──
+                if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
+                    item(key = "home_skeleton", contentType = "skeleton") {
+                        HomeGhostTilesSkeleton(
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                } else {
+                    // ================================================================
+                    // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
+                    // ================================================================
+                    if (uiState.speedDialPages.isNotEmpty()) {
+                        item(key = "home_speed_dial", contentType = "speed_dial") { UnfoldIn(1, openedAtMs) {
+                            Text(
+                                text = str(R.string.speed_dial),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = themePrimary,
+                                fontSize = 20.sp,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                            )
+
+                            val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
+
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                HorizontalPager(
+                                    state = pagerState,
+                                    key = { pageIndex ->
+                                        SpeedDialIdHelper.computePageContentKey(
+                                            pageIndex,
+                                            uiState.speedDialPages.getOrNull(pageIndex)
+                                        )
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    pageSpacing = 16.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .wrapContentHeight()
+                                ) { pageIndex ->
+                                    val items = uiState.speedDialPages.getOrNull(pageIndex) ?: emptyList()
+                                    key(SpeedDialIdHelper.computePageContentKey(pageIndex, items)) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                    for (row in 0 until 3) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            for (col in 0 until 3) {
+                                                val itemIndex = row * 3 + col
+                                                val item = items.getOrNull(itemIndex)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .aspectRatio(1f)
+                                                ) {
+                                                    if (item != null && item.type != SpeedDialType.PLACEHOLDER) {
+                                                        SpeedDialTile(
+                                                            item = item,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            onClick = {
+                                                                android.util.Log.d("AuralisPlayback", "[SpeedDial Tap] item='${item.name}' (${item.id}, type=${item.type})")
+                                                                when (item.type) {
+                                                                    SpeedDialType.TRACK -> {
+                                                                        val canonicalId = SpeedDialIdHelper.getCanonicalTrackId(item.id) ?: item.id
+                                                                        val trk = item.track ?: com.auralis.music.domain.model.Track(
+                                                                            id = canonicalId,
+                                                                            title = item.name,
+                                                                            artist = item.artistQuery ?: "",
+                                                                            thumbnail = item.image ?: ""
+                                                                        )
+                                                                        val speedDialTracks = items.filter { it.type == SpeedDialType.TRACK }.map { dialItem ->
+                                                                            dialItem.track ?: com.auralis.music.domain.model.Track(
+                                                                                id = SpeedDialIdHelper.getCanonicalTrackId(dialItem.id) ?: dialItem.id,
+                                                                                title = dialItem.name,
+                                                                                artist = dialItem.artistQuery ?: "",
+                                                                                thumbnail = dialItem.image ?: ""
+                                                                            )
+                                                                        }.ifEmpty { listOf(trk) }
+                                                                        onTrackClick(trk, listOf(trk))
+                                                                    }
+                                                                    SpeedDialType.ALBUM -> {
+                                                                        val alb = item.album ?: com.auralis.music.domain.model.PlaylistResult(
+                                                                            id = item.id.removePrefix("album-"),
+                                                                            title = item.name,
+                                                                            author = item.artistQuery,
+                                                                            thumbnail = item.image ?: ""
+                                                                        )
+                                                                        onAlbumClick(alb)
+                                                                    }
+                                                                    SpeedDialType.PLAYLIST -> onPlaylistClick(item.id.removePrefix("playlist-"))
+                                                                    SpeedDialType.ARTIST -> {
+                                                                        onArtistClick(
+                                                                            Artist(
+                                                                                id = if (item.id.startsWith("UC")) item.id else "",
+                                                                                name = item.name,
+                                                                                thumbnail = item.image
+                                                                            )
+                                                                        )
+                                                                    }
+                                                                    SpeedDialType.SURPRISE -> {
+                                                                        onSurpriseMe()
+                                                                    }
+                                                                    SpeedDialType.MORE -> {
+                                                                        onNavigateToExplore()
+                                                                    }
+                                                                    else -> {}
+                                                                }
+                                                            },
+                                                            onLongClick = {
+                                                                when (item.type) {
+                                                                    SpeedDialType.ALBUM -> {
+                                                                        selectedAlbumForMenu = item.album ?: PlaylistResult(
+                                                                            id = item.id.removePrefix("album-"),
+                                                                            title = item.name,
+                                                                            author = null,
+                                                                            thumbnail = item.image ?: ""
+                                                                        )
+                                                                    }
+                                                                    SpeedDialType.TRACK -> {
+                                                                        item.track?.let { trk ->
+                                                                            selectedTrackForMenu = trk
+                                                                        }
+                                                                    }
+                                                                    else -> {
+                                                                        if (item.isPinned) {
+                                                                            onUnpinSpeedDial?.invoke(item.id)
+                                                                            Toast.makeText(context, str(R.string.unpinned_x, item.name), Toast.LENGTH_SHORT).show()
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // 3 Pagination Dots
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                repeat(uiState.speedDialPages.size.coerceAtMost(3)) { idx ->
+                                    val isCurrent = pagerState.currentPage == idx
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(if (isCurrent) 7.dp else 5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isCurrent) themePrimary else themeOnBackground.copy(alpha = 0.25f))
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(18.dp))
+                    }
                 }
-            } else {
+
+                // Settings → Content → Wrapped → Show Wrapped card.
+                if (showWrappedCard) {
+                    item(key = "home_wrapped_card", contentType = "wrapped_card") {
+                        val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 6.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                        listOf(accent.copy(alpha = 0.30f), accent.copy(alpha = 0.10f))
+                                    )
+                                )
+                                .clickable(onClick = onOpenWrapped)
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = str(R.string.your_wrapped),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground
+                                )
+                                Text(
+                                    text = str(R.string.your_year_in_music_from_your_real_listen),
+                                    fontSize = 13.sp,
+                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = str(R.string.open_wrapped),
+                                tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 // ================================================================
-                // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
+                // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
                 // ================================================================
-                if (uiState.speedDialPages.isNotEmpty()) {
-                    item(key = "home_speed_dial", contentType = "speed_dial") { UnfoldIn(1, openedAtMs) {
+                if (uiState.quickPicks.isNotEmpty()) {
+                    item(key = "home_quick_picks", contentType = "quick_picks") { UnfoldIn(2, openedAtMs) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = str(R.string.quick_picks),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = themePrimary,
+                                fontSize = 20.sp
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .border(1.dp, themeOnBackground.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        if (uiState.quickPicks.isNotEmpty()) {
+                                            val shown = uiState.quickPicks.take(16)
+                                            onTrackClick(shown.first(), shown)
+                                        }
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = str(R.string.play_all),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = themeOnBackground
+                                )
+                            }
+                        }
+
+                        // Exactly 4 pages of 4 (16 songs), even when more picks were fetched.
+                        val quickPickPages = remember(uiState.quickPicks) {
+                            uiState.quickPicks.take(16).chunked(4)
+                        }
+                        val quickPicksPagerState = rememberPagerState { quickPickPages.size }
+
+                        // 4-Row Snapping Pager of Songs (Eliminates half-scrolled stray 3-dots)
+                        HorizontalPager(
+                            state = quickPicksPagerState,
+                            key = { pageIndex -> pageIndex },
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            pageSpacing = 16.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                        ) { pageIndex ->
+                            val pageTracks = quickPickPages[pageIndex]
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                pageTracks.forEach { track ->
+                                    val isCurrent = track.id == currentTrackId
+                                    // No row swipe here: with "swipe left/right to queue/play next" on,
+                                    // the rows swallowed every sideways swipe, so the 4 pages could
+                                    // never be reached. Play next / Add to queue stay in the long-press menu.
+                                    SwipeableTrackContainer(
+                                        onPlayNext = null,
+                                        onAddToQueue = null
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .combinedClickable(
+                                                    onClick = { onTrackClick(track, listOf(track)) },
+                                                    onLongClick = { selectedTrackForMenu = track }
+                                                )
+                                                .padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            ArtworkCard(
+                                                sizeToConstraints = true,
+                                                url = track.thumbnail,
+                                                fallbackTrack = track,
+                                                modifier = Modifier.size(48.dp),
+                                                cornerRadius = 8.dp,
+                                                contentDescription = track.title
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = track.title,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isCurrent) themePrimary else themeOnBackground,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = track.artist,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = themeOnBackground.copy(alpha = 0.65f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            IconButton(onClick = { selectedTrackForMenu = track }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.MoreVert,
+                                                    contentDescription = str(R.string.options),
+                                                    tint = themeOnBackground.copy(alpha = 0.65f),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (quickPickPages.size > 1) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            // Page dots, same style as Speed dial, so the swipeable pages are discoverable.
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                repeat(quickPickPages.size) { idx ->
+                                    val isCurrentPage = quickPicksPagerState.currentPage == idx
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(if (isCurrentPage) 7.dp else 5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isCurrentPage) themePrimary else themeOnBackground.copy(alpha = 0.25f))
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(18.dp))
+                    } }
+                }
+
+                // ================================================================
+                // 5. KEEP LISTENING SECTION (Directly below Quick Picks)
+                // ================================================================
+                val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
+                if (keepList.isNotEmpty()) {
+                    item(key = "home_keep_listening", contentType = "keep_listening") { UnfoldIn(3, openedAtMs) {
                         Text(
-                            text = "Speed dial",
+                            text = str(R.string.keep_listening),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = themePrimary,
@@ -257,434 +619,19 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                         )
 
-                        val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
-
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            HorizontalPager(
-                                state = pagerState,
-                                key = { pageIndex ->
-                                    SpeedDialIdHelper.computePageContentKey(
-                                        pageIndex,
-                                        uiState.speedDialPages.getOrNull(pageIndex)
-                                    )
-                                },
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                pageSpacing = 16.dp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .wrapContentHeight()
-                            ) { pageIndex ->
-                                val items = uiState.speedDialPages.getOrNull(pageIndex) ?: emptyList()
-                                key(SpeedDialIdHelper.computePageContentKey(pageIndex, items)) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                for (row in 0 until 3) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        for (col in 0 until 3) {
-                                            val itemIndex = row * 3 + col
-                                            val item = items.getOrNull(itemIndex)
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .aspectRatio(1f)
-                                            ) {
-                                                if (item != null && item.type != SpeedDialType.PLACEHOLDER) {
-                                                    SpeedDialTile(
-                                                        item = item,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        onClick = {
-                                                            android.util.Log.d("AuralisPlayback", "[SpeedDial Tap] item='${item.name}' (${item.id}, type=${item.type})")
-                                                            when (item.type) {
-                                                                SpeedDialType.TRACK -> {
-                                                                    val canonicalId = SpeedDialIdHelper.getCanonicalTrackId(item.id) ?: item.id
-                                                                    val trk = item.track ?: com.auralis.music.domain.model.Track(
-                                                                        id = canonicalId,
-                                                                        title = item.name,
-                                                                        artist = item.artistQuery ?: "",
-                                                                        thumbnail = item.image ?: ""
-                                                                    )
-                                                                    val speedDialTracks = items.filter { it.type == SpeedDialType.TRACK }.map { dialItem ->
-                                                                        dialItem.track ?: com.auralis.music.domain.model.Track(
-                                                                            id = SpeedDialIdHelper.getCanonicalTrackId(dialItem.id) ?: dialItem.id,
-                                                                            title = dialItem.name,
-                                                                            artist = dialItem.artistQuery ?: "",
-                                                                            thumbnail = dialItem.image ?: ""
-                                                                        )
-                                                                    }.ifEmpty { listOf(trk) }
-                                                                    onTrackClick(trk, listOf(trk))
-                                                                }
-                                                                SpeedDialType.ALBUM -> {
-                                                                    val alb = item.album ?: com.auralis.music.domain.model.PlaylistResult(
-                                                                        id = item.id.removePrefix("album-"),
-                                                                        title = item.name,
-                                                                        author = item.artistQuery,
-                                                                        thumbnail = item.image ?: ""
-                                                                    )
-                                                                    onAlbumClick(alb)
-                                                                }
-                                                                SpeedDialType.PLAYLIST -> onPlaylistClick(item.id.removePrefix("playlist-"))
-                                                                SpeedDialType.ARTIST -> {
-                                                                    onArtistClick(
-                                                                        Artist(
-                                                                            id = if (item.id.startsWith("UC")) item.id else "",
-                                                                            name = item.name,
-                                                                            thumbnail = item.image
-                                                                        )
-                                                                    )
-                                                                }
-                                                                SpeedDialType.SURPRISE -> {
-                                                                    onSurpriseMe()
-                                                                }
-                                                                SpeedDialType.MORE -> {
-                                                                    onNavigateToExplore()
-                                                                }
-                                                                else -> {}
-                                                            }
-                                                        },
-                                                        onLongClick = {
-                                                            when (item.type) {
-                                                                SpeedDialType.ALBUM -> {
-                                                                    selectedAlbumForMenu = item.album ?: PlaylistResult(
-                                                                        id = item.id.removePrefix("album-"),
-                                                                        title = item.name,
-                                                                        author = null,
-                                                                        thumbnail = item.image ?: ""
-                                                                    )
-                                                                }
-                                                                SpeedDialType.TRACK -> {
-                                                                    item.track?.let { trk ->
-                                                                        selectedTrackForMenu = trk
-                                                                    }
-                                                                }
-                                                                else -> {
-                                                                    if (item.isPinned) {
-                                                                        onUnpinSpeedDial?.invoke(item.id)
-                                                                        Toast.makeText(context, "Unpinned \"${item.name}\"", Toast.LENGTH_SHORT).show()
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // 3 Pagination Dots
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            repeat(uiState.speedDialPages.size.coerceAtMost(3)) { idx ->
-                                val isCurrent = pagerState.currentPage == idx
-                                Box(
-                                    modifier = Modifier
-                                        .padding(horizontal = 4.dp)
-                                        .size(if (isCurrent) 7.dp else 5.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isCurrent) themePrimary else themeOnBackground.copy(alpha = 0.25f))
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
-                }
-            }
-
-            // ================================================================
-            // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
-            // ================================================================
-            if (uiState.quickPicks.isNotEmpty()) {
-                item(key = "home_quick_picks", contentType = "quick_picks") { UnfoldIn(2, openedAtMs) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Quick picks",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = themePrimary,
-                            fontSize = 20.sp
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .border(1.dp, themeOnBackground.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
-                                .clickable {
-                                    if (uiState.quickPicks.isNotEmpty()) {
-                                        val shown = uiState.quickPicks.take(16)
-                                        onTrackClick(shown.first(), shown)
-                                    }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "Play all",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = themeOnBackground
-                            )
-                        }
-                    }
-
-                    // Exactly 4 pages of 4 (16 songs), even when more picks were fetched.
-                    val quickPickPages = remember(uiState.quickPicks) {
-                        uiState.quickPicks.take(16).chunked(4)
-                    }
-                    val quickPicksPagerState = rememberPagerState { quickPickPages.size }
-
-                    // 4-Row Snapping Pager of Songs (Eliminates half-scrolled stray 3-dots)
-                    HorizontalPager(
-                        state = quickPicksPagerState,
-                        key = { pageIndex -> pageIndex },
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        pageSpacing = 16.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                    ) { pageIndex ->
-                        val pageTracks = quickPickPages[pageIndex]
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            pageTracks.forEach { track ->
-                                val isCurrent = track.id == currentTrackId
-                                // No row swipe here: with "swipe left/right to queue/play next" on,
-                                // the rows swallowed every sideways swipe, so the 4 pages could
-                                // never be reached. Play next / Add to queue stay in the long-press menu.
-                                SwipeableTrackContainer(
-                                    onPlayNext = null,
-                                    onAddToQueue = null
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .combinedClickable(
-                                                onClick = { onTrackClick(track, listOf(track)) },
-                                                onLongClick = { selectedTrackForMenu = track }
-                                            )
-                                            .padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        ArtworkCard(
-                                            sizeToConstraints = true,
-                                            url = track.thumbnail,
-                                            fallbackTrack = track,
-                                            modifier = Modifier.size(48.dp),
-                                            cornerRadius = 8.dp,
-                                            contentDescription = track.title
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = track.title,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isCurrent) themePrimary else themeOnBackground,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = track.artist,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = themeOnBackground.copy(alpha = 0.65f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        IconButton(onClick = { selectedTrackForMenu = track }) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = "Options",
-                                                tint = themeOnBackground.copy(alpha = 0.65f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (quickPickPages.size > 1) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        // Page dots, same style as Speed dial, so the swipeable pages are discoverable.
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            repeat(quickPickPages.size) { idx ->
-                                val isCurrentPage = quickPicksPagerState.currentPage == idx
-                                Box(
-                                    modifier = Modifier
-                                        .padding(horizontal = 4.dp)
-                                        .size(if (isCurrentPage) 7.dp else 5.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isCurrentPage) themePrimary else themeOnBackground.copy(alpha = 0.25f))
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
-                } }
-            }
-
-            // ================================================================
-            // 5. KEEP LISTENING SECTION (Directly below Quick Picks)
-            // ================================================================
-            val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
-            if (keepList.isNotEmpty()) {
-                item(key = "home_keep_listening", contentType = "keep_listening") { UnfoldIn(3, openedAtMs) {
-                    Text(
-                        text = "Keep listening",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = themePrimary,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                    )
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(
-                            items = keepList,
-                            key = { it.id },
-                            contentType = { "track" }
-                        ) { track ->
-                            Column(
-                                modifier = Modifier
-                                    .width(115.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .combinedClickable(
-                                        onClick = { onTrackClick(track, listOf(track)) },
-                                        onLongClick = { selectedTrackForMenu = track }
-                                    )
-                                    .padding(4.dp)
-                            ) {
-                                ArtworkCard(
-                                    url = track.thumbnail,
-                                    fallbackTrack = track,
-                                    modifier = Modifier
-                                        .size(115.dp)
-                                        .clip(RoundedCornerShape(14.dp)),
-                                    cornerRadius = 14.dp,
-                                    contentDescription = track.title
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = themeOnBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = themeOnBackground.copy(alpha = 0.65f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
-                } }
-            }
-
-            // ================================================================
-            // 7. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
-            // ================================================================
-            uiState.similarRecommendations.forEachIndexed { idx, simRec ->
-                if (simRec.items.isNotEmpty()) {
-                    item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { UnfoldIn(4 + idx, openedAtMs) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    val targetArtistName = simRec.artistName ?: simRec.seedTitle
-                                    val targetArtist = Artist(
-                                        id = simRec.artistId ?: targetArtistName,
-                                        name = targetArtistName,
-                                        thumbnail = simRec.seedThumbnail,
-                                        query = targetArtistName
-                                    )
-                                    onArtistClick(targetArtist)
-                                }
-                                .padding(horizontal = 18.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (simRec.seedThumbnail != null) {
-                                    ArtworkCard(
-                                        url = simRec.seedThumbnail,
-                                        modifier = Modifier.size(28.dp).clip(CircleShape),
-                                        cornerRadius = 14.dp,
-                                        contentDescription = null
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                Column {
-                                    Text(
-                                        text = "Similar to",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = themeOnBackground.copy(alpha = 0.6f)
-                                    )
-                                    Text(
-                                        text = simRec.seedTitle,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = themePrimary
-                                    )
-                                }
-                            }
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = "View Artist Profile",
-                                tint = themeOnBackground.copy(alpha = 0.6f),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
                         LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             items(
-                                items = simRec.items,
+                                items = keepList,
                                 key = { it.id },
                                 contentType = { "track" }
                             ) { track ->
                                 Column(
                                     modifier = Modifier
                                         .width(115.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        // Long-press opens the song's ⋮ menu, like every other Home shelf.
+                                        .clip(RoundedCornerShape(14.dp))
                                         .combinedClickable(
                                             onClick = { onTrackClick(track, listOf(track)) },
                                             onLongClick = { selectedTrackForMenu = track }
@@ -694,14 +641,16 @@ fun HomeScreen(
                                     ArtworkCard(
                                         url = track.thumbnail,
                                         fallbackTrack = track,
-                                        modifier = Modifier.size(115.dp).clip(RoundedCornerShape(12.dp)),
-                                        cornerRadius = 12.dp,
+                                        modifier = Modifier
+                                            .size(115.dp)
+                                            .clip(RoundedCornerShape(14.dp)),
+                                        cornerRadius = 14.dp,
                                         contentDescription = track.title
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = track.title,
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = themeOnBackground,
                                         maxLines = 1,
@@ -709,7 +658,7 @@ fun HomeScreen(
                                     )
                                     Text(
                                         text = track.artist,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = themeOnBackground.copy(alpha = 0.65f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -720,130 +669,237 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(18.dp))
                     } }
                 }
-            }
 
-            // ================================================================
-            // 8. DYNAMIC YOUTUBE MUSIC CAROUSEL SHELVES (FEmusic_home)
-            // ================================================================
-            uiState.dynamicSections.forEachIndexed { sIdx, section ->
-                if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
-                    item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") { UnfoldIn(6 + sIdx, openedAtMs) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                            Text(
-                                text = section.title,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = themePrimary,
-                                fontSize = 20.sp,
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
-                            )
-                            section.subtitle?.let {
-                                Text(
-                                    text = it,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = themeOnBackground.copy(alpha = 0.65f),
-                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
+                // ================================================================
+                // 7. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
+                // ================================================================
+                uiState.similarRecommendations.forEachIndexed { idx, simRec ->
+                    if (simRec.items.isNotEmpty()) {
+                        item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { UnfoldIn(4 + idx, openedAtMs) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        val targetArtistName = simRec.artistName ?: simRec.seedTitle
+                                        val targetArtist = Artist(
+                                            id = simRec.artistId ?: targetArtistName,
+                                            name = targetArtistName,
+                                            thumbnail = simRec.seedThumbnail,
+                                            query = targetArtistName
+                                        )
+                                        onArtistClick(targetArtist)
+                                    }
+                                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (simRec.seedThumbnail != null) {
+                                        ArtworkCard(
+                                            url = simRec.seedThumbnail,
+                                            modifier = Modifier.size(28.dp).clip(CircleShape),
+                                            cornerRadius = 14.dp,
+                                            contentDescription = null
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    Column {
+                                        Text(
+                                            text = str(R.string.similar_to),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = themeOnBackground.copy(alpha = 0.6f)
+                                        )
+                                        Text(
+                                            text = simRec.seedTitle,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = themePrimary
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = str(R.string.view_artist_profile),
+                                    tint = themeOnBackground.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
 
-                            if (section.items.isNotEmpty()) {
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    items(
-                                        items = section.items,
-                                        key = { it.id },
-                                        contentType = { "track" }
-                                    ) { track ->
-                                        Column(
-                                            modifier = Modifier
-                                                .width(120.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .combinedClickable(
-                                                    onClick = { onTrackClick(track, listOf(track)) },
-                                                    onLongClick = { selectedTrackForMenu = track }
-                                                )
-                                                .padding(4.dp)
-                                        ) {
-                                            ArtworkCard(
-                                                url = track.thumbnail,
-                                                fallbackTrack = track,
-                                                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
-                                                cornerRadius = 12.dp,
-                                                contentDescription = track.title
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                items(
+                                    items = simRec.items,
+                                    key = { it.id },
+                                    contentType = { "track" }
+                                ) { track ->
+                                    Column(
+                                        modifier = Modifier
+                                            .width(115.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            // Long-press opens the song's ⋮ menu, like every other Home shelf.
+                                            .combinedClickable(
+                                                onClick = { onTrackClick(track, listOf(track)) },
+                                                onLongClick = { selectedTrackForMenu = track }
                                             )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = track.title,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = themeOnBackground,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = track.artist,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = themeOnBackground.copy(alpha = 0.65f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
+                                            .padding(4.dp)
+                                    ) {
+                                        ArtworkCard(
+                                            url = track.thumbnail,
+                                            fallbackTrack = track,
+                                            modifier = Modifier.size(115.dp).clip(RoundedCornerShape(12.dp)),
+                                            cornerRadius = 12.dp,
+                                            contentDescription = track.title
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = track.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = themeOnBackground,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = track.artist,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = themeOnBackground.copy(alpha = 0.65f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(18.dp))
+                        } }
+                    }
+                }
 
-                            if (section.albums.isNotEmpty()) {
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    items(
-                                        items = section.albums,
-                                        key = { it.id },
-                                        contentType = { "album" }
-                                    ) { album ->
-                                        Column(
-                                            modifier = Modifier
-                                                .width(120.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .clickable { onAlbumClick(album) }
-                                                .padding(4.dp)
-                                        ) {
-                                            ArtworkCard(
-                                                url = album.thumbnail ?: "",
-                                                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
-                                                cornerRadius = 12.dp,
-                                                contentDescription = album.title
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = album.title,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = themeOnBackground,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = album.author ?: "Album",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = themeOnBackground.copy(alpha = 0.65f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                // ================================================================
+                // 8. DYNAMIC YOUTUBE MUSIC CAROUSEL SHELVES (FEmusic_home)
+                // ================================================================
+                uiState.dynamicSections.forEachIndexed { sIdx, section ->
+                    if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
+                        item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") { UnfoldIn(6 + sIdx, openedAtMs) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text(
+                                    text = section.title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = themePrimary,
+                                    fontSize = 20.sp,
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
+                                )
+                                section.subtitle?.let {
+                                    Text(
+                                        text = it,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = themeOnBackground.copy(alpha = 0.65f),
+                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                if (section.items.isNotEmpty()) {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        items(
+                                            items = section.items,
+                                            key = { it.id },
+                                            contentType = { "track" }
+                                        ) { track ->
+                                            Column(
+                                                modifier = Modifier
+                                                    .width(120.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .combinedClickable(
+                                                        onClick = { onTrackClick(track, listOf(track)) },
+                                                        onLongClick = { selectedTrackForMenu = track }
+                                                    )
+                                                    .padding(4.dp)
+                                            ) {
+                                                ArtworkCard(
+                                                    url = track.thumbnail,
+                                                    fallbackTrack = track,
+                                                    modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
+                                                    cornerRadius = 12.dp,
+                                                    contentDescription = track.title
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = track.title,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = themeOnBackground,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = track.artist,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = themeOnBackground.copy(alpha = 0.65f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }
+
+                                if (section.albums.isNotEmpty()) {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        items(
+                                            items = section.albums,
+                                            key = { it.id },
+                                            contentType = { "album" }
+                                        ) { album ->
+                                            Column(
+                                                modifier = Modifier
+                                                    .width(120.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .clickable { onAlbumClick(album) }
+                                                    .padding(4.dp)
+                                            ) {
+                                                ArtworkCard(
+                                                    url = album.thumbnail ?: "",
+                                                    modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
+                                                    cornerRadius = 12.dp,
+                                                    contentDescription = album.title
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = album.title,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = themeOnBackground,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = album.author ?: str(R.string.album),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = themeOnBackground.copy(alpha = 0.65f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
                             }
-                            Spacer(modifier = Modifier.height(14.dp))
+                        } }
                         }
-                    } }
                     }
                 }
             }
-        }
+            }
     }
 }
 
@@ -913,10 +969,10 @@ fun HomeScreen(
                     putExtra(android.content.Intent.EXTRA_SUBJECT, album.title)
                     putExtra(
                         android.content.Intent.EXTRA_TEXT,
-                        "Check out the album '${album.title}' by ${album.author ?: "Various Artists"} on Auralis Music!\nhttps://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                        str(R.string.check_out_the_album_x_by_x_on_auralis_mu, album.title, album.author ?: "Various Artists", album.id.removePrefix("VL"))
                     )
                 }
-                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Album"))
+                context.startActivity(android.content.Intent.createChooser(shareIntent, str(R.string.share_album)))
             },
             onPlayNext = { onPlayNextAlbum?.invoke(album) },
             onAddToQueue = { onAddToQueueAlbum?.invoke(album) },
@@ -1113,7 +1169,7 @@ private fun SpeedDialTile(
             ) {
                 Icon(
                     imageVector = Icons.Default.PushPin,
-                    contentDescription = "Pinned",
+                    contentDescription = str(R.string.pinned),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(11.dp)
                 )

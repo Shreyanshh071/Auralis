@@ -1,5 +1,8 @@
 package com.auralis.music.ui.explore
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -120,6 +123,7 @@ private enum class SearchBodyState { SEARCHING, RESULTS, SUGGESTIONS }
 @Composable
 fun ExploreScreen(
     uiState: SearchUiState,
+    onRefresh: suspend () -> Unit = {},
     recognitionState: RecognitionState = RecognitionState(),
     currentTrackId: String?,
     isPlaying: Boolean,
@@ -267,443 +271,445 @@ fun ExploreScreen(
 
         // Wrap each branch in SaveableStateProvider so scroll state survives navigation
         saveableStateHolder.SaveableStateProvider(targetKey ?: "explore_root") {
-            when (renderedDetail) {
-                is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
-                    ArtistScreen(
-                        artistPage = renderedDetail.artistPage,
-                        isLoading = renderedDetail.isLoading,
-                        currentTrackId = currentTrackId,
-                        isPlaying = isPlaying,
-                        userPlaylists = userPlaylists,
-                        favoriteTracks = favoriteTracks,
-                        savedArtists = savedArtists,
-                        savedAlbums = savedAlbums,
-                        onToggleSubscribe = onToggleSubscribe,
-                        onToggleSaveAlbum = onToggleSaveAlbum,
-                        onTrackClick = handleTrackClick,
-                        onFavoriteToggle = onFavoriteToggle,
-                        onAddToPlaylist = onAddToPlaylist,
-                        onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
-                        onPlayNext = onPlayNext,
-                        onAddToQueue = onAddToQueue,
-                        onPlayNextAlbum = onPlayNextAlbum,
-                        onAddToQueueAlbum = onAddToQueueAlbum,
-                        onShuffleAlbum = onShuffleAlbum,
-                        onDownloadAlbum = onDownloadAlbum,
-                        onAddAlbumToPlaylist = onAddAlbumToPlaylist,
-                        onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
-                        isAlbumPinned = isAlbumPinned,
-                        pinnedSpeedDialIds = pinnedSpeedDialIds,
-                        onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
-                        isTrackPinned = isTrackPinned,
-                        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
-                        onStartRadio = onStartRadio,
-                        onOpenArtist = handleOpenArtist,
-                        onAlbumClick = handleOpenAlbum,
-                        onBack = onCloseArtist,
-                        isInListenTogetherRoom = isInListenTogetherRoom,
-                        onRecommendToRoom = onRecommendToRoom,
-                        modifier = modifier
-                    )
-                }
-                is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
-                    com.auralis.music.ui.screens.AlbumScreen(
-                        album = renderedDetail.album,
-                        tracks = renderedDetail.tracks,
-                        isLoading = renderedDetail.isLoading,
-                        currentTrackId = currentTrackId,
-                        isPlaying = isPlaying,
-                        userPlaylists = userPlaylists,
-                        favoriteTracks = favoriteTracks,
-                        savedAlbums = savedAlbums,
-                        onToggleSaveAlbum = onToggleSaveAlbum,
-                        onPlayNextAlbum = onPlayNextAlbum,
-                        onAddToQueueAlbum = onAddToQueueAlbum,
-                        onShuffleAlbum = onShuffleAlbum,
-                        onDownloadAlbum = onDownloadAlbum,
-                        onAddAlbumToPlaylist = onAddAlbumToPlaylist,
-                        onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
-                        isAlbumPinned = isAlbumPinned,
-                        pinnedSpeedDialIds = pinnedSpeedDialIds,
-                        onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
-                        isTrackPinned = isTrackPinned,
-                        onPinTrackToSpeedDial = onPinTrackToSpeedDial,
-                        onTrackClick = handleTrackClick,
-                        onFavoriteToggle = onFavoriteToggle,
-                        onAddToPlaylist = onAddToPlaylist,
-                        onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
-                        onPlayNext = onPlayNext,
-                        onAddToQueue = onAddToQueue,
-                        onStartRadio = onStartRadio,
-                        onOpenArtist = handleOpenArtist,
-                        onBack = onCloseAlbum,
-                        isInListenTogetherRoom = isInListenTogetherRoom,
-                        onRecommendToRoom = onRecommendToRoom,
-                        modifier = modifier
-                    )
-                }
-                else -> {
-            val hasResults = uiState.query.isNotBlank() && (
-                uiState.searchResults.songs.isNotEmpty() ||
-                uiState.searchResults.artists.isNotEmpty() ||
-                uiState.searchResults.playlists.isNotEmpty()
-            )
-
-            androidx.activity.compose.BackHandler(
-                enabled = uiState.isRecognitionOpen || uiState.query.isNotEmpty() || hasResults
-            ) {
-                if (uiState.isRecognitionOpen) {
-                    onCloseRecognition()
-                } else if (uiState.query.isNotEmpty() || hasResults) {
-                    onClearSearch()
-                    focusManager.clearFocus(force = true)
-                    keyboardController?.hide()
-                }
-            }
-
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(themeBackground)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                            }
-                        )
-                    }
-            ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
-            // ================================================================
-            // 1. TOP MINIMALIST SEARCH BAR (Back Arrow + Input + Globe Icon)
-            // ================================================================
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Back Arrow Button
-                IconButton(
-                    onClick = {
-                        if (uiState.isRecognitionOpen) {
-                            onCloseRecognition()
-                        } else if (uiState.query.isNotEmpty() || hasResults) {
-                            onClearSearch()
-                            focusManager.clearFocus()
-                        } else {
-                            focusManager.clearFocus()
-                            onBack()
-                        }
-                    },
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                // Search Input Field
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            focusRequester.requestFocus()
-                            keyboardController?.show()
-                        },
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (uiState.query.isEmpty()) {
-                        Text(
-                            text = "Search Auralis...",
-                            style = TextStyle(
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-                        )
-                    }
-
-                    BasicTextField(
-                        value = uiState.query,
-                        onValueChange = onQueryChange,
-                        textStyle = TextStyle(
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Normal
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                focusManager.clearFocus()
-                                onSearch(uiState.query)
-                            }
-                        ),
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                    )
-                }
-
-                // Dynamic Trailing Button: Clear Cross when query/results exist; else Microphone button for quick Speak & Search
-                val showClear = uiState.query.isNotEmpty() || hasResults
-                val searchIconEnter = auralisIconSwapEnter()
-                val searchIconExit = auralisContentExit()
-                AnimatedContent(
-                    targetState = showClear,
-                    transitionSpec = { searchIconEnter togetherWith searchIconExit },
-                    label = "searchTrailingIcon"
-                ) { isClear ->
-                    if (isClear) {
-                        IconButton(
-                            onClick = {
-                                onClearSearch()
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    } else {
-                        IconButton(
-                            onClick = {
-                                onOpenRecognition(RecognitionMode.VOICE_SEARCH)
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Speak to search",
-                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // ================================================================
-            // 2. SEARCH BODY: SPINNER | RESULTS | LIVE SUGGESTIONS
-            // ================================================================
-            val bodyState = when {
-                uiState.isSearching -> SearchBodyState.SEARCHING
-                uiState.hasSubmittedSearch -> SearchBodyState.RESULTS
-                else -> SearchBodyState.SUGGESTIONS
-            }
-
-            val bodyEnter = auralisContentEnter()
-            val bodyExit = auralisContentExit()
-
-            AnimatedContent(
-                targetState = bodyState,
-                transitionSpec = { bodyEnter togetherWith bodyExit using SizeTransform(clip = false) },
-                modifier = Modifier.fillMaxSize(),
-                label = "searchBodyTransition"
-            ) { targetBody ->
-                val isCurrentTarget = targetBody == bodyState
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (!isCurrentTarget) {
-                                Modifier.pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            event.changes.forEach { it.consume() }
-                                        }
-                                    }
-                                }
-                            } else Modifier
-                        )
-                ) {
-                    when (targetBody) {
-                    SearchBodyState.SEARCHING -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = 40.dp),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
-                    }
-                    SearchBodyState.RESULTS -> {
-                        SearchResultsView(
-                            results = uiState.searchResults,
-                            query = uiState.query,
+            com.auralis.music.ui.components.AuralisRefreshBox(refresh = onRefresh) {
+                when (renderedDetail) {
+                    is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
+                        ArtistScreen(
+                            artistPage = renderedDetail.artistPage,
+                            isLoading = renderedDetail.isLoading,
                             currentTrackId = currentTrackId,
                             isPlaying = isPlaying,
+                            userPlaylists = userPlaylists,
+                            favoriteTracks = favoriteTracks,
+                            savedArtists = savedArtists,
+                            savedAlbums = savedAlbums,
+                            onToggleSubscribe = onToggleSubscribe,
+                            onToggleSaveAlbum = onToggleSaveAlbum,
                             onTrackClick = handleTrackClick,
+                            onFavoriteToggle = onFavoriteToggle,
+                            onAddToPlaylist = onAddToPlaylist,
+                            onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
                             onPlayNext = onPlayNext,
                             onAddToQueue = onAddToQueue,
-                            onMenuClick = { track -> selectedTrackForMenu = track },
-                            onArtistClick = handleOpenArtist,
-                            onPlaylistClick = handleOpenAlbum
+                            onPlayNextAlbum = onPlayNextAlbum,
+                            onAddToQueueAlbum = onAddToQueueAlbum,
+                            onShuffleAlbum = onShuffleAlbum,
+                            onDownloadAlbum = onDownloadAlbum,
+                            onAddAlbumToPlaylist = onAddAlbumToPlaylist,
+                            onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
+                            isAlbumPinned = isAlbumPinned,
+                            pinnedSpeedDialIds = pinnedSpeedDialIds,
+                            onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+                            isTrackPinned = isTrackPinned,
+                            onPinTrackToSpeedDial = onPinTrackToSpeedDial,
+                            onStartRadio = onStartRadio,
+                            onOpenArtist = handleOpenArtist,
+                            onAlbumClick = handleOpenAlbum,
+                            onBack = onCloseArtist,
+                            isInListenTogetherRoom = isInListenTogetherRoom,
+                            onRecommendToRoom = onRecommendToRoom,
+                            modifier = modifier
                         )
                     }
-                    SearchBodyState.SUGGESTIONS -> {
-                        val animateItems = !LocalReducedMotion.current
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
-                            if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
-                                items(
-                                    items = uiState.suggestions.take(3),
-                                    key = { "sug_$it" }
-                                ) { suggestion ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .then(if (animateItems) Modifier.animateItem() else Modifier)
-                                            .clickable {
-                                                focusManager.clearFocus(force = true)
-                                                keyboardController?.hide()
-                                                onSearch(suggestion)
+                    is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
+                        com.auralis.music.ui.screens.AlbumScreen(
+                            album = renderedDetail.album,
+                            tracks = renderedDetail.tracks,
+                            isLoading = renderedDetail.isLoading,
+                            currentTrackId = currentTrackId,
+                            isPlaying = isPlaying,
+                            userPlaylists = userPlaylists,
+                            favoriteTracks = favoriteTracks,
+                            savedAlbums = savedAlbums,
+                            onToggleSaveAlbum = onToggleSaveAlbum,
+                            onPlayNextAlbum = onPlayNextAlbum,
+                            onAddToQueueAlbum = onAddToQueueAlbum,
+                            onShuffleAlbum = onShuffleAlbum,
+                            onDownloadAlbum = onDownloadAlbum,
+                            onAddAlbumToPlaylist = onAddAlbumToPlaylist,
+                            onCreatePlaylistAndAddAlbum = onCreatePlaylistAndAddAlbum,
+                            isAlbumPinned = isAlbumPinned,
+                            pinnedSpeedDialIds = pinnedSpeedDialIds,
+                            onPinAlbumToSpeedDial = onPinAlbumToSpeedDial,
+                            isTrackPinned = isTrackPinned,
+                            onPinTrackToSpeedDial = onPinTrackToSpeedDial,
+                            onTrackClick = handleTrackClick,
+                            onFavoriteToggle = onFavoriteToggle,
+                            onAddToPlaylist = onAddToPlaylist,
+                            onCreatePlaylistAndAdd = onCreatePlaylistAndAdd,
+                            onPlayNext = onPlayNext,
+                            onAddToQueue = onAddToQueue,
+                            onStartRadio = onStartRadio,
+                            onOpenArtist = handleOpenArtist,
+                            onBack = onCloseAlbum,
+                            isInListenTogetherRoom = isInListenTogetherRoom,
+                            onRecommendToRoom = onRecommendToRoom,
+                            modifier = modifier
+                        )
+                    }
+                    else -> {
+                val hasResults = uiState.query.isNotBlank() && (
+                    uiState.searchResults.songs.isNotEmpty() ||
+                    uiState.searchResults.artists.isNotEmpty() ||
+                    uiState.searchResults.playlists.isNotEmpty()
+                )
+
+                androidx.activity.compose.BackHandler(
+                    enabled = uiState.isRecognitionOpen || uiState.query.isNotEmpty() || hasResults
+                ) {
+                    if (uiState.isRecognitionOpen) {
+                        onCloseRecognition()
+                    } else if (uiState.query.isNotEmpty() || hasResults) {
+                        onClearSearch()
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
+                    }
+                }
+
+                Box(
+                    modifier = modifier
+                        .fillMaxSize()
+                        .background(themeBackground)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    focusManager.clearFocus(force = true)
+                                    keyboardController?.hide()
+                                }
+                            )
+                        }
+                ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
+                // ================================================================
+                // 1. TOP MINIMALIST SEARCH BAR (Back Arrow + Input + Globe Icon)
+                // ================================================================
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Back Arrow Button
+                    IconButton(
+                        onClick = {
+                            if (uiState.isRecognitionOpen) {
+                                onCloseRecognition()
+                            } else if (uiState.query.isNotEmpty() || hasResults) {
+                                onClearSearch()
+                                focusManager.clearFocus()
+                            } else {
+                                focusManager.clearFocus()
+                                onBack()
+                            }
+                        },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = str(R.string.back),
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // Search Input Field
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                focusRequester.requestFocus()
+                                keyboardController?.show()
+                            },
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (uiState.query.isEmpty()) {
+                            Text(
+                                text = str(R.string.search_auralis),
+                                style = TextStyle(
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                            )
+                        }
+
+                        BasicTextField(
+                            value = uiState.query,
+                            onValueChange = onQueryChange,
+                            textStyle = TextStyle(
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    focusManager.clearFocus()
+                                    onSearch(uiState.query)
+                                }
+                            ),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                        )
+                    }
+
+                    // Dynamic Trailing Button: Clear Cross when query/results exist; else Microphone button for quick Speak & Search
+                    val showClear = uiState.query.isNotEmpty() || hasResults
+                    val searchIconEnter = auralisIconSwapEnter()
+                    val searchIconExit = auralisContentExit()
+                    AnimatedContent(
+                        targetState = showClear,
+                        transitionSpec = { searchIconEnter togetherWith searchIconExit },
+                        label = "searchTrailingIcon"
+                    ) { isClear ->
+                        if (isClear) {
+                            IconButton(
+                                onClick = {
+                                    onClearSearch()
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = str(R.string.clear_search),
+                                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    onOpenRecognition(RecognitionMode.VOICE_SEARCH)
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = str(R.string.speak_to_search),
+                                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // ================================================================
+                // 2. SEARCH BODY: SPINNER | RESULTS | LIVE SUGGESTIONS
+                // ================================================================
+                val bodyState = when {
+                    uiState.isSearching -> SearchBodyState.SEARCHING
+                    uiState.hasSubmittedSearch -> SearchBodyState.RESULTS
+                    else -> SearchBodyState.SUGGESTIONS
+                }
+
+                val bodyEnter = auralisContentEnter()
+                val bodyExit = auralisContentExit()
+
+                AnimatedContent(
+                    targetState = bodyState,
+                    transitionSpec = { bodyEnter togetherWith bodyExit using SizeTransform(clip = false) },
+                    modifier = Modifier.fillMaxSize(),
+                    label = "searchBodyTransition"
+                ) { targetBody ->
+                    val isCurrentTarget = targetBody == bodyState
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (!isCurrentTarget) {
+                                    Modifier.pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                event.changes.forEach { it.consume() }
                                             }
-                                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-
-                                        Spacer(modifier = Modifier.width(16.dp))
-
-                                        Text(
-                                            text = suggestion,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onBackground,
-                                            fontSize = 16.sp,
-                                            modifier = Modifier.weight(1f)
-                                        )
-
-                                        IconButton(
-                                            onClick = { onQueryChange(suggestion) },
-                                            modifier = Modifier.size(32.dp)
+                                        }
+                                    }
+                                } else Modifier
+                            )
+                    ) {
+                        when (targetBody) {
+                        SearchBodyState.SEARCHING -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = 40.dp),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+                        SearchBodyState.RESULTS -> {
+                            SearchResultsView(
+                                results = uiState.searchResults,
+                                query = uiState.query,
+                                currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
+                                onTrackClick = handleTrackClick,
+                                onPlayNext = onPlayNext,
+                                onAddToQueue = onAddToQueue,
+                                onMenuClick = { track -> selectedTrackForMenu = track },
+                                onArtistClick = handleOpenArtist,
+                                onPlaylistClick = handleOpenAlbum
+                            )
+                        }
+                        SearchBodyState.SUGGESTIONS -> {
+                            val animateItems = !LocalReducedMotion.current
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
+                                if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
+                                    items(
+                                        items = uiState.suggestions.take(3),
+                                        key = { "sug_$it" }
+                                    ) { suggestion ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                .clickable {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+                                                    onSearch(suggestion)
+                                                }
+                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            DiagonalInsertArrow()
+                                            Icon(
+                                                imageVector = Icons.Default.Search,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+
+                                            Spacer(modifier = Modifier.width(16.dp))
+
+                                            Text(
+                                                text = suggestion,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                fontSize = 16.sp,
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            IconButton(
+                                                onClick = { onQueryChange(suggestion) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                DiagonalInsertArrow()
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            // 2. Direct Live Song Recommendations (Top Songs section right below text suggestions)
-                            if (uiState.query.isNotBlank() && uiState.liveSongRecommendations.isNotEmpty()) {
-                                item(key = "header_top_songs") {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Top Songs",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontSize = 17.sp,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
-                                    )
-                                }
-
-                                items(
-                                    items = uiState.liveSongRecommendations,
-                                    key = { trk -> "live_song_${trk.id}" }
-                                ) { track ->
-                                    val isCurrent = track.id == currentTrackId
-                                    TrackRowItem(
-                                        track = track,
-                                        isCurrent = isCurrent,
-                                        isPlaying = isPlaying,
-                                        playlist = listOf(track),
-                                        onTrackClick = handleTrackClick,
-                                        onPlayNext = onPlayNext,
-                                        onAddToQueue = onAddToQueue,
-                                        onMenuClick = { selectedTrackForMenu = track }
-                                    )
-                                }
-                            }
-
-                            // 2. Recent Searches History Items (when input is empty)
-                            if (uiState.query.isBlank()) {
-                                items(
-                                    items = uiState.recentQueries,
-                                    key = { "recent_$it" }
-                                ) { query ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .then(if (animateItems) Modifier.animateItem() else Modifier)
-                                            .clickable {
-                                                focusManager.clearFocus(force = true)
-                                                keyboardController?.hide()
-                                                onSearch(query)
-                                            }
-                                            .padding(vertical = 12.dp, horizontal = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.History,
-                                            contentDescription = "History",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-
-                                        Spacer(modifier = Modifier.width(16.dp))
-
+                                // 2. Direct Live Song Recommendations (Top Songs section right below text suggestions)
+                                if (uiState.query.isNotBlank() && uiState.liveSongRecommendations.isNotEmpty()) {
+                                    item(key = "header_top_songs") {
+                                        Spacer(modifier = Modifier.height(8.dp))
                                         Text(
-                                            text = query,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onBackground,
-                                            fontSize = 16.sp,
-                                            modifier = Modifier.weight(1f)
+                                            text = str(R.string.top_songs),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontSize = 17.sp,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
                                         )
+                                    }
 
-                                        // Remove from history
-                                        IconButton(
-                                            onClick = { onRemoveRecentQuery(query) },
-                                            modifier = Modifier.size(32.dp)
+                                    items(
+                                        items = uiState.liveSongRecommendations,
+                                        key = { trk -> "live_song_${trk.id}" }
+                                    ) { track ->
+                                        val isCurrent = track.id == currentTrackId
+                                        TrackRowItem(
+                                            track = track,
+                                            isCurrent = isCurrent,
+                                            isPlaying = isPlaying,
+                                            playlist = listOf(track),
+                                            onTrackClick = handleTrackClick,
+                                            onPlayNext = onPlayNext,
+                                            onAddToQueue = onAddToQueue,
+                                            onMenuClick = { selectedTrackForMenu = track }
+                                        )
+                                    }
+                                }
+
+                                // 2. Recent Searches History Items (when input is empty)
+                                if (uiState.query.isBlank()) {
+                                    items(
+                                        items = uiState.recentQueries,
+                                        key = { "recent_$it" }
+                                    ) { query ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                .clickable {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+                                                    onSearch(query)
+                                                }
+                                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Remove",
+                                                imageVector = Icons.Default.History,
+                                                contentDescription = str(R.string.history),
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
-                                        }
 
-                                        Spacer(modifier = Modifier.width(4.dp))
+                                            Spacer(modifier = Modifier.width(16.dp))
 
-                                        // Diagonal insert arrow (↖)
-                                        IconButton(
-                                            onClick = { onQueryChange(query) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(
+                                                text = query,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                fontSize = 16.sp,
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            // Remove from history
+                                            IconButton(
+                                                onClick = { onRemoveRecentQuery(query) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = str(R.string.remove),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                            // Diagonal insert arrow (↖)
+                                            IconButton(
+                                                onClick = { onQueryChange(query) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
                                         }
                                     }
                                 }
@@ -711,12 +717,12 @@ fun ExploreScreen(
                         }
                     }
                 }
+    }
+    }
+    }
+    }
+    }
             }
-}
-}
-}
-}
-}
 } // SaveableStateProvider
 } // AnimatedContent
 
@@ -833,7 +839,7 @@ private fun SearchResultsView(
         if (results.topResult != null) {
             item(key = "header_top_result") {
                 Text(
-                    text = "Top result",
+                    text = str(R.string.top_result),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -869,7 +875,7 @@ private fun SearchResultsView(
         results.runnerUp?.let { runnerUp ->
             item(key = "header_also_matching") {
                 Text(
-                    text = "Also matching",
+                    text = str(R.string.also_matching),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -974,7 +980,7 @@ private fun SearchResultsView(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "Top songs & info",
+                                        text = str(R.string.top_songs_info),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1024,7 +1030,7 @@ private fun SearchResultsView(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = primaryAlbum.author ?: "Album",
+                                        text = primaryAlbum.author ?: str(R.string.album),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1091,7 +1097,7 @@ private fun SearchResultsView(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "Top songs & albums",
+                                    text = str(R.string.top_songs_albums),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -1140,7 +1146,7 @@ private fun SearchResultsView(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = primaryAlbum.author ?: "Album",
+                                    text = primaryAlbum.author ?: str(R.string.album),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -1160,8 +1166,8 @@ private fun SearchResultsView(
             item(key = "header_matching_songs") {
                 Text(
                     text = when {
-                        rankedMatches.any { it is SearchTopResult.AlbumResult } -> "Songs & Albums"
-                        isArtistSearch -> "Top Songs"
+                        rankedMatches.any { it is SearchTopResult.AlbumResult } -> str(R.string.songs_albums)
+                        isArtistSearch -> str(R.string.top_songs)
                         else -> "Songs"
                     },
                     style = MaterialTheme.typography.titleMedium,
@@ -1210,15 +1216,15 @@ private fun SearchResultsView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "No matching results found",
+                        text = str(R.string.no_matching_results_found),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (query.isNotBlank()) "No songs or albums match \"$query\". Check spelling or try another search."
-                        else "No songs found for this search.",
+                        text = if (query.isNotBlank()) str(R.string.no_songs_or_albums_match_x_check_spellin, query)
+                        else str(R.string.no_songs_found_for_this_search),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1241,13 +1247,13 @@ private fun SearchResultsView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Recommendations",
+                        text = str(R.string.recommendations),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "${recommendations.size} suggested",
+                        text = str(R.string.x_suggested, recommendations.size),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1304,7 +1310,7 @@ private fun AlbumRowItem(album: PlaylistResult, plays: Long, onClick: () -> Unit
             )
             Text(
                 text = buildString {
-                    append("Album • ${album.author ?: "Various Artists"}")
+                    append(str(R.string.album_x, album.author ?: str(R.string.various_artists)))
                     if (plays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(plays)}")
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -1390,7 +1396,7 @@ private fun TrackRowItem(
             IconButton(onClick = { onMenuClick(track) }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Options",
+                    contentDescription = str(R.string.options),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
@@ -1446,7 +1452,7 @@ private fun SearchHeroCard(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         val subDetail = buildString {
-                            append("Song • ${track.artist}")
+                            append(str(R.string.song_x, track.artist))
                             if (!track.views.isNullOrBlank()) {
                                 append(" • ${track.views}")
                             }
@@ -1497,7 +1503,7 @@ private fun SearchHeroCard(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Artist",
+                            text = str(R.string.artist),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1541,7 +1547,7 @@ private fun SearchHeroCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = buildString {
-                            append("Album • ${album.author ?: "Various Artists"}")
+                            append(str(R.string.album_x, album.author ?: str(R.string.various_artists)))
                             if (albumPlays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(albumPlays)}")
                         },
                             style = MaterialTheme.typography.bodySmall,

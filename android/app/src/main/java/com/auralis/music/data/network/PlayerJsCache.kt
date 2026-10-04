@@ -23,7 +23,7 @@ object PlayerJsCache {
     private const val TAG = "PlayerJsCache"
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
 
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .followRedirects(true)

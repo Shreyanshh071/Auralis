@@ -191,6 +191,31 @@ class LyricsClient(
             return qVersion == null || cVersion == null || !qVersion.equals(cVersion, ignoreCase = true)
         }
 
+        /** Settings → Content → Lyrics → provider switches. */
+        internal fun isProviderEnabled(provider: LyricsProvider): Boolean {
+            val id = settingsId(provider) ?: return true
+            return id !in com.auralis.music.data.datastore.ContentSettingsStore.value.disabledLyricsProviders
+        }
+
+        private fun settingsId(provider: LyricsProvider): com.auralis.music.domain.model.LyricsProviderId? =
+            when (provider) {
+                LyricsProvider.AMLL -> com.auralis.music.domain.model.LyricsProviderId.AMLL
+                LyricsProvider.BETTER_LYRICS -> com.auralis.music.domain.model.LyricsProviderId.BETTER_LYRICS
+                LyricsProvider.UNISON -> com.auralis.music.domain.model.LyricsProviderId.UNISON
+                LyricsProvider.PAXSENIX -> com.auralis.music.domain.model.LyricsProviderId.PAXSENIX
+                LyricsProvider.LRCLIB -> com.auralis.music.domain.model.LyricsProviderId.LRCLIB
+                LyricsProvider.KUGOU -> com.auralis.music.domain.model.LyricsProviderId.KUGOU
+                LyricsProvider.JIOSAAVN -> com.auralis.music.domain.model.LyricsProviderId.JIOSAAVN
+                LyricsProvider.NETEASE -> com.auralis.music.domain.model.LyricsProviderId.NETEASE
+                LyricsProvider.GENIUS -> com.auralis.music.domain.model.LyricsProviderId.GENIUS
+                LyricsProvider.MUSIXMATCH -> com.auralis.music.domain.model.LyricsProviderId.MUSIXMATCH
+                LyricsProvider.YOUTUBE -> com.auralis.music.domain.model.LyricsProviderId.YOUTUBE_MUSIC
+                LyricsProvider.YOUTUBE_CAPTIONS -> com.auralis.music.domain.model.LyricsProviderId.YOUTUBE_CAPTIONS
+                LyricsProvider.YOULYPLUS -> com.auralis.music.domain.model.LyricsProviderId.LYRICS_PLUS
+                LyricsProvider.SIMPMUSIC -> com.auralis.music.domain.model.LyricsProviderId.SIMPMUSIC
+                LyricsProvider.LOCAL -> null
+            }
+
         internal fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
             LyricsProvider.BETTER_LYRICS -> 5
             LyricsProvider.AMLL -> 5
@@ -643,7 +668,7 @@ class LyricsClient(
             kuGouSource,
             netEaseSource,
             jioSaavnSource
-        )
+        ).filter { isProviderEnabled(it.provider) }
 
         // Providers run in their own detached scope, not as children of the race. Most make
         // blocking OkHttp calls that cancellation can't interrupt, and coroutineScope waits for
@@ -967,7 +992,8 @@ class LyricsClient(
                     channelTitle = channelTitle,
                     durationMs = durationMs
                 )
-                val lrcFallback = withTimeoutOrNull(2500L) { lrcLibSource.search(fallbackQuery) }
+                val lrcFallback = if (!isProviderEnabled(LyricsProvider.LRCLIB)) null
+                    else withTimeoutOrNull(2500L) { lrcLibSource.search(fallbackQuery) }
                 if (lrcFallback != null && lrcFallback.confidence >= 50 && lrcFallback.lyricsData.lines.isNotEmpty()) {
                     val queryDurationMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
                     val isAcceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
@@ -1024,7 +1050,8 @@ class LyricsClient(
                     channelTitle = channelTitle,
                     durationMs = durationMs
                 )
-                val baseCand = withTimeoutOrNull(3000L) { lrcLibSource.search(baseQuery) }
+                val baseCand = if (!isProviderEnabled(LyricsProvider.LRCLIB)) null
+                    else withTimeoutOrNull(3000L) { lrcLibSource.search(baseQuery) }
                 if (baseCand != null && baseCand.confidence >= 50) {
                     val cleaned = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(baseCand.lyricsData, baseTitle)
                     val sung = cleaned.lines.count { !it.isInstrumental && it.text.isNotBlank() }
@@ -1044,10 +1071,12 @@ class LyricsClient(
         // ── TIER 3: PLAIN TEXT FALLBACK (Genius & YouTube Music) ──
         val plainWinner = coroutineScope {
             val geniusDeferred = async {
-                try { withTimeoutOrNull(2000L) { geniusSource.search(query) } } catch (_: Exception) { null }
+                if (!isProviderEnabled(LyricsProvider.GENIUS)) null
+                else try { withTimeoutOrNull(2000L) { geniusSource.search(query) } } catch (_: Exception) { null }
             }
             val ytDeferred = async {
-                try { withTimeoutOrNull(2000L) { ytMusicSource.search(query) } } catch (_: Exception) { null }
+                if (!isProviderEnabled(LyricsProvider.YOUTUBE)) null
+                else try { withTimeoutOrNull(2000L) { ytMusicSource.search(query) } } catch (_: Exception) { null }
             }
             listOfNotNull(geniusDeferred.await(), ytDeferred.await()).firstOrNull { it.lyricsData.lines.isNotEmpty() }
         }
@@ -1055,7 +1084,7 @@ class LyricsClient(
         if (plainWinner != null) {
             // Last chance at sync: time the plain text from the playing video's own captions.
             val captionVideoId = videoId?.takeIf { it.isNotBlank() && !it.startsWith("sp_") && !it.startsWith("spotify:") }
-            if (captionVideoId != null) {
+            if (captionVideoId != null && isProviderEnabled(LyricsProvider.YOUTUBE_CAPTIONS)) {
                 val timed = try {
                     withTimeoutOrNull(4500L) { captionsSource.timeFromCaptions(captionVideoId, plainWinner.lyricsData) }
                 } catch (_: Exception) { null }

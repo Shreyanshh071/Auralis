@@ -1,5 +1,8 @@
 package com.auralis.music.ui.library
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -109,8 +112,8 @@ fun DownloadedHubView(
                         id = job.jobId,
                         title = job.playlistName,
                         subtitle = when (job.status) {
-                            "DOWNLOADING" -> "Downloading · ${job.completedCount} of ${allTracks.size} songs"
-                            "PARTIAL_FAILURE" -> "${downloadedForJob.size} of ${allTracks.size} downloaded · ${job.failedCount} failed"
+                            "DOWNLOADING" -> str(R.string.downloading_x_of_x_songs, job.completedCount, allTracks.size)
+                            "PARTIAL_FAILURE" -> str(R.string.x_of_x_downloaded_x_failed, downloadedForJob.size, allTracks.size, job.failedCount)
                             else -> "${downloadedForJob.size} songs • Offline"
                         },
                         totalCount = allTracks.size,
@@ -131,8 +134,8 @@ fun DownloadedHubView(
             list.add(
                 DownloadFolderItem(
                     id = "individual_downloads",
-                    title = "Individual Songs",
-                    subtitle = "${individualTracks.size} songs downloaded directly",
+                    title = str(R.string.individual_songs),
+                    subtitle = str(R.string.x_songs_downloaded_directly, individualTracks.size),
                     totalCount = individualTracks.size,
                     downloadedTracks = individualTracks,
                     status = "COMPLETE",
@@ -176,7 +179,7 @@ fun DownloadedHubView(
                 IconButton(onClick = onBack, modifier = Modifier.tactileBounce()) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = MaterialTheme.dynamicOnBackground
                     )
                 }
@@ -187,13 +190,13 @@ fun DownloadedHubView(
                         .padding(horizontal = 4.dp)
                 ) {
                     Text(
-                        text = "Downloaded",
+                        text = str(R.string.downloaded),
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.dynamicOnBackground
                     )
                     Text(
-                        text = "${downloadedTracks.size} offline songs · ${folders.size} folders",
+                        text = str(R.string.x_offline_songs_x_folders, downloadedTracks.size, folders.size),
                         fontSize = 12.sp,
                         color = MaterialTheme.dynamicOnBackground.copy(alpha = 0.6f)
                     )
@@ -206,7 +209,7 @@ fun DownloadedHubView(
                 }) {
                     Icon(
                         imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = "Search",
+                        contentDescription = str(R.string.search),
                         tint = MaterialTheme.dynamicOnBackground
                     )
                 }
@@ -217,7 +220,7 @@ fun DownloadedHubView(
                     IconButton(onClick = { showMenu = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
+                            contentDescription = str(R.string.options),
                             tint = MaterialTheme.dynamicOnBackground
                         )
                     }
@@ -226,7 +229,7 @@ fun DownloadedHubView(
                         onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Clear all downloads", color = MaterialTheme.colorScheme.error) },
+                            text = { Text(str(R.string.clear_all_downloads), color = MaterialTheme.colorScheme.error) },
                             leadingIcon = {
                                 Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             },
@@ -244,7 +247,7 @@ fun DownloadedHubView(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search folders or tracks...", color = MaterialTheme.dynamicOnSurface.copy(alpha = 0.6f)) },
+                    placeholder = { Text(str(R.string.search_folders_or_tracks), color = MaterialTheme.dynamicOnSurface.copy(alpha = 0.6f)) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.dynamicPrimary,
@@ -280,13 +283,13 @@ fun DownloadedHubView(
                             modifier = Modifier.size(64.dp)
                         )
                         Text(
-                            text = "No offline downloads yet",
+                            text = str(R.string.no_offline_downloads_yet),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.dynamicOnBackground
                         )
                         Text(
-                            text = "Download your favorite playlists and songs to listen offline anytime.",
+                            text = str(R.string.download_your_favorite_playlists_and_son),
                             fontSize = 13.sp,
                             color = MaterialTheme.dynamicOnBackground.copy(alpha = 0.6f),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -319,8 +322,8 @@ fun DownloadedHubView(
                                     onOpenFolder(
                                         Playlist(
                                             id = "smart_downloaded_all",
-                                            title = "All Downloaded Songs",
-                                            description = "${downloadedTracks.size} offline songs",
+                                            title = str(R.string.all_downloaded_songs),
+                                            description = str(R.string.x_offline_songs, downloadedTracks.size),
                                             coverUrl = null,
                                             tracks = downloadedTracks
                                         )
@@ -347,7 +350,7 @@ fun DownloadedHubView(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Downloaded Folders (${filteredFolders.size})",
+                                    text = str(R.string.downloaded_folders_x, filteredFolders.size),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f)
@@ -399,8 +402,8 @@ fun DownloadedHubView(
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("Clear All Downloads?") },
-            text = { Text("This will remove all downloaded offline tracks and folders from your device.") },
+            title = { Text(str(R.string.clear_all_downloads_2)) },
+            text = { Text(str(R.string.this_will_remove_all_downloaded_offline)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -409,12 +412,12 @@ fun DownloadedHubView(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Clear All")
+                    Text(str(R.string.clear_all))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
-                    Text("Cancel")
+                    Text(str(R.string.cancel))
                 }
             }
         )
@@ -424,8 +427,8 @@ fun DownloadedHubView(
     jobToDelete?.let { jobId ->
         AlertDialog(
             onDismissRequest = { jobToDelete = null },
-            title = { Text("Delete Playlist Downloads?") },
-            text = { Text("Remove downloaded tracks for this playlist from your device?") },
+            title = { Text(str(R.string.delete_playlist_downloads)) },
+            text = { Text(str(R.string.remove_downloaded_tracks_for_this_playli)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -434,12 +437,12 @@ fun DownloadedHubView(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete")
+                    Text(str(R.string.delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { jobToDelete = null }) {
-                    Text("Cancel")
+                    Text(str(R.string.cancel))
                 }
             }
         )
@@ -498,13 +501,13 @@ private fun AllDownloadedSongsCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "All Downloaded Songs",
+                        text = str(R.string.all_downloaded_songs),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.dynamicOnBackground
                     )
                     Text(
-                        text = "$totalTracks offline songs available",
+                        text = str(R.string.x_offline_songs_available, totalTracks),
                         fontSize = 12.sp,
                         color = MaterialTheme.dynamicOnBackground.copy(alpha = 0.65f)
                     )
@@ -520,7 +523,7 @@ private fun AllDownloadedSongsCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
+                            contentDescription = str(R.string.shuffle),
                             tint = MaterialTheme.dynamicPrimary,
                             modifier = Modifier.size(18.dp)
                         )
@@ -535,7 +538,7 @@ private fun AllDownloadedSongsCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play all",
+                            contentDescription = str(R.string.play_all),
                             tint = MaterialTheme.dynamicSurface,
                             modifier = Modifier.size(20.dp)
                         )
@@ -674,7 +677,7 @@ private fun FolderCardItem(
                     if (isDownloading) {
                         Icon(
                             imageVector = Icons.Default.Sync,
-                            contentDescription = "Downloading",
+                            contentDescription = str(R.string.downloading),
                             tint = MaterialTheme.dynamicPrimary,
                             modifier = Modifier
                                 .size(22.dp)
@@ -684,7 +687,7 @@ private fun FolderCardItem(
                         IconButton(onClick = onRetry, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = "Retry",
+                                contentDescription = str(R.string.retry),
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -696,7 +699,7 @@ private fun FolderCardItem(
                         IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Folder options",
+                                contentDescription = str(R.string.folder_options),
                                 tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.7f),
                                 modifier = Modifier.size(18.dp)
                             )
@@ -707,7 +710,7 @@ private fun FolderCardItem(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Play all") },
+                                text = { Text(str(R.string.play_all)) },
                                 leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
                                 onClick = {
                                     showMenu = false
@@ -715,7 +718,7 @@ private fun FolderCardItem(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Shuffle") },
+                                text = { Text(str(R.string.shuffle)) },
                                 leadingIcon = { Icon(Icons.Default.Shuffle, contentDescription = null) },
                                 onClick = {
                                     showMenu = false
@@ -724,7 +727,7 @@ private fun FolderCardItem(
                             )
                             if (isFailedOrPartial && folder.jobId != null) {
                                 DropdownMenuItem(
-                                    text = { Text("Retry download") },
+                                    text = { Text(str(R.string.retry_download)) },
                                     leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                                     onClick = {
                                         showMenu = false
@@ -734,7 +737,7 @@ private fun FolderCardItem(
                             }
                             if (folder.jobId != null) {
                                 DropdownMenuItem(
-                                    text = { Text("Delete downloads", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text(str(R.string.delete_downloads), color = MaterialTheme.colorScheme.error) },
                                     leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         showMenu = false

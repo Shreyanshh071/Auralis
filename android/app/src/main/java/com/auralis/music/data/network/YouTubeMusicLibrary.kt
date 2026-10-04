@@ -33,7 +33,7 @@ object YouTubeMusicLibrary {
         val isLikedMusic: Boolean get() = id == LIKED_MUSIC_ID
     }
 
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

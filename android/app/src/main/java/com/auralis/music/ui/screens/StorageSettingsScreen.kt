@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -94,7 +97,7 @@ fun StorageSettingsScreen(
             2200 to "2.2 GB",
             5500 to "5.5 GB",
             11000 to "11 GB",
-            22000 to "Unlimited"
+            22000 to str(R.string.unlimited)
         )
     }
 
@@ -138,13 +141,13 @@ fun StorageSettingsScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Storage",
+                    text = str(R.string.storage),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -164,7 +167,7 @@ fun StorageSettingsScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Storage",
+                            text = str(R.string.storage),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -175,7 +178,7 @@ fun StorageSettingsScreen(
                         // Downloaded Songs
                         StorageActionCard(
                             icon = Icons.Default.Storage,
-                            title = "Downloaded songs",
+                            title = str(R.string.downloaded_songs),
                             subtitle = StorageUtils.formatBytes(downloadedBytes),
                             onClick = {
                                 refreshStorageMetrics()
@@ -185,7 +188,7 @@ fun StorageSettingsScreen(
                         // Clear all downloads
                         StorageActionCard(
                             icon = Icons.Default.DeleteOutline,
-                            title = "Clear all downloads",
+                            title = str(R.string.clear_all_downloads),
                             subtitle = null,
                             onClick = {
                                 showClearDownloadsConfirm = true
@@ -198,7 +201,7 @@ fun StorageSettingsScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Song Cache",
+                            text = str(R.string.song_cache),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -209,8 +212,8 @@ fun StorageSettingsScreen(
                         // Enable song cache switch
                         StorageToggleCard(
                             icon = Icons.Default.Autorenew,
-                            title = "Enable song cache",
-                            subtitle = "Automatically cache songs for faster future playback",
+                            title = str(R.string.enable_song_cache),
+                            subtitle = str(R.string.automatically_cache_songs_for_faster_fut),
                             checked = settings.songCacheEnabled,
                             onCheckedChange = { isChecked ->
                                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -224,7 +227,7 @@ fun StorageSettingsScreen(
                         AnimatedVisibility(visible = settings.songCacheEnabled) {
                             StorageStepSliderCard(
                                 icon = Icons.Default.Autorenew,
-                                title = "Max song cache size",
+                                title = str(R.string.max_song_cache_size),
                                 options = songCacheOptions,
                                 currentStep = currentSongCacheIndex,
                                 onStepChange = { newStep ->
@@ -241,7 +244,7 @@ fun StorageSettingsScreen(
                         // Clear song cache
                         StorageActionCard(
                             icon = Icons.Default.DeleteSweep,
-                            title = "Clear song cache",
+                            title = str(R.string.clear_song_cache),
                             subtitle = null,
                             onClick = {
                                 view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -250,7 +253,7 @@ fun StorageSettingsScreen(
                                     val freedStr = StorageUtils.formatBytes(freed)
                                     withContext(Dispatchers.Main) {
                                         refreshStorageMetrics()
-                                        Toast.makeText(context, "Song cache cleared ($freedStr freed)", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.song_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -262,7 +265,7 @@ fun StorageSettingsScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Image Cache",
+                            text = str(R.string.image_cache),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -273,7 +276,7 @@ fun StorageSettingsScreen(
                         // Max image cache size slider
                         StorageStepSliderCard(
                             icon = Icons.Default.ImageSearch,
-                            title = "Max image cache size",
+                            title = str(R.string.max_image_cache_size),
                             options = imageCacheOptions,
                             currentStep = currentImageCacheIndex,
                             onStepChange = { newStep ->
@@ -289,7 +292,7 @@ fun StorageSettingsScreen(
                         // Clear image cache
                         StorageActionCard(
                             icon = Icons.Default.DeleteSweep,
-                            title = "Clear image cache",
+                            title = str(R.string.clear_image_cache),
                             subtitle = null,
                             onClick = {
                                 view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -298,7 +301,7 @@ fun StorageSettingsScreen(
                                     val freedStr = StorageUtils.formatBytes(freed)
                                     withContext(Dispatchers.Main) {
                                         refreshStorageMetrics()
-                                        Toast.makeText(context, "Image cache cleared ($freedStr freed)", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, str(R.string.image_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -313,8 +316,8 @@ fun StorageSettingsScreen(
     if (showClearDownloadsConfirm) {
         AlertDialog(
             onDismissRequest = { showClearDownloadsConfirm = false },
-            title = { Text("Clear all downloads?", fontWeight = FontWeight.Bold) },
-            text = { Text("This will permanently delete all downloaded songs from your device. You can download them again anytime.", fontSize = 14.sp) },
+            title = { Text(str(R.string.clear_all_downloads_3), fontWeight = FontWeight.Bold) },
+            text = { Text(str(R.string.this_will_permanently_delete_all_downloa), fontSize = 14.sp) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -323,12 +326,12 @@ fun StorageSettingsScreen(
                         refreshStorageMetrics()
                     }
                 ) {
-                    Text("Clear All", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text(str(R.string.clear_all), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDownloadsConfirm = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface

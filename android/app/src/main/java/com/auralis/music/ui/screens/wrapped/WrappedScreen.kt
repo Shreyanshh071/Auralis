@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens.wrapped
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
@@ -87,69 +90,69 @@ fun WrappedScreen(
                     WrappedPage.Minutes -> WrappedMinutesPage(message, state.totalMinutes, visible)
 
                     WrappedPage.TotalSongs -> WrappedCountPage(
-                        "You've listened to", state.uniqueSongCount, "unique songs",
+                        str(R.string.you_ve_listened_to), state.uniqueSongCount, str(R.string.unique_songs),
                         listOf(FloatingShape.Line), visible
                     )
                     WrappedPage.TopSong -> {
                         val top = state.topSongs.firstOrNull()
                         WrappedHeroPage(
-                            heading = "Your most played song is",
+                            heading = str(R.string.your_most_played_song_is),
                             headingIsDisplay = false,
                             imageUrl = top?.track?.thumbnail,
                             imageShape = RoundedCornerShape(4.dp),
                             name = top?.track?.title,
-                            caption = minutesCaption("You've listened for", top?.timeListenedMs ?: 0),
+                            caption = minutesCaption(str(R.string.you_ve_listened_for), top?.timeListenedMs ?: 0),
                             isVisible = visible
                         ) { Box(Modifier.fillMaxSize()) { CornerOutlines(visible) } }
                     }
                     WrappedPage.TopSongs -> WrappedTopFivePage(
-                        heading = "YOUR TOP SONGS OF THE YEAR",
+                        heading = str(R.string.your_top_songs_of_the_year),
                         rows = state.topSongs.take(5).map { RankedRow(it.track.title, it.track.artist, it.track.thumbnail) },
                         imageShape = RoundedCornerShape(4.dp),
                         isVisible = visible
                     ) { FloatingShapes(count = 25, shapes = listOf(FloatingShape.Square)) }
 
                     WrappedPage.TotalAlbums -> WrappedCountPage(
-                        "You've listened to", state.uniqueAlbumCount, "unique albums",
+                        str(R.string.you_ve_listened_to), state.uniqueAlbumCount, str(R.string.unique_albums),
                         listOf(FloatingShape.Circle), visible
                     )
                     WrappedPage.TopAlbum -> {
                         val top = state.topAlbums.firstOrNull()
                         WrappedHeroPage(
-                            heading = "YOUR TOP ALBUM IS",
+                            heading = str(R.string.your_top_album_is),
                             headingIsDisplay = true,
                             imageUrl = top?.thumbnailUrl,
                             imageShape = RoundedCornerShape(4.dp),
                             name = top?.title,
-                            caption = minutesCaption("You've listened to this album for", top?.timeListenedMs ?: 0),
+                            caption = minutesCaption(str(R.string.you_ve_listened_to_this_album_for), top?.timeListenedMs ?: 0),
                             isVisible = visible
                         ) { FloatingShapes(shapes = listOf(FloatingShape.Square)) }
                     }
                     WrappedPage.TopAlbums -> WrappedTopFivePage(
-                        heading = "YOUR TOP 5 ALBUMS",
+                        heading = str(R.string.your_top_5_albums),
                         rows = state.topAlbums.map { RankedRow(it.title, it.artist, it.thumbnailUrl) },
                         imageShape = RoundedCornerShape(4.dp),
                         isVisible = visible
                     ) { FloatingShapes(shapes = listOf(FloatingShape.Circle)) }
 
                     WrappedPage.TotalArtists -> WrappedCountPage(
-                        "You listened to", state.uniqueArtistCount, "unique artists",
+                        str(R.string.you_listened_to), state.uniqueArtistCount, str(R.string.unique_artists),
                         listOf(FloatingShape.Circle, FloatingShape.Square), visible
                     )
                     WrappedPage.TopArtist -> {
                         val top = state.topArtists.firstOrNull()
                         WrappedHeroPage(
-                            heading = "Your top artist of the year is",
+                            heading = str(R.string.your_top_artist_of_the_year_is),
                             headingIsDisplay = false,
                             imageUrl = top?.thumbnailUrl,
                             imageShape = CircleShape,
                             name = top?.name,
-                            caption = minutesCaption("You've listened to them for", top?.timeListenedMs ?: 0),
+                            caption = minutesCaption(str(R.string.you_ve_listened_to_them_for), top?.timeListenedMs ?: 0),
                             isVisible = visible
                         ) { FloatingShapes(shapes = listOf(FloatingShape.Circle)) }
                     }
                     WrappedPage.TopArtists -> WrappedTopFivePage(
-                        heading = "YOUR TOP ARTISTS OF THE YEAR",
+                        heading = str(R.string.your_top_artists_of_the_year),
                         rows = state.topArtists.map { RankedRow(it.name, minutesCaption("", it.timeListenedMs).trim(), it.thumbnailUrl) },
                         imageShape = CircleShape,
                         isVisible = visible
@@ -163,7 +166,7 @@ fun WrappedScreen(
                     ) {
                         saveState = PlaylistSaveState.Saving
                         onSavePlaylist(
-                            "Auralis Wrapped ${state.year}",
+                            str(R.string.auralis_wrapped_x, state.year),
                             state.topSongs.map { it.track },
                             state.topSongs.firstOrNull()?.track?.thumbnail
                         ) { saveState = PlaylistSaveState.Saved }
@@ -177,7 +180,7 @@ fun WrappedScreen(
             onClick = onClose,
             modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(4.dp)
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = Color.White)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(R.string.close), tint = Color.White)
         }
     }
 }

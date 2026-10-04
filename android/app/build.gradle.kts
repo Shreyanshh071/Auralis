@@ -196,6 +196,9 @@ dependencies {
     // Mozilla Rhino JavaScript engine for high-speed cipher evaluation
     implementation("org.mozilla:rhino:1.7.15")
 
+    // Pinyin for Settings → Content → Romanize lyrics (Chinese lines); ~150 KB, no dictionary files.
+    implementation("com.github.promeg:tinypinyin:2.0.3")
+
     // NewPipeExtractor for native YouTube stream extraction and cipher deobfuscation
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5") {
         exclude(group = "com.google.protobuf")

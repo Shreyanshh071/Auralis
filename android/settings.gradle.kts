@@ -17,6 +17,12 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
+        // TinyPinyin (lyrics romanization) only survives on this JCenter mirror; it may serve
+        // nothing else, so no other dependency can ever resolve from it.
+        exclusiveContent {
+            forRepository { maven { url = uri("https://maven.aliyun.com/repository/public") } }
+            filter { includeModule("com.github.promeg", "tinypinyin") }
+        }
     }
 }
 

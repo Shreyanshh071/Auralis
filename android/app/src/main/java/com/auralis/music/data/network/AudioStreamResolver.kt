@@ -28,7 +28,7 @@ object AudioStreamResolver {
         println("[AudioStreamResolver] $msg")
     }
 
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(8000, TimeUnit.MILLISECONDS)
         .readTimeout(8000, TimeUnit.MILLISECONDS)
         .followRedirects(true)

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.player
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -133,7 +136,7 @@ fun AudioOutputBottomSheet(
             if (btOutput != null) {
                 isBluetoothConnected = true
                 val name = btOutput.productName?.toString()?.trim()
-                connectedDeviceName = if (!name.isNullOrBlank()) name else "Bluetooth Audio"
+                connectedDeviceName = if (!name.isNullOrBlank()) name else str(R.string.bluetooth_audio)
                 if (batteryPercentage == null) {
                     batteryPercentage = queryBluetoothBattery()
                 }
@@ -145,7 +148,7 @@ fun AudioOutputBottomSheet(
                 }
                 if (wired != null) {
                     isBluetoothConnected = false
-                    connectedDeviceName = wired.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Wired Headphones"
+                    connectedDeviceName = wired.productName?.toString()?.takeIf { it.isNotBlank() } ?: str(R.string.wired_headphones)
                     batteryPercentage = null
                 } else {
                     isBluetoothConnected = false
@@ -320,11 +323,11 @@ fun AudioOutputBottomSheet(
             // ── SECTION 1: CONNECTED DEVICE & EXPANDABLE ROUTE SELECTOR ──
             val isBtActive = isBluetoothConnected && !isSpeakerForced
             val deviceTitle = if (isBtActive) {
-                connectedDeviceName ?: "Bluetooth Audio"
+                connectedDeviceName ?: str(R.string.bluetooth_audio)
             } else if (!isBluetoothConnected && connectedDeviceName != null) {
                 connectedDeviceName!!
             } else {
-                "Phone speaker"
+                str(R.string.phone_speaker)
             }
 
             Column(
@@ -402,7 +405,7 @@ fun AudioOutputBottomSheet(
                                 .padding(horizontal = 10.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = "Connected",
+                                text = str(R.string.connected),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White.copy(alpha = 0.90f),
@@ -413,7 +416,7 @@ fun AudioOutputBottomSheet(
 
                     Icon(
                         imageVector = if (isDropdownExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Expand devices",
+                        contentDescription = str(R.string.expand_devices),
                         tint = Color.White.copy(alpha = 0.70f),
                         modifier = Modifier.size(24.dp)
                     )
@@ -441,8 +444,8 @@ fun AudioOutputBottomSheet(
                         // Route 1: Connected Bluetooth device (if available)
                         if (isBluetoothConnected) {
                             AudioRouteRow(
-                                title = connectedDeviceName ?: "Bluetooth Device",
-                                subtitle = "Active bluetooth route",
+                                title = connectedDeviceName ?: str(R.string.bluetooth_device),
+                                subtitle = str(R.string.active_bluetooth_route),
                                 icon = Icons.Default.Bluetooth,
                                 isSelected = !isSpeakerForced,
                                 accentColor = activeAccent,
@@ -456,8 +459,8 @@ fun AudioOutputBottomSheet(
 
                         // Route 2: This Phone
                         AudioRouteRow(
-                            title = "This phone",
-                            subtitle = "Internal device speaker",
+                            title = str(R.string.this_phone),
+                            subtitle = str(R.string.internal_device_speaker),
                             icon = Icons.Default.PhoneAndroid,
                             isSelected = isSpeakerForced || !isBluetoothConnected,
                             accentColor = activeAccent,
@@ -471,8 +474,8 @@ fun AudioOutputBottomSheet(
 
                         // Route 3: System Media Output Switcher panel
                         AudioRouteRow(
-                            title = "System audio output",
-                            subtitle = "Switch output via Android system panel",
+                            title = str(R.string.system_audio_output),
+                            subtitle = str(R.string.switch_output_via_android_system_panel),
                             icon = Icons.Default.Settings,
                             isSelected = false,
                             accentColor = activeAccent,
@@ -520,13 +523,13 @@ fun AudioOutputBottomSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = "Volume",
+                            contentDescription = str(R.string.volume),
                             tint = Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Volume",
+                            text = str(R.string.volume),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -622,7 +625,7 @@ fun AudioOutputBottomSheet(
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "Audio Quality",
+                    text = str(R.string.audio_quality),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -644,7 +647,7 @@ fun AudioOutputBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AudioQualitySegment(
-                        label = "Auto",
+                        label = str(R.string.auto),
                         isSelected = currentQuality == AudioQuality.AUTO,
                         activeColor = activeAccent,
                         onActiveTextColor = onAccentTextColor,
@@ -653,7 +656,7 @@ fun AudioOutputBottomSheet(
                     )
 
                     AudioQualitySegment(
-                        label = "High",
+                        label = str(R.string.high),
                         isSelected = currentQuality == AudioQuality.HIGH,
                         activeColor = activeAccent,
                         onActiveTextColor = onAccentTextColor,
@@ -662,7 +665,7 @@ fun AudioOutputBottomSheet(
                     )
 
                     AudioQualitySegment(
-                        label = "Low",
+                        label = str(R.string.low),
                         isSelected = currentQuality == AudioQuality.LOW,
                         activeColor = activeAccent,
                         onActiveTextColor = onAccentTextColor,
@@ -822,7 +825,7 @@ private fun AudioRouteRow(
         if (isSelected) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
+                contentDescription = str(R.string.selected),
                 tint = accentColor,
                 modifier = Modifier.size(18.dp)
             )

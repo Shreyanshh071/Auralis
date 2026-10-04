@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.graphicsLayer
@@ -157,7 +160,7 @@ fun StatsScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        text = "Stats",
+                        text = str(R.string.stats),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 22.sp
@@ -172,7 +175,7 @@ fun StatsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = str(R.string.back),
                             tint = textPrimary
                         )
                     }
@@ -184,7 +187,7 @@ fun StatsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = "Your Wrapped",
+                            contentDescription = str(R.string.your_wrapped),
                             tint = textPrimary
                         )
                     }
@@ -192,7 +195,7 @@ fun StatsScreen(
                         IconButton(onClick = { showStatsMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Stats options",
+                                contentDescription = str(R.string.stats_options),
                                 tint = textPrimary
                             )
                         }
@@ -201,7 +204,7 @@ fun StatsScreen(
                             onDismissRequest = { showStatsMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Clear listening stats") },
+                                text = { Text(str(R.string.clear_listening_stats)) },
                                 leadingIcon = {
                                     Icon(Icons.Default.DeleteOutline, contentDescription = null)
                                 },
@@ -241,10 +244,10 @@ fun StatsScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             val optionLabel = when (selectedOption) {
-                                OptionStats.CONTINUOUS -> "Continuous"
-                                OptionStats.WEEKS -> "Weeks"
-                                OptionStats.MONTHS -> "Months"
-                                OptionStats.YEARS -> "Years"
+                                OptionStats.CONTINUOUS -> str(R.string.continuous)
+                                OptionStats.WEEKS -> str(R.string.weeks)
+                                OptionStats.MONTHS -> str(R.string.months)
+                                OptionStats.YEARS -> str(R.string.years)
                             }
                             Text(
                                 text = optionLabel,
@@ -271,10 +274,10 @@ fun StatsScreen(
                             DropdownMenuItem(
                                 text = {
                                     val name = when (opt) {
-                                        OptionStats.CONTINUOUS -> "Continuous"
-                                        OptionStats.WEEKS -> "Weeks"
-                                        OptionStats.MONTHS -> "Months"
-                                        OptionStats.YEARS -> "Years"
+                                        OptionStats.CONTINUOUS -> str(R.string.continuous)
+                                        OptionStats.WEEKS -> str(R.string.weeks)
+                                        OptionStats.MONTHS -> str(R.string.months)
+                                        OptionStats.YEARS -> str(R.string.years)
                                     }
                                     Text(
                                         text = name,
@@ -332,418 +335,509 @@ fun StatsScreen(
             }
 
             // Main Stats Content
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
-            ) {
-                // Section: Your Highlights (if any top artist or song)
-                if (topArtist != null || topSong != null) {
-                    item(key = "your_highlights") {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            UnfoldIn(0, openedAtMs) { Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = themePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    text = "Your Highlights",
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    ),
-                                    color = themePrimary
-                                )
-                            } }
-
-                            // Card 1: Top Artist
-                            topArtist?.let { artist -> UnfoldIn(1, openedAtMs) {
-                                Surface(
-                                    shape = RoundedCornerShape(22.dp),
-                                    color = surfaceCardColor,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
-                                    modifier = Modifier.fillMaxWidth()
+            com.auralis.music.ui.components.AuralisRefreshBox(refresh = { viewModel.refresh() }) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp)
+                ) {
+                    // Section: Your Highlights (if any top artist or song)
+                    if (topArtist != null || topSong != null) {
+                        item(key = "your_highlights") {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                UnfoldIn(0, openedAtMs) { Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(64.dp)
-                                                .clip(CircleShape)
-                                                .background(surfaceHighestColor),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (!artist.thumbnailUrl.isNullOrBlank() && !artist.thumbnailUrl.contains("i.ytimg.com/vi/")) {
-                                                AsyncImage(
-                                                    model = ImageRequest.Builder(context)
-                                                        .data(artist.thumbnailUrl)
-                                                        .crossfade(true)
-                                                        .build(),
-                                                    contentDescription = artist.name,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Person,
-                                                    contentDescription = artist.name,
-                                                    tint = textSecondary,
-                                                    modifier = Modifier.size(34.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.width(14.dp))
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "Top Artist",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = textSecondary,
-                                                fontSize = 12.5.sp
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = artist.name,
-                                                style = MaterialTheme.typography.titleMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 16.5.sp
-                                                ),
-                                                color = textPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "${artist.songsPlayedCount} songs played • ${makeDurationString(artist.timeListenedMs)}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = textSecondary,
-                                                fontSize = 12.sp,
-                                                maxLines = 1
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.width(10.dp))
-
-                                        // Star Action Button
-                                        Box(
-                                            modifier = Modifier
-                                                .size(42.dp)
-                                                .clip(CircleShape)
-                                                .background(surfaceHighestColor)
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { onArtistClick(Artist(id = "", name = artist.name, thumbnail = artist.thumbnailUrl)) }
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Star,
-                                                contentDescription = "View Artist",
-                                                tint = themePrimary,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            } }
-
-                            // Card 2: Top Song
-                            topSong?.let { song -> UnfoldIn(2, openedAtMs) {
-                                Surface(
-                                    shape = RoundedCornerShape(22.dp),
-                                    color = surfaceCardColor,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(song.track.thumbnail)
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = song.track.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(64.dp)
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(surfaceHighestColor)
-                                        )
-
-                                        Spacer(modifier = Modifier.width(14.dp))
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "Top Song",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = textSecondary,
-                                                fontSize = 12.5.sp
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = song.track.title,
-                                                style = MaterialTheme.typography.titleMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 16.5.sp
-                                                ),
-                                                color = textPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "${song.playCount} plays • ${makeDurationString(song.timeListenedMs)}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = textSecondary,
-                                                fontSize = 12.sp,
-                                                maxLines = 1
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.width(10.dp))
-
-                                        // Play Action Button
-                                        Box(
-                                            modifier = Modifier
-                                                .size(42.dp)
-                                                .clip(CircleShape)
-                                                .background(themePrimary)
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { onPlayTrack(song.track, listOf(song.track)) }
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.PlayArrow,
-                                                contentDescription = "Play Song",
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            } }
-                        }
-                    }
-                }
-
-                // Section: Listening Overview
-                item(key = "listening_overview") {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        UnfoldIn(3, openedAtMs) { Text(
-                            text = "Listening Overview",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            ),
-                            color = themePrimary
-                        ) }
-
-                        // Hero Card: Total Time Listened
-                        UnfoldIn(4, openedAtMs) {
-                        Surface(
-                            shape = RoundedCornerShape(24.dp),
-                            color = surfaceCardColor,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 22.dp, vertical = 20.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // The Auralis mark, turning slowly and steadily (one turn per 12s).
-                                // Rotation is read in the draw phase, so the spin never recomposes.
-                                val logoSpin = androidx.compose.animation.core.rememberInfiniteTransition(label = "statsLogoSpin")
-                                val logoRotation = logoSpin.animateFloat(
-                                    initialValue = 0f,
-                                    targetValue = 360f,
-                                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                                        animation = androidx.compose.animation.core.tween(
-                                            durationMillis = 12_000,
-                                            easing = androidx.compose.animation.core.LinearEasing
-                                        )
-                                    ),
-                                    label = "statsLogoRotation"
-                                )
-                                // A well so the mark reads cleanly against the card: darker than the
-                                // card in dark theme, lighter than it in light theme (a dark well on
-                                // a light card read as a plain grey blob, not a well).
-                                val isDarkTheme = MaterialTheme.dynamicPalette.isDark
-                                val logoWellColor = if (isDarkTheme) Color.Black.copy(alpha = 0.38f) else Color.White.copy(alpha = 0.55f)
-                                Box(
-                                    modifier = Modifier
-                                        .size(100.dp)
-                                        .clip(CircleShape)
-                                        .background(logoWellColor),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    androidx.compose.foundation.Image(
-                                        painter = androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_header_logo),
-                                        contentDescription = "Auralis",
-                                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(textPrimary),
-                                        modifier = Modifier
-                                            .size(60.dp)
-                                            .graphicsLayer {
-                                                // The mark's visual centre (alpha centroid of the three
-                                                // lobes) sits 7.3% below the PNG's centre. Spinning about
-                                                // the PNG centre made it wobble off-centre, so rotate
-                                                // about the centroid and lift it into the circle's middle.
-                                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, LOGO_VISUAL_CENTER_Y)
-                                                translationY = -(LOGO_VISUAL_CENTER_Y - 0.5f) * size.height
-                                                rotationZ = logoRotation.value
-                                            }
+                                    Icon(
+                                        imageVector = Icons.Rounded.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = themePrimary,
+                                        modifier = Modifier.size(20.dp)
                                     )
-                                }
-
-                                Spacer(modifier = Modifier.width(22.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Total Time Listened",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = textSecondary,
-                                        fontSize = 13.5.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = makeDurationString(overview.totalPlayTimeMs),
-                                        style = MaterialTheme.typography.headlineLarge.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 36.sp,
-                                            letterSpacing = (-1).sp
-                                        ),
-                                        color = textPrimary
-                                    )
-                                }
-                            }
-                        }
-                        }
-
-                        // Row of 3 mini metric cards
-                        UnfoldIn(5, openedAtMs) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            // Card 1: Songs
-                            MetricMiniCard(
-                                icon = Icons.Rounded.MusicNote,
-                                count = overview.songsCount,
-                                label = "Songs",
-                                isDark = isDark,
-                                cardBg = surfaceCardColor,
-                                borderColor = cardBorderColor,
-                                textPrimary = textPrimary,
-                                textSecondary = textSecondary,
-                                iconTint = themePrimary,
-                                iconBg = surfaceHighestColor,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            // Card 2: Artists
-                            MetricMiniCard(
-                                icon = Icons.Rounded.Headphones,
-                                count = overview.artistsCount,
-                                label = "Artists",
-                                isDark = isDark,
-                                cardBg = surfaceCardColor,
-                                borderColor = cardBorderColor,
-                                textPrimary = textPrimary,
-                                textSecondary = textSecondary,
-                                iconTint = themePrimary,
-                                iconBg = surfaceHighestColor,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            // Card 3: Albums
-                            MetricMiniCard(
-                                icon = Icons.Rounded.Album,
-                                count = overview.albumsCount,
-                                label = "Albums",
-                                isDark = isDark,
-                                cardBg = surfaceCardColor,
-                                borderColor = cardBorderColor,
-                                textPrimary = textPrimary,
-                                textSecondary = textSecondary,
-                                iconTint = themePrimary,
-                                iconBg = surfaceHighestColor,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        }
-                    }
-                }
-
-                // Section: Top Songs
-                if (topSongs.isNotEmpty()) {
-                    item(key = "top_songs_header") { UnfoldIn(6, openedAtMs) {
-                        Text(
-                            text = "Top Songs",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            ),
-                            color = themePrimary
-                        )
-                    } }
-
-                    itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    onPlayTrack(songStat.track, topSongs.map { it.track })
-                                }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(songStat.track.thumbnail)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = songStat.track.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(surfaceHighestColor)
-                            )
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "${index + 1}. ",
+                                        text = str(R.string.your_highlights),
                                         style = MaterialTheme.typography.titleMedium.copy(
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp
+                                            fontSize = 18.sp
                                         ),
                                         color = themePrimary
                                     )
+                                } }
+
+                                // Card 1: Top Artist
+                                topArtist?.let { artist -> UnfoldIn(1, openedAtMs) {
+                                    Surface(
+                                        shape = RoundedCornerShape(22.dp),
+                                        color = surfaceCardColor,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(64.dp)
+                                                    .clip(CircleShape)
+                                                    .background(surfaceHighestColor),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (!artist.thumbnailUrl.isNullOrBlank() && !artist.thumbnailUrl.contains("i.ytimg.com/vi/")) {
+                                                    AsyncImage(
+                                                        model = ImageRequest.Builder(context)
+                                                            .data(artist.thumbnailUrl)
+                                                            .crossfade(true)
+                                                            .build(),
+                                                        contentDescription = artist.name,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Person,
+                                                        contentDescription = artist.name,
+                                                        tint = textSecondary,
+                                                        modifier = Modifier.size(34.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(14.dp))
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = str(R.string.top_artist),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = textSecondary,
+                                                    fontSize = 12.5.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = artist.name,
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 16.5.sp
+                                                    ),
+                                                    color = textPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = str(R.string.x_songs_played_x, artist.songsPlayedCount, makeDurationString(artist.timeListenedMs)),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = textSecondary,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(10.dp))
+
+                                            // Star Action Button
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(42.dp)
+                                                    .clip(CircleShape)
+                                                    .background(surfaceHighestColor)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null,
+                                                        onClick = { onArtistClick(Artist(id = "", name = artist.name, thumbnail = artist.thumbnailUrl)) }
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Star,
+                                                    contentDescription = str(R.string.view_artist_2),
+                                                    tint = themePrimary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } }
+
+                                // Card 2: Top Song
+                                topSong?.let { song -> UnfoldIn(2, openedAtMs) {
+                                    Surface(
+                                        shape = RoundedCornerShape(22.dp),
+                                        color = surfaceCardColor,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(song.track.thumbnail)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = song.track.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(64.dp)
+                                                    .clip(RoundedCornerShape(16.dp))
+                                                    .background(surfaceHighestColor)
+                                            )
+
+                                            Spacer(modifier = Modifier.width(14.dp))
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = str(R.string.top_song),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = textSecondary,
+                                                    fontSize = 12.5.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = song.track.title,
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 16.5.sp
+                                                    ),
+                                                    color = textPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = str(R.string.x_plays_x, song.playCount, makeDurationString(song.timeListenedMs)),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = textSecondary,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(10.dp))
+
+                                            // Play Action Button
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(42.dp)
+                                                    .clip(CircleShape)
+                                                    .background(themePrimary)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null,
+                                                        onClick = { onPlayTrack(song.track, listOf(song.track)) }
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.PlayArrow,
+                                                    contentDescription = str(R.string.play_song),
+                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } }
+                            }
+                        }
+                    }
+
+                    // Section: Listening Overview
+                    item(key = "listening_overview") {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            UnfoldIn(3, openedAtMs) { Text(
+                                text = str(R.string.listening_overview),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                ),
+                                color = themePrimary
+                            ) }
+
+                            // Hero Card: Total Time Listened
+                            UnfoldIn(4, openedAtMs) {
+                            Surface(
+                                shape = RoundedCornerShape(24.dp),
+                                color = surfaceCardColor,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 22.dp, vertical = 20.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // The Auralis mark, turning slowly and steadily (one turn per 12s).
+                                    // Rotation is read in the draw phase, so the spin never recomposes.
+                                    val logoSpin = androidx.compose.animation.core.rememberInfiniteTransition(label = "statsLogoSpin")
+                                    val logoRotation = logoSpin.animateFloat(
+                                        initialValue = 0f,
+                                        targetValue = 360f,
+                                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                            animation = androidx.compose.animation.core.tween(
+                                                durationMillis = 12_000,
+                                                easing = androidx.compose.animation.core.LinearEasing
+                                            )
+                                        ),
+                                        label = "statsLogoRotation"
+                                    )
+                                    // A well so the mark reads cleanly against the card: darker than the
+                                    // card in dark theme, lighter than it in light theme (a dark well on
+                                    // a light card read as a plain grey blob, not a well).
+                                    val isDarkTheme = MaterialTheme.dynamicPalette.isDark
+                                    val logoWellColor = if (isDarkTheme) Color.Black.copy(alpha = 0.38f) else Color.White.copy(alpha = 0.55f)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .clip(CircleShape)
+                                            .background(logoWellColor),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        androidx.compose.foundation.Image(
+                                            painter = androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_header_logo),
+                                            contentDescription = str(R.string.auralis),
+                                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(textPrimary),
+                                            modifier = Modifier
+                                                .size(60.dp)
+                                                .graphicsLayer {
+                                                    // The mark's visual centre (alpha centroid of the three
+                                                    // lobes) sits 7.3% below the PNG's centre. Spinning about
+                                                    // the PNG centre made it wobble off-centre, so rotate
+                                                    // about the centroid and lift it into the circle's middle.
+                                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, LOGO_VISUAL_CENTER_Y)
+                                                    translationY = -(LOGO_VISUAL_CENTER_Y - 0.5f) * size.height
+                                                    rotationZ = logoRotation.value
+                                                }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(22.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = str(R.string.total_time_listened),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = textSecondary,
+                                            fontSize = 13.5.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = makeDurationString(overview.totalPlayTimeMs),
+                                            style = MaterialTheme.typography.headlineLarge.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 36.sp,
+                                                letterSpacing = (-1).sp
+                                            ),
+                                            color = textPrimary
+                                        )
+                                    }
+                                }
+                            }
+                            }
+
+                            // Row of 3 mini metric cards
+                            UnfoldIn(5, openedAtMs) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Card 1: Songs
+                                MetricMiniCard(
+                                    icon = Icons.Rounded.MusicNote,
+                                    count = overview.songsCount,
+                                    label = str(R.string.songs),
+                                    isDark = isDark,
+                                    cardBg = surfaceCardColor,
+                                    borderColor = cardBorderColor,
+                                    textPrimary = textPrimary,
+                                    textSecondary = textSecondary,
+                                    iconTint = themePrimary,
+                                    iconBg = surfaceHighestColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                // Card 2: Artists
+                                MetricMiniCard(
+                                    icon = Icons.Rounded.Headphones,
+                                    count = overview.artistsCount,
+                                    label = str(R.string.artists),
+                                    isDark = isDark,
+                                    cardBg = surfaceCardColor,
+                                    borderColor = cardBorderColor,
+                                    textPrimary = textPrimary,
+                                    textSecondary = textSecondary,
+                                    iconTint = themePrimary,
+                                    iconBg = surfaceHighestColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                // Card 3: Albums
+                                MetricMiniCard(
+                                    icon = Icons.Rounded.Album,
+                                    count = overview.albumsCount,
+                                    label = str(R.string.albums),
+                                    isDark = isDark,
+                                    cardBg = surfaceCardColor,
+                                    borderColor = cardBorderColor,
+                                    textPrimary = textPrimary,
+                                    textSecondary = textSecondary,
+                                    iconTint = themePrimary,
+                                    iconBg = surfaceHighestColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            }
+                        }
+                    }
+
+                    // Section: Top Songs
+                    if (topSongs.isNotEmpty()) {
+                        item(key = "top_songs_header") { UnfoldIn(6, openedAtMs) {
+                            Text(
+                                text = str(R.string.top_songs),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                ),
+                                color = themePrimary
+                            )
+                        } }
+
+                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        onPlayTrack(songStat.track, topSongs.map { it.track })
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(songStat.track.thumbnail)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = songStat.track.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(surfaceHighestColor)
+                                )
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "${index + 1}. ",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp
+                                            ),
+                                            color = themePrimary
+                                        )
+                                        Text(
+                                            text = songStat.track.title,
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 15.sp
+                                            ),
+                                            color = textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    val timesLabel = if (songStat.playCount == 1) str(R.string.t_1_time) else str(R.string.x_times, songStat.playCount)
                                     Text(
-                                        text = songStat.track.title,
+                                        text = "$timesLabel • ${makeDurationString(songStat.timeListenedMs)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = textSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { selectedTrackForMenu = songStat.track },
+                                    modifier = Modifier.tactileBounce(0.88f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = str(R.string.options),
+                                        tint = textSecondary
+                                    )
+                                }
+                            }
+                        } }
+                    }
+
+                    // Section: Top Artists
+                    if (topArtists.isNotEmpty()) {
+                        item(key = "top_artists_header") { UnfoldIn(14, openedAtMs) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = str(R.string.top_artists),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                ),
+                                color = themePrimary
+                            )
+                        } }
+
+                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        onArtistClick(Artist(id = "", name = artistStat.name, thumbnail = artistStat.thumbnailUrl))
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape)
+                                        .background(surfaceHighestColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!artistStat.thumbnailUrl.isNullOrBlank() && !artistStat.thumbnailUrl.contains("i.ytimg.com/vi/")) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(artistStat.thumbnailUrl)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = artistStat.name,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Person,
+                                            contentDescription = artistStat.name,
+                                            tint = textSecondary,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = artistStat.name,
                                         style = MaterialTheme.typography.titleMedium.copy(
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 15.sp
@@ -752,136 +846,47 @@ fun StatsScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    val timesLabel = if (artistStat.songsPlayedCount == 1) str(R.string.t_1_song) else str(R.string.x_songs, artistStat.songsPlayedCount)
+                                    Text(
+                                        text = "$timesLabel • ${makeDurationString(artistStat.timeListenedMs)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = textSecondary,
+                                        fontSize = 12.sp
+                                    )
                                 }
-                                Spacer(modifier = Modifier.height(3.dp))
-                                val timesLabel = if (songStat.playCount == 1) "1 time" else "${songStat.playCount} times"
-                                Text(
-                                    text = "$timesLabel • ${makeDurationString(songStat.timeListenedMs)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = textSecondary,
-                                    fontSize = 12.sp
-                                )
                             }
+                        } }
+                    }
 
-                            IconButton(
-                                onClick = { selectedTrackForMenu = songStat.track },
-                                modifier = Modifier.tactileBounce(0.88f)
+                    // Empty state if no stats at all
+                    if (overview.totalPlayTimeMs <= 0 && topSongs.isEmpty() && topArtists.isEmpty()) {
+                        item(key = "empty_stats") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
-                                    tint = textSecondary
+                                    imageVector = Icons.Rounded.Headphones,
+                                    contentDescription = null,
+                                    tint = themePrimary.copy(alpha = 0.60f),
+                                    modifier = Modifier.size(64.dp)
                                 )
-                            }
-                        }
-                    } }
-                }
-
-                // Section: Top Artists
-                if (topArtists.isNotEmpty()) {
-                    item(key = "top_artists_header") { UnfoldIn(14, openedAtMs) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Top Artists",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            ),
-                            color = themePrimary
-                        )
-                    } }
-
-                    itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    onArtistClick(Artist(id = "", name = artistStat.name, thumbnail = artistStat.thumbnailUrl))
-                                }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(surfaceHighestColor),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!artistStat.thumbnailUrl.isNullOrBlank() && !artistStat.thumbnailUrl.contains("i.ytimg.com/vi/")) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(artistStat.thumbnailUrl)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = artistStat.name,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Person,
-                                        contentDescription = artistStat.name,
-                                        tint = textSecondary,
-                                        modifier = Modifier.size(30.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
+                                Spacer(modifier = Modifier.height(14.dp))
                                 Text(
-                                    text = artistStat.name,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp
-                                    ),
-                                    color = textPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = str(R.string.no_listening_stats_yet),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = textPrimary
                                 )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                val timesLabel = if (artistStat.songsPlayedCount == 1) "1 song" else "${artistStat.songsPlayedCount} songs"
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "$timesLabel • ${makeDurationString(artistStat.timeListenedMs)}",
+                                    text = str(R.string.play_your_favorite_music_and_your_listen),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = textSecondary,
-                                    fontSize = 12.sp
+                                    color = textSecondary
                                 )
                             }
-                        }
-                    } }
-                }
-
-                // Empty state if no stats at all
-                if (overview.totalPlayTimeMs <= 0 && topSongs.isEmpty() && topArtists.isEmpty()) {
-                    item(key = "empty_stats") {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 40.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Headphones,
-                                contentDescription = null,
-                                tint = themePrimary.copy(alpha = 0.60f),
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "No listening stats yet",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = textPrimary
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Play your favorite music and your listening habits will appear here!",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = textSecondary
-                            )
                         }
                     }
                 }
@@ -917,12 +922,12 @@ fun StatsScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Shuffle,
-                        contentDescription = "Shuffle",
+                        contentDescription = str(R.string.shuffle),
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Shuffle",
+                        text = str(R.string.shuffle),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.5.sp
@@ -970,9 +975,9 @@ fun StatsScreen(
         if (showClearConfirmation) {
             AlertDialog(
                 onDismissRequest = { if (!isClearingStats) showClearConfirmation = false },
-                title = { Text("Clear listening stats?") },
+                title = { Text(str(R.string.clear_listening_stats_2)) },
                 text = {
-                    Text("This clears your listening history, play counts, and all Stats data on this device. Saved songs, playlists, and downloads stay. New listens will count from zero.")
+                    Text(str(R.string.this_clears_your_listening_history_play))
                 },
                 confirmButton = {
                     TextButton(
@@ -984,20 +989,20 @@ fun StatsScreen(
                                 if (succeeded) showClearConfirmation = false
                                 Toast.makeText(
                                     context,
-                                    if (succeeded) "Listening stats cleared" else "Could not clear listening stats",
+                                    if (succeeded) str(R.string.listening_stats_cleared) else str(R.string.could_not_clear_listening_stats),
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
                         }
                     ) {
-                        Text("Clear", color = MaterialTheme.colorScheme.error)
+                        Text(str(R.string.clear), color = MaterialTheme.colorScheme.error)
                     }
                 },
                 dismissButton = {
                     TextButton(
                         enabled = !isClearingStats,
                         onClick = { showClearConfirmation = false }
-                    ) { Text("Cancel") }
+                    ) { Text(str(R.string.cancel)) }
                 }
             )
         }

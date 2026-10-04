@@ -1,5 +1,7 @@
 package com.auralis.music.ui.screens.wrapped
 
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -115,7 +117,7 @@ fun WrappedIntroPage(isVisible: Boolean, onNext: () -> Unit) {
             Reveal(shown, 200) {
                 Image(
                     painter = painterResource(R.drawable.ic_auralis_logo),
-                    contentDescription = "Auralis",
+                    contentDescription = str(R.string.auralis),
                     modifier = Modifier.size(100.dp).clip(CircleShape)
                 )
             }
@@ -132,7 +134,7 @@ fun WrappedIntroPage(isVisible: Boolean, onNext: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             Reveal(shown, 600) {
                 Text(
-                    "it's time to see what you've been listening to",
+                    str(R.string.it_s_time_to_see_what_you_ve_been_listen),
                     color = Color.White,
                     fontSize = 16.sp,
                     textAlign = TextAlign.Center,
@@ -145,7 +147,7 @@ fun WrappedIntroPage(isVisible: Boolean, onNext: () -> Unit) {
             enter = fadeIn(tween(1_000, delayMillis = 1_000)) + slideInVertically(tween(1_000, delayMillis = 1_000)) { it },
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
         ) {
-            PillButton("let's go!", onNext)
+            PillButton(str(R.string.let_s_go), onNext)
         }
     }
 }
@@ -268,7 +270,7 @@ fun WrappedHeroPage(
             Spacer(Modifier.height(16.dp))
             Reveal(shown, 600) {
                 Text(
-                    name ?: "No data",
+                    name ?: str(R.string.no_data),
                     color = Color.White,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
@@ -307,7 +309,7 @@ fun WrappedTopFivePage(
             Reveal(shown, 200) { DisplayTitle(heading) }
             Spacer(Modifier.height(32.dp))
             if (rows.isEmpty()) {
-                Reveal(shown, 400) { Text("No data", color = Dim, fontSize = 16.sp) }
+                Reveal(shown, 400) { Text(str(R.string.no_data), color = Dim, fontSize = 16.sp) }
             }
             Column(Modifier.fillMaxWidth()) {
                 rows.forEachIndexed { index, row ->
@@ -364,7 +366,7 @@ fun WrappedPlaylistPage(
         ) {
             Reveal(shown, 0) {
                 AutoResizingText(
-                    "YOUR PERSONAL PLAYLIST IS READY",
+                    str(R.string.your_personal_playlist_is_ready),
                     TextStyle(fontFamily = WrappedDisplayFont, fontSize = 40.sp, color = Color.White, textAlign = TextAlign.Center)
                 )
             }
@@ -372,19 +374,19 @@ fun WrappedPlaylistPage(
             Reveal(shown, 200) { WrappedCover(year, coverUrls) }
             Spacer(Modifier.height(24.dp))
             Reveal(shown, 400) {
-                Text("Your $year Wrapped", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(str(R.string.your_x_wrapped, year), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
             Spacer(Modifier.height(40.dp))
             Reveal(shown, 600) {
                 PillButton(
-                    text = if (saveState == PlaylistSaveState.Saved) "Playlist saved" else "Create playlist",
+                    text = if (saveState == PlaylistSaveState.Saved) str(R.string.playlist_saved) else str(R.string.create_playlist_2),
                     onClick = { if (saveState == PlaylistSaveState.Idle) onSave() }
                 ) {
                     if (saveState == PlaylistSaveState.Saving) {
                         CircularProgressIndicator(Modifier.size(24.dp), color = Color.Black, strokeWidth = 2.dp)
                     } else {
                         Text(
-                            if (saveState == PlaylistSaveState.Saved) "Playlist saved" else "Create playlist",
+                            if (saveState == PlaylistSaveState.Saved) str(R.string.playlist_saved) else str(R.string.create_playlist_2),
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
@@ -407,7 +409,7 @@ private fun WrappedCover(year: Int, coverUrls: List<String?>) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("AURALIS", fontFamily = WrappedDisplayFont, fontSize = 22.sp, color = Color(0xFFE8C27A))
-        Text("WRAPPED $year", fontFamily = WrappedDisplayFont, fontSize = 12.sp, color = Color(0xFFE8C27A).copy(alpha = 0.7f))
+        Text(str(R.string.wrapped_x, year), fontFamily = WrappedDisplayFont, fontSize = 12.sp, color = Color(0xFFE8C27A).copy(alpha = 0.7f))
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
             Column {
@@ -446,20 +448,20 @@ fun WrappedConclusionPage(isVisible: Boolean, onClose: () -> Unit) {
             Reveal(shown, 0) {
                 Image(
                     painter = painterResource(R.drawable.ic_auralis_logo),
-                    contentDescription = "Auralis",
+                    contentDescription = str(R.string.auralis),
                     modifier = Modifier.size(80.dp).clip(CircleShape)
                 )
             }
             Spacer(Modifier.height(16.dp))
             Reveal(shown, 200) {
-                Text("Thank you for listening", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
+                Text(str(R.string.thank_you_for_listening), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
             }
             Spacer(Modifier.height(8.dp))
             Reveal(shown, 400) {
-                Text("See you next year on Auralis", fontSize = 15.sp, color = Faint, textAlign = TextAlign.Center)
+                Text(str(R.string.see_you_next_year_on_auralis), fontSize = 15.sp, color = Faint, textAlign = TextAlign.Center)
             }
             Spacer(Modifier.height(32.dp))
-            Reveal(shown, 600) { PillButton("Close wrapped", onClose) }
+            Reveal(shown, 600) { PillButton(str(R.string.close_wrapped), onClose) }
         }
     }
 }
@@ -473,16 +475,16 @@ fun WrappedEmptyPage(year: Int, onClose: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            DisplayTitle("NOTHING TO WRAP YET", fontSize = 32)
+            DisplayTitle(str(R.string.nothing_to_wrap_yet), fontSize = 32)
             Spacer(Modifier.height(16.dp))
             Text(
-                "Listen to some music in $year and your Wrapped will show up here.",
+                str(R.string.listen_to_some_music_in_x_and_your_wrapp, year),
                 color = Dim,
                 fontSize = 16.sp,
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(32.dp))
-            PillButton("Close", onClose)
+            PillButton(str(R.string.close), onClose)
         }
     }
 }

@@ -1,5 +1,8 @@
 package com.auralis.music.data.service
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -303,7 +306,7 @@ class YouTubeAudioEngine(private val context: Context) {
                                 url.contains("adformat")
 
                         if (isAd) {
-                            return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                            return WebResourceResponse(str(R.string.text_plain), str(R.string.utf_8), java.io.ByteArrayInputStream(ByteArray(0)))
                         }
                         return super.shouldInterceptRequest(view, request)
                     }

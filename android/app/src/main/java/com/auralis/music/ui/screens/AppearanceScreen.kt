@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
@@ -207,13 +210,13 @@ fun AppearanceScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Appearance",
+                    text = str(R.string.appearance),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -230,12 +233,12 @@ fun AppearanceScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // ════ 1. THEME ════
-                item(key = "hdr_theme") { AppearanceSectionHeader(title = "Theme", color = primaryColor) }
+                item(key = "hdr_theme") { AppearanceSectionHeader(title = str(R.string.theme), color = primaryColor) }
                 item(key = "item_theme_colors") {
                     AppearanceClickableItem(
                         icon = Icons.Default.Palette,
-                        title = "Theme & Colors",
-                        subtitle = "${settings.appTheme} • ${settings.colorPalette}",
+                        title = str(R.string.theme_colors),
+                        subtitle = "${com.auralis.music.ui.i18n.UiLabels.of(settings.appTheme)} • ${com.auralis.music.ui.i18n.UiLabels.of(settings.colorPalette)}",
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -247,8 +250,8 @@ fun AppearanceScreen(
                 item(key = "item_high_refresh") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Speed,
-                        title = "Enable high refresh rate",
-                        subtitle = "Forces the display to run at its highest supported refresh rate (e.g. 120Hz)",
+                        title = str(R.string.enable_high_refresh_rate),
+                        subtitle = str(R.string.forces_the_display_to_run_at_its_highest),
                         isChecked = settings.highRefreshRate,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -264,8 +267,8 @@ fun AppearanceScreen(
                 item(key = "item_landscape_scaling") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.AspectRatio,
-                        title = "Landscape Scaling",
-                        subtitle = "Scale UI in landscape mode for larger screens",
+                        title = str(R.string.landscape_scaling),
+                        subtitle = str(R.string.scale_ui_in_landscape_mode_for_larger_sc),
                         isChecked = settings.landscapeScaling,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -281,8 +284,8 @@ fun AppearanceScreen(
                 item(key = "item_dynamic_icons") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.ColorLens,
-                        title = "Dynamic icon colors",
-                        subtitle = "Use dynamic theme colors for the app icon. When disabled, the icon uses solid colors.",
+                        title = str(R.string.dynamic_icon_colors),
+                        subtitle = str(R.string.use_dynamic_theme_colors_for_the_app_ico),
                         isChecked = settings.dynamicIconColors,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -297,12 +300,12 @@ fun AppearanceScreen(
                 }
 
                 // ════ 2. MINI-PLAYER ════
-                item(key = "hdr_mini_player") { AppearanceSectionHeader(title = "Mini-player", color = primaryColor) }
+                item(key = "hdr_mini_player") { AppearanceSectionHeader(title = str(R.string.mini_player), color = primaryColor) }
                 item(key = "item_mini_design") {
                     AppearanceClickableItem(
                         icon = Icons.Default.PictureInPictureAlt,
-                        title = "Mini-player design",
-                        subtitle = settings.miniPlayerDesign,
+                        title = str(R.string.mini_player_design),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.miniPlayerDesign),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -314,8 +317,8 @@ fun AppearanceScreen(
                 item(key = "item_pure_black_mini") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.DarkMode,
-                        title = "Pure black mini player",
-                        subtitle = "Force deep AMOLED black background on mini-player",
+                        title = str(R.string.pure_black_mini_player),
+                        subtitle = str(R.string.force_deep_amoled_black_background_on_mi),
                         isChecked = settings.pureBlackMiniPlayer,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -332,8 +335,8 @@ fun AppearanceScreen(
                     val isPureBlackActive = settings.pureBlackMiniPlayer && settings.miniPlayerDesign != "Expanded mini player"
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
-                        title = "Mini-player background style",
-                        subtitle = if (isPureBlackActive) "Unavailable when pure black is enabled" else PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
+                        title = str(R.string.mini_player_background_style),
+                        subtitle = if (isPureBlackActive) str(R.string.unavailable_when_pure_black_is_enabled) else PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -348,12 +351,12 @@ fun AppearanceScreen(
                 }
 
                 // ════ 3. PLAYER ════
-                item(key = "hdr_player") { AppearanceSectionHeader(title = "Player", color = primaryColor) }
+                item(key = "hdr_player") { AppearanceSectionHeader(title = str(R.string.player), color = primaryColor) }
                 item(key = "item_new_player") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.ColorLens,
-                        title = "New player design",
-                        subtitle = "Modern expanded now-playing screen with rich gestures",
+                        title = str(R.string.new_player_design),
+                        subtitle = str(R.string.modern_expanded_now_playing_screen_with),
                         isChecked = settings.newPlayerDesign,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -372,8 +375,8 @@ fun AppearanceScreen(
                     }
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
-                        title = "Player background style",
-                        subtitle = resolvedPlayerBg.displayName,
+                        title = str(R.string.player_background_style),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(resolvedPlayerBg.displayName),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -385,8 +388,8 @@ fun AppearanceScreen(
                 item(key = "item_player_slider_style") {
                     AppearanceClickableItem(
                         icon = Icons.Default.LinearScale,
-                        title = "Player slider style",
-                        subtitle = settings.playerSliderStyle,
+                        title = str(R.string.player_slider_style),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.playerSliderStyle),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -398,8 +401,8 @@ fun AppearanceScreen(
                 item(key = "item_swipe_change_song") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
-                        title = "Enable swipe to change song",
-                        subtitle = "Swipe horizontally across player to skip or rewind",
+                        title = str(R.string.enable_swipe_to_change_song),
+                        subtitle = str(R.string.swipe_horizontally_across_player_to_skip),
                         isChecked = settings.enableSwipeToChangeSong,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -414,12 +417,12 @@ fun AppearanceScreen(
                 }
 
                 // ════ 4. LYRICS ════
-                item(key = "hdr_lyrics") { AppearanceSectionHeader(title = "Lyrics", color = primaryColor) }
+                item(key = "hdr_lyrics") { AppearanceSectionHeader(title = str(R.string.lyrics), color = primaryColor) }
                 item(key = "item_lyrics_text_position") {
                     AppearanceClickableItem(
                         icon = Icons.Default.FormatAlignCenter,
-                        title = "Lyrics text position",
-                        subtitle = settings.lyricsTextPosition,
+                        title = str(R.string.lyrics_text_position),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.lyricsTextPosition),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -431,8 +434,8 @@ fun AppearanceScreen(
                 item(key = "item_lyrics_animation") {
                     AppearanceClickableItem(
                         icon = Icons.Default.GraphicEq,
-                        title = "Lyrics animation",
-                        subtitle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName,
+                        title = str(R.string.lyrics_animation),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -444,8 +447,8 @@ fun AppearanceScreen(
                 item(key = "item_lyrics_blur") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.HideImage,
-                        title = "Standard lyrics blur",
-                        subtitle = "Apply soft blur focus to inactive lyrics",
+                        title = str(R.string.standard_lyrics_blur),
+                        subtitle = str(R.string.apply_soft_blur_focus_to_inactive_lyrics),
                         isChecked = settings.standardLyricsBlur,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -461,8 +464,8 @@ fun AppearanceScreen(
                 item(key = "item_lyrics_size") {
                     AppearanceClickableItem(
                         icon = Icons.Default.AspectRatio,
-                        title = "Lyrics text size",
-                        subtitle = "${settings.lyricsTextSize.roundToInt()} sp",
+                        title = str(R.string.lyrics_text_size),
+                        subtitle = str(R.string.x_sp, settings.lyricsTextSize.roundToInt()),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -474,7 +477,7 @@ fun AppearanceScreen(
                 item(key = "item_lyrics_spacing") {
                     AppearanceClickableItem(
                         icon = Icons.Default.LinearScale,
-                        title = "Lyrics line spacing",
+                        title = str(R.string.lyrics_line_spacing),
                         subtitle = "${String.format(java.util.Locale.US, "%.1f", settings.lyricsLineSpacing)}x",
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -487,8 +490,8 @@ fun AppearanceScreen(
                 item(key = "item_lyrics_tap") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.TouchApp,
-                        title = "Change lyrics on click",
-                        subtitle = "Seek track playback to the clicked lyric timestamp",
+                        title = str(R.string.change_lyrics_on_click),
+                        subtitle = str(R.string.seek_track_playback_to_the_clicked_lyric),
                         isChecked = settings.changeLyricsOnTap,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -504,8 +507,8 @@ fun AppearanceScreen(
                 item(key = "item_lyrics_autoscroll") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.VerticalAlignBottom,
-                        title = "Auto scroll lyrics",
-                        subtitle = "Automatically keep the active lyric centered in view",
+                        title = str(R.string.auto_scroll_lyrics),
+                        subtitle = str(R.string.automatically_keep_the_active_lyric_cent),
                         isChecked = settings.autoScrollLyrics,
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
@@ -520,11 +523,11 @@ fun AppearanceScreen(
                 }
 
                 // ════ 5. MISC ════
-                item(key = "hdr_misc") { AppearanceSectionHeader(title = "Misc", color = primaryColor) }
+                item(key = "hdr_misc") { AppearanceSectionHeader(title = str(R.string.misc), color = primaryColor) }
                 item(key = "item_swipe_queue") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
-                        title = "Swipe left to add the song to the queue, or right to play it next",
+                        title = str(R.string.swipe_left_to_add_the_song_to_the_queue),
                         subtitle = null,
                         isChecked = settings.swipeLeftQueueRightPlayNext,
                         primaryColor = primaryColor,
@@ -541,7 +544,7 @@ fun AppearanceScreen(
                 item(key = "item_swipe_remove") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Swipe,
-                        title = "Swipe to remove the song from the playlist",
+                        title = str(R.string.swipe_to_remove_the_song_from_the_playli),
                         subtitle = null,
                         isChecked = settings.swipeToRemoveSongFromPlaylist,
                         primaryColor = primaryColor,
@@ -558,8 +561,8 @@ fun AppearanceScreen(
                 item(key = "item_display_density") {
                     AppearanceClickableItem(
                         icon = Icons.Default.ViewModule,
-                        title = "Display density",
-                        subtitle = settings.displayDensity,
+                        title = str(R.string.display_density),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.displayDensity),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -570,11 +573,11 @@ fun AppearanceScreen(
                 }
 
                 // ════ 6. AUTO PLAYLISTS ════
-                item(key = "hdr_auto_playlists") { AppearanceSectionHeader(title = "Auto playlists", color = primaryColor) }
+                item(key = "hdr_auto_playlists") { AppearanceSectionHeader(title = str(R.string.auto_playlists), color = primaryColor) }
                 item(key = "item_show_liked") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.Favorite,
-                        title = "Show Liked playlist",
+                        title = str(R.string.show_liked_playlist),
                         subtitle = null,
                         isChecked = settings.showLikedPlaylist,
                         primaryColor = primaryColor,
@@ -591,7 +594,7 @@ fun AppearanceScreen(
                 item(key = "item_show_downloaded") {
                     AppearanceSwitchItem(
                         icon = Icons.Default.CheckCircle,
-                        title = "Show Downloaded playlist",
+                        title = str(R.string.show_downloaded_playlist),
                         subtitle = null,
                         isChecked = settings.showDownloadedPlaylist,
                         primaryColor = primaryColor,
@@ -622,7 +625,7 @@ fun AppearanceScreen(
     when (activeDialog) {
         AppearanceDialogType.THEME -> {
             AppearanceOptionsDialog(
-                title = "Theme",
+                title = str(R.string.theme),
                 options = listOf("Follow system", "Pure AMOLED Black", "Midnight Velvet Dark", "Light Mode", "Dynamic Material You"),
                 selectedOption = settings.appTheme,
                 onSelect = {
@@ -634,7 +637,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.MINI_PLAYER_DESIGN -> {
             AppearanceOptionsDialog(
-                title = "Mini-player design",
+                title = str(R.string.mini_player_design),
                 options = listOf("Expanded mini player", "New mini player", "Classic mini player", "Material3"),
                 selectedOption = settings.miniPlayerDesign,
                 onSelect = {
@@ -647,7 +650,7 @@ fun AppearanceScreen(
         AppearanceDialogType.MINI_PLAYER_BG -> {
             val bgOptions = PlayerBackgroundStyle.entries.map { it.displayName }
             AppearanceOptionsDialog(
-                title = "Mini-player background style",
+                title = str(R.string.mini_player_background_style),
                 options = bgOptions,
                 selectedOption = PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
                 onSelect = {
@@ -665,7 +668,7 @@ fun AppearanceScreen(
                 if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else it
             }
             AppearanceOptionsDialog(
-                title = "Player background style",
+                title = str(R.string.player_background_style),
                 options = bgOptions,
                 selectedOption = currentStyle.displayName,
                 onSelect = {
@@ -677,7 +680,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.PLAYER_BUTTON_COLORS -> {
             AppearanceOptionsDialog(
-                title = "Player button colors",
+                title = str(R.string.player_button_colors),
                 options = listOf("Default", "Accent Color", "Dynamic Artwork Vibrant", "Monochrome"),
                 selectedOption = settings.playerButtonColors,
                 onSelect = {
@@ -702,7 +705,7 @@ fun AppearanceScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = MaterialTheme.colorScheme.surface,
-                title = { Text("Mini-player swipe sensitivity", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.mini_player_swipe_sensitivity), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column {
                         Text("${tempSensitivity.roundToInt()}%", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -724,19 +727,19 @@ fun AppearanceScreen(
                         update { copy(miniPlayerSwipeSensitivity = tempSensitivity.roundToInt()) }
                         activeDialog = null
                     }) {
-                        Text("Save", color = primaryColor, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.save), color = primaryColor, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { activeDialog = null }) {
-                        Text("Cancel", color = onBackground.copy(alpha = 0.7f))
+                        Text(str(R.string.cancel), color = onBackground.copy(alpha = 0.7f))
                     }
                 }
             )
         }
         AppearanceDialogType.LYRICS_TEXT_POSITION -> {
             AppearanceOptionsDialog(
-                title = "Lyrics text position",
+                title = str(R.string.lyrics_text_position),
                 options = listOf("Left", "Center", "Right"),
                 selectedOption = when (settings.lyricsTextPosition.lowercase()) {
                     "left", "start" -> "Left"
@@ -752,7 +755,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.LYRICS_ANIMATION -> {
             AppearanceOptionsDialog(
-                title = "Lyrics animation",
+                title = str(R.string.lyrics_animation),
                 options = com.auralis.music.domain.model.LyricsAnimationMode.entries.map { it.displayName },
                 selectedOption = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName,
                 onSelect = {
@@ -767,10 +770,10 @@ fun AppearanceScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = MaterialTheme.colorScheme.surface,
-                title = { Text("Lyrics text size", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.lyrics_text_size), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text("${tempSize.roundToInt()} sp", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text(str(R.string.x_sp, tempSize.roundToInt()), color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         Slider(
                             value = tempSize,
@@ -790,16 +793,16 @@ fun AppearanceScreen(
                         update { copy(lyricsTextSize = tempSize) }
                         activeDialog = null
                     }) {
-                        Text("Save", color = primaryColor, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.save), color = primaryColor, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     Row {
                         TextButton(onClick = { tempSize = 22f }) {
-                            Text("Reset", color = onBackground.copy(alpha = 0.7f))
+                            Text(str(R.string.reset), color = onBackground.copy(alpha = 0.7f))
                         }
                         TextButton(onClick = { activeDialog = null }) {
-                            Text("Cancel", color = onBackground.copy(alpha = 0.7f))
+                            Text(str(R.string.cancel), color = onBackground.copy(alpha = 0.7f))
                         }
                     }
                 }
@@ -810,7 +813,7 @@ fun AppearanceScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = MaterialTheme.colorScheme.surface,
-                title = { Text("Lyrics line spacing", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.lyrics_line_spacing), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Text("${String.format(java.util.Locale.US, "%.1f", tempSpacing)}x", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -833,16 +836,16 @@ fun AppearanceScreen(
                         update { copy(lyricsLineSpacing = tempSpacing) }
                         activeDialog = null
                     }) {
-                        Text("Save", color = primaryColor, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.save), color = primaryColor, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     Row {
                         TextButton(onClick = { tempSpacing = 1.3f }) {
-                            Text("Reset", color = onBackground.copy(alpha = 0.7f))
+                            Text(str(R.string.reset), color = onBackground.copy(alpha = 0.7f))
                         }
                         TextButton(onClick = { activeDialog = null }) {
-                            Text("Cancel", color = onBackground.copy(alpha = 0.7f))
+                            Text(str(R.string.cancel), color = onBackground.copy(alpha = 0.7f))
                         }
                     }
                 }
@@ -850,7 +853,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.DEFAULT_OPEN_TAB -> {
             AppearanceOptionsDialog(
-                title = "Default open tab",
+                title = str(R.string.default_open_tab),
                 options = listOf("Home", "Explore", "Library"),
                 selectedOption = settings.defaultOpenTab,
                 onSelect = {
@@ -862,7 +865,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.DEFAULT_LIBRARY_CHIP -> {
             AppearanceOptionsDialog(
-                title = "Change default library chip",
+                title = str(R.string.change_default_library_chip),
                 options = listOf("Library", "Playlists", "Songs", "Artists", "Albums"),
                 selectedOption = settings.defaultLibraryChip,
                 onSelect = {
@@ -874,7 +877,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.GRID_CELL_SIZE -> {
             AppearanceOptionsDialog(
-                title = "Grid cell size",
+                title = str(R.string.grid_cell_size),
                 options = listOf("Small", "Medium", "Large"),
                 selectedOption = settings.gridCellSize,
                 onSelect = {
@@ -886,7 +889,7 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.DISPLAY_DENSITY -> {
             AppearanceOptionsDialog(
-                title = "Display density",
+                title = str(R.string.display_density),
                 options = listOf("Compact (85%)", "Native (100%)", "Large (115%)"),
                 selectedOption = settings.displayDensity,
                 onSelect = {
@@ -1122,7 +1125,7 @@ private fun AppearanceOptionsDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = option,
+                            text = com.auralis.music.ui.i18n.UiLabels.of(option),
                             color = if (isSelected) primaryColor else onSurface,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             fontSize = 15.sp,
@@ -1142,7 +1145,7 @@ private fun AppearanceOptionsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = onSurface.copy(alpha = 0.7f))
+                Text(str(R.string.cancel), color = onSurface.copy(alpha = 0.7f))
             }
         }
     )
@@ -1204,7 +1207,7 @@ private fun PlayerSliderStyleChooserDialog(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) {
                     Text(
-                        text = "Cancel",
+                        text = str(R.string.cancel),
                         color = MaterialTheme.dynamicPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp
@@ -1273,7 +1276,7 @@ private fun SliderStylePreviewCard(
             }
         }
         Text(
-            text = style,
+            text = com.auralis.music.ui.i18n.UiLabels.of(style),
             fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isSelected) 1f else 0.8f)

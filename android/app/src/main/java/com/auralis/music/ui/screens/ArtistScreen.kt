@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
@@ -105,6 +108,7 @@ fun ArtistScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val contentSettings by com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState()
     val isSubscribed = savedArtists.any { it.id == artistPage.artist.id || it.name.equals(artistPage.artist.name, ignoreCase = true) }
     var isBioExpanded by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -201,7 +205,7 @@ fun ArtistScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = str(R.string.back),
                                 tint = Color.White
                             )
                         }
@@ -212,11 +216,11 @@ fun ArtistScreen(
                                     action = android.content.Intent.ACTION_SEND
                                     putExtra(
                                         android.content.Intent.EXTRA_TEXT,
-                                        "Listen to ${artistPage.artist.name} on Auralis Music\nhttps://music.youtube.com/channel/${artistPage.artist.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                                        str(R.string.listen_to_x_on_auralis_music_https_music, artistPage.artist.name, artistPage.artist.id)
                                     )
                                     type = "text/plain"
                                 }
-                                context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Artist"))
+                                context.startActivity(android.content.Intent.createChooser(sendIntent, str(R.string.share_artist)))
                             },
                             modifier = Modifier
                                 .size(42.dp)
@@ -225,7 +229,7 @@ fun ArtistScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
-                                contentDescription = "Share",
+                                contentDescription = str(R.string.share),
                                 tint = Color.White
                             )
                         }
@@ -277,7 +281,7 @@ fun ArtistScreen(
                             .padding(horizontal = 20.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = if (isSubscribed) "✓ Subscribed" else "+ Subscribe",
+                            text = if (isSubscribed) str(R.string.subscribed) else str(R.string.subscribe),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
@@ -302,7 +306,7 @@ fun ArtistScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
+                            contentDescription = str(R.string.shuffle),
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(22.dp)
                         )
@@ -315,7 +319,11 @@ fun ArtistScreen(
             // ================================================================
             // 3. ABOUT SECTION (Subscribers, Monthly Audience, Bio)
             // ================================================================
-            if (!artistPage.description.isNullOrBlank() || !artistPage.subscribers.isNullOrBlank()) {
+            // Settings → Content → Artist page decides which of the three show.
+            val shownSubscribers = artistPage.subscribers.takeIf { contentSettings.showArtistSubscriberCount }
+            val shownMonthly = artistPage.monthlyAudience.takeIf { contentSettings.showMonthlyListeners }
+            val shownDescription = artistPage.description.takeIf { contentSettings.showArtistDescription }
+            if (!shownDescription.isNullOrBlank() || !shownSubscribers.isNullOrBlank() || !shownMonthly.isNullOrBlank()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -323,7 +331,7 @@ fun ArtistScreen(
                             .padding(horizontal = 18.dp)
                     ) {
                         Text(
-                            text = "About",
+                            text = str(R.string.about),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground,
@@ -332,7 +340,7 @@ fun ArtistScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        artistPage.subscribers?.let {
+                        shownSubscribers?.let {
                             Text(
                                 text = it,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -341,7 +349,7 @@ fun ArtistScreen(
                             )
                         }
 
-                        artistPage.monthlyAudience?.let {
+                        shownMonthly?.let {
                             Text(
                                 text = it,
                                 style = MaterialTheme.typography.bodySmall,
@@ -350,7 +358,7 @@ fun ArtistScreen(
                             )
                         }
 
-                        artistPage.description?.let { bio ->
+                        shownDescription?.let { bio ->
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = bio,
@@ -365,7 +373,7 @@ fun ArtistScreen(
                             if (bio.length > 100) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = if (isBioExpanded) "Show less" else "Show more",
+                                    text = if (isBioExpanded) str(R.string.show_less) else str(R.string.show_more),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = LIME_ACCENT,
@@ -406,7 +414,7 @@ fun ArtistScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Top songs",
+                        text = str(R.string.top_songs_2),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = LIME_ACCENT,
@@ -419,7 +427,7 @@ fun ArtistScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
-                            contentDescription = "View all top songs",
+                            contentDescription = str(R.string.view_all_top_songs),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
@@ -451,7 +459,7 @@ fun ArtistScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No songs found for this artist.",
+                            text = str(R.string.no_songs_found_for_this_artist),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -519,7 +527,7 @@ fun ArtistScreen(
                             IconButton(onClick = { selectedTrackForMenu = track }) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
+                                    contentDescription = str(R.string.options),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -539,7 +547,7 @@ fun ArtistScreen(
             if (artistPage.albums.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Albums",
+                        text = str(R.string.albums),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = LIME_ACCENT,
@@ -582,7 +590,7 @@ fun ArtistScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = album.author ?: "Album",
+                                    text = album.author ?: str(R.string.album),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -598,7 +606,7 @@ fun ArtistScreen(
             if (artistPage.singles.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Singles & EPs",
+                        text = str(R.string.singles_eps),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = LIME_ACCENT,
@@ -641,7 +649,7 @@ fun ArtistScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = single.author ?: "Single",
+                                    text = single.author ?: str(R.string.single),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -660,7 +668,7 @@ fun ArtistScreen(
             if (artistPage.similarArtists.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Fans might also like",
+                        text = str(R.string.fans_might_also_like),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = LIME_ACCENT,
@@ -776,10 +784,10 @@ fun ArtistScreen(
                     putExtra(Intent.EXTRA_SUBJECT, album.title)
                     putExtra(
                         Intent.EXTRA_TEXT,
-                        "Check out the album '${album.title}' by ${album.author ?: artistPage.artist.name} on Auralis Music!\nhttps://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+                        str(R.string.check_out_the_album_x_by_x_on_auralis_mu, album.title, album.author ?: artistPage.artist.name, album.id.removePrefix("VL"))
                     )
                 }
-                context.startActivity(Intent.createChooser(shareIntent, "Share Album"))
+                context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_album)))
             },
             onPlayNext = {
                 onPlayNextAlbum?.invoke(album)

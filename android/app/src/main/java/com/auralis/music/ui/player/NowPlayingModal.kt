@@ -1,5 +1,8 @@
 package com.auralis.music.ui.player
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -1003,7 +1006,7 @@ fun NowPlayingModal(
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Dismiss",
+                        contentDescription = str(R.string.dismiss),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(28.dp)
                     )
@@ -1014,7 +1017,7 @@ fun NowPlayingModal(
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                 ) {
                     Text(
-                        text = "NOW PLAYING",
+                        text = str(R.string.now_playing_2),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.55f),
                         letterSpacing = 2.0.sp,
@@ -1132,7 +1135,7 @@ fun NowPlayingModal(
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            text = "Lyrics",
+                            text = str(R.string.lyrics),
                             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                             fontSize = 13.sp,
                             color = contentColor
@@ -1158,7 +1161,7 @@ fun NowPlayingModal(
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            text = "Queue (${uiState.queue.size})",
+                            text = str(R.string.queue_x, uiState.queue.size),
                             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                             fontSize = 13.sp,
                             color = contentColor
@@ -1174,7 +1177,7 @@ fun NowPlayingModal(
                     onClick = { currentTab = NowPlayingTab.PLAYER }
                 ) { contentColor, selected ->
                     Text(
-                        text = "Player",
+                        text = str(R.string.player),
                         fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                         fontSize = 13.sp,
                         color = contentColor
@@ -1374,7 +1377,7 @@ fun NowPlayingModal(
                     ) {
                         Column(modifier = Modifier.fillMaxSize()) {
                             Text(
-                                text = "Up Next (${localQueue.size} songs)",
+                                text = str(R.string.up_next_x_songs, localQueue.size),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
@@ -1481,7 +1484,7 @@ fun NowPlayingModal(
                                                         ) {
                                                             Icon(
                                                                 imageVector = if (uiState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                                contentDescription = "Currently playing",
+                                                                contentDescription = str(R.string.currently_playing),
                                                                 tint = Color.White,
                                                                 modifier = Modifier.size(24.dp)
                                                             )
@@ -1517,7 +1520,7 @@ fun NowPlayingModal(
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.MoreVert,
-                                                        contentDescription = "Options for ${item.track.title}",
+                                                        contentDescription = str(R.string.options_for_x, item.track.title),
                                                         tint = Color.White,
                                                         modifier = Modifier.size(22.dp)
                                                     )
@@ -1557,7 +1560,7 @@ fun NowPlayingModal(
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.DragHandle,
-                                                        contentDescription = "Drag to reorder song",
+                                                        contentDescription = str(R.string.drag_to_reorder_song),
                                                         tint = Color.White.copy(alpha = 0.7f),
                                                         modifier = Modifier.size(24.dp)
                                                     )
@@ -1745,7 +1748,7 @@ fun NowPlayingModal(
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                                        contentDescription = "Add to Playlist",
+                                        contentDescription = str(R.string.add_to_playlist_2),
                                         tint = Color.Black,
                                         modifier = Modifier.size(19.dp)
                                     )
@@ -1764,10 +1767,10 @@ fun NowPlayingModal(
                                             onClick = {
                                                 if (isDownloaded) {
                                                     com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
-                                                    Toast.makeText(context, "Download removed", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, str(R.string.download_removed), Toast.LENGTH_SHORT).show()
                                                 } else {
                                                     com.auralis.music.data.download.AuralisDownloadManager.downloadTrack(track)
-                                                    Toast.makeText(context, "Downloading song...", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, str(R.string.downloading_song), Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         ),
@@ -1786,13 +1789,13 @@ fun NowPlayingModal(
                                             )
                                             2 -> Icon(
                                                 imageVector = Icons.Default.DownloadDone,
-                                                contentDescription = "Downloaded",
+                                                contentDescription = str(R.string.downloaded),
                                                 tint = Color.Black,
                                                 modifier = Modifier.size(19.dp)
                                             )
                                             else -> Icon(
                                                 imageVector = Icons.Default.Download,
-                                                contentDescription = "Download Song",
+                                                contentDescription = str(R.string.download_song),
                                                 tint = Color.Black,
                                                 modifier = Modifier.size(19.dp)
                                             )
@@ -1818,7 +1821,7 @@ fun NowPlayingModal(
                                     ) { favorited ->
                                         Icon(
                                             imageVector = if (favorited) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                            contentDescription = if (favorited) "Favorited" else "Favorite",
+                                            contentDescription = if (favorited) str(R.string.favorited) else str(R.string.favorite),
                                             tint = if (favorited) Color(0xFFFF4081) else Color.Black,
                                             modifier = Modifier.size(19.dp)
                                         )
@@ -1871,7 +1874,7 @@ fun NowPlayingModal(
                              ) {
                                  Icon(
                                      imageVector = Icons.Default.SkipPrevious,
-                                     contentDescription = "Previous",
+                                     contentDescription = str(R.string.previous),
                                      tint = buttonTint,
                                      modifier = Modifier.size(30.dp)
                                  )
@@ -1908,13 +1911,13 @@ fun NowPlayingModal(
                                      ) {
                                          Icon(
                                              imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                             contentDescription = if (isPlaying) "Pause" else "Play",
+                                             contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
                                              tint = if (playPillBg == Color.White) Color.Black else Color.Black,
                                              modifier = Modifier.size(28.dp)
                                          )
                                          Spacer(modifier = Modifier.width(8.dp))
                                          Text(
-                                             text = if (isPlaying) "Pause" else "Play",
+                                             text = if (isPlaying) str(R.string.pause) else str(R.string.play),
                                              color = Color.Black,
                                              fontWeight = FontWeight.ExtraBold,
                                              fontSize = 17.sp
@@ -1935,7 +1938,7 @@ fun NowPlayingModal(
                              ) {
                                  Icon(
                                      imageVector = Icons.Default.SkipNext,
-                                     contentDescription = "Next",
+                                     contentDescription = str(R.string.next),
                                      tint = buttonTint,
                                      modifier = Modifier.size(30.dp)
                                  )
@@ -1956,7 +1959,7 @@ fun NowPlayingModal(
                             // 1. Sleep Timer (Crescent Moon)
                             PlayerUtilityIcon(
                                 imageVector = Icons.Default.Bedtime,
-                                contentDescription = "Sleep Timer",
+                                contentDescription = str(R.string.sleep_timer),
                                 active = uiState.sleepTimerSeconds > 0 || uiState.isSleepTimerEndOfSong,
                                 onClick = { showSleepDialog = true }
                             )
@@ -1964,7 +1967,7 @@ fun NowPlayingModal(
                             // 2. Shuffle
                             PlayerUtilityIcon(
                                 imageVector = Icons.Default.Shuffle,
-                                contentDescription = "Shuffle",
+                                contentDescription = str(R.string.shuffle),
                                 active = uiState.isShuffled,
                                 onClick = { onToggleShuffle() }
                             )
@@ -1975,7 +1978,7 @@ fun NowPlayingModal(
                                     RepeatMode.ONE -> Icons.Default.RepeatOne
                                     else -> Icons.Default.Repeat
                                 },
-                                contentDescription = "Repeat",
+                                contentDescription = str(R.string.repeat),
                                 active = uiState.repeatMode != RepeatMode.OFF,
                                 onClick = { onToggleRepeat() }
                             )
@@ -1983,7 +1986,7 @@ fun NowPlayingModal(
                             // 4. Audio Output & Device Switcher
                             PlayerUtilityIcon(
                                 imageVector = AudioOutputIcon,
-                                contentDescription = "Audio Output & Quality",
+                                contentDescription = str(R.string.audio_output_quality),
                                 active = false,
                                 onClick = { showAudioOutputSheet = true }
                             )
@@ -2072,11 +2075,11 @@ fun NowPlayingModal(
             },
             onAddToPlaylist = { playlist ->
                 onAddToPlaylist(playlist.id, track)
-                Toast.makeText(context, "Added to ${playlist.title}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, str(R.string.added_to_x, playlist.title), Toast.LENGTH_SHORT).show()
             },
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
-                Toast.makeText(context, "Created and added to $title", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, str(R.string.created_and_added_to_x, title), Toast.LENGTH_SHORT).show()
             },
             onDismiss = { showTrackOptions = false }
         )
@@ -2121,12 +2124,12 @@ fun NowPlayingModal(
             userPlaylists = userPlaylists,
             onAddToPlaylist = { playlist ->
                 onAddToPlaylist(playlist.id, track)
-                Toast.makeText(context, "Added to ${playlist.title}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, str(R.string.added_to_x, playlist.title), Toast.LENGTH_SHORT).show()
                 showPlaylistPicker = false
             },
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
-                Toast.makeText(context, "Created and added to $title", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, str(R.string.created_and_added_to_x, title), Toast.LENGTH_SHORT).show()
                 showPlaylistPicker = false
             },
             onDismiss = { showPlaylistPicker = false }
@@ -2425,7 +2428,7 @@ private fun SleepTimerDialog(
             ) {
                 // 1. Title
                 Text(
-                    text = "Sleep timer",
+                    text = str(R.string.sleep_timer_2),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Normal,
                     color = onSurfaceColor,
@@ -2440,9 +2443,9 @@ private fun SleepTimerDialog(
                     val m = currentSeconds / 60
                     val s = currentSeconds % 60
                     val timerStatus = if (isEndOfSongActive) {
-                        "Active: Stops at end of song (${m}:${String.format("%02d", s)})"
+                        str(R.string.active_stops_at_end_of_song_x_x, m, String.format("%02d", s))
                     } else {
-                        "Active: ${m}:${String.format("%02d", s)} remaining"
+                        str(R.string.active_x_x_remaining, m, String.format("%02d", s))
                     }
                     Box(
                         modifier = Modifier
@@ -2461,7 +2464,7 @@ private fun SleepTimerDialog(
                 }
 
                 val durationText = if (isEndOfSong) {
-                    "End of song"
+                    str(R.string.end_of_song)
                 } else if (selectedMinutes >= 60) {
                     val h = selectedMinutes / 60
                     val m = selectedMinutes % 60
@@ -2580,7 +2583,7 @@ private fun SleepTimerDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "End of song",
+                        text = str(R.string.end_of_song),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                         color = if (isEndOfSong) onPrimaryColor else onSurfaceColor.copy(alpha = 0.85f)
@@ -2641,7 +2644,7 @@ private fun SleepTimerDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Reset",
+                                text = str(R.string.reset),
                                 color = primaryColor,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
@@ -2666,7 +2669,7 @@ private fun SleepTimerDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Cancel",
+                                text = str(R.string.cancel),
                                 color = primaryColor,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,

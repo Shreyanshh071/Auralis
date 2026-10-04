@@ -27,7 +27,7 @@ data class YouTubePlaylistItem(
  * Liked Music ("LL"), and channel info using OAuth tokens with `youtube.readonly` scope.
  */
 class YouTubeDataApiClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

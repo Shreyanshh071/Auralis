@@ -22,7 +22,7 @@ object InnerTubePlayerResolver {
     private const val TAG = "InnerTubeResolver"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(3000, TimeUnit.MILLISECONDS)
         .readTimeout(3000, TimeUnit.MILLISECONDS)
         .followRedirects(true)
@@ -122,7 +122,7 @@ object InnerTubePlayerResolver {
                     put("clientName", client.name)
                     put("clientVersion", client.version)
                     put("hl", "en")
-                    put("gl", "US")
+                    put("gl", ContentLocale.gl())
                     if (YouTubeSession.visitorData.isNotBlank()) put("visitorData", YouTubeSession.visitorData)
                 }))
                 put("serviceIntegrityDimensions", JSONObject().put("poToken", playerPoToken))
@@ -214,7 +214,7 @@ object InnerTubePlayerResolver {
                         put("clientName", clientName)
                         put("clientVersion", clientVersion)
                         put("hl", "en")
-                        put("gl", "US")
+                        put("gl", ContentLocale.gl())
                         if (visitorData.isNotBlank()) put("visitorData", visitorData)
                     })
                 })

@@ -1046,7 +1046,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         autoQueueJob = scope.launch {
             try {
                 val tracks = withContext(Dispatchers.IO) {
-                    withTimeoutOrNull(5000L) { radioClient.getRadioTracks(seed.id, seed.artist, seed.title) } ?: emptyList()
+                    withTimeoutOrNull(5000L) { com.auralis.music.data.network.LocalizedContent.run { radioClient.getRadioTracks(seed.id, seed.artist, seed.title) } } ?: emptyList()
                 }
                 ensureActive()
                 if (!runtimeSettings.autoLoadMore || queueGenerationId.get() != genId ||

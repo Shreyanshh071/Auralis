@@ -1,5 +1,8 @@
 package com.auralis.music.ui.player
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -547,7 +550,7 @@ fun ClassicPlayerView(
             ) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More Options",
+                    contentDescription = str(R.string.more_options),
                     tint = Color.White,
                     modifier = Modifier.size(22.dp)
                 )
@@ -572,7 +575,7 @@ fun ClassicPlayerView(
             ) {
                 Icon(
                     imageVector = if (uiState.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (uiState.isFavorite) "Unlike" else "Like",
+                    contentDescription = if (uiState.isFavorite) str(R.string.unlike) else str(R.string.like),
                     tint = if (uiState.isFavorite) Color(0xFFFF4081) else Color.White,
                     modifier = Modifier.size(22.dp)
                 )
@@ -668,7 +671,7 @@ fun ClassicTopBar(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 56.dp)
         ) {
             Text(
-                text = "Now Playing",
+                text = str(R.string.now_playing),
                 style = MaterialTheme.typography.titleMedium,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -799,7 +802,7 @@ fun InPlayerVolumeSlider(
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.VolumeMute,
-                contentDescription = "Mute",
+                contentDescription = str(R.string.mute),
                 tint = Color.White.copy(alpha = 0.80f),
                 modifier = Modifier.size(20.dp)
             )
@@ -860,7 +863,7 @@ fun InPlayerVolumeSlider(
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                contentDescription = "Max Volume",
+                contentDescription = str(R.string.max_volume),
                 tint = Color.White.copy(alpha = 0.80f),
                 modifier = Modifier.size(20.dp)
             )
@@ -949,7 +952,7 @@ fun ClassicCompactPlaybackControls(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Shuffle,
-                        contentDescription = "Shuffle",
+                        contentDescription = str(R.string.shuffle),
                         tint = shuffleTint,
                         modifier = Modifier.size(24.dp)
                     )
@@ -962,7 +965,7 @@ fun ClassicCompactPlaybackControls(
                 modifier = Modifier
                     .size(64.dp)
                     .tactileBounce(scaleDown = 0.85f)
-                    .semantics { contentDescription = "Previous" }
+                    .semantics { contentDescription = str(R.string.previous) }
             ) {
                 ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
             }
@@ -973,7 +976,7 @@ fun ClassicCompactPlaybackControls(
                 modifier = Modifier
                     .size(76.dp)
                     .tactileBounce(scaleDown = 0.88f)
-                    .semantics { contentDescription = if (uiState.isPlaying) "Pause" else "Play" }
+                    .semantics { contentDescription = if (uiState.isPlaying) str(R.string.pause) else str(R.string.play) }
             ) {
                 if (uiState.isPlaying) {
                     ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 36.dp))
@@ -988,7 +991,7 @@ fun ClassicCompactPlaybackControls(
                 modifier = Modifier
                     .size(64.dp)
                     .tactileBounce(scaleDown = 0.85f)
-                    .semantics { contentDescription = "Next" }
+                    .semantics { contentDescription = str(R.string.next) }
             ) {
                 ClassicSkipGlyph(forward = true, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
             }
@@ -1003,7 +1006,7 @@ fun ClassicCompactPlaybackControls(
                 ) {
                     Icon(
                         imageVector = if (uiState.repeatMode == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                        contentDescription = "Repeat",
+                        contentDescription = str(R.string.repeat),
                         tint = repeatTint,
                         modifier = Modifier.size(24.dp)
                     )
@@ -1073,7 +1076,7 @@ fun ClassicBottomBar(
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
-                contentDescription = "Queue",
+                contentDescription = str(R.string.queue),
                 tint = if (isQueueActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.85f),
                 modifier = Modifier.size(26.dp)
             )
@@ -1099,7 +1102,7 @@ fun ClassicBottomBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Shuffle,
-                        contentDescription = "Shuffle",
+                        contentDescription = str(R.string.shuffle),
                         tint = shuffleTint,
                         modifier = Modifier.size(20.dp)
                     )
@@ -1114,7 +1117,7 @@ fun ClassicBottomBar(
                 ) {
                     Icon(
                         imageVector = if (repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                        contentDescription = "Repeat",
+                        contentDescription = str(R.string.repeat),
                         tint = repeatTint,
                         modifier = Modifier.size(20.dp)
                     )
@@ -1130,7 +1133,7 @@ fun ClassicBottomBar(
                 ) {
                     Icon(
                         imageVector = AudioOutputIcon,
-                        contentDescription = "Audio Output",
+                        contentDescription = str(R.string.audio_output),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -1146,7 +1149,7 @@ fun ClassicBottomBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Bedtime,
-                        contentDescription = "Sleep Timer",
+                        contentDescription = str(R.string.sleep_timer),
                         tint = timerTint,
                         modifier = Modifier.size(20.dp)
                     )
@@ -1584,7 +1587,7 @@ private fun ClassicPlayerCompactHeader(
             ) {
                 Icon(
                     imageVector = if (uiState.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (uiState.isFavorite) "Unlike" else "Like",
+                    contentDescription = if (uiState.isFavorite) str(R.string.unlike) else str(R.string.like),
                     tint = if (uiState.isFavorite) Color(0xFFFF4081) else Color.White
                 )
             }
@@ -1593,7 +1596,7 @@ private fun ClassicPlayerCompactHeader(
                 enabled = compactActionsEnabled,
                 modifier = Modifier.size(ClassicPlayerViewportMotion.CompactActionSizeDp.dp)
             ) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More Options", tint = Color.White)
+                Icon(Icons.Default.MoreVert, contentDescription = str(R.string.more_options), tint = Color.White)
             }
         }
     }
@@ -2109,7 +2112,7 @@ private fun ClassicLyricsContent(
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Back to Player",
+                        contentDescription = str(R.string.back_to_player),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(28.dp)
                     )
@@ -2375,7 +2378,7 @@ private fun ClassicQueueOutputActionTile(
     ) {
         Icon(
             imageVector = AudioOutputIcon,
-            contentDescription = "Audio Output",
+            contentDescription = str(R.string.audio_output),
             tint = Color.White,
             modifier = Modifier.size(24.dp)
         )
@@ -2464,7 +2467,7 @@ private fun ClassicQueueContent(
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Back to Player",
+                        contentDescription = str(R.string.back_to_player),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(28.dp)
                     )
@@ -2483,7 +2486,7 @@ private fun ClassicQueueContent(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${queue.size} songs",
+                        text = str(R.string.x_songs, queue.size),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -2506,28 +2509,28 @@ private fun ClassicQueueContent(
         ) {
             ClassicQueueActionTile(
                 icon = Icons.Default.Shuffle,
-                description = "Shuffle",
+                description = str(R.string.shuffle),
                 active = uiState.isShuffled,
                 onClick = onToggleShuffle,
                 modifier = Modifier.weight(1f)
             )
             ClassicQueueActionTile(
                 icon = if (uiState.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                description = "Repeat",
+                description = str(R.string.repeat),
                 active = uiState.repeatMode != RepeatMode.OFF,
                 onClick = onToggleRepeat,
                 modifier = Modifier.weight(1f)
             )
             ClassicQueueActionTile(
                 icon = AudioOutputIcon,
-                description = "Audio Output",
+                description = str(R.string.audio_output),
                 active = false,
                 onClick = onShowOutputPicker,
                 modifier = Modifier.weight(1f)
             )
             ClassicQueueActionTile(
                 icon = Icons.Default.Bedtime,
-                description = "Sleep timer",
+                description = str(R.string.sleep_timer_2),
                 active = uiState.sleepTimerSeconds > 0 || uiState.isSleepTimerEndOfSong,
                 onClick = onShowSleepDialog,
                 modifier = Modifier.weight(1f)
@@ -2863,7 +2866,7 @@ private fun ClassicQueueContent(
                                         ) {
                                             Icon(
                                                 imageVector = if (uiState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                contentDescription = "Currently playing",
+                                                contentDescription = str(R.string.currently_playing),
                                                 tint = Color.White,
                                                 modifier = Modifier.size(24.dp)
                                             )
@@ -2896,7 +2899,7 @@ private fun ClassicQueueContent(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Options for ${item.title}",
+                                        contentDescription = str(R.string.options_for_x, item.title),
                                         tint = Color.White,
                                         modifier = Modifier.size(22.dp)
                                     )
@@ -2935,7 +2938,7 @@ private fun ClassicQueueContent(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.DragHandle,
-                                            contentDescription = "Drag to reorder ${item.title}",
+                                            contentDescription = str(R.string.drag_to_reorder_x, item.title),
                                             tint = Color.White.copy(alpha = 0.7f),
                                             modifier = Modifier.size(24.dp)
                                         )
@@ -2948,12 +2951,12 @@ private fun ClassicQueueContent(
                     if (historyCount > 0) {
                         item(key = "queue_history_header", contentType = "queue_header") {
                             ClassicQueueSectionHeader(
-                                title = "History",
+                                title = str(R.string.history),
                                 modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null),
                                 action = if (onRemoveQueueItem != null) {
                                     {
                                         Text(
-                                            text = "Clear",
+                                            text = str(R.string.clear),
                                             color = Color.White.copy(alpha = 0.75f),
                                             style = MaterialTheme.typography.bodyMedium,
                                             modifier = Modifier
@@ -2977,8 +2980,8 @@ private fun ClassicQueueContent(
 
                     item(key = "queue_continue_header", contentType = "queue_header") {
                         ClassicQueueSectionHeader(
-                            title = "Continue Playing",
-                            subtitle = uiState.queueSourceTitle?.let { "From $it" },
+                            title = str(R.string.continue_playing),
+                            subtitle = uiState.queueSourceTitle?.let { str(R.string.from_x, it) },
                             modifier = Modifier
                                 .animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
                                 .padding(top = if (historyCount > 0) 10.dp else 0.dp),
@@ -2988,7 +2991,7 @@ private fun ClassicQueueContent(
                                         queueLocked = !queueLocked
                                         Toast.makeText(
                                             queueContext,
-                                            if (queueLocked) "Queue locked" else "Queue unlocked: drag the handles to reorder",
+                                            if (queueLocked) str(R.string.queue_locked) else str(R.string.queue_unlocked_drag_the_handles_to_reord),
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     },
@@ -2996,7 +2999,7 @@ private fun ClassicQueueContent(
                                 ) {
                                     Icon(
                                         imageVector = if (queueLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                                        contentDescription = if (queueLocked) "Unlock queue reordering" else "Lock queue reordering",
+                                        contentDescription = if (queueLocked) str(R.string.unlock_queue_reordering) else str(R.string.lock_queue_reordering),
                                         tint = if (queueLocked) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.75f),
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -3143,7 +3146,7 @@ private fun openAudioOutputSettings(context: Context) {
             settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(settingsIntent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Audio Output Settings unavailable", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, str(R.string.audio_output_settings_unavailable), Toast.LENGTH_SHORT).show()
         }
     }
 }

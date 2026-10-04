@@ -1,5 +1,7 @@
 package com.auralis.music.ui.onboarding
 
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -332,7 +334,7 @@ fun WelcomeScreen(
                                     )
                                     Image(
                                         painter = painterResource(id = R.drawable.ic_auralis_logo),
-                                        contentDescription = "Auralis Logo",
+                                        contentDescription = str(R.string.auralis_logo),
                                         modifier = Modifier
                                             .size(54.dp)
                                             .clip(RoundedCornerShape(16.dp))
@@ -343,7 +345,7 @@ fun WelcomeScreen(
                                 Spacer(modifier = Modifier.width(16.dp))
 
                                 Text(
-                                    text = "Auralis",
+                                    text = str(R.string.auralis),
                                     style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.Black,
                                     color = Color.White,
@@ -353,7 +355,7 @@ fun WelcomeScreen(
 
                             // Big Headline
                             Text(
-                                text = "You. Music.\nLet it happen",
+                                text = str(R.string.you_music_let_it_happen),
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Black,
                                 color = Color.White,
@@ -365,7 +367,7 @@ fun WelcomeScreen(
 
                             // Subtitle
                             Text(
-                                text = "Stream, discover, and vibe — all in one place. Free, forever.",
+                                text = str(R.string.stream_discover_and_vibe_all_in_one_plac),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color.White.copy(alpha = 0.65f),
                                 fontSize = 15.sp,
@@ -379,10 +381,10 @@ fun WelcomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                FeaturePill(icon = Icons.Default.MusicNote, text = "Millions of songs")
-                                FeaturePill(icon = Icons.Default.GraphicEq, text = "Live lyrics")
-                                FeaturePill(icon = Icons.AutoMirrored.Filled.QueueMusic, text = "Smart queue")
-                                FeaturePill(icon = Icons.Default.ElectricBolt, text = "No ads")
+                                FeaturePill(icon = Icons.Default.MusicNote, text = str(R.string.millions_of_songs))
+                                FeaturePill(icon = Icons.Default.GraphicEq, text = str(R.string.live_lyrics))
+                                FeaturePill(icon = Icons.AutoMirrored.Filled.QueueMusic, text = str(R.string.smart_queue))
+                                FeaturePill(icon = Icons.Default.ElectricBolt, text = str(R.string.no_ads))
                             }
                         }
 
@@ -417,7 +419,7 @@ fun WelcomeScreen(
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Text(
-                                            text = "Connecting to Google...",
+                                            text = str(R.string.connecting_to_google),
                                             color = Color.White,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 15.sp
@@ -431,7 +433,7 @@ fun WelcomeScreen(
                                         GoogleLogoIcon(modifier = Modifier.size(20.dp))
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Text(
-                                            text = "Continue with Google",
+                                            text = str(R.string.continue_with_google),
                                             color = Color.White,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 15.sp
@@ -460,7 +462,7 @@ fun WelcomeScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "Sign up / in with Email",
+                                    text = str(R.string.sign_up_in_with_email),
                                     color = Color(0xFF140D05),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
@@ -533,7 +535,7 @@ private fun EmailAuthFullScreen(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
@@ -547,14 +549,14 @@ private fun EmailAuthFullScreen(
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_auralis_logo),
-                        contentDescription = "Auralis Logo",
+                        contentDescription = str(R.string.auralis_logo),
                         modifier = Modifier
                             .size(36.dp)
                             .clip(RoundedCornerShape(10.dp))
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Auralis",
+                        text = str(R.string.auralis),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -563,7 +565,7 @@ private fun EmailAuthFullScreen(
 
                 // 2. Headline & Subtitle
                 Text(
-                    text = "Welcome back",
+                    text = str(R.string.welcome_back),
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -573,7 +575,7 @@ private fun EmailAuthFullScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Sign in to your account or create a new one",
+                    text = str(R.string.sign_in_to_your_account_or_create_a_new),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.50f),
                     fontSize = 15.sp
@@ -600,7 +602,7 @@ private fun EmailAuthFullScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Log in",
+                            text = str(R.string.log_in),
                             fontWeight = FontWeight.Bold,
                             color = if (authMode == 1) Color.White else Color.White.copy(alpha = 0.6f),
                             fontSize = 14.sp
@@ -617,7 +619,7 @@ private fun EmailAuthFullScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Sign up",
+                            text = str(R.string.sign_up),
                             fontWeight = FontWeight.Bold,
                             color = if (authMode == 0) Color.White else Color.White.copy(alpha = 0.6f),
                             fontSize = 14.sp
@@ -637,7 +639,7 @@ private fun EmailAuthFullScreen(
                         DarkInputField(
                             value = usernameInput,
                             onValueChange = { usernameInput = it },
-                            placeholder = "Username",
+                            placeholder = str(R.string.username),
                             icon = Icons.Default.Person
                         )
                     }
@@ -646,7 +648,7 @@ private fun EmailAuthFullScreen(
                     DarkInputField(
                         value = emailInput,
                         onValueChange = { emailInput = it },
-                        placeholder = "Email",
+                        placeholder = str(R.string.email),
                         icon = Icons.Default.Email,
                         keyboardType = KeyboardType.Email
                     )
@@ -655,7 +657,7 @@ private fun EmailAuthFullScreen(
                     DarkInputField(
                         value = passwordInput,
                         onValueChange = { passwordInput = it },
-                        placeholder = "Password",
+                        placeholder = str(R.string.password),
                         icon = Icons.Default.Lock,
                         keyboardType = KeyboardType.Password,
                         isPassword = true,
@@ -665,7 +667,7 @@ private fun EmailAuthFullScreen(
 
                     if (authMode == 1) {
                         Text(
-                            text = "Forgot password?",
+                            text = str(R.string.forgot_password),
                             style = MaterialTheme.typography.bodySmall,
                             color = ONBOARDING_PEACH,
                             fontWeight = FontWeight.SemiBold,
@@ -723,7 +725,7 @@ private fun EmailAuthFullScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = if (authMode == 0) "Creating account..." else "Logging in...",
+                                text = if (authMode == 0) str(R.string.creating_account) else str(R.string.logging_in),
                                 color = Color(0xFF140D05),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
@@ -731,7 +733,7 @@ private fun EmailAuthFullScreen(
                         }
                     } else {
                         Text(
-                            text = if (authMode == 0) "Create account" else "Log in",
+                            text = if (authMode == 0) str(R.string.create_account) else str(R.string.log_in),
                             color = Color(0xFF140D05),
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
@@ -776,17 +778,17 @@ private fun ForgotPasswordDialog(
         containerColor = Color(0xFF181818),
         titleContentColor = Color.White,
         textContentColor = Color.White.copy(alpha = 0.75f),
-        title = { Text("Reset your password") },
+        title = { Text(str(R.string.reset_your_password)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (sent) {
                     Text(message.orEmpty())
                 } else {
-                    Text("Enter your account email and we'll send you a link to reset your password.")
+                    Text(str(R.string.enter_your_account_email_and_we_ll_send))
                     DarkInputField(
                         value = emailInput,
                         onValueChange = { emailInput = it },
-                        placeholder = "Email",
+                        placeholder = str(R.string.email),
                         icon = Icons.Default.Email,
                         keyboardType = KeyboardType.Email
                     )
@@ -796,7 +798,7 @@ private fun ForgotPasswordDialog(
         confirmButton = {
             if (sent) {
                 TextButton(onClick = onDismiss) {
-                    Text("Done", color = ONBOARDING_PEACH, fontWeight = FontWeight.Bold)
+                    Text(str(R.string.done), color = ONBOARDING_PEACH, fontWeight = FontWeight.Bold)
                 }
             } else {
                 TextButton(
@@ -806,7 +808,7 @@ private fun ForgotPasswordDialog(
                     if (isSending) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ONBOARDING_PEACH, strokeWidth = 2.dp)
                     } else {
-                        Text("Send link", color = ONBOARDING_PEACH, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.send_link), color = ONBOARDING_PEACH, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -814,7 +816,7 @@ private fun ForgotPasswordDialog(
         dismissButton = {
             if (!sent) {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                    Text(str(R.string.cancel), color = Color.White.copy(alpha = 0.6f))
                 }
             }
         }
@@ -887,7 +889,7 @@ private fun DarkInputField(
                 IconButton(onClick = onTogglePasswordVisibility) {
                     Icon(
                         imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = "Toggle Password",
+                        contentDescription = str(R.string.toggle_password),
                         tint = Color.White.copy(alpha = 0.55f),
                         modifier = Modifier.size(20.dp)
                     )

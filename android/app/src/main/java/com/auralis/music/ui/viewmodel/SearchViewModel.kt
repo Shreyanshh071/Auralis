@@ -150,7 +150,7 @@ class SearchViewModel(
         liveSongsJob = viewModelScope.launch {
             delay(30)
             val songs = try {
-                searchRepository.searchSongs(trimmed)
+                com.auralis.music.data.network.LocalizedContent.run { searchRepository.searchSongs(trimmed) }
             } catch (_: Exception) {
                 emptyList()
             }
@@ -232,9 +232,53 @@ class SearchViewModel(
             if (!isPaused) {
                 searchRepository.recordSearchQuery(trimmed)
             }
-            val results = searchRepository.search(trimmed)
+            val results = com.auralis.music.data.network.LocalizedContent.run { searchRepository.search(trimmed) }
             if (isActive && trimmed.equals(_uiState.value.query.trim(), ignoreCase = true)) {
                 _uiState.update { it.copy(searchResults = results, isSearching = false, hasSubmittedSearch = true) }
+            }
+        }
+    }
+
+    /**
+     * Pull-to-refresh: reloads what is on screen — the open artist page, the open album, or the
+     * current search results — in place, without resetting scroll or the detail stack.
+     */
+    suspend fun refresh() {
+        val state = _uiState.value
+        when (val top = state.detailStack.lastOrNull()) {
+            is ExploreDetail.Artist -> {
+                val page = com.auralis.music.data.network.LocalizedContent.run {
+                    searchRepository.getArtistPage(top.artistPage.artist)
+                } ?: return
+                _uiState.update { cur ->
+                    val stack = cur.detailStack.map { if (it === top) top.copy(artistPage = page, isLoading = false) else it }
+                    cur.copy(
+                        detailStack = stack,
+                        selectedArtistPage = if (stack.lastOrNull() is ExploreDetail.Artist) page else cur.selectedArtistPage
+                    )
+                }
+            }
+            is ExploreDetail.Album -> {
+                val tracks = com.auralis.music.data.network.LocalizedContent.run {
+                    searchRepository.getAlbumTracks(top.album)
+                }
+                if (tracks.isEmpty()) return
+                _uiState.update { cur ->
+                    val updated = top.copy(tracks = tracks, isLoading = false)
+                    val stack = cur.detailStack.map { if (it === top) updated else it }
+                    cur.copy(
+                        detailStack = stack,
+                        selectedAlbumTracks = if (stack.lastOrNull() === updated) tracks else cur.selectedAlbumTracks
+                    )
+                }
+            }
+            else -> {
+                val query = state.query.trim()
+                if (!state.hasSubmittedSearch || query.isBlank()) return
+                val results = com.auralis.music.data.network.LocalizedContent.run { searchRepository.search(query) }
+                _uiState.update { cur ->
+                    if (cur.query.trim().equals(query, ignoreCase = true)) cur.copy(searchResults = results) else cur
+                }
             }
         }
     }
@@ -291,7 +335,7 @@ class SearchViewModel(
         }
 
         viewModelScope.launch {
-            val page = searchRepository.getArtistPage(artist) ?: initialPage
+            val page = com.auralis.music.data.network.LocalizedContent.run { searchRepository.getArtistPage(artist) } ?: initialPage
             _uiState.update { current ->
                 val updatedStack = current.detailStack.map { detail ->
                     if (detail is ExploreDetail.Artist && (detail.artistPage.artist.id == artist.id || detail.artistPage.artist.name.equals(artist.name, ignoreCase = true))) {
@@ -331,7 +375,7 @@ class SearchViewModel(
         }
 
         viewModelScope.launch {
-            val tracks = searchRepository.getAlbumTracks(album)
+            val tracks = com.auralis.music.data.network.LocalizedContent.run { searchRepository.getAlbumTracks(album) }
             val finalTracks = if (tracks.isNotEmpty()) tracks else initialTracks
             _uiState.update { current ->
                 val updatedStack = current.detailStack.map { detail ->
@@ -361,7 +405,7 @@ class SearchViewModel(
     }
 
     suspend fun getAlbumTracks(album: com.auralis.music.domain.model.PlaylistResult): List<Track> {
-        return searchRepository.getAlbumTracks(album)
+        return com.auralis.music.data.network.LocalizedContent.run { searchRepository.getAlbumTracks(album) }
     }
 
     fun popDetail(): Boolean {

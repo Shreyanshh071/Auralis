@@ -1,5 +1,8 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -224,7 +227,7 @@ fun TrackOptionsMenu(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = track.artist.ifBlank { "Unknown Artist" },
+                            text = track.artist.ifBlank { str(R.string.unknown_artist) },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             maxLines = 1,
@@ -241,7 +244,7 @@ fun TrackOptionsMenu(
                             onToggleFavorite()
                             Toast.makeText(
                                 context,
-                                if (newFav) "Saved to Library" else "Removed from Library",
+                                if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
                                 Toast.LENGTH_SHORT
                             ).show()
                         },
@@ -249,7 +252,7 @@ fun TrackOptionsMenu(
                     ) {
                         Icon(
                             imageVector = if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (localIsFavorite) "Saved" else "Save",
+                            contentDescription = if (localIsFavorite) str(R.string.saved) else str(R.string.save),
                             tint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                             modifier = Modifier.size(24.dp)
                         )
@@ -292,13 +295,13 @@ fun TrackOptionsMenu(
                             ) {
                                 Icon(
                                     imageVector = if (queueReferenceStyle) Icons.Default.Sensors else Icons.AutoMirrored.Filled.PlaylistPlay,
-                                    contentDescription = if (queueReferenceStyle) "Radio" else "Play next",
+                                    contentDescription = if (queueReferenceStyle) str(R.string.radio) else str(R.string.play_next),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (queueReferenceStyle) "Radio" else "Play next",
+                                    text = if (queueReferenceStyle) str(R.string.radio) else str(R.string.play_next),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
@@ -324,13 +327,13 @@ fun TrackOptionsMenu(
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                                    contentDescription = "Add",
+                                    contentDescription = str(R.string.add),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Add",
+                                    text = str(R.string.add),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
@@ -354,7 +357,7 @@ fun TrackOptionsMenu(
                                             "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
                                         )
                                     }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
+                                    context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_track)))
                                     onDismiss()
                                 },
                             contentAlignment = Alignment.Center
@@ -365,13 +368,13 @@ fun TrackOptionsMenu(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
+                                    contentDescription = str(R.string.share),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Share",
+                                    text = str(R.string.share),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
@@ -391,8 +394,8 @@ fun TrackOptionsMenu(
                     ) {
                         TrackOptionRow(
                             icon = if (queueReferenceStyle) Icons.AutoMirrored.Filled.PlaylistPlay else Icons.Default.Sensors,
-                            title = if (queueReferenceStyle) "Play next" else "Start radio",
-                            subtitle = if (queueReferenceStyle) "Add to the top of your queue" else "Create a station based on this item",
+                            title = if (queueReferenceStyle) str(R.string.play_next) else str(R.string.start_radio),
+                            subtitle = if (queueReferenceStyle) str(R.string.add_to_the_top_of_your_queue) else str(R.string.create_a_station_based_on_this_item),
                             onClick = {
                                 if (queueReferenceStyle) onPlayNext() else onStartRadio?.invoke()
                                 onDismiss()
@@ -406,8 +409,8 @@ fun TrackOptionsMenu(
 
                         TrackOptionRow(
                             icon = Icons.AutoMirrored.Filled.QueueMusic,
-                            title = "Add to queue",
-                            subtitle = "Add to the bottom of your queue",
+                            title = str(R.string.add_to_queue),
+                            subtitle = str(R.string.add_to_the_bottom_of_your_queue),
                             onClick = {
                                 onAddToQueue()
                                 onDismiss()
@@ -421,8 +424,8 @@ fun TrackOptionsMenu(
                             )
                             TrackOptionRow(
                                 icon = Icons.Default.RemoveCircleOutline,
-                                title = "Remove from queue",
-                                subtitle = "Take this song out of Up Next",
+                                title = str(R.string.remove_from_queue),
+                                subtitle = str(R.string.take_this_song_out_of_up_next),
                                 onClick = {
                                     onRemoveFromQueue()
                                     onDismiss()
@@ -440,12 +443,12 @@ fun TrackOptionsMenu(
                     ) {
                         TrackOptionRow(
                             icon = if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add,
-                            title = if (localIsPinned) "Unpin from Speed dial" else "Pin to Speed dial",
+                            title = if (localIsPinned) str(R.string.unpin_from_speed_dial) else str(R.string.pin_to_speed_dial),
                             subtitle = null,
                             onClick = {
                                 val nextPinned = !localIsPinned
                                 localIsPinned = nextPinned
-                                val msg = if (nextPinned) "Pinned to Speed dial" else "Unpinned from Speed dial"
+                                val msg = if (nextPinned) str(R.string.pinned_to_speed_dial) else str(R.string.unpinned_from_speed_dial)
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 onDismiss()
                                 onPinToSpeedDial?.invoke()
@@ -462,8 +465,8 @@ fun TrackOptionsMenu(
                     ) {
                         TrackOptionRow(
                             icon = if (localIsFavorite) Icons.Default.LibraryAddCheck else Icons.Default.LibraryAdd,
-                            title = if (localIsFavorite) "Remove from library" else "Add to library",
-                            subtitle = if (localIsFavorite) "Remove from your library" else "Save to your library",
+                            title = if (localIsFavorite) str(R.string.remove_from_library) else str(R.string.add_to_library),
+                            subtitle = if (localIsFavorite) str(R.string.remove_from_your_library) else str(R.string.save_to_your_library),
                             iconTint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                             titleColor = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface,
                             onClick = {
@@ -472,7 +475,7 @@ fun TrackOptionsMenu(
                                 onToggleFavorite()
                                 Toast.makeText(
                                     context,
-                                    if (newFav) "Saved to Library" else "Removed from Library",
+                                    if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
                                     Toast.LENGTH_SHORT
                                 ).show()
                                 onDismiss()
@@ -492,8 +495,8 @@ fun TrackOptionsMenu(
                     ) {
                         TrackOptionRow(
                             icon = if (isDownloaded) Icons.Default.DownloadDone else if (isDownloading) Icons.Default.CloudDownload else Icons.Default.Download,
-                            title = if (isDownloaded) "Remove download" else if (isDownloading) "Downloading..." else "Download",
-                            subtitle = if (isDownloaded) "Downloaded to device" else if (isDownloading) "Saving for offline playback" else "Make available for offline playback",
+                            title = if (isDownloaded) str(R.string.remove_download) else if (isDownloading) str(R.string.downloading_2) else str(R.string.download),
+                            subtitle = if (isDownloaded) str(R.string.downloaded_to_device) else if (isDownloading) str(R.string.saving_for_offline_playback) else str(R.string.make_available_for_offline_playback),
                             iconTint = if (isDownloaded) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                             titleColor = if (isDownloaded) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface,
                             onClick = {
@@ -516,8 +519,8 @@ fun TrackOptionsMenu(
                     ) {
                         TrackOptionRow(
                             icon = Icons.Default.Person,
-                            title = "View artist",
-                            subtitle = track.artist.ifBlank { "Unknown Artist" },
+                            title = str(R.string.view_artist),
+                            subtitle = track.artist.ifBlank { str(R.string.unknown_artist) },
                             onClick = {
                                 onGoToArtist?.invoke()
                                 onDismiss()
@@ -531,11 +534,11 @@ fun TrackOptionsMenu(
 
                         TrackOptionRow(
                             icon = Icons.Default.Album,
-                            title = "View album",
+                            title = str(R.string.view_album),
                             subtitle = displayAlbum ?: when {
-                                !albumLookupDone -> "Finding album…"
-                                isKnownSingle -> "Single · not part of an album"
-                                else -> "No album for this song"
+                                !albumLookupDone -> str(R.string.finding_album)
+                                isKnownSingle -> str(R.string.single_not_part_of_an_album)
+                                else -> str(R.string.no_album_for_this_song)
                             },
                             enabled = displayAlbum != null,
                             onClick = {
@@ -563,8 +566,8 @@ fun TrackOptionsMenu(
                         ) {
                             TrackOptionRow(
                                 icon = Icons.Default.Group,
-                                title = "Add to room queue",
-                                subtitle = "Adds it for everyone, or asks the host first",
+                                title = str(R.string.add_to_room_queue),
+                                subtitle = str(R.string.adds_it_for_everyone_or_asks_the_host_fi),
                                 onClick = {
                                     onRecommendToRoom(track)
                                     onDismiss()
@@ -587,12 +590,12 @@ fun TrackOptionsMenu(
                     IconButton(onClick = { showPlaylistPicker = false }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = str(R.string.back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Text(
-                        text = "Save to playlist",
+                        text = str(R.string.save_to_playlist),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -600,7 +603,7 @@ fun TrackOptionsMenu(
                     IconButton(onClick = { showCreatePlaylistDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "New Playlist",
+                            contentDescription = str(R.string.new_playlist),
                             tint = dynamicPrimary
                         )
                     }
@@ -617,7 +620,7 @@ fun TrackOptionsMenu(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "No custom playlists yet.",
+                                text = str(R.string.no_custom_playlists_yet),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
@@ -630,7 +633,7 @@ fun TrackOptionsMenu(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("Create Playlist", fontWeight = FontWeight.Bold)
+                                Text(str(R.string.create_playlist), fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -649,7 +652,7 @@ fun TrackOptionsMenu(
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable {
                                         if (alreadyInPlaylist) {
-                                            com.auralis.music.ui.components.AppPillManager.showPill("Already in ${playlist.title}")
+                                            com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
                                         } else {
                                             onAddToPlaylist(playlist)
                                             showPlaylistPicker = false
@@ -676,14 +679,14 @@ fun TrackOptionsMenu(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "${playlist.tracks.size} songs",
+                                        text = str(R.string.x_songs, playlist.tracks.size),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                                 Icon(
                                     imageVector = if (alreadyInPlaylist) Icons.Default.Check else Icons.Default.Add,
-                                    contentDescription = if (alreadyInPlaylist) "Already in playlist" else "Add",
+                                    contentDescription = if (alreadyInPlaylist) str(R.string.already_in_playlist) else str(R.string.add),
                                     tint = if (alreadyInPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -705,13 +708,13 @@ fun TrackOptionsMenu(
                 newPlaylistName = ""
             },
             title = {
-                Text("New Playlist", fontWeight = FontWeight.Bold)
+                Text(str(R.string.new_playlist), fontWeight = FontWeight.Bold)
             },
             text = {
                 OutlinedTextField(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist Name") },
+                    label = { Text(str(R.string.playlist_name)) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = dynamicPrimary,
@@ -732,7 +735,7 @@ fun TrackOptionsMenu(
                     },
                     enabled = newPlaylistName.isNotBlank()
                 ) {
-                    Text("Create & Add", fontWeight = FontWeight.Bold, color = dynamicPrimary)
+                    Text(str(R.string.create_add), fontWeight = FontWeight.Bold, color = dynamicPrimary)
                 }
             },
             dismissButton = {
@@ -740,7 +743,7 @@ fun TrackOptionsMenu(
                     showCreatePlaylistDialog = false
                     newPlaylistName = ""
                 }) {
-                    Text("Cancel")
+                    Text(str(R.string.cancel))
                 }
             },
             containerColor = dynamicSurface,

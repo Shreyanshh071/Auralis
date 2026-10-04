@@ -1,5 +1,7 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.i18n.str
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -65,7 +67,7 @@ fun AboutScreen(
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Unable to open link", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, str(R.string.unable_to_open_link), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -74,7 +76,7 @@ fun AboutScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "About",
+                        text = str(R.string.about),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp
@@ -86,7 +88,7 @@ fun AboutScreen(
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = str(R.string.back),
                             tint = onBackground
                         )
                     }
@@ -124,7 +126,7 @@ fun AboutScreen(
                     ) {
                         Image(
                             painter = painterResource(id = R.drawable.ic_auralis_logo),
-                            contentDescription = "Auralis Logo",
+                            contentDescription = str(R.string.auralis_logo),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -136,7 +138,7 @@ fun AboutScreen(
 
                     // App Title
                     Text(
-                        text = "Auralis",
+                        text = str(R.string.auralis),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
@@ -191,19 +193,19 @@ fun AboutScreen(
                     ) {
                         SocialDrawableIconButton(
                             drawableRes = R.drawable.ic_github,
-                            contentDescription = "GitHub",
+                            contentDescription = str(R.string.github),
                             onClick = { openUrl(GITHUB_REPO_URL) }
                         )
 
                         SocialIconButton(
                             icon = Icons.Default.Language,
-                            contentDescription = "Website",
+                            contentDescription = str(R.string.website),
                             onClick = { openUrl(AURALIS_WEBSITE_URL) }
                         )
 
                         SocialIconButton(
                             icon = Icons.Default.LocalCafe,
-                            contentDescription = "Buy Me a Chai",
+                            contentDescription = str(R.string.buy_me_a_chai),
                             onClick = { openUrl(BUY_ME_A_CHAI_URL) }
                         )
                     }
@@ -233,7 +235,7 @@ fun AboutScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Buy Me a Chai",
+                                text = str(R.string.buy_me_a_chai),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -251,7 +253,7 @@ fun AboutScreen(
                                 .height(46.dp)
                         ) {
                             Text(
-                                text = "Check for Updates",
+                                text = str(R.string.check_for_updates),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -272,7 +274,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Lead Developer",
+                            text = str(R.string.lead_developer),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -318,7 +320,7 @@ fun AboutScreen(
 
                             // Developer Name
                             Text(
-                                text = "Shreyansh",
+                                text = str(R.string.shreyansh),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground,
@@ -329,7 +331,7 @@ fun AboutScreen(
 
                             // Subtitle / Bio
                             Text(
-                                text = "Creator & Lead Developer",
+                                text = str(R.string.creator_lead_developer),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = onSurfaceVariant,
                                 fontSize = 13.sp
@@ -359,7 +361,7 @@ fun AboutScreen(
                                             val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                             val clip = android.content.ClipData.newPlainText("Discord Username", "shreyanshh12_3")
                                             clipboard.setPrimaryClip(clip)
-                                            Toast.makeText(context, "Discord user: shreyanshh12_3 copied to clipboard", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, str(R.string.discord_user_shreyanshh12_3_copied_to_cl), Toast.LENGTH_SHORT).show()
                                         } catch (_: Exception) {}
                                         openUrl(DEVELOPER_DISCORD_URL)
                                     }
@@ -382,7 +384,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Contributors",
+                            text = str(R.string.contributors),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -428,7 +430,7 @@ fun AboutScreen(
 
                             // Contributor Name
                             Text(
-                                text = "Ishaan Thakur",
+                                text = str(R.string.ishaan_thakur),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground,
@@ -439,7 +441,7 @@ fun AboutScreen(
 
                             // Subtitle
                             Text(
-                                text = "Contributor",
+                                text = str(R.string.contributor),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = onSurfaceVariant,
                                 fontSize = 13.sp

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -85,13 +88,13 @@ fun AiLyricsTranslationScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = str(R.string.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "AI lyrics translation",
+                    text = str(R.string.ai_lyrics_translation),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -111,7 +114,7 @@ fun AiLyricsTranslationScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Provider",
+                            text = str(R.string.provider),
                             color = primaryColor,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.5.sp,
@@ -126,8 +129,8 @@ fun AiLyricsTranslationScreen(
                         ) {
                             AiSettingRow(
                                 icon = Icons.Default.Explore,
-                                title = "Provider",
-                                subtitle = settings.provider,
+                                title = str(R.string.provider),
+                                subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.provider),
                                 onInfoClick = { activeDialog = AiTranslationDialog.PROVIDER_INFO },
                                 onClick = { activeDialog = AiTranslationDialog.PROVIDER }
                             )
@@ -139,7 +142,7 @@ fun AiLyricsTranslationScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "API credentials",
+                            text = str(R.string.api_credentials),
                             color = primaryColor,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.5.sp,
@@ -155,8 +158,8 @@ fun AiLyricsTranslationScreen(
                             Column {
                                 AiSettingRow(
                                     icon = Icons.Default.VpnKey,
-                                    title = "API key",
-                                    subtitle = if (settings.apiKey.isBlank()) "Not set" else "••••••••••••••••",
+                                    title = str(R.string.api_key),
+                                    subtitle = if (settings.apiKey.isBlank()) str(R.string.not_set) else "••••••••••••••••",
                                     onClick = { activeDialog = AiTranslationDialog.API_KEY }
                                 )
 
@@ -167,7 +170,7 @@ fun AiLyricsTranslationScreen(
 
                                 AiSettingRow(
                                     icon = Icons.Default.Tune,
-                                    title = "Model",
+                                    title = str(R.string.model),
                                     subtitle = settings.model,
                                     onClick = { activeDialog = AiTranslationDialog.MODEL }
                                 )
@@ -180,7 +183,7 @@ fun AiLyricsTranslationScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Translation mode",
+                            text = str(R.string.translation_mode),
                             color = primaryColor,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.5.sp,
@@ -196,8 +199,8 @@ fun AiLyricsTranslationScreen(
                             Column {
                                 AiSettingRow(
                                     icon = Icons.Default.Translate,
-                                    title = "Translation mode",
-                                    subtitle = settings.translationMode,
+                                    title = str(R.string.translation_mode),
+                                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.translationMode),
                                     onInfoClick = { activeDialog = AiTranslationDialog.MODE_INFO },
                                     onClick = { activeDialog = AiTranslationDialog.MODE }
                                 )
@@ -209,8 +212,8 @@ fun AiLyricsTranslationScreen(
 
                                 AiSettingRow(
                                     icon = Icons.Default.Edit,
-                                    title = "System prompt",
-                                    subtitle = if (settings.systemPrompt.equals(AiTranslationSettings.DEFAULT_SYSTEM_PROMPT, ignoreCase = true) || settings.systemPrompt.isBlank()) "Default" else "Custom",
+                                    title = str(R.string.system_prompt),
+                                    subtitle = if (settings.systemPrompt.equals(AiTranslationSettings.DEFAULT_SYSTEM_PROMPT, ignoreCase = true) || settings.systemPrompt.isBlank()) str(R.string.text_default) else str(R.string.custom),
                                     onClick = { activeDialog = AiTranslationDialog.PROMPT }
                                 )
 
@@ -221,8 +224,8 @@ fun AiLyricsTranslationScreen(
 
                                 AiSettingRow(
                                     icon = Icons.Default.Language,
-                                    title = "Target language",
-                                    subtitle = settings.targetLanguage,
+                                    title = str(R.string.target_language),
+                                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.targetLanguage),
                                     onClick = { activeDialog = AiTranslationDialog.LANGUAGE }
                                 )
                             }
@@ -280,7 +283,7 @@ fun AiLyricsTranslationScreen(
                                                 "Gemini" -> "google/gemini-2.5-flash"
                                                 "XAi" -> "x-ai/grok-4.1-fast"
                                                 "Mistral" -> "mistral-small-latest"
-                                                "DeepL" -> "DeepL v2"
+                                                "DeepL" -> str(R.string.deepl_v2)
                                                 else -> settings.model
                                             }
                                             scope.launch {
@@ -321,7 +324,7 @@ fun AiLyricsTranslationScreen(
                                 OutlinedTextField(
                                     value = customUrlText,
                                     onValueChange = { customUrlText = it },
-                                    label = { Text("Custom API Base URL", fontSize = 12.sp) },
+                                    label = { Text(str(R.string.custom_api_base_url), fontSize = 12.sp) },
                                     placeholder = { Text("https://api.openai.com/v1", fontSize = 12.sp) },
                                     singleLine = true,
                                     shape = RoundedCornerShape(12.dp),
@@ -333,7 +336,7 @@ fun AiLyricsTranslationScreen(
                                     horizontalArrangement = Arrangement.End
                                 ) {
                                     TextButton(onClick = { activeDialog = null }) {
-                                        Text("Cancel", color = onSurfaceVariant)
+                                        Text(str(R.string.cancel), color = onSurfaceVariant)
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Button(
@@ -350,7 +353,7 @@ fun AiLyricsTranslationScreen(
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                                     ) {
-                                        Text("Apply", color = Color.Black, fontWeight = FontWeight.Bold)
+                                        Text(str(R.string.apply), color = Color.Black, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -368,18 +371,18 @@ fun AiLyricsTranslationScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = surfaceColor,
-                title = { Text("API Key", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.api_key_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            text = "Enter your ${settings.provider} API key. Keys are stored locally on your device only.",
+                            text = str(R.string.enter_your_x_api_key_keys_are_stored_loc, settings.provider),
                             fontSize = 12.5.sp,
                             color = onSurfaceVariant
                         )
                         OutlinedTextField(
                             value = keyInput,
                             onValueChange = { keyInput = it },
-                            placeholder = { Text("sk-or-v1-...", color = onSurfaceVariant.copy(alpha = 0.5f)) },
+                            placeholder = { Text(str(R.string.sk_or_v1), color = onSurfaceVariant.copy(alpha = 0.5f)) },
                             singleLine = true,
                             visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -387,7 +390,7 @@ fun AiLyricsTranslationScreen(
                                 IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
                                     Icon(
                                         imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = "Toggle visibility",
+                                        contentDescription = str(R.string.toggle_visibility),
                                         tint = onSurfaceVariant
                                     )
                                 }
@@ -404,7 +407,7 @@ fun AiLyricsTranslationScreen(
                                 },
                                 contentPadding = PaddingValues(0.dp)
                             ) {
-                                Text("Get free OpenRouter API key ↗", color = primaryColor, fontSize = 12.5.sp)
+                                Text(str(R.string.get_free_openrouter_api_key), color = primaryColor, fontSize = 12.5.sp)
                             }
                         }
                     }
@@ -413,16 +416,16 @@ fun AiLyricsTranslationScreen(
                     Button(
                         onClick = {
                             scope.launch { dataStore.updateSettings(settings.copy(apiKey = keyInput.trim())) }
-                            Toast.makeText(context, "API Key saved", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, str(R.string.api_key_saved), Toast.LENGTH_SHORT).show()
                             activeDialog = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                     ) {
-                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.save), color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { activeDialog = null }) { Text("Cancel", color = onSurfaceVariant) }
+                    TextButton(onClick = { activeDialog = null }) { Text(str(R.string.cancel), color = onSurfaceVariant) }
                 }
             )
         }
@@ -507,7 +510,7 @@ fun AiLyricsTranslationScreen(
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
-                                        text = "Custom",
+                                        text = str(R.string.custom),
                                         color = if (isCustomSel) primaryColor else onSurface,
                                         fontSize = 14.sp,
                                         fontWeight = if (isCustomSel) FontWeight.SemiBold else FontWeight.Normal
@@ -519,7 +522,7 @@ fun AiLyricsTranslationScreen(
                                     OutlinedTextField(
                                         value = customModelText,
                                         onValueChange = { customModelText = it },
-                                        placeholder = { Text("Enter custom model ID", fontSize = 13.sp) },
+                                        placeholder = { Text(str(R.string.enter_custom_model_id), fontSize = 13.sp) },
                                         singleLine = true,
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.fillMaxWidth()
@@ -530,7 +533,7 @@ fun AiLyricsTranslationScreen(
                                         horizontalArrangement = Arrangement.End
                                     ) {
                                         TextButton(onClick = { activeDialog = null }) {
-                                            Text("Cancel", color = onSurfaceVariant)
+                                            Text(str(R.string.cancel), color = onSurfaceVariant)
                                         }
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Button(
@@ -542,7 +545,7 @@ fun AiLyricsTranslationScreen(
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                                         ) {
-                                            Text("Apply", color = Color.Black, fontWeight = FontWeight.Bold)
+                                            Text(str(R.string.apply), color = Color.Black, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -562,7 +565,7 @@ fun AiLyricsTranslationScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = surfaceColor,
-                title = { Text("Translation Mode", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.translation_mode_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         modes.forEach { (m, desc) ->
@@ -583,15 +586,15 @@ fun AiLyricsTranslationScreen(
                                 RadioButton(selected = isSel, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = primaryColor))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text(m, color = if (isSel) primaryColor else onSurface, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                                    Text(desc, color = onSurfaceVariant, fontSize = 11.sp)
+                                    Text(com.auralis.music.ui.i18n.UiLabels.of(m), color = if (isSel) primaryColor else onSurface, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
+                                    Text(com.auralis.music.ui.i18n.UiLabels.of(desc), color = onSurfaceVariant, fontSize = 11.sp)
                                 }
                             }
                         }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { activeDialog = null }) { Text("Cancel", color = onSurfaceVariant) }
+                    TextButton(onClick = { activeDialog = null }) { Text(str(R.string.cancel), color = onSurfaceVariant) }
                 }
             )
         }
@@ -602,7 +605,7 @@ fun AiLyricsTranslationScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = surfaceColor,
-                title = { Text("System Prompt", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.system_prompt_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
@@ -617,7 +620,7 @@ fun AiLyricsTranslationScreen(
                             onClick = { promptInput = AiTranslationSettings.STANDARD_SYSTEM_PROMPT },
                             contentPadding = PaddingValues(0.dp)
                         ) {
-                            Text("Reset to Default", color = primaryColor, fontSize = 12.sp)
+                            Text(str(R.string.reset_to_default), color = primaryColor, fontSize = 12.sp)
                         }
                     }
                 },
@@ -630,11 +633,11 @@ fun AiLyricsTranslationScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                     ) {
-                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(str(R.string.save), color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { activeDialog = null }) { Text("Cancel", color = onSurfaceVariant) }
+                    TextButton(onClick = { activeDialog = null }) { Text(str(R.string.cancel), color = onSurfaceVariant) }
                 }
             )
         }
@@ -652,13 +655,13 @@ fun AiLyricsTranslationScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = surfaceColor,
-                title = { Text("Target Language", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.target_language_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
-                            placeholder = { Text("Search language...", color = onSurfaceVariant.copy(alpha = 0.5f)) },
+                            placeholder = { Text(str(R.string.search_language), color = onSurfaceVariant.copy(alpha = 0.5f)) },
                             leadingIcon = { Icon(Icons.Default.Search, null, tint = onSurfaceVariant) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
@@ -692,7 +695,7 @@ fun AiLyricsTranslationScreen(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { activeDialog = null }) { Text("Cancel", color = onSurfaceVariant) }
+                    TextButton(onClick = { activeDialog = null }) { Text(str(R.string.cancel), color = onSurfaceVariant) }
                 }
             )
         }
@@ -701,17 +704,17 @@ fun AiLyricsTranslationScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = surfaceColor,
-                title = { Text("About Providers", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.about_providers), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Text(
-                        "OpenRouter provides access to over 100+ AI models including free tiers from Google (Gemini Flash Lite), Meta (Llama 3), and DeepSeek. You can get an API key with free monthly allowances at openrouter.ai.",
+                        str(R.string.openrouter_provides_access_to_over_100_a),
                         color = onSurfaceVariant,
                         fontSize = 13.sp,
                         lineHeight = 18.sp
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = { activeDialog = null }) { Text("Got it", color = primaryColor) }
+                    TextButton(onClick = { activeDialog = null }) { Text(str(R.string.got_it), color = primaryColor) }
                 }
             )
         }
@@ -720,15 +723,15 @@ fun AiLyricsTranslationScreen(
             AlertDialog(
                 onDismissRequest = { activeDialog = null },
                 containerColor = surfaceColor,
-                title = { Text("Translation Modes", fontWeight = FontWeight.Bold, color = onBackground) },
+                title = { Text(str(R.string.translation_modes), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("• Translation: Converts lyrics meaning into your target language with 1:1 time synchronization.", color = onSurfaceVariant, fontSize = 12.5.sp)
-                        Text("• Transcription: Converts non-Latin scripts (Japanese, Korean, Hindi, Chinese) into Latin phonetic alphabet (Romaji, Pinyin, Hinglish) for singing along.", color = onSurfaceVariant, fontSize = 12.5.sp)
+                        Text(str(R.string.translation_converts_lyrics_meaning_into), color = onSurfaceVariant, fontSize = 12.5.sp)
+                        Text(str(R.string.transcription_converts_non_latin_scripts), color = onSurfaceVariant, fontSize = 12.5.sp)
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { activeDialog = null }) { Text("Got it", color = primaryColor) }
+                    TextButton(onClick = { activeDialog = null }) { Text(str(R.string.got_it), color = primaryColor) }
                 }
             )
         }
@@ -795,7 +798,7 @@ private fun AiSettingRow(
             ) {
                 Icon(
                     imageVector = Icons.Default.Info,
-                    contentDescription = "Info",
+                    contentDescription = str(R.string.info),
                     tint = onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp)
                 )

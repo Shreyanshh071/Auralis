@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -162,7 +165,7 @@ fun MoodAndGenresScreen(
     ) {
         // ── TOP HEADER ──
         Text(
-            text = "Mood & Genres",
+            text = str(R.string.mood_genres),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.dynamicOnBackground,
@@ -207,7 +210,7 @@ private fun MoodGenreCard(
     ) {
         // Title on Left
         Text(
-            text = item.title,
+            text = com.auralis.music.ui.i18n.UiLabels.of(item.title),
             color = Color.White,
             fontWeight = FontWeight.Bold,
             fontSize = 15.sp,

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.viewmodel
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -58,7 +61,7 @@ class AuthViewModel(
 
     fun signInWithGoogle(activity: android.app.Activity, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true, syncMessage = "Signing in with Google...") }
+            _uiState.update { it.copy(isSyncing = true, syncMessage = str(R.string.signing_in_with_google)) }
             try {
                 val helper = GoogleSignInHelper(activity)
                 val account = helper.signIn(activity)
@@ -66,10 +69,10 @@ class AuthViewModel(
                     syncManager.connectGoogleAccountWithIdToken(account)
                     onSuccess?.invoke()
                 } else {
-                    _uiState.update { it.copy(isSyncing = false, syncMessage = "Google Sign-In cancelled.") }
+                    _uiState.update { it.copy(isSyncing = false, syncMessage = str(R.string.google_sign_in_cancelled)) }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, syncMessage = "Sign-in error: ${e.localizedMessage ?: e.message}") }
+                _uiState.update { it.copy(isSyncing = false, syncMessage = str(R.string.sign_in_error_x, e.localizedMessage ?: e.message)) }
             }
         }
     }
@@ -80,7 +83,7 @@ class AuthViewModel(
                 syncManager.signUpWithEmail(email, password, displayName)
                 onSuccess()
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, syncMessage = e.localizedMessage ?: "Failed to create account") }
+                _uiState.update { it.copy(isSyncing = false, syncMessage = e.localizedMessage ?: str(R.string.failed_to_create_account)) }
             }
         }
     }
@@ -91,7 +94,7 @@ class AuthViewModel(
                 syncManager.signInWithEmail(email, password)
                 onSuccess()
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, syncMessage = e.localizedMessage ?: "Failed to sign in") }
+                _uiState.update { it.copy(isSyncing = false, syncMessage = e.localizedMessage ?: str(R.string.failed_to_sign_in)) }
             }
         }
     }
@@ -104,14 +107,14 @@ class AuthViewModel(
                 _uiState.update {
                     it.copy(
                         isSendingPasswordReset = false,
-                        passwordResetMessage = "If an account exists for that email, a reset link is on its way. Check your spam/junk folder if it doesn't show up in a minute or two."
+                        passwordResetMessage = str(R.string.if_an_account_exists_for_that_email_a_re)
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isSendingPasswordReset = false,
-                        passwordResetMessage = e.localizedMessage ?: "Couldn't send the reset email. Try again."
+                        passwordResetMessage = e.localizedMessage ?: str(R.string.couldn_t_send_the_reset_email_try_again)
                     )
                 }
             }
@@ -231,7 +234,7 @@ class AuthViewModel(
                 null
             }
             if (credential == null) {
-                _uiState.update { it.copy(isDeletingAccount = false, deleteAccountError = "Couldn't confirm it's you. Nothing was deleted.") }
+                _uiState.update { it.copy(isDeletingAccount = false, deleteAccountError = str(R.string.couldn_t_confirm_it_s_you_nothing_was_de)) }
                 return@launch
             }
             val result = syncManager.deleteAccount(credential)
@@ -241,8 +244,8 @@ class AuthViewModel(
             } else {
                 val e = result.exceptionOrNull()
                 val message = when (e) {
-                    is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException -> "Wrong password. Nothing was deleted."
-                    else -> "Couldn't delete your account: ${e?.localizedMessage ?: "unknown error"}"
+                    is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException -> str(R.string.wrong_password_nothing_was_deleted)
+                    else -> str(R.string.couldn_t_delete_your_account_x, e?.localizedMessage ?: "unknown error")
                 }
                 _uiState.update { it.copy(isDeletingAccount = false, deleteAccountError = message) }
             }

@@ -1,5 +1,8 @@
 package com.auralis.music.ui.screens.lyrics
 
+import com.auralis.music.R
+import com.auralis.music.ui.i18n.str
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -68,7 +71,7 @@ fun KineticLyricsView(
     if (isInstrumental) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = "♪ Instrumental ♪",
+                text = str(R.string.instrumental),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
@@ -79,7 +82,7 @@ fun KineticLyricsView(
     if (effectiveLines.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = "Lyrics not available",
+                text = str(R.string.lyrics_not_available),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
@@ -141,7 +144,7 @@ fun KineticLyricsView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Sync Offset: ${offsetMs}ms",
+                    text = str(R.string.sync_offset_x_ms, offsetMs),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -152,7 +155,7 @@ fun KineticLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Remove,
-                        contentDescription = "-500ms",
+                        contentDescription = str(R.string.t_500ms),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -163,7 +166,7 @@ fun KineticLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "+500ms",
+                        contentDescription = str(R.string.t_500ms_2),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -355,6 +358,13 @@ fun KineticLyricsView(
                                     lineHeight = if (isActive) 32.sp else 28.sp
                                 )
                             }
+
+                            com.auralis.music.ui.lyrics.RomanizedLine(
+                                text = line.text,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isActive) 0.72f else 0.38f),
+                                fontSize = 12.sp,
+                                textAlign = textAlign
+                            )
 
                             if (!line.translatedText.isNullOrBlank()) {
                                 Spacer(modifier = Modifier.height(2.dp))
