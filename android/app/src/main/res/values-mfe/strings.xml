@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="back">Rétour</string>
+    <string name="cancel">Cancel</string>
+    <string name="close">Fermé</string>
+    <string name="downloaded">Inn Download</string>
+    <string name="top_result">Bann meyer rezilta</string>
+    <string name="retry">Re-eseyé</string>
+    <string name="download_all_songs_for_offline_playback">Download tou sante pu zwe offline</string>
+    <string name="remove_this_playlist_permanently">Retir sa playlist la net</string>
+    <string name="re_sync">Re-senkronize</string>
+    <string name="customize_colors">Personaliz kouler</string>
+    <string name="player_background_style">Style lekter dan background</string>
+    <string name="background_color">Kouler background</string>
+    <string name="text_color">Kouler text</string>
+    <string name="secondary_text_color">Kouler secondaire pu text</string>
+    <string name="now_playing">Lektir en cours</string>
+    <string name="lyrics">Bann paroles</string>
+    <string name="discord">Discord</string>
+    <string name="text_default">Defaut</string>
+    <string name="enable_swipe_to_change_song">Aktiv swipe pu sanz lamizik</string>
+    <string name="change_lyrics_on_click">Sanz bann parole kan click</string>
+    <string name="auto_scroll_lyrics">Scroll bann parole automikman</string>
+    <string name="auto_playlists">Playlist automatik</string>
+    <string name="player_button_colors">Kouler bouton dan lekter</string>
+    <string name="select_all">Selekté tou</string>
+    <string name="general">Zeneral</string>
+    <string name="proxy">Proxy</string>
+    <string name="show_wrapped_card">Montre Résumé</string>
+    <string name="opt_default">Defaut</string>
+    <string name="opt_explore">Eksplore</string>
+    <string name="opt_slim">Mins</string>
+    <string name="opt_follow_theme">Swiv thème</string>
+    <string name="opt_gradient">Degradé</string>
+    <string name="opt_blur">Flou</string>
+    <string name="continuous">Kontinien</string>
+    <string name="weeks">Semene</string>
+    <string name="months">Mois</string>
+    <string name="years">Ans</string>
+    <string name="liked">Inn Like</string>
+</resources>

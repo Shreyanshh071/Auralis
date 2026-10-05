@@ -1595,7 +1595,7 @@ fun NowPlayingModal(
                             // Main Album Artwork Carousel (Native Jetpack Compose Horizontal Pager)
                             HorizontalPager(
                                 state = pagerState,
-                                key = { page -> queue.getOrNull(page)?.id ?: page },
+                                key = { page -> "${queue.getOrNull(page)?.id.orEmpty()}_$page" },
                                 userScrollEnabled = appearance.enableSwipeToChangeSong && !followHostOnly,
                                 beyondViewportPageCount = 1,
                                 flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(

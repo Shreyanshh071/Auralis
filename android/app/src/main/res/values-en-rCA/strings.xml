@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="opt_center">Centre</string>
+</resources>

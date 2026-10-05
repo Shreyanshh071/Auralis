@@ -49,6 +49,7 @@ class SpotifyPlaylistImporter(
         .followRedirects(true)
         .build()
 ) {
+    private val matchGate = Semaphore(2)
     companion object {
         private const val TAG = "SpotifyImporter"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -1143,6 +1144,11 @@ class SpotifyPlaylistImporter(
      */
     /** The YouTube Music song that is the same recording as a Spotify [track], or null when none is confidently the same. */
     suspend fun matchToYouTube(track: Track, seen: MutableList<Track>? = null): Track? {
+        fun pick(candidates: List<Track>): Track? =
+            com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, candidates)
+                ?: candidates.firstOrNull {
+                    com.auralis.music.domain.search.SearchQueryMatcher.isRoundingOnlyLengthGap(track, it)
+                }
         // A failed request comes back as empty results; during a 16-way parallel import that
         // happens often enough to leave songs unmatched, so an empty answer is asked once more.
         suspend fun songs(query: String, filter: String? = InnerTubeClient.FILTER_SONGS): List<Track> {
@@ -1168,25 +1174,25 @@ class SpotifyPlaylistImporter(
         
         // Every candidate, including YouTube Music's #1, must be the same recording
         // (length, version tags, credited artists): the top hit is often a radio edit or a feat. release.
-        var topMatch: Track? = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, songsResult)
+        var topMatch: Track? = pick(songsResult)
 
         // 2. Fallback: Search with full composite artist if multi-artist query
         if (topMatch == null && cleanArtist != primaryArtist && cleanArtist.isNotBlank()) {
             val fullArtistQuery = "${cleanTitle} $cleanArtist".trim()
             val fullArtistSongs = songs(fullArtistQuery)
-            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, fullArtistSongs)
+            topMatch = pick(fullArtistSongs)
         }
 
         // 3. Fallback: Search with cleanTitle alone
         if (topMatch == null && cleanTitle.isNotBlank()) {
             val titleSongsResult = songs(cleanTitle)
-            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, titleSongsResult)
+            topMatch = pick(titleSongsResult)
         }
 
         // 4. Fallback: Search general results if Songs filter didn't produce a high-confidence match
         if (topMatch == null) {
             val generalResult = songs(primaryQuery, filter = null)
-            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findBestCandidateForTrack(track, generalResult)
+            topMatch = pick(generalResult)
         }
         return topMatch
     }
@@ -1218,13 +1224,13 @@ class SpotifyPlaylistImporter(
         val total = tracks.size
         if (total == 0) return@withContext emptyList()
 
-        val semaphore = Semaphore(16)
+        // Keep catalog requests below the level that competes with playback and UI work.
         val completedCounter = AtomicInteger(0)
 
         coroutineScope {
               tracks.map { track ->
                   async {
-                      semaphore.withPermit {
+                      matchGate.withPermit {
                           try {
                               // A saved YouTube ID is already the selected recording. Re-running
                               // a catalog search for every playlist on launch can silently swap
@@ -1232,6 +1238,11 @@ class SpotifyPlaylistImporter(
                               if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) {
                                   completedCounter.incrementAndGet()
                                   return@withPermit track
+                              }
+                              AudioStreamResolver.getMatchedVideoId(track.id)?.let { preparedId ->
+                                  completedCounter.incrementAndGet()
+                                  return@withPermit track.copy(id = preparedId,
+                                      duration = AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration))
                               }
                               // Yield briefly only if user is actively resolving current live playback
                             while (AudioStreamResolver.isPlaybackResolving) {
@@ -1247,13 +1258,14 @@ class SpotifyPlaylistImporter(
 
                             if (topMatch != null) {
                                 Log.i(TAG, "Matched Spotify track '${track.title}' -> '${topMatch.id}' (${topMatch.title})")
+                                AudioStreamResolver.rememberMatchedVideoId(track.id, topMatch.id, topMatch.duration)
                                 track.copy(
                                     id = topMatch.id,
                                     // Matching audio must not replace Spotify's release cover
                                     // with a YouTube music-video frame or playlist thumbnail.
                                     // The playback match establishes an audio ID, not release artwork.
-                                    thumbnail = track.thumbnail,
-                                    duration = if (track.duration > 0) track.duration else topMatch.duration
+                                    thumbnail = track.thumbnail.ifBlank { topMatch.thumbnail },
+                                    duration = if (topMatch.duration > 0) topMatch.duration else track.duration
                                 )
                             } else {
                                 Log.w(TAG, "No confident match for Spotify track '${track.title}' by '${track.artist}' (${track.duration}s). Preserving Spotify identity.")

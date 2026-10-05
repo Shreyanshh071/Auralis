@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="back">পিছলৈ</string>
+    <string name="cancel">বাতিল কৰক</string>
+    <string name="downloaded">ডাউনলোড কৰা হৈছে</string>
+    <string name="top_result">শীৰ্ষ ফলাফল</string>
+    <string name="retry">পুনৰ চেষ্টা কৰক</string>
+    <string name="customize_colors">ৰং কাষ্টমাইজ কৰক</string>
+    <string name="background_color">বেকগ্ৰাউণ্ড ৰং</string>
+    <string name="text_color">লিখনীৰ ৰং</string>
+    <string name="secondary_text_color">দ্বিতীয় টেষ্টৰ ৰং</string>
+    <string name="about">বিষয়</string>
+    <string name="opt_explore">অনুসন্ধান কৰক</string>
+    <string name="continuous">অবিৰত</string>
+    <string name="weeks">সপ্তাহ</string>
+    <string name="months">মাহ</string>
+    <string name="years">বছৰ</string>
+    <string name="liked">ভাল লাগিল</string>
+</resources>

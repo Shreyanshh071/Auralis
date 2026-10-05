@@ -370,7 +370,7 @@ fun ClassicPlayerView(
                 if (queue.isNotEmpty()) {
                     HorizontalPager(
                         state = pagerState,
-                        key = { page -> queue.getOrNull(page)?.id ?: page },
+                        key = { page -> "${queue.getOrNull(page)?.id.orEmpty()}_$page" },
                         userScrollEnabled = enableSwipeToChangeSong,
                         beyondViewportPageCount = 1,
                         flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(

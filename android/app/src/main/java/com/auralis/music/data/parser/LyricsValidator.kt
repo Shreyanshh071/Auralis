@@ -99,18 +99,24 @@ object LyricsValidator {
     }
 
     /**
-     * Detects broken word-level timestamps where timestamps within lines or across lead lines jump backwards in time.
-     * Concurrent background ad-libs (x-bg) are ignored during cross-line checks since they overlap with lead vocals.
+     * Detects broken word timestamps within a line or lines supplied out of order.
+     * Two lead lines may overlap (a refrain sung over another phrase), so the next
+     * line's first word need not follow the previous line's last word.
      */
     fun hasNonMonotonicWordTimestamps(lyricsData: LyricsData?): Boolean {
         if (lyricsData == null || lyricsData.lines.isEmpty()) return false
-        var lastLeadWordTime = -1L
+        var lastLeadLineTime = -1L
         for (line in lyricsData.lines) {
             if (line.isInstrumental) continue
+            if (!line.isBackground) {
+                if (lastLeadLineTime >= 0L && line.time < lastLeadLineTime - 1200L) return true
+                lastLeadLineTime = maxOf(lastLeadLineTime, line.time)
+            }
             val words = line.words ?: continue
             var lastWordTimeInLine = -1L
             for (word in words) {
                 if (word.word.isBlank()) continue
+                if (word.time < line.time - 1200L) return true
                 // Within a line, syllables/words must progress monotonically forward
                 if (lastWordTimeInLine >= 0L && word.time < lastWordTimeInLine - 100L) {
                     return true
@@ -120,18 +126,6 @@ object LyricsValidator {
                 }
             }
 
-            // Across lead vocal lines, verify general forward progress (ignoring concurrent background ad-libs)
-            if (!line.isBackground) {
-                val leadWords = words.filter { !it.isBackground && it.word.isNotBlank() }
-                for (word in leadWords) {
-                    if (lastLeadWordTime >= 0L && word.time < lastLeadWordTime - 1200L) {
-                        return true
-                    }
-                    if (word.time > lastLeadWordTime) {
-                        lastLeadWordTime = word.time
-                    }
-                }
-            }
         }
         return false
     }

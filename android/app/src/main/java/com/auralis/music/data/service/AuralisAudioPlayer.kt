@@ -195,6 +195,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         private set
     private var nativeRetryCount = 0
     private var streamResolveJob: Job? = null
+    private var nativeStreamPreparation: Deferred<String?>? = null
 
     private val _isSpeakerForced = MutableStateFlow(false)
     val isSpeakerForced: StateFlow<Boolean> = _isSpeakerForced.asStateFlow()
@@ -760,6 +761,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         autoQueueJob?.cancel()
         advanceAfterAutoLoad = false
         streamResolveJob?.cancel()
+        nativeStreamPreparation?.cancel()
 
         // 1. Immediately and synchronously stop & flush all previous playback
         try {
@@ -808,16 +810,22 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 Log.d("AuralisPlayback", "[Offline Engine] Playing '${track.title}' from local storage: $directUrl")
             } else {
                 try {
-                    val resolveTimeoutMs = if (track.id.startsWith("sp_") || track.id.startsWith("spotify:")) 10000L else 6500L
-                    withTimeoutOrNull(resolveTimeoutMs) {
-                        directUrl = AudioStreamResolver.resolveAudioStream(
-                            videoId = track.id,
-                            title = track.title,
-                            artist = track.artist,
-                            quality = currentAudioQuality,
-                            context = appContext,
-                            duration = track.duration
-                        )
+                    val recordingId = AudioStreamResolver.resolvePlaybackVideoId(track)
+                    if (recordingId != null) {
+                        // Extraction has no UI side effects. Leave it preparing a cached
+                        // native URL, but never hold the working web player behind it.
+                        val preparation = scope.async(Dispatchers.IO) {
+                            AudioStreamResolver.resolveAudioStream(
+                                videoId = track.id,
+                                title = track.title,
+                                artist = track.artist,
+                                quality = currentAudioQuality,
+                                context = appContext,
+                                duration = track.duration
+                            )
+                        }
+                        nativeStreamPreparation = preparation
+                        directUrl = withTimeoutOrNull(250L) { preparation.await() }
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
@@ -927,7 +935,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 if (!syncWantsPlay) youTubeEngine.pause()
             } else {
                 Log.e("AuralisPlayback", "[Audio Engine] Failed to resolve playable YouTube stream for Spotify track '${track.title}' (${track.id})")
-                _playbackError.value = "Unable to load stream for '${track.title}'"
+                _playbackError.value = "No playable match found for '${track.title}' by ${track.artist} on YouTube Music"
                 _isBuffering.value = false
             }
         }

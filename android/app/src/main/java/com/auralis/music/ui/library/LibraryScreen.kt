@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.components.smoothScrollToTop
 import com.auralis.music.ui.theme.AuralisDuration
 import com.auralis.music.ui.theme.AuralisEasing
 import com.auralis.music.ui.theme.LocalReducedMotion
@@ -540,6 +541,7 @@ fun LibraryScreen(
         val headerGlass = rememberPageHeaderGlass(headerBackdrop)
         val gridScrollState = rememberLazyGridState()
         val listScrollState = rememberLazyListState()
+        val reducedScrollMotion = LocalReducedMotion.current
         val headerScope = rememberCoroutineScope()
         androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
             floatingHeaderState?.glass = headerGlass
@@ -548,8 +550,11 @@ fun LibraryScreen(
         androidx.compose.runtime.SideEffect {
             floatingHeaderState?.scrollToTop = {
                 headerScope.launch {
-                    if (isGridView) gridScrollState.animateScrollToItem(0)
-                    else listScrollState.animateScrollToItem(0)
+                    if (isGridView) {
+                        if (reducedScrollMotion) gridScrollState.scrollToItem(0) else gridScrollState.smoothScrollToTop()
+                    } else {
+                        if (reducedScrollMotion) listScrollState.scrollToItem(0) else listScrollState.smoothScrollToTop()
+                    }
                 }
             }
         }
@@ -910,8 +915,11 @@ fun LibraryScreen(
                 glass = glass,
                 onLogoClick = {
                     headerScope.launch {
-                        if (isGridView) gridScrollState.animateScrollToItem(0)
-                        else listScrollState.animateScrollToItem(0)
+                        if (isGridView) {
+                            if (reducedScrollMotion) gridScrollState.scrollToItem(0) else gridScrollState.smoothScrollToTop()
+                        } else {
+                            if (reducedScrollMotion) listScrollState.scrollToItem(0) else listScrollState.smoothScrollToTop()
+                        }
                     }
                 },
                 onOpenProfile = onOpenProfile,
@@ -1091,10 +1099,13 @@ internal fun getDistinctArtworkTracks(tracks: List<Track>): List<Track> {
     return result
 }
 
-private fun usesTrackCollage(playlist: Playlist, distinctCoverCount: Int): Boolean {
+internal fun usesTrackCollage(playlist: Playlist, distinctCoverCount: Int): Boolean {
     if (distinctCoverCount < 4) return false
     val cover = playlist.coverUrl.orEmpty()
     if (cover.isBlank()) return true
+    // Spotify account imports have a playlist cover chosen by the owner. Show that
+    // artwork instead of replacing it with a collage of the playlist's songs.
+    if (isSpotifyImport(playlist)) return false
     // The editor stores chosen photos as data/content/file URIs. Network covers come from
     // imports or automatic artwork and should not hide a mixed playlist's four song covers.
     return !cover.startsWith("data:") && !cover.startsWith("content:") && !cover.startsWith("file:")
@@ -1126,18 +1137,18 @@ internal fun isAlbumPlaylist(
         return true
     }
 
+    // A playlist imported from an account keeps its playlist identity even when its title
+    // matches a saved album or all of its tracks happen to come from one album.
+    if (id.startsWith("imported:spotify:") || id.startsWith("imported:youtube_music:") || id.startsWith("sp_")) {
+        return false
+    }
+
     // 3. Matched against user's saved albums
     if (savedAlbums.isNotEmpty()) {
         val cleanTitle = playlist.title.trim()
         if (savedAlbums.any { it.id == id || it.title.equals(cleanTitle, ignoreCase = true) }) {
             return true
         }
-    }
-
-    // Imported collections can carry the playlist title as every track's album metadata.
-    // Distinct track artwork is stronger evidence that this is a playlist, not an album.
-    if (id.startsWith("imported:") && getDistinctArtworkTracks(playlist.tracks).size >= 4) {
-        return false
     }
 
     // 4. Track album metadata consistency

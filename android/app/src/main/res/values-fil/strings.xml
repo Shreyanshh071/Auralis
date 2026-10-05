@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="back">Balik</string>
+    <string name="cancel">Kanselahin</string>
+    <string name="downloaded">Nadownload</string>
+    <string name="retry">Subukan muli</string>
+    <string name="customize_colors">Icustomize ang kulay</string>
+    <string name="background_color">Kulay ng paligid</string>
+    <string name="text_color">Kulay ng teksto</string>
+    <string name="secondary_text_color">Kulay ng pangalawang teksto</string>
+    <string name="now_playing">Tumutugtog ngayon</string>
+    <string name="select_all">Piliin lahat</string>
+    <string name="opt_explore">Magsaliksik</string>
+    <string name="continuous">Tuloy tuloy</string>
+    <string name="weeks">Linggo</string>
+    <string name="months">Buwan</string>
+    <string name="years">Taon</string>
+    <string name="liked">Nagustuhan</string>
+</resources>

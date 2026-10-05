@@ -578,6 +578,21 @@ class YouTubeAudioEngine(private val context: Context) {
                                 if (window.AuralisBridge) window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId);
                             }
                         });
+                        // timeupdate is commonly only about 4 Hz. Feed the lyric clock
+                        // current video time more often while audio is advancing.
+                        if (v._auralisClockTimer) clearInterval(v._auralisClockTimer);
+                        v._auralisClockTimer = setInterval(function() {
+                            if (!v.isConnected) {
+                                clearInterval(v._auralisClockTimer);
+                                v._auralisClockTimer = null;
+                                return;
+                            }
+                            if (!v.paused && !v.seeking && !v.ended &&
+                                !document.querySelector('.ad-showing, .ad-interrupting') &&
+                                window.AuralisBridge) {
+                                window.AuralisBridge.updateTime(v.currentTime, v.duration, window._auralisRequestId);
+                            }
+                        }, 80);
 
                         v.addEventListener('error', function(e) {
                             var errDesc = v.error ? "code=" + v.error.code + " msg=" + v.error.message : "unknown error";

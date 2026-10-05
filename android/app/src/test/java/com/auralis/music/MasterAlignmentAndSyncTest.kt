@@ -442,7 +442,7 @@ class MasterAlignmentAndSyncTest {
 
     @Test
     fun testCase8_CacheInvalidation_PipelineVersion12PurgesStaleData() {
-        assertEquals("Pipeline version must be 12", 12, com.auralis.music.data.repository.LyricsRepositoryImpl.LYRICS_PIPELINE_VERSION)
+        assertTrue(com.auralis.music.data.repository.LyricsRepositoryImpl.LYRICS_PIPELINE_VERSION >= 19)
 
         // Mock an entity from old pipeline version 11
         val staleEntity = com.auralis.music.data.local.entity.LyricsEntity(

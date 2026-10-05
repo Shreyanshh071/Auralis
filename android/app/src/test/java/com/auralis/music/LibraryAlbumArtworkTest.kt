@@ -91,6 +91,17 @@ class LibraryAlbumArtworkTest {
     }
 
     @Test
+    fun importedSpotifyPlaylistWithMatchingAlbumTitleStaysInPlaylists() {
+        val savedAlbums = listOf(SavedAlbum("album-hi", "hi", "Artist", "https://artwork.com/hi.jpg"))
+        val imported = Playlist(
+            id = "imported:spotify:spotify-remote",
+            title = "hi",
+            tracks = listOf(createTrack("t1", "Song", "Artist", album = "hi"))
+        )
+        assertFalse(isAlbumPlaylist(imported, savedAlbums))
+    }
+
+    @Test
     fun testIsAlbumPlaylist_byTracksSharingSameAlbumEvenWithDifferentArtists() {
         // Bollywood album or soundtrack where different songs have different artists
         val soundtrackAlbum = Playlist(

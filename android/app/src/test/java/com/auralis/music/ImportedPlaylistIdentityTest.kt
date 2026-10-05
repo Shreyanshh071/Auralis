@@ -32,6 +32,22 @@ class ImportedPlaylistIdentityTest {
     }
 
     @Test
+    fun sameTitleLocalPlaylistIsNotReusedForSpotifyImport() = runBlocking {
+        val playlistDao = mockk<PlaylistDao>(relaxed = true)
+        val repository = LibraryRepositoryImpl(mockk<TrackDao>(), playlistDao, mockk<LibraryDao>())
+        val local = PlaylistEntity("local-uuid", "hi", null, null)
+        val importedId = importedPlaylistLocalId("spotify", "spotify-remote")
+        coEvery { playlistDao.getPlaylistEntity(importedId) } returns null
+
+        val imported = repository.upsertImportedPlaylist("spotify", "spotify-remote", "hi")
+
+        assertNotEquals(local.id, imported.id)
+        assertEquals(importedId, imported.id)
+        coVerify(exactly = 1) { playlistDao.upsertPlaylist(match { it.id == importedId && it.title == "hi" }) }
+        coVerify(exactly = 0) { playlistDao.updatePlaylist(local.id, any(), any(), any()) }
+    }
+
+    @Test
     fun sameRemotePlaylistRefreshesItsOwnRecordOnly() = runBlocking {
         val playlistDao = mockk<PlaylistDao>(relaxed = true)
         val repository = LibraryRepositoryImpl(mockk<TrackDao>(), playlistDao, mockk<LibraryDao>())

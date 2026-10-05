@@ -22,6 +22,40 @@ import org.junit.Test
 
 class SyncAccuracyMasterMatchingTest {
 
+    @Test
+    fun `overlapping lead vocal lines are valid even when the next line starts before the prior ends`() {
+        val lyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            provider = LyricsProvider.BETTER_LYRICS,
+            durationMs = 254_000L,
+            lines = listOf(
+                LyricLine(189_042L, "Every single day, every word you say", words = listOf(
+                    LyricWord("Every ", 189_042L, 400L), LyricWord("say", 192_513L, 400L))),
+                LyricLine(191_210L, "I'll be watching you", words = listOf(
+                    LyricWord("I'll ", 191_210L, 250L), LyricWord("you", 192_800L, 300L))),
+                LyricLine(194_000L, "Every game you play", words = listOf(
+                    LyricWord("Every ", 194_000L, 200L), LyricWord("play", 194_600L, 300L)))
+            )
+        )
+
+        assertFalse(LyricsValidator.hasNonMonotonicWordTimestamps(lyrics))
+        assertFalse(LyricsValidator.isCorruptOrInvalid(lyrics))
+        assertEquals(MasterMatchStatus.EXACT_MATCH,
+            LyricsAlignmentEngine.evaluateMasterMatch(lyrics, 254_000L))
+    }
+
+    @Test
+    fun `a word genuinely before its own line still fails validation`() {
+        val lyrics = LyricsData(
+            syncType = SyncType.RICHSYNC,
+            provider = LyricsProvider.BETTER_LYRICS,
+            lines = listOf(LyricLine(10_000L, "bad timing", words = listOf(
+                LyricWord("bad ", 8_000L, 200L), LyricWord("timing", 10_300L, 200L))))
+        )
+
+        assertTrue(LyricsValidator.hasNonMonotonicWordTimestamps(lyrics))
+    }
+
     // =========================================================================
     // 1. HEAVEN KNOWS I'M MISERABLE NOW
     // =========================================================================
@@ -517,8 +551,8 @@ class SyncAccuracyMasterMatchingTest {
     }
 
     @Test
-    fun `testHumble - TTML duration fallback and pipeline version 12 verification`() {
-        assertEquals("Lyrics pipeline version must be 12 to purge stale cache", 12, com.auralis.music.data.repository.LyricsRepositoryImpl.LYRICS_PIPELINE_VERSION)
+    fun `testHumble - TTML duration fallback and current pipeline version verification`() {
+        assertTrue(com.auralis.music.data.repository.LyricsRepositoryImpl.LYRICS_PIPELINE_VERSION >= 19)
 
         val rawTtml = """
             <tt xmlns="http://www.w3.org/ns/ttml" xmlns:amll="http://amll.dev/ttml">

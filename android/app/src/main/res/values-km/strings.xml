@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="back">ត្រឡប់ក្រោយ</string>
+    <string name="downloaded">បានទាញយក</string>
+    <string name="top_result">លទ្ធផលល្អបំផុត</string>
+    <string name="retry">ព្យាយាមម្តងទៀត</string>
+    <string name="opt_explore">រុករក</string>
+    <string name="continuous">បន្តជាប់គ្នា</string>
+    <string name="weeks">សប្តាហ៍</string>
+    <string name="months">ខែ</string>
+    <string name="years">ឆ្នាំ</string>
+    <string name="liked">ចូលចិត្ត</string>
+</resources>

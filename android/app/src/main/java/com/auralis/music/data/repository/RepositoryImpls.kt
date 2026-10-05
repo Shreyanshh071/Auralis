@@ -6,6 +6,7 @@ import com.auralis.music.data.local.entity.HistoryEntity
 import com.auralis.music.data.local.entity.PlayCountEntity
 import com.auralis.music.data.local.entity.PlaylistTrackCrossRef
 import com.auralis.music.data.local.mapper.*
+import com.auralis.music.data.network.ArtworkIdentity
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.TrackDeduplicator
 import com.auralis.music.domain.repository.HistoryRepository
@@ -22,6 +23,37 @@ import java.util.UUID
 
 internal fun importedPlaylistLocalId(source: String, remoteId: String): String =
     "imported:${source.lowercase(java.util.Locale.ROOT)}:${remoteId.trim()}"
+
+internal fun hasSpotifyReleaseArtwork(track: Track): Boolean {
+    if (track.album.isNullOrBlank() || track.thumbnail.isBlank()) return false
+    val uri = runCatching { java.net.URI(track.thumbnail) }.getOrNull() ?: return false
+    val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return false
+    return uri.scheme.equals("https", ignoreCase = true) &&
+        (host == "i.scdn.co" || host.endsWith(".spotifycdn.com")) &&
+        !track.thumbnail.contains("mosaic", ignoreCase = true)
+}
+
+/** Import metadata identifies a particular recording and release; a later search result does not. */
+internal fun shouldRefreshImportedArtwork(source: String, incoming: Track, existing: com.auralis.music.data.local.entity.TrackEntity): Boolean {
+    if (incoming.thumbnail.isBlank() || incoming.thumbnail == existing.thumbnail) return false
+    if (ArtworkIdentity.normalized(incoming.title) != ArtworkIdentity.normalized(existing.title) ||
+        ArtworkIdentity.normalized(incoming.artist) != ArtworkIdentity.normalized(existing.artist) ||
+        (incoming.duration > 0 && existing.duration > 0 &&
+            kotlin.math.abs(incoming.duration - existing.duration) > 12L)) return false
+    return when (source) {
+        "spotify" -> hasSpotifyReleaseArtwork(incoming)
+        "youtube_music" -> {
+            // Do not let a YouTube playlist overwrite a known Spotify release image.
+            if (hasSpotifyReleaseArtwork(existing.toDomain())) return false
+            val uri = runCatching { java.net.URI(incoming.thumbnail) }.getOrNull() ?: return false
+            val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return false
+            uri.scheme.equals("https", ignoreCase = true) &&
+                (host == "i.ytimg.com" && uri.path?.contains("/vi/${incoming.id}/") == true ||
+                    host == "yt3.googleusercontent.com" || host.endsWith(".ggpht.com"))
+        }
+        else -> false
+    }
+}
 
 class LibraryRepositoryImpl(
     private val trackDao: TrackDao,
@@ -45,7 +77,14 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun setFavorite(track: Track, isFavorite: Boolean) {
-        if (trackDao.getTrackById(track.id) == null) trackDao.upsertTrack(track.toEntity())
+        val existing = trackDao.getTrackById(track.id)
+        if (existing == null) {
+            trackDao.upsertTrack(track.toEntity())
+        } else if (track.thumbnail.isNotBlank() && existing.thumbnail != track.thumbnail &&
+            (existing.thumbnail.isBlank() || hasSpotifyReleaseArtwork(track))) {
+            trackDao.updateVerifiedRelease(track.id, existing.album, existing.thumbnail,
+                track.album, track.thumbnail)
+        }
         trackDao.setFavorite(track.id, isFavorite, if (isFavorite) System.currentTimeMillis() else null)
     }
 
@@ -166,7 +205,25 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>) {
+        val importSource = when {
+            playlistId.startsWith("imported:spotify:") -> "spotify"
+            playlistId.startsWith("imported:youtube_music:") -> "youtube_music"
+            else -> ""
+        }
+        val previous = if (importSource.isNotEmpty()) {
+            tracks.map { it.id }.distinct().chunked(900)
+                .flatMap { trackDao.getTracksByIds(it) }.associateBy { it.id }
+        } else emptyMap()
         trackDao.upsertTracksPreservingFavorite(tracks.map { it.toEntity() })
+        // Reimporting the source may correct a cover previously chosen by a catalog search.
+        // Only refresh when the saved row still identifies the same recording.
+        tracks.forEach { incoming ->
+            val before = previous[incoming.id] ?: return@forEach
+            if (shouldRefreshImportedArtwork(importSource, incoming, before)) {
+                trackDao.updateVerifiedRelease(incoming.id, before.album, before.thumbnail,
+                    incoming.album ?: before.album, incoming.thumbnail)
+            }
+        }
         val refs = tracks.mapIndexed { index, track ->
             PlaylistTrackCrossRef(playlistId, track.id, index)
         }

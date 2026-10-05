@@ -80,9 +80,92 @@ class LibraryViewModel(
     /** Bumped by [refresh]: recomputes the "last 7 / 30 days" windows from the current time. */
     private val statsRefreshTick = MutableStateFlow(0)
     private var selectPlaylistJob: kotlinx.coroutines.Job? = null
+    private val matchingSpotifyPlaylists = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val refreshedSpotifyPlaylists = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val spotifyPreparation = kotlinx.coroutines.channels.Channel<List<Playlist>>(
+        kotlinx.coroutines.channels.Channel.CONFLATED)
+    private val attemptedSpotifyTracks = mutableSetOf<String>()
+
+    private suspend fun refreshSpotifyPlaylistMetadata(playlistId: String) {
+        if (!com.auralis.music.data.network.SpotifySession.isSignedIn || !refreshedSpotifyPlaylists.add(playlistId)) return
+        try {
+            val remoteId = playlistId.removePrefix("imported:spotify:")
+            val remote = com.auralis.music.data.network.SpotifyLibrary.fetchPlaylist(
+                playlistId = remoteId, importer = spotifyImporter, matchTracks = false
+            ) ?: run { refreshedSpotifyPlaylists.remove(playlistId); return }
+            val current = libraryRepository.getPlaylists().firstOrNull()?.find { it.id == playlistId } ?: return
+            if (remote.tracks.isEmpty()) return
+            val refreshed = remote.tracks.mapIndexed { index, latestTrack ->
+                val saved = current.tracks.getOrNull(index)
+                if (saved != null && !saved.id.startsWith("sp_") &&
+                    saved.title.equals(latestTrack.title, ignoreCase = true) &&
+                    saved.artist.equals(latestTrack.artist, ignoreCase = true) &&
+                    kotlin.math.abs(saved.duration - latestTrack.duration) <= 4L
+                ) saved.copy(album = latestTrack.album, thumbnail = latestTrack.thumbnail) else latestTrack
+            }
+            if (refreshed != current.tracks) {
+                libraryRepository.replacePlaylistTracks(playlistId, refreshed)
+            }
+            if (remote.title != current.title || remote.coverUrl != current.coverUrl) {
+                libraryRepository.updatePlaylist(playlistId, remote.title, remote.description, remote.coverUrl)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            refreshedSpotifyPlaylists.remove(playlistId)
+            android.util.Log.w("SpotifyLibrary", "Could not refresh $playlistId: ${e.message}")
+        }
+    }
+
+    private suspend fun matchSpotifyPlaylistProgressively(playlistId: String) {
+        if (!matchingSpotifyPlaylists.add(playlistId)) return
+        try {
+            // Save playback mappings in small batches without rewriting library rows.
+            while (true) {
+                while (com.auralis.music.data.network.AudioStreamResolver.isPlaybackResolving) {
+                    kotlinx.coroutines.delay(200)
+                }
+                val current = libraryRepository.getPlaylists().firstOrNull()?.find { it.id == playlistId } ?: return
+                val batch = current.tracks.filter { it.id.startsWith("sp_") && it.id !in attemptedSpotifyTracks }.take(4)
+                if (batch.isEmpty()) break
+                attemptedSpotifyTracks.addAll(batch.map { it.id })
+                spotifyImporter.enrichTracksWithYouTubeData(batch)
+                kotlinx.coroutines.delay(200)
+            }
+        } finally {
+            matchingSpotifyPlaylists.remove(playlistId)
+        }
+    }
 
     init {
-        viewModelScope.launch(Dispatchers.IO) { reviewSavedRecordingMatchesOnce() }
+        // One worker prepares recording IDs in the background. No stream extraction or
+        // playlist refetch is needed, and foreground playback gets priority between batches.
+        viewModelScope.launch(Dispatchers.IO) {
+            for (playlists in spotifyPreparation) {
+                for (playlist in playlists) {
+                    try {
+                        matchSpotifyPlaylistProgressively(playlist.id)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("SpotifyLibrary", "Recording preparation failed: ${e.message}")
+                    }
+                }
+                // Liked Songs retain their local favorite IDs; only persist their playback
+                // mapping so preparation cannot add duplicate favorites.
+                val liked = _uiState.value.favorites.filter {
+                    it.id.startsWith("sp_") && it.id !in attemptedSpotifyTracks
+                }
+                for (batch in liked.chunked(4)) {
+                    while (com.auralis.music.data.network.AudioStreamResolver.isPlaybackResolving) {
+                        kotlinx.coroutines.delay(200)
+                    }
+                    attemptedSpotifyTracks.addAll(batch.map { it.id })
+                    spotifyImporter.enrichTracksWithYouTubeData(batch)
+                    kotlinx.coroutines.delay(200)
+                }
+            }
+        }
         historyRepository?.let { repository ->
             viewModelScope.launch {
                 repository.getHistory().collect { history ->
@@ -133,6 +216,9 @@ class LibraryViewModel(
         // Collect playlists
         viewModelScope.launch {
             libraryRepository.getPlaylists().collect { playlists ->
+                spotifyPreparation.trySend(playlists.filter { playlist ->
+                    playlist.tracks.any { it.id.startsWith("sp_") }
+                })
                 _uiState.update { state ->
                     val updatedSelected = if (state.selectedPlaylist != null && !state.selectedPlaylist.id.startsWith("smart_")) {
                         playlists.find { it.id == state.selectedPlaylist.id } ?: state.selectedPlaylist
@@ -148,6 +234,11 @@ class LibraryViewModel(
         viewModelScope.launch {
             libraryRepository.getFavoriteTracks().collect { favs ->
                 _uiState.update { it.copy(favorites = favs) }
+                if (favs.any { it.id.startsWith("sp_") }) {
+                    spotifyPreparation.trySend(_uiState.value.playlists.filter { playlist ->
+                        playlist.tracks.any { it.id.startsWith("sp_") }
+                    })
+                }
             }
         }
 
@@ -240,6 +331,10 @@ class LibraryViewModel(
     }
 
     fun enrichPlaylist(playlist: Playlist) {
+        if (playlist.id.startsWith("imported:spotify:")) {
+            // Opening a playlist must not fetch and rematch its entire remote library.
+            return
+        }
         viewModelScope.launch {
             try {
                 val needsEnrich = playlist.tracks.any {
@@ -275,8 +370,10 @@ class LibraryViewModel(
         kotlinx.coroutines.delay(8_000) // let startup playback go first
         try {
             val playlists = libraryRepository.getPlaylists().firstOrNull() ?: return
-            val saved = playlists.flatMap { it.tracks }.distinctBy { it.id }
-            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            val saved = playlists.flatMap { it.tracks }
+                .distinctBy { it.id }
+                .filterNot { it.id.startsWith("sp_") || it.id.startsWith("spotify:") }
+        val gate = kotlinx.coroutines.sync.Semaphore(1)
             val corrections = java.util.concurrent.ConcurrentHashMap<String, Track>()
             kotlinx.coroutines.coroutineScope {
                 saved.forEach { track ->
@@ -312,6 +409,7 @@ class LibraryViewModel(
             kotlinx.coroutines.delay(3000) // Delay startup enrichment so initial user playback has 100% priority
             val playlists = libraryRepository.getPlaylists().firstOrNull() ?: return
             for (pl in playlists) {
+                if (pl.id.startsWith("imported:spotify:")) continue
                 while (com.auralis.music.data.network.AudioStreamResolver.isPlaybackResolving) {
                     kotlinx.coroutines.delay(1000)
                 }
@@ -771,7 +869,7 @@ class LibraryViewModel(
                     _uiState.update {
                         it.copy(
                             isImporting = false,
-                            importMessage = str(R.string.could_not_import_playlist_make_sure_it_i)
+                            importMessage = "Couldn't read this YouTube Music playlist. Check the link and try again."
                         )
                     }
                 }
@@ -838,53 +936,82 @@ class LibraryViewModel(
         _uiState.update { it.copy(importMessage = null) }
     }
 
-    /**
-     * Imports playlists picked by the user from their signed-in Spotify account.
-     * Liked Songs go into favorites. Reimporting the same remote playlist refreshes it.
-     */
+    /** Imports only Spotify playlists that do not have a local imported ID yet. */
     fun importSpotifyLibraryPlaylists(selected: List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) {
-        if (selected.isEmpty()) return
+        if (_uiState.value.isImportingSpotify) return
         _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = null) }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existingIds = libraryRepository.getPlaylists().firstOrNull().orEmpty().map { it.id }.toSet()
+            val likedSongsKey = "spotify_liked_songs_imported:${com.auralis.music.data.network.SpotifySession.userId}"
+            val hasImportedLikedSongs = matchReviewPrefs?.getBoolean(likedSongsKey, false) == true ||
+                libraryRepository.getFavoriteTracks().firstOrNull().orEmpty().any { it.id.startsWith("sp_") }
+            if (hasImportedLikedSongs) matchReviewPrefs?.edit()?.putBoolean(likedSongsKey, true)?.apply()
+            val toImport = selected.filter { item ->
+                if (item.isLikedSongs) !hasImportedLikedSongs
+                else "imported:spotify:${item.id}" !in existingIds
+            }
+            if (toImport.isEmpty()) {
+                _uiState.update { it.copy(isImportingSpotify = false, spotifyImportMessage = "All Spotify playlists are already imported.") }
+                return@launch
+            }
             var imported = 0
             var failed = 0
-            for ((index, item) in selected.withIndex()) {
-                _uiState.update { it.copy(spotifyImportMessage = str(R.string.importing_x_of_x_x, index + 1, selected.size, item.title)) }
+            val failedTitles = mutableListOf<String>()
+            for ((index, item) in toImport.withIndex()) {
+                _uiState.update { it.copy(spotifyImportMessage = str(R.string.importing_x_of_x_x, index + 1, toImport.size, item.title)) }
                 try {
                     if (item.isLikedSongs) {
-                        val tracks = com.auralis.music.data.network.SpotifyLibrary.fetchLikedSongsTracks(
-                            importer = spotifyImporter,
-                            onProgress = { progressText ->
-                                _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                        var tracks = emptyList<Track>()
+                        repeat(2) { attempt ->
+                            if (tracks.isEmpty()) {
+                                if (attempt > 0) kotlinx.coroutines.delay(500)
+                                tracks = com.auralis.music.data.network.SpotifyLibrary.fetchLikedSongsTracks(
+                                    importer = spotifyImporter,
+                                    onProgress = { progressText ->
+                                        _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                                    },
+                                    matchTracks = false
+                                )
                             }
-                        )
+                        }
                         if (tracks.isNotEmpty()) {
                             tracks.forEach { libraryRepository.setFavorite(it, true) }
+                            matchReviewPrefs?.edit()?.putBoolean(likedSongsKey, true)?.apply()
                             imported++
                         } else {
                             failed++
+                            failedTitles.add(item.title)
                         }
                     } else {
-                        val remote = com.auralis.music.data.network.SpotifyLibrary.fetchPlaylist(
-                            playlistId = item.id,
-                            importer = spotifyImporter,
-                            onProgress = { progressText ->
-                                _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                        var remote: Playlist? = null
+                        repeat(2) { attempt ->
+                            if (remote == null) {
+                                if (attempt > 0) kotlinx.coroutines.delay(500)
+                                remote = com.auralis.music.data.network.SpotifyLibrary.fetchPlaylist(
+                                    playlistId = item.id,
+                                    importer = spotifyImporter,
+                                    onProgress = { progressText ->
+                                        _uiState.update { it.copy(spotifyImportMessage = progressText) }
+                                    },
+                                    matchTracks = false
+                                )
                             }
-                        )
+                        }
                         if (remote == null) {
                             failed++
+                            failedTitles.add(item.title)
                             continue
                         }
-                        val cover = remote.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
+                        val importedPlaylist = remote ?: continue
+                        val cover = importedPlaylist.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
                         val playlist = libraryRepository.upsertImportedPlaylist(
                             source = "spotify",
-                            remoteId = remote.id.removePrefix("sp_"),
-                            title = remote.title,
-                            description = remote.description,
+                            remoteId = importedPlaylist.id.removePrefix("sp_"),
+                            title = importedPlaylist.title,
+                            description = importedPlaylist.description,
                             coverUrl = cover
                         )
-                        libraryRepository.replacePlaylistTracks(playlist.id, remote.tracks)
+                        libraryRepository.replacePlaylistTracks(playlist.id, importedPlaylist.tracks)
                         imported++
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -892,13 +1019,15 @@ class LibraryViewModel(
                 } catch (e: Exception) {
                     android.util.Log.e("SpotifyLibrary", "Failed to import ${item.title}: ${e.message}")
                     failed++
+                    failedTitles.add(item.title)
                 }
             }
             val noun = if (imported == 1) "playlist" else "playlists"
             _uiState.update {
                 it.copy(
                     isImportingSpotify = false,
-                    spotifyImportMessage = if (failed == 0) str(R.string.imported_x_x, imported, noun) else str(R.string.imported_x_x_x_couldn_t_be_read, imported, noun, failed)
+                    spotifyImportMessage = if (failed == 0) str(R.string.imported_x_x, imported, noun)
+                    else "Imported $imported/${toImport.size} playlists. Failed: ${failedTitles.take(3).joinToString()}${if (failedTitles.size > 3) " (+${failedTitles.size - 3} more)" else ""}. Tap Import all to retry."
                 )
             }
         }

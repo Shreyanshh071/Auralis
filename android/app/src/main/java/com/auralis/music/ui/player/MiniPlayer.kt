@@ -1266,7 +1266,7 @@ private fun NewMiniPlayerPillView(
 
             HorizontalPager(
                 state = pagerState,
-                key = { page -> queueTracks.getOrNull(page)?.id ?: page },
+                key = { page -> "${queueTracks.getOrNull(page)?.id.orEmpty()}_$page" },
                 userScrollEnabled = isHorizontalSwipeEnabled,
                 beyondViewportPageCount = 1,
                 flingBehavior = pagerFlingBehavior,

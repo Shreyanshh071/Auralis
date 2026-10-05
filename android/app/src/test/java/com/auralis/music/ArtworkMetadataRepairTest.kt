@@ -36,6 +36,24 @@ class ArtworkMetadataRepairTest {
         artist = "PAWAN SINGH & SHILPI RAJ", album = "aaaaa", duration = 222,
         thumbnail = "https://yt3.googleusercontent.com/unrelated")
 
+    @Test fun importedSourceCoverIsNotReplacedByAnAmbiguousCatalogEdition() = runBlocking {
+        val song = Track(id = "sp_original", title = "Be My Baby", artist = "The Ronettes",
+            album = "The Very Best", duration = 160,
+            thumbnail = "https://i.scdn.co/image/source-release")
+        val playlist = Playlist(id = "imported:spotify:remote", title = "My music",
+            tracks = listOf(song))
+        val repo = mockk<LibraryRepository>(relaxed = true)
+        coEvery { repo.getAllTracks() } returns listOf(song)
+        every { repo.getPlaylists() } returns flowOf(listOf(playlist))
+        var lookups = 0
+        val repair = LibraryArtworkRepair(repo, lookup = { lookups++; song.copy(
+            album = "A Different Edition", thumbnail = "https://is1-ssl.mzstatic.com/wrong") })
+
+        assertEquals(0, repair.run())
+        assertEquals(0, lookups)
+        coVerify(exactly = 0) { repo.updateVerifiedTrackRelease(any(), any(), any(), any(), any()) }
+    }
+
     @Test fun exactVideoIdentityIsRequiredBeforeReplacingStoredArtwork() {
         val century = Track(id = "vVllJT_n380", title = "Century", artist = "EsDeeKid",
             album = "Century", duration = 109,
