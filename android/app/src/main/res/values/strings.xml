@@ -426,6 +426,7 @@
     <string name="mini_player_background_style">Mini-player background style</string>
     <string name="unavailable_when_pure_black_is_enabled">Unavailable when pure black is enabled</string>
     <string name="new_player_design">New player design</string>
+    <string name="player_design">Player design</string>
     <string name="modern_expanded_now_playing_screen_with">Modern expanded now-playing screen with rich gestures</string>
     <string name="player_slider_style">Player slider style</string>
     <string name="enable_swipe_to_change_song">Enable swipe to change song</string>
@@ -808,6 +809,9 @@
     <string name="opt_new_mini_player">New mini player</string>
     <string name="opt_classic_mini_player">Classic mini player</string>
     <string name="opt_material3">Material3</string>
+    <string name="opt_new_player">New player</string>
+    <string name="opt_old_player">Old player</string>
+    <string name="opt_immersive_player">Immersive player</string>
     <string name="opt_default">Default</string>
     <string name="opt_accent_color">Accent Color</string>
     <string name="opt_dynamic_artwork_vibrant">Dynamic Artwork Vibrant</string>

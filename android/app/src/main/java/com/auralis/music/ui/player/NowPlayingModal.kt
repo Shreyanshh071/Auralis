@@ -185,6 +185,7 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.AudioQuality
+import com.auralis.music.domain.model.PlayerDesign
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.AudioOutputIcon
 import com.auralis.music.ui.components.AuralisPlayerSlider
@@ -974,7 +975,7 @@ fun NowPlayingModal(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(
-                        if (!appearance.newPlayerDesign) {
+                        if (PlayerDesign.fromDisplayName(appearance.playerDesign) == PlayerDesign.OLD) {
                             Modifier.hazeSource(state = classicLyricsHazeState, zIndex = 0f)
                         } else Modifier
                     )
@@ -984,7 +985,8 @@ fun NowPlayingModal(
         // ====================================================================
         // 2. FOREGROUND CONTENT (MODERN VS CLASSIC DESIGN)
         // ====================================================================
-        if (appearance.newPlayerDesign) {
+        when (PlayerDesign.fromDisplayName(appearance.playerDesign)) {
+            PlayerDesign.NEW -> {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2009,7 +2011,8 @@ fun NowPlayingModal(
             }
         }
     }
-} else {
+            }
+            PlayerDesign.OLD -> {
             CompositionLocalProvider(LocalClassicLyricsHazeState provides classicLyricsHazeState) {
                 ClassicPlayerContainer(
                     track = activeTrack,
@@ -2058,6 +2061,58 @@ fun NowPlayingModal(
                     sliderStyle = appearance.playerSliderStyle,
                     standardLyricsBlur = appearance.standardLyricsBlur,
                     onArtistClick = onArtistClick
+                )
+            }
+            }
+            PlayerDesign.IMMERSIVE -> {
+                ImmersivePlayerContainer(
+                    track = activeTrack,
+                    uiState = uiState,
+                    currentTab = currentTab,
+                    onTabChange = { currentTab = it },
+                    pagerState = pagerState,
+                    queue = queue,
+                    currentTrackIndex = currentTrackIndex,
+                    seekBarPositionState = seekBarPositionState,
+                    totalDurationMs = totalDurationMs,
+                    isScrubbing = isScrubbing,
+                    onScrubbing = { scrubbing, posMs ->
+                        isScrubbing = scrubbing
+                        if (scrubbing) scrubPositionMs = posMs.toFloat()
+                    },
+                    onSeekTo = { posMs ->
+                        isScrubbing = false
+                        onSeekTo(posMs)
+                    },
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = handleNext,
+                    onPreviousClick = handlePrevious,
+                    onToggleShuffle = onToggleShuffle,
+                    onToggleRepeat = onToggleRepeat,
+                    onToggleFavorite = onToggleFavorite,
+                    onDismiss = onDismiss,
+                    onSelectQueueTrack = onSelectQueueTrack,
+                    onReorderQueue = onReorderQueue,
+                    onRemoveQueueItem = onRemoveQueueItem,
+                    onShowTrackOptions = { showTrackOptions = true },
+                    onShowQueueTrackOptions = {
+                        queueOptionsIndex = -1
+                        queueOptionsTrack = it
+                    },
+                    onShowSleepDialog = { showSleepDialog = true },
+                    onShowOutputPicker = { showAudioOutputSheet = true },
+                    lyricsPositionState = lyricsPositionState,
+                    lyricsClockSource = lyricsClockSource,
+                    onLyricsOffsetChange = onLyricsOffsetChange,
+                    onSearchLyricsManually = { showManualLyricsSearch = true },
+                    controlsAlpha = controlsAlpha,
+                    enableSwipeToChangeSong = appearance.enableSwipeToChangeSong,
+                    hidePlayerThumbnail = appearance.hidePlayerThumbnail,
+                    cropAlbumArt = appearance.cropAlbumArt,
+                    sliderStyle = appearance.playerSliderStyle,
+                    standardLyricsBlur = appearance.standardLyricsBlur,
+                    onArtistClick = onArtistClick,
+                    onAddToPlaylist = { showPlaylistPicker = true }
                 )
             }
         }

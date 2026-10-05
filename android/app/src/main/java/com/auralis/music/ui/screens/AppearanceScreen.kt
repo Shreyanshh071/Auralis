@@ -352,21 +352,17 @@ fun AppearanceScreen(
 
                 // ════ 3. PLAYER ════
                 item(key = "hdr_player") { AppearanceSectionHeader(title = str(R.string.player), color = primaryColor) }
-                item(key = "item_new_player") {
-                    AppearanceSwitchItem(
+                item(key = "item_player_design") {
+                    AppearanceClickableItem(
                         icon = Icons.Default.ColorLens,
-                        title = str(R.string.new_player_design),
-                        subtitle = str(R.string.modern_expanded_now_playing_screen_with),
-                        isChecked = settings.newPlayerDesign,
+                        title = str(R.string.player_design),
+                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.playerDesign),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
                         onSurfaceVariant = onSurfaceVariant,
                         outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(newPlayerDesign = it) } }
+                        onClick = { activeDialog = AppearanceDialogType.PLAYER_DESIGN }
                     )
                 }
                 item(key = "item_player_bg") {
@@ -711,6 +707,18 @@ fun AppearanceScreen(
                 onDismiss = { activeDialog = null }
             )
         }
+        AppearanceDialogType.PLAYER_DESIGN -> {
+            AppearanceOptionsDialog(
+                title = str(R.string.player_design),
+                options = listOf("New player", "Old player", "Immersive player"),
+                selectedOption = settings.playerDesign,
+                onSelect = {
+                    update { copy(playerDesign = it, newPlayerDesign = it != "Old player") }
+                    activeDialog = null
+                },
+                onDismiss = { activeDialog = null }
+            )
+        }
         AppearanceDialogType.PLAYER_BG -> {
             val bgOptions = PlayerBackgroundStyle.entries
                 .filter { it != PlayerBackgroundStyle.APPLE_MUSIC }
@@ -958,6 +966,7 @@ private enum class AppearanceDialogType {
     THEME,
     MINI_PLAYER_DESIGN,
     MINI_PLAYER_BG,
+    PLAYER_DESIGN,
     PLAYER_BG,
     PLAYER_BUTTON_COLORS,
     PLAYER_SLIDER_STYLE,

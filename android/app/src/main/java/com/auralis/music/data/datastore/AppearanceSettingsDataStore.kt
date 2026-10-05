@@ -59,6 +59,7 @@ class AppearanceSettingsDataStore(
         val MINI_PLAYER_BG_STYLE = stringPreferencesKey("mini_player_bg_style")
 
         // Player
+        val PLAYER_DESIGN = stringPreferencesKey("player_design")
         val NEW_PLAYER_DESIGN = booleanPreferencesKey("new_player_design")
         val PLAYER_BG_STYLE = stringPreferencesKey("player_bg_style")
         val HIDE_PLAYER_THUMBNAIL = booleanPreferencesKey("hide_player_thumbnail")
@@ -135,7 +136,12 @@ class AppearanceSettingsDataStore(
                 newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
                 miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
 
-                newPlayerDesign = preferences[NEW_PLAYER_DESIGN] ?: true,
+                playerDesign = preferences[PLAYER_DESIGN] ?: run {
+                    if (preferences[NEW_PLAYER_DESIGN] == false) "Old player" else "New player"
+                },
+                newPlayerDesign = (preferences[PLAYER_DESIGN] ?: run {
+                    if (preferences[NEW_PLAYER_DESIGN] == false) "Old player" else "New player"
+                }) != "Old player",
                 playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
@@ -198,7 +204,8 @@ class AppearanceSettingsDataStore(
                 preferences[NEW_MINI_PLAYER_DESIGN] = (settings.miniPlayerDesign != "Classic mini player")
                 preferences[MINI_PLAYER_BG_STYLE] = settings.miniPlayerBackgroundStyle
 
-                preferences[NEW_PLAYER_DESIGN] = settings.newPlayerDesign
+                preferences[PLAYER_DESIGN] = settings.playerDesign
+                preferences[NEW_PLAYER_DESIGN] = (settings.playerDesign != "Old player")
                 preferences[PLAYER_BG_STYLE] = settings.playerBackgroundStyle
                 preferences[HIDE_PLAYER_THUMBNAIL] = settings.hidePlayerThumbnail
                 preferences[CROP_ALBUM_ART] = settings.cropAlbumArt

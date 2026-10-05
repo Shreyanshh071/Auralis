@@ -299,6 +299,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
+                        if (!isUsingExoPlayer) return
                         _isPlaying.value = playing
                         Log.d("AuralisPlayback", "[ExoPlayer Listener] onIsPlayingChanged: $playing")
                         if (playing && isUsingExoPlayer) {
@@ -318,6 +319,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         newPosition: Player.PositionInfo,
                         reason: Int
                     ) {
+                        if (!isUsingExoPlayer) return
                         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                             val seekMs = newPosition.positionMs
                             _playbackPositionMs.value = seekMs
@@ -327,6 +329,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (!isUsingExoPlayer) return
                         when (playbackState) {
                             Player.STATE_BUFFERING -> {
                                 _isBuffering.value = true
@@ -378,6 +381,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     }
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        if (!isUsingExoPlayer) return
                         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem != null) {
                             if (isGuestListenTogether.value) {
                                 syncPause()
@@ -762,6 +766,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         advanceAfterAutoLoad = false
         streamResolveJob?.cancel()
         nativeStreamPreparation?.cancel()
+        nativeStreamPreparation = null
 
         // 1. Immediately and synchronously stop & flush all previous playback
         try {
@@ -812,8 +817,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 try {
                     val recordingId = AudioStreamResolver.resolvePlaybackVideoId(track)
                     if (recordingId != null) {
-                        // Extraction has no UI side effects. Leave it preparing a cached
-                        // native URL, but never hold the working web player behind it.
+                        // Start both engines without waiting for a slow extraction.
+                        // A ready native stream can still win while the web page loads.
                         val preparation = scope.async(Dispatchers.IO) {
                             AudioStreamResolver.resolveAudioStream(
                                 videoId = track.id,
@@ -839,9 +844,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
             tracker.tStreamResolvedMs = System.currentTimeMillis()
 
-            if (!directUrl.isNullOrBlank()) {
-                Log.d("AuralisPlayback", "[Audio Engine] Direct native ExoPlayer stream resolved for '${track.title}' in ${tracker.tStreamResolvedMs - tracker.t0TapMs}ms ($directUrl)")
-                try {
+            fun startNativePlayback(url: String, startPositionMs: Long = initialSeekMs): Boolean {
+                return try {
                     youTubeEngine.stop()
                     isUsingExoPlayer = true
                     tracker.streamEngine = "Native ExoPlayer"
@@ -865,9 +869,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     val displayAlbum = if (isRedundantAlbum) null else track.album
 
                     val mediaItem = MediaItem.Builder()
-                        .setUri(directUrl)
+                        .setUri(url)
                         .setMediaId(effectiveMediaId)
-                        .setCustomCacheKey(SongCache.keyFor(effectiveMediaId, directUrl.toString()))
+                        .setCustomCacheKey(SongCache.keyFor(effectiveMediaId, url))
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(track.title)
@@ -880,7 +884,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
                     if (!isActive || currentSessionId.get() != requestId) {
                         Log.d("AuralisPlayback", "[Resolver] Dropping ExoPlayer start - cancelled or stale requestId=$requestId vs ${currentSessionId.get()}")
-                        return@launch
+                        return false
                     }
 
                     exoPlayer.setMediaItem(mediaItem)
@@ -893,7 +897,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     exoPlayer.prepare()
                     tracker.tMediaItemPreparedMs = System.currentTimeMillis()
                     // A jump made while the song was loading wins over where it was asked to start.
-                    val startAtMs = seekWhileLoadingMs ?: initialSeekMs
+                    val startAtMs = seekWhileLoadingMs ?: startPositionMs
                     seekWhileLoadingMs = null
                     if (startAtMs > 0) {
                         exoPlayer.seekTo(startAtMs)
@@ -905,12 +909,15 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         exoPlayer.pause()
                         _isPlaying.value = false
                     }
-                    return@launch
+                    true
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     Log.e("AuralisPlayback", "[Audio Engine] ExoPlayer start failed, falling back to YouTube engine: ${e.message}")
+                    false
                 }
             }
+
+            if (!directUrl.isNullOrBlank() && startNativePlayback(directUrl)) return@launch
 
             // Fallback to hardened YouTube web engine
             if (!isActive || currentSessionId.get() != requestId) {
@@ -933,6 +940,21 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 seekWhileLoadingMs = null
                 youTubeEngine.loadVideo(effectiveId, startAtMs, requestId)
                 if (!syncWantsPlay) youTubeEngine.pause()
+                nativeStreamPreparation?.let { preparation ->
+                    val readyStream = awaitNativeDuringWebStartup(preparation, youTubeEngine.isPlaying)
+                    if (!readyStream.isNullOrBlank() && isActive &&
+                        currentSessionId.get() == requestId && !youTubeEngine.isPlaying.value) {
+                        val pendingPosition = seekWhileLoadingMs ?: youTubeEngine.playbackPositionMs.value
+                        tracker.tStreamResolvedMs = System.currentTimeMillis()
+                        Log.d("AuralisPlayback", "[Startup Race] Native stream ready before web audio for '${track.title}' [reqId=$requestId]")
+                        if (!startNativePlayback(readyStream, pendingPosition)) {
+                            isUsingExoPlayer = false
+                            tracker.streamEngine = "YouTube Web Engine"
+                            youTubeEngine.loadVideo(effectiveId, pendingPosition, requestId)
+                            if (!syncWantsPlay) youTubeEngine.pause()
+                        }
+                    }
+                }
             } else {
                 Log.e("AuralisPlayback", "[Audio Engine] Failed to resolve playable YouTube stream for Spotify track '${track.title}' (${track.id})")
                 _playbackError.value = "No playable match found for '${track.title}' by ${track.artist} on YouTube Music"
