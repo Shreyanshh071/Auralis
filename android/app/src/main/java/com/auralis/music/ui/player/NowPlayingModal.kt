@@ -448,6 +448,7 @@ fun NowPlayingModal(
     onAudioQualityChange: (AudioQuality) -> Unit = {},
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
+    onOpenListenTogether: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var lastValidTrack by remember { mutableStateOf(uiState.currentTrack) }
@@ -2101,6 +2102,7 @@ fun NowPlayingModal(
                     },
                     onShowSleepDialog = { showSleepDialog = true },
                     onShowOutputPicker = { showAudioOutputSheet = true },
+                    onOpenListenTogether = onOpenListenTogether,
                     lyricsPositionState = lyricsPositionState,
                     lyricsClockSource = lyricsClockSource,
                     onLyricsOffsetChange = onLyricsOffsetChange,

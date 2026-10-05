@@ -1171,4 +1171,9 @@
     <string name="ambient_mode">Ambient Mode</string>
     <string name="show_lyrics">Show Lyrics</string>
     <string name="ambient_seek">Playback position</string>
+    <string name="playing_from_x">Playing from %1$s</string>
+    <string name="lyrics_by_x">Lyrics by %1$s</string>
+    <string name="change">Change</string>
+    <string name="autoplay">AutoPlay</string>
+    <string name="autoplay_subtitle">Similar music, selected to play next</string>
 </resources>

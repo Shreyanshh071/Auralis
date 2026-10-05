@@ -1102,4 +1102,9 @@
     <string name="opt_translate_meaning_into_target_language">मतलब को लक्ष्य भाषा में अनुवाद करें</string>
     <string name="opt_phonetic_script_romanization_romaji_piny">उच्चारण लिपि / रोमनीकरण (रोमाजी/पिनयिन/हिंग्लिश)</string>
     <string name="opt_search">खोजें</string>
+    <string name="playing_from_x">%1$s से चल रहा है</string>
+    <string name="lyrics_by_x">लिरिक्स: %1$s</string>
+    <string name="change">बदलें</string>
+    <string name="autoplay">ऑटोप्ले</string>
+    <string name="autoplay_subtitle">मिलता-जुलता संगीत, आगे चलाने के लिए चुना गया</string>
 </resources>
