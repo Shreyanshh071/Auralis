@@ -2056,7 +2056,11 @@ fun AuralisApp(
                                     currentQuality = currentPV.playerSettings.collectAsState().value.audioQuality,
                                     onAudioQualityChange = { currentPV.updateAudioQuality(it) },
                                     isTrackPinned = { homeViewModel.isTrackPinned(it) },
-                                    onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) }
+                                    onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
+                                    onOpenListenTogether = {
+                                        collapsePlayer()
+                                        isListenTogetherOpen = true
+                                    }
                                 )
                             }
                         }

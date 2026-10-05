@@ -56,6 +56,7 @@ fun NowPlayingSheet(
     onAudioQualityChange: (com.auralis.music.domain.model.AudioQuality) -> Unit = {},
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
+    onOpenListenTogether: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
@@ -94,6 +95,7 @@ fun NowPlayingSheet(
         onAudioQualityChange = onAudioQualityChange,
         isTrackPinned = isTrackPinned,
         onPinTrackToSpeedDial = onPinTrackToSpeedDial,
+        onOpenListenTogether = onOpenListenTogether,
         modifier = modifier
     )
 }

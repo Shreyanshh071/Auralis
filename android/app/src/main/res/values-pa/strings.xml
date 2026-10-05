@@ -1102,4 +1102,9 @@
     <string name="opt_translate_meaning_into_target_language">ਅਰਥ ਨੂੰ ਟੀਚਾ ਭਾਸ਼ਾ ਵਿੱਚ ਅਨੁਵਾਦ ਕਰੋ</string>
     <string name="opt_phonetic_script_romanization_romaji_piny">ਉਚਾਰਨ ਲਿਪੀ / ਰੋਮਨੀਕਰਨ (ਰੋਮਾਜੀ/ਪਿਨਯਿਨ/ਹਿੰਗਲਿਸ਼)</string>
     <string name="opt_search">ਖੋਜੋ</string>
+    <string name="playing_from_x">%1$s ਤੋਂ ਚੱਲ ਰਿਹਾ ਹੈ</string>
+    <string name="lyrics_by_x">ਬੋਲ: %1$s</string>
+    <string name="change">ਬਦਲੋ</string>
+    <string name="autoplay">ਆਟੋਪਲੇ</string>
+    <string name="autoplay_subtitle">ਮਿਲਦਾ-ਜੁਲਦਾ ਸੰਗੀਤ, ਅੱਗੇ ਚਲਾਉਣ ਲਈ ਚੁਣਿਆ ਗਿਆ</string>
 </resources>
