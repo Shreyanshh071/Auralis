@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.Dp
 import com.auralis.music.ui.components.LiquidGlassPageHeader
 import com.auralis.music.ui.components.LiquidGlassPageTitle
 import com.auralis.music.ui.components.rememberPageHeaderGlass
+import com.auralis.music.ui.glass.LiquidGlassContext
+import com.auralis.music.ui.glass.liquidGlass
+import com.auralis.music.ui.glass.liquidGlassDialog
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.compose.foundation.lazy.LazyRow
@@ -157,6 +160,17 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.text.BasicTextField
@@ -532,13 +546,20 @@ fun LibraryScreen(
             )
         } else {
 
+    val headerBackdrop = rememberLayerBackdrop()
+    val headerGlass = rememberPageHeaderGlass(headerBackdrop)
+    var sourceFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
+    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+    var filterOrigin by remember { mutableStateOf<Offset?>(null) }
+    var filterHeight by remember { mutableStateOf(48.dp) }
+    val filterDensity = androidx.compose.ui.platform.LocalDensity.current
     Box(
         modifier = modifier
             .fillMaxSize()
+            .clipToBounds()
+            .onGloballyPositioned { pageOrigin = it.positionInRoot() }
             .background(MaterialTheme.dynamicBackground)
     ) {
-        val headerBackdrop = rememberLayerBackdrop()
-        val headerGlass = rememberPageHeaderGlass(headerBackdrop)
         val gridScrollState = rememberLazyGridState()
         val listScrollState = rememberLazyListState()
         val reducedScrollMotion = LocalReducedMotion.current
@@ -562,7 +583,6 @@ fun LibraryScreen(
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            var sourceFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
             val browseHeader: @Composable () -> Unit = {
                 Column {
                     // ================================================================
@@ -638,11 +658,21 @@ fun LibraryScreen(
                     }
 
                     // Source filter pills sit above the sort / search / layout row.
-                    LibrarySourcePills(
-                        selected = sourceFilter,
-                        horizontalPadding = if (headerGlass != null) 0.dp else 16.dp,
-                        onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
-                    )
+                    if (headerGlass != null) {
+                        // Keep only a layout anchor in the recorded scrolling layer.
+                        // The glass row is drawn below as a sibling of that layer.
+                        androidx.compose.runtime.DisposableEffect(Unit) {
+                            onDispose { filterOrigin = null }
+                        }
+                        Spacer(Modifier.fillMaxWidth().height(filterHeight).onGloballyPositioned {
+                            filterOrigin = it.positionInRoot()
+                        })
+                    } else {
+                        LibrarySourcePills(
+                            selected = sourceFilter,
+                            onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
+                        )
+                    }
 
                     // ================================================================
                     // 2. SORTING & CONTROLS BAR ("Date added ↓", Search & Grid/List Toggle)
@@ -910,6 +940,27 @@ fun LibraryScreen(
                 }
             }
         }
+        // Never put a glass consumer inside its own recorded backdrop, even via
+        // a cached lazy-item graphics layer: that creates a RenderNode cycle.
+        filterOrigin?.let { origin ->
+            headerGlass?.let { glass ->
+                // Give the lazy row its final viewport on its first measure.
+                // A transient zero-width viewport can scroll its first pill
+                // out of view before the anchor's measured width arrives.
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset {
+                    IntOffset(0, (origin.y - pageOrigin.y).toInt())
+                }.clipToBounds().onSizeChanged {
+                    filterHeight = with(filterDensity) { it.height.toDp() }
+                }) {
+                    LibrarySourcePills(
+                        selected = sourceFilter,
+                        glass = glass,
+                        horizontalPadding = 0.dp,
+                        onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
+                    )
+                }
+            }
+        }
         if (floatingHeaderState == null) headerGlass?.let { glass ->
             LiquidGlassPageHeader(
                 glass = glass,
@@ -976,10 +1027,15 @@ fun LibraryScreen(
     // Create New Playlist Dialog
     if (showCreateDialog) {
         var playlistInput by remember { mutableStateOf("") }
+        val dialogShape = RoundedCornerShape(28.dp)
+        val pageView = androidx.compose.ui.platform.LocalView.current
 
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            containerColor = CARD_DARK_BG,
+            modifier = if (headerGlass != null) Modifier.liquidGlassDialog(headerGlass, dialogShape, pageView) else Modifier,
+            shape = if (headerGlass != null) dialogShape else AlertDialogDefaults.shape,
+            containerColor = if (headerGlass != null) Color.Transparent else CARD_DARK_BG,
+            tonalElevation = if (headerGlass != null) 0.dp else AlertDialogDefaults.TonalElevation,
             title = {
                 Text(
                     text = str(R.string.new_playlist),
@@ -3621,6 +3677,7 @@ internal fun isYouTubeMusicImport(playlist: Playlist): Boolean =
 @Composable
 private fun LibrarySourcePills(
     selected: LibrarySourceFilter?,
+    glass: LiquidGlassContext? = null,
     horizontalPadding: Dp = 16.dp,
     onSelect: (LibrarySourceFilter) -> Unit
 ) {
@@ -3638,12 +3695,43 @@ private fun LibrarySourcePills(
                 LibrarySourceFilter.YOUTUBE -> "YouTube Music"
             }
             val container = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.surfaceContainerHigh
-            val content = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+            val content = if (glass != null) MaterialTheme.colorScheme.onSurface
+                else if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+            val interactionSource = remember { MutableInteractionSource() }
+            val pressed by interactionSource.collectIsPressedAsState()
+            val reducedMotion = LocalReducedMotion.current
+            val pressFill = androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (pressed) 1f else 0f,
+                animationSpec = if (reducedMotion) androidx.compose.animation.core.snap()
+                    else androidx.compose.animation.core.tween(
+                        durationMillis = if (pressed) 450 else 220,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    ),
+                label = "libraryPillPressFill"
+            )
+            val pillModifier = if (glass != null) {
+                val glassModifier = if (isSelected) Modifier.liquidGlass(glass, CircleShape, tint = LIME_TEXT.copy(alpha = 0.24f))
+                    else Modifier.liquidGlass(glass, CircleShape)
+                // Draw the pressed fill with the actual outline. The platform
+                // ripple can ignore the glass layer's clip and paint a rectangle.
+                glassModifier.drawWithContent {
+                    drawContent()
+                    if (pressFill.value > 0f) drawOutline(
+                        CircleShape.createOutline(size, layoutDirection, this),
+                        content.copy(alpha = 0.12f * pressFill.value)
+                    )
+                }
+            } else Modifier.clip(CircleShape)
             androidx.compose.material3.Surface(
-                onClick = { onSelect(filter) },
+                modifier = pillModifier.clickable(
+                    interactionSource = interactionSource,
+                    indication = if (glass != null) null else LocalIndication.current,
+                    role = Role.Button,
+                    onClick = { onSelect(filter) }
+                ),
                 shape = CircleShape,
-                color = container,
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(
+                color = if (glass != null) Color.Transparent else container,
+                border = if (glass != null || isSelected) null else androidx.compose.foundation.BorderStroke(
                     1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                 )
             ) {

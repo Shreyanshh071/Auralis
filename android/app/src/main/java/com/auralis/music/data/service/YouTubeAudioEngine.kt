@@ -65,21 +65,21 @@ class YouTubeAudioEngine(private val context: Context) {
         @JavascriptInterface
         fun logVideoState(reqId: Long, exists: Boolean, readyState: Int, networkState: Int, currentSrc: String, paused: Boolean, details: String) {
             val activeReq = currentRequestId.get()
-            if (reqId != activeReq && reqId != 0L) return
+            if (!acceptsWebPlaybackCallback(currentVideoId, activeReq, reqId)) return
             Log.d("AuralisPlayback", "[Video State #$reqId] exists=$exists, readyState=$readyState, networkState=$networkState, paused=$paused, src=$currentSrc, msg=$details")
         }
 
         @JavascriptInterface
         fun logPlaySuccess(reqId: Long, readyState: Int, networkState: Int, currentSrc: String) {
             val activeReq = currentRequestId.get()
-            if (reqId != activeReq && reqId != 0L) return
+            if (!acceptsWebPlaybackCallback(currentVideoId, activeReq, reqId)) return
             Log.d("AuralisPlayback", "[JS Play Success #$reqId] readyState=$readyState, networkState=$networkState, src=$currentSrc")
         }
 
         @JavascriptInterface
         fun logPlayError(reqId: Long, error: String, readyState: Int, networkState: Int, currentSrc: String) {
             val activeReq = currentRequestId.get()
-            if (reqId != activeReq && reqId != 0L) return
+            if (!acceptsWebPlaybackCallback(currentVideoId, activeReq, reqId)) return
             Log.e("AuralisPlayback", "[JS Play Error #$reqId] err=$error, readyState=$readyState, networkState=$networkState, src=$currentSrc")
         }
 
@@ -87,7 +87,7 @@ class YouTubeAudioEngine(private val context: Context) {
         fun onStateChange(state: Int, reqId: Long, caller: String) {
             mainHandler.post {
                 val activeReq = currentRequestId.get()
-                if (reqId != activeReq && reqId != 0L) {
+                if (!acceptsWebPlaybackCallback(currentVideoId, activeReq, reqId)) {
                     Log.d("AuralisPlayback", "[Stale onStateChange dropped] reqId=$reqId != activeReq=$activeReq (state=$state, caller=$caller)")
                     return@post
                 }
@@ -132,7 +132,7 @@ class YouTubeAudioEngine(private val context: Context) {
         fun updateTime(currentSec: Double, durationSec: Double, reqId: Long) {
             mainHandler.post {
                 val activeReq = currentRequestId.get()
-                if (reqId != activeReq && reqId != 0L) return@post
+                if (!acceptsWebPlaybackCallback(currentVideoId, activeReq, reqId)) return@post
 
                 if (currentSec >= 0) {
                     _playbackPositionMs.value = (currentSec * 1000).toLong()
@@ -240,7 +240,8 @@ class YouTubeAudioEngine(private val context: Context) {
                         super.onPageStarted(view, url, favicon)
                         val activeReq = currentRequestId.get()
                         Log.d("AuralisPlayback", "[WebView onPageStarted #reqId=$activeReq] url=$url")
-                        if (url?.contains("watch?v=") == true) {
+                        if (acceptsWebPlaybackPage(currentVideoId, activeReq, navigationRequestId,
+                                url?.let { android.net.Uri.parse(it).takeIf { parsed -> parsed.isHierarchical }?.getQueryParameter("v") })) {
                             val earlyJs = """
                                 (function() {
                                     try {
@@ -270,8 +271,9 @@ class YouTubeAudioEngine(private val context: Context) {
                         val activeReq = currentRequestId.get()
                         Log.d("AuralisPlayback", "[WebView onPageFinished #reqId=$activeReq] url=$url")
 
-                        // Only inject playback controller script on watch pages
-                        if (url?.contains("watch?v=") == true) {
+                        // A stopped or superseded navigation must never autoplay its old video.
+                        if (acceptsWebPlaybackPage(currentVideoId, activeReq, navigationRequestId,
+                                url?.let { android.net.Uri.parse(it).takeIf { parsed -> parsed.isHierarchical }?.getQueryParameter("v") })) {
                             injectPlaybackScript(activeReq)
                         }
                     }
@@ -340,8 +342,10 @@ class YouTubeAudioEngine(private val context: Context) {
 
     private var pendingInitialSeekMs: Long = 0L
     private var loadStartedTimestampMs: Long = 0L
+    private var navigationRequestId: Long = -1L
 
     private fun injectPlaybackScript(reqId: Long) {
+        if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), reqId)) return
         val baseSeekMs = pendingInitialSeekMs
         val loadStartTime = loadStartedTimestampMs
         val js = """
@@ -655,8 +659,12 @@ class YouTubeAudioEngine(private val context: Context) {
         pendingInitialSeekMs = initialSeekMs
         loadStartedTimestampMs = System.currentTimeMillis()
         lastEmittedState = -1
+        // Startup arbitration must see this request's state, not the previous song.
+        _isPlaying.value = false
+        _playbackPositionMs.value = initialSeekMs
 
         mainHandler.post {
+            if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), requestId)) return@post
             requestAudioFocus()
             acquireWakeLock("LoadVideo_#$requestId")
             _playbackPositionMs.value = initialSeekMs
@@ -685,6 +693,8 @@ class YouTubeAudioEngine(private val context: Context) {
                 """.trimIndent(),
                 null
             )
+            web.stopLoading()
+            navigationRequestId = requestId
             web.loadUrl("https://m.youtube.com/watch?v=$videoId")
         }
     }
@@ -693,6 +703,7 @@ class YouTubeAudioEngine(private val context: Context) {
         val activeReq = currentRequestId.get()
         Log.d("AuralisPlayback", "[Play Command #$activeReq] (Caller: User/MediaAction)")
         mainHandler.post {
+            if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), activeReq)) return@post
             requestAudioFocus()
             acquireWakeLock("UserPlay_#$activeReq")
             webView?.evaluateJavascript("if (window._auralisPlay) window._auralisPlay($activeReq, 'UserPlay');", null)
@@ -703,6 +714,7 @@ class YouTubeAudioEngine(private val context: Context) {
         val activeReq = currentRequestId.get()
         Log.d("AuralisPlayback", "[Pause Command #$activeReq] (Caller: User/MediaAction)")
         mainHandler.post {
+            if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), activeReq)) return@post
             _isPlaying.value = false
             releaseWakeLock("UserPause_#$activeReq")
             webView?.evaluateJavascript("if (window._auralisPause) window._auralisPause($activeReq, 'UserPause');", null)
@@ -715,6 +727,7 @@ class YouTubeAudioEngine(private val context: Context) {
         val seconds = positionMs / 1000.0
         Log.d("AuralisPlayback", "[Seek Command #$activeReq] position=${positionMs}ms (${seconds}s)")
         mainHandler.post {
+            if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), activeReq)) return@post
             _playbackPositionMs.value = positionMs
             webView?.evaluateJavascript("if (window._auralisSeek) window._auralisSeek($seconds, $activeReq);", null)
         }
@@ -726,11 +739,17 @@ class YouTubeAudioEngine(private val context: Context) {
         val activeReq = currentRequestId.incrementAndGet()
         currentVideoId = null
         lastEmittedState = -1
+        navigationRequestId = -1L
+        _isPlaying.value = false
+        _isBuffering.value = false
         Log.d("AuralisPlayback", "[Stop Command #$activeReq]")
         mainHandler.post {
+            // A subsequent load owns the WebView; this old stop must not unload it.
+            if (currentRequestId.get() != activeReq || currentVideoId != null) return@post
             _isPlaying.value = false
             _isBuffering.value = false
             releaseWakeLock("Stop_#$activeReq")
+            webView?.stopLoading()
             webView?.evaluateJavascript(
                 """
                 try {
@@ -749,6 +768,8 @@ class YouTubeAudioEngine(private val context: Context) {
                 """.trimIndent(),
                 null
             )
+            // Unload media, timers and autoplay code even if page loading was in flight.
+            webView?.loadUrl("about:blank")
         }
     }
 

@@ -14,6 +14,16 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SpotifyPlaybackMatchRegressionTest {
+    @Test fun `imported and searched identities reuse the same prepared audio without extraction`() = runBlocking {
+        val spotifyId = "sp_shared_stream_test"
+        val youtubeId = "sharedyt123"
+        val url = "https://example.com/shared-audio"
+        AudioStreamResolver.rememberMatchedVideoId(spotifyId, youtubeId)
+        AudioStreamResolver.cacheStream("${youtubeId}_AUTO", url)
+        assertEquals(url, AudioStreamResolver.resolveAudioStream(spotifyId))
+        assertEquals(url, AudioStreamResolver.resolveAudioStream(youtubeId))
+        AudioStreamResolver.invalidateStream(spotifyId)
+    }
     @Test fun `multi artist release uses full credits when primary artist search misses`() = runBlocking {
         val source = Track(id = "sp_multicredit", title = "A Song", artist = "Composer, Singer",
             duration = 299)

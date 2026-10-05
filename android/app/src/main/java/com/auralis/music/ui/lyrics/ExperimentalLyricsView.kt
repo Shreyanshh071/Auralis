@@ -369,31 +369,14 @@ private fun experimentalCharacterProgress(
 }
 
 /**
- * Creates presentation-only token animation timing when genuine word-level
- * timing is unavailable (e.g. line-synced lyrics).
- *
- * Contract:
- * - Stagger: +30ms per token
- * - Duration: 180ms per token
- * - Presentation ONLY: never persisted or fed into LyricWord / domain data model.
+ * A line start contains no information about its individual word onsets.
+ * Keep line-only sources out of the word renderer rather than inventing timing.
  */
 internal fun createFallbackPresentationTokens(
     mainText: String,
     lineTimeMs: Long
 ): List<ExperimentalWordTimestamp> {
-    if (mainText.isBlank()) return emptyList()
-    val wordTokens = mainText.split(Regex("\\s+")).filter { it.isNotBlank() }
-    val wordDurationSec = 0.18
-    val wordStaggerSec = 0.03
-    val startTimeSec = lineTimeMs / 1000.0
-    return wordTokens.mapIndexed { idx, wordText ->
-        ExperimentalWordTimestamp(
-            text = wordText,
-            startTime = startTimeSec + (idx * wordStaggerSec),
-            endTime = startTimeSec + (idx * wordStaggerSec) + wordDurationSec,
-            hasTrailingSpace = idx < wordTokens.size - 1
-        )
-    }
+    return emptyList()
 }
 
 /**
@@ -768,9 +751,10 @@ fun ExperimentalLyricsView(
     val activeListIndexState = remember(mergedLyricsList, hasWordTimings, isSynced) {
         derivedStateOf {
             val isLineOnlyFallback = !hasWordTimings && isSynced
-            val curPos = if (isLineOnlyFallback) currentPositionState + 250L else currentPositionState
+            val curPos = currentPositionState
             val curIdx = if (isLineOnlyFallback || authoritativeTargetIndex < 0) {
-                LyricsEngine.findActiveLyricIndex(effectiveLines, curPos, offsetMs)
+                // currentPositionState already includes the user's offset.
+                LyricsEngine.findActiveLyricIndex(effectiveLines, curPos, 0L)
             } else {
                 authoritativeTargetIndex
             }
@@ -1613,8 +1597,6 @@ internal fun ExperimentalLyricsLine(
                 val effectiveWords = remember(genuineWords, mainText, line.time, isSynced) {
                     if (genuineWords != null) {
                         genuineWords
-                    } else if (isSynced && mainText.isNotBlank()) {
-                        createFallbackPresentationTokens(mainText, line.time)
                     } else {
                         emptyList()
                     }
@@ -1623,7 +1605,7 @@ internal fun ExperimentalLyricsLine(
                     presentationWordTimestamps(effectiveWords)
                 }
 
-                if (isSynced && isActiveLine && mainText.isNotBlank()) {
+                if (isSynced && isActiveLine && genuineWords != null && mainText.isNotBlank()) {
                     ExperimentalWordLevelLyrics(
                         mainText = mainText,
                         words = presentationWords,
@@ -1702,8 +1684,6 @@ private fun ExperimentalWordLevelLyrics(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val currentPositionUpdated by rememberUpdatedState(currentPositionState)
-    val isPlayingUpdated by rememberUpdatedState(isPlaying)
-    val isBufferingUpdated by rememberUpdatedState(isBuffering)
 
     var smoothPosition by remember { mutableLongStateOf(currentPositionState) }
 
@@ -1711,19 +1691,11 @@ private fun ExperimentalWordLevelLyrics(
 
     LaunchedEffect(shouldSmooth) {
         if (shouldSmooth) {
-            var lastPos = currentPositionUpdated
-            var lastUpdate = System.currentTimeMillis()
             while (isActive) {
                 withFrameMillis {
-                    val now = System.currentTimeMillis()
-                    val pos = currentPositionUpdated
-                    if (pos != lastPos) {
-                        lastPos = pos
-                        lastUpdate = now
-                    }
-                    val isAdvancing = isPlayingUpdated && !isBufferingUpdated
-                    val elapsed = if (isAdvancing) (now - lastUpdate).coerceIn(0L, 50L) else 0L
-                    smoothPosition = lastPos + elapsed
+                    // The shared lyric clock already interpolates the audio position.
+                    // A second carry here advances every word ahead of that clock.
+                    smoothPosition = currentPositionUpdated
                 }
             }
         } else {

@@ -18,6 +18,7 @@ data class AppearanceSettings(
     val miniPlayerBackgroundStyle: String = "Blur",
 
     // ── Player ──
+    val playerDesign: String = "New player",
     val newPlayerDesign: Boolean = true,
     val playerBackgroundStyle: String = "Blur",
     val hidePlayerThumbnail: Boolean = false,
@@ -109,6 +110,24 @@ enum class MiniPlayerDesign(val displayName: String) {
                     name.contains("expanded", ignoreCase = true) -> EXPANDED
                     name.contains("classic", ignoreCase = true) -> CLASSIC
                     name.contains("material", ignoreCase = true) -> MATERIAL3
+                    else -> NEW
+                }
+        }
+    }
+}
+
+enum class PlayerDesign(val displayName: String) {
+    NEW("New player"),
+    OLD("Old player"),
+    IMMERSIVE("Immersive player");
+
+    companion object {
+        fun fromDisplayName(name: String?): PlayerDesign {
+            if (name == null) return NEW
+            return entries.firstOrNull { it.displayName.equals(name, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
+                ?: when {
+                    name.contains("old", ignoreCase = true) || name.contains("classic", ignoreCase = true) -> OLD
+                    name.contains("immersive", ignoreCase = true) -> IMMERSIVE
                     else -> NEW
                 }
         }

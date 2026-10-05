@@ -135,29 +135,13 @@ class LyricsRecoveryRegressionTest {
     }
 
     @Test
-    fun `line only fallback presentation tokens and pulse match reference specification`() {
+    fun `line only sources never invent word onset or duration`() {
         val line = LyricLine(10_000L, "One whole highlighted line")
         assertNull(resolveExperimentalWordTimestamps(line, SyncType.LINE_SYNC))
         assertNull(line.words)
 
-        // Reference presentation tokens: +30ms stagger, 180ms visual duration
         val tokens = createFallbackPresentationTokens(line.text, line.time)
-        assertEquals(4, tokens.size)
-        assertEquals("One", tokens[0].text)
-        assertEquals(10.0, tokens[0].startTime, 0.0001)
-        assertEquals(10.180, tokens[0].endTime!!, 0.0001)
-
-        assertEquals("whole", tokens[1].text)
-        assertEquals(10.030, tokens[1].startTime, 0.0001)
-        assertEquals(10.210, tokens[1].endTime!!, 0.0001)
-
-        assertEquals("highlighted", tokens[2].text)
-        assertEquals(10.060, tokens[2].startTime, 0.0001)
-        assertEquals(10.240, tokens[2].endTime!!, 0.0001)
-
-        assertEquals("line", tokens[3].text)
-        assertEquals(10.090, tokens[3].startTime, 0.0001)
-        assertEquals(10.270, tokens[3].endTime!!, 0.0001)
+        assertTrue(tokens.isEmpty())
 
         // Reference token scale pulse: 125ms rise, 625ms decay
         assertEquals(0f, experimentalTokenPulse(-1f), 0f)
