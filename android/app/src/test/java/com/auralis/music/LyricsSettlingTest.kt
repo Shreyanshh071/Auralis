@@ -7,6 +7,9 @@ import com.auralis.music.domain.model.LyricsProvider
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.viewmodel.selectSettledLyrics
 import com.auralis.music.ui.viewmodel.searchForTimedLyrics
+import com.auralis.music.ui.viewmodel.needsResolvedLyricsRefresh
+import com.auralis.music.ui.viewmodel.retainLyricsForResolvedPlayback
+import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceTimeBy
@@ -19,6 +22,21 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class LyricsSettlingTest {
+    @Test fun `Spotify lyrics refresh for the actual recording and duration`() {
+        assertEquals(true, needsResolvedLyricsRefresh("sp_attention", "sp_attention", "sp_attention", "youtube_audio", 208_800L, 211_500L))
+        assertEquals(true, needsResolvedLyricsRefresh("youtube_audio", "youtube_audio", "youtube_audio", "youtube_audio", 208_800L, 211_500L))
+        assertFalse(needsResolvedLyricsRefresh("sp_other", "sp_attention", "sp_other", "youtube_audio", 208_800L, 211_500L))
+        assertFalse(needsResolvedLyricsRefresh("youtube_audio", "youtube_audio", "youtube_audio", "youtube_audio", 211_500L, 211_500L))
+    }
+
+    @Test fun `resolved Attention audio drops lyrics timed for the shorter master`() {
+        val track = Track(id = "sp_attention", title = "Attention", artist = "Charlie Puth", duration = 208)
+        val stale = word.copy(trackName = "Attention", artistName = "Charlie Puth", durationMs = 208_000L)
+        assertNull(retainLyricsForResolvedPlayback(stale, track, "vxUBYHz_q1I", 212_000L))
+        val matched = stale.copy(durationMs = 212_000L)
+        assertSame(matched, retainLyricsForResolvedPlayback(matched, track, "vxUBYHz_q1I", 212_000L))
+    }
+
     private val plain = LyricsData(
         syncType = SyncType.PLAIN,
         lines = listOf(LyricLine(0L, "A line")),

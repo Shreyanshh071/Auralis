@@ -547,12 +547,21 @@ class LibraryArtworkRepair(
         val tracks = repository.getAllTracks()
         val playlists = repository.getPlaylists().first()
         val classification = LibraryArtworkClassifier.classifyAll(tracks, playlists)
+        val importedTrackIds = playlists.asSequence()
+            .filter { it.id.startsWith("imported:spotify:") || it.id.startsWith("imported:youtube_music:") }
+            .flatMap { it.tracks.asSequence().map(Track::id) }.toSet()
         var corrected = 0
         var unresolved = 0
         val correctedIds = mutableSetOf<String>()
-        val candidatesToCheck = tracks.filter {
-            classification[it.id] != ArtworkCondition.TRUSTWORTHY ||
-                LibraryArtworkClassifier.needsSourceAudit(it)
+        val candidatesToCheck = tracks.filter { track ->
+            val condition = classification[track.id]
+            val importedSourceArt = track.id in importedTrackIds &&
+                (track.thumbnail.contains("scdn.co") || track.thumbnail.contains("googleusercontent.com") ||
+                    track.thumbnail.contains("ggpht.com") || track.thumbnail.contains("ytimg.com"))
+            val needsRepair = condition != ArtworkCondition.TRUSTWORTHY &&
+                !(importedSourceArt && condition != ArtworkCondition.CLEARLY_MISMATCHED &&
+                    !LibraryArtworkClassifier.hasCreditedReleaseConflict(track))
+            needsRepair || LibraryArtworkClassifier.needsSourceAudit(track)
         }.sortedBy {
             when (classification[it.id]) {
                 ArtworkCondition.CLEARLY_MISMATCHED -> 0
@@ -568,15 +577,23 @@ class LibraryArtworkRepair(
                     async { permits.withPermit {
                         runCatching {
                             val condition = classification[track.id]
+                            val sourceArtwork = track.thumbnail.contains("scdn.co") ||
+                                track.thumbnail.contains("googleusercontent.com") ||
+                                track.thumbnail.contains("ggpht.com") ||
+                                track.thumbnail.contains("ytimg.com")
+                            val preserveImportedSource = track.id in importedTrackIds && sourceArtwork &&
+                                track.thumbnail.isNotBlank() &&
+                                condition != ArtworkCondition.CLEARLY_MISMATCHED &&
+                                !LibraryArtworkClassifier.hasCreditedReleaseConflict(track)
                             val preservePopulatedRelease = condition == ArtworkCondition.SUSPICIOUS &&
                                 track.thumbnail.isNotBlank() &&
                                 !LibraryArtworkClassifier.hasCreditedReleaseConflict(track) &&
                                 !LibraryArtworkClassifier.isPlaceholderAlbum(track.album) &&
-                                !AlbumMetadataResolver.isCompilation(track.album) &&
+                                (!AlbumMetadataResolver.isCompilation(track.album) || preserveImportedSource) &&
                                 !LibraryArtworkClassifier.isLikelyEditorialCollection(
                                     track.album, null, track.artist) &&
                                 !track.id.startsWith("sp_")
-                            if (condition == ArtworkCondition.TRUSTWORTHY || preservePopulatedRelease) {
+                            if (condition == ArtworkCondition.TRUSTWORTHY || preservePopulatedRelease || preserveImportedSource) {
                                 auditLookup(track)
                             } else {
                                 // A collection title is not a release hint. Do not constrain

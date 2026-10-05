@@ -6,7 +6,9 @@ import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.domain.model.LyricsAnimationMode
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.lyrics.experimentalWordProgress
+import com.auralis.music.ui.lyrics.ExperimentalWordTimestamp
 import com.auralis.music.ui.lyrics.mapShapedTimedRanges
+import com.auralis.music.ui.lyrics.presentationWordTimestamps
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
 import com.auralis.music.ui.lyrics.shapedFragmentSweep
 import org.junit.Assert.assertEquals
@@ -16,6 +18,75 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExperimentalLyricsSourceFaithfulTimingTest {
+
+    @Test
+    fun `instrumental rest folded into watching does not delay you at two fifty two`() {
+        // NetEase RichSync for The Police, Every Breath You Take at the reported point.
+        val source = listOf(
+            ExperimentalWordTimestamp("I'll ", 170.75, 171.05),
+            ExperimentalWordTimestamp("be ", 171.05, 171.23),
+            ExperimentalWordTimestamp("watching ", 171.23, 184.07),
+            ExperimentalWordTimestamp("you", 184.07, 184.61)
+        )
+
+        val shown = presentationWordTimestamps(source)
+
+        assertEquals(171.83, shown[2].endTime!!, 0.001)
+        assertEquals(171.83, shown[3].startTime, 0.001)
+        assertEquals(172.37, shown[3].endTime!!, 0.001)
+        assertTrue(experimentalWordProgress(shown[3], 172_000L) > 0f)
+        assertEquals(184.07, source[3].startTime, 0.0)
+    }
+
+    @Test
+    fun `ordinary extended word keeps its source timing`() {
+        // NetEase RichSync for The Police, Every Breath You Take (first chorus).
+        val source = listOf(
+            ExperimentalWordTimestamp("I'll ", 27.65, 27.92),
+            ExperimentalWordTimestamp("be ", 27.92, 28.10),
+            ExperimentalWordTimestamp("watching ", 28.10, 29.06),
+            ExperimentalWordTimestamp("you", 29.06, 29.78)
+        )
+
+        assertEquals(source, presentationWordTimestamps(source))
+    }
+
+    @Test
+    fun `ordinary word timing and a sustained final word stay source accurate`() {
+        val source = listOf(
+            ExperimentalWordTimestamp("I ", 10.0, 10.2),
+            ExperimentalWordTimestamp("will ", 10.3, 10.65),
+            ExperimentalWordTimestamp("watch ", 10.8, 11.4),
+            ExperimentalWordTimestamp("you", 11.5, 13.5)
+        )
+
+        assertEquals(source, presentationWordTimestamps(source))
+    }
+
+    @Test
+    fun `three word lines can also finish an isolated slow sweep`() {
+        val source = listOf(
+            ExperimentalWordTimestamp("be ", 1.0, 1.2),
+            ExperimentalWordTimestamp("watching ", 1.2, 6.2),
+            ExperimentalWordTimestamp("you", 6.2, 6.5)
+        )
+
+        val shown = presentationWordTimestamps(source)
+        assertEquals(1.8, shown[1].endTime!!, 0.001)
+        assertEquals(1.8, shown[2].startTime, 0.001)
+    }
+
+    @Test
+    fun `unknown word end remains a source timed step`() {
+        val source = listOf(
+            ExperimentalWordTimestamp("I'll ", 1.0, 1.2),
+            ExperimentalWordTimestamp("be ", 1.3, 1.5),
+            ExperimentalWordTimestamp("watching ", 1.6, null),
+            ExperimentalWordTimestamp("you", 2.0, 2.3)
+        )
+
+        assertEquals(source, presentationWordTimestamps(source))
+    }
 
     @Test
     fun `final timed fragment completes only its visible Hindi word`() {

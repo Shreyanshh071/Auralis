@@ -4,9 +4,6 @@ import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
 import android.annotation.SuppressLint
-import android.graphics.BlurMaskFilter
-import android.graphics.Paint
-import android.graphics.Typeface
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -103,13 +100,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -230,6 +224,47 @@ internal fun resolveExperimentalWordTimestamps(
                 ?.let { (word.time + it) / 1000.0 },
             hasTrailingSpace = index < sourceWords.lastIndex
         )
+    }
+}
+
+/**
+ * Some rich-sync files stretch a middle word across an instrumental break and
+ * place the following word at the break's end. Repair only the displayed timing:
+ * a multi-second outlier finishes its sweep at the line's normal word pace
+ * and brings subsequent words forward by the removed delay. Provider timestamps
+ * remain untouched for storage, seeking, and source comparison.
+ */
+internal fun presentationWordTimestamps(words: List<ExperimentalWordTimestamp>): List<ExperimentalWordTimestamp> {
+    if (words.size < 2) return words
+    val ordinaryDurationsMs = words.mapNotNull { word ->
+        word.endTime?.let { (it - word.startTime) * 1000.0 }
+            ?.takeIf { it in 1.0..900.0 }
+    }.sorted()
+    if (ordinaryDurationsMs.isEmpty()) return words
+    val medianMs = ordinaryDurationsMs[ordinaryDurationsMs.size / 2]
+    val maxSweepMs = maxOf(600.0, medianMs * 1.75)
+
+    var removedDelaySec = 0.0
+    return words.mapIndexed { index, word ->
+        val start = word.startTime - removedDelaySec
+        val end = word.endTime?.minus(removedDelaySec)
+        val nextStart = words.getOrNull(index + 1)?.startTime?.minus(removedDelaySec)
+        if (end == null || nextStart == null || nextStart <= start) {
+            word.copy(startTime = start, endTime = end)
+        } else {
+            val durationMs = (end - start) * 1000.0
+            // A long held note can be valid. This only catches a rest so large
+            // that the following word was placed at the previous word's end.
+            val anomalous = durationMs > 4_000.0 &&
+                durationMs > medianMs * 6.0 && nextStart >= end - 0.2
+            if (!anomalous) {
+                word.copy(startTime = start, endTime = end)
+            } else {
+                val visualEnd = minOf(end, nextStart, start + maxSweepMs / 1000.0)
+                removedDelaySec += end - visualEnd
+                word.copy(startTime = start, endTime = visualEnd)
+            }
+        }
     }
 }
 
@@ -535,7 +570,7 @@ fun ExperimentalLyricsView(
 
     val initialActiveLyricIndex = remember(lyricsResetKey) {
         if (effectiveLines.isNotEmpty()) {
-            LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value + offsetMs, offsetMs)
+            LyricsEngine.findActiveLyricIndex(effectiveLines, positionState.value, offsetMs)
         } else -1
     }
 
@@ -564,14 +599,13 @@ fun ExperimentalLyricsView(
     }
 
     // Continuous playback clock interpolator
-    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource) {
+    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs) {
         if (effectiveLines.isEmpty()) {
             activeLineIndices = emptySet()
             return@LaunchedEffect
         }
 
         var lastBasePos = positionState.value
-        var lastUpdateTime = System.currentTimeMillis()
         var lastRawPos = lyricsClockSource?.rawPositionMs() ?: positionState.value
         var rawAdvancing = false
 
@@ -630,15 +664,15 @@ fun ExperimentalLyricsView(
                     pendingSeekTarget = null
                 }
                 lastBasePos = basePos
-                lastUpdateTime = now
             }
 
             val currentPos = if (isSeekingInFlight && pending != null) {
                 // Pin strictly to the seek target timestamp so lyrics don't run ahead during buffering
                 pending.targetTimeMs + offsetMs
             } else {
-                val elapsed = if (rawAdvancing) (now - lastUpdateTime).coerceIn(0L, 500L) else 0L
-                lastBasePos + elapsed + offsetMs
+                // positionState already carries the raw audio clock by at most 100 ms.
+                // Adding a second extrapolation here made every word run early.
+                basePos + offsetMs
             }
             currentPositionState = currentPos
 
@@ -674,7 +708,7 @@ fun ExperimentalLyricsView(
                     activeLineIndices = newActiveIndices
                 }
 
-                val primaryLine = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPos, offsetMs)
+                val primaryLine = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPos)
                 if (primaryLine != -1 && primaryLine != authoritativeTargetIndex) {
                     authoritativeTargetIndex = primaryLine
                     deferredCurrentLineIndex = primaryLine
@@ -877,7 +911,7 @@ fun ExperimentalLyricsView(
         lastPreviewTime = 0L
         isUserInteracting = false
         pendingSeekTarget = null
-        val target = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState, offsetMs)
+        val target = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState)
         if (target != -1) {
             authoritativeTargetIndex = target
             deferredCurrentLineIndex = target
@@ -1585,11 +1619,14 @@ internal fun ExperimentalLyricsLine(
                         emptyList()
                     }
                 }
+                val presentationWords = remember(effectiveWords) {
+                    presentationWordTimestamps(effectiveWords)
+                }
 
                 if (isSynced && isActiveLine && mainText.isNotBlank()) {
                     ExperimentalWordLevelLyrics(
                         mainText = mainText,
-                        words = effectiveWords,
+                        words = presentationWords,
                         isActiveLine = isActiveLine,
                         currentPositionState = currentPositionState,
                         lyricStyle = lyricStyle,
@@ -1664,12 +1701,6 @@ private fun ExperimentalWordLevelLyrics(
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
-    val glowPaint = remember {
-        Paint().apply {
-            isAntiAlias = true
-        }
-    }
-
     val currentPositionUpdated by rememberUpdatedState(currentPositionState)
     val isPlayingUpdated by rememberUpdatedState(isPlaying)
     val isBufferingUpdated by rememberUpdatedState(isBuffering)
@@ -1691,7 +1722,7 @@ private fun ExperimentalWordLevelLyrics(
                         lastUpdate = now
                     }
                     val isAdvancing = isPlayingUpdated && !isBufferingUpdated
-                    val elapsed = if (isAdvancing) (now - lastUpdate).coerceIn(0L, 500L) else 0L
+                    val elapsed = if (isAdvancing) (now - lastUpdate).coerceIn(0L, 50L) else 0L
                     smoothPosition = lastPos + elapsed
                 }
             }
@@ -1890,6 +1921,7 @@ private fun ExperimentalWordLevelLyrics(
 
                 val lineCurrentPushes = FloatArray(layoutResult.lineCount)
                 val lineTotalPushes = FloatArray(layoutResult.lineCount)
+                val allWordsSung = effectiveWords.all { experimentalWordIsComplete(it, smoothPosition) }
 
                 for (i in 0 until clusterCount) {
                     val charOffset = clusterCharOffsets[i]
@@ -1970,8 +2002,6 @@ private fun ExperimentalWordLevelLyrics(
                         )
                     } else 0f
 
-                    val shouldGlow = wordItem?.endTime != null && !isWordSung && charLp > 0.001f && charLp < 0.999f
-
                     var crescendoDeltaX = 0f
                     var crescendoDeltaY = 0f
                     val groupWord = if (wordIdx != -1) hyphenGroupData[wordIdx] else null
@@ -2035,55 +2065,13 @@ private fun ExperimentalWordLevelLyrics(
                             )
                         }
                     }) {
-                        if (shouldGlow) {
-                            val sMs = wordItem.startTime * 1000
-                            val eMs = wordItem.endTime!! * 1000
-                            val dur = eMs - sMs
-                            val wordLenText = wordItem.text.length.coerceAtLeast(1)
-                            val impactRatio = dur.toFloat() / wordLenText
-                            val fadeFactor = (sungFactor * 5f).coerceIn(0f, 1f) * ((1f - sungFactor) * 8f).coerceIn(0f, 1f)
-                            val impactFactor = (((impactRatio - 100f) / 250f).coerceIn(0f, 1f) * 0.6f + ((dur.toFloat() - 300f) / 1500f).coerceIn(0f, 1f) * 0.4f).coerceIn(0f, 1f) * fadeFactor
-                            if (impactFactor > 0.01f) {
-                                val glowAlpha = (0.35f * impactFactor).coerceIn(0f, 0.4f)
-                                val baseGlowRadius = 12.dp.toPx() * impactFactor
-                                clipRect(left = 0f, top = -baseGlowRadius,
-                                    right = charBounds.width * charLp, bottom = charBounds.height + baseGlowRadius) {
-                                    drawIntoCanvas { canvas ->
-                                        glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
-                                        glowPaint.color = expressiveAccent.copy(alpha = glowAlpha).toArgb()
-                                        glowPaint.textSize = lyricStyle.fontSize.toPx()
-                                        glowPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                                        canvas.nativeCanvas.drawText(
-                                            letterLayouts[i].layoutInput.text.text,
-                                            0f,
-                                            letterLayouts[i].firstBaseline,
-                                            glowPaint
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        val allWordsSung = effectiveWords.all { experimentalWordIsComplete(it, smoothPosition) }
                         val baseAlpha = if (isWordSung || charLp > 0.99f) 1f else focusedAlpha
                         val charAlpha = if (wordIdx == -1) (if (allWordsSung) 1f else focusedAlpha) else baseAlpha
                         drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = charAlpha))
                         if (!isWordSung && charLp > 0f && charLp < 1f) {
                             val fXL = charBounds.width * charLp
-                            val eW = (charBounds.width * 0.45f).coerceAtLeast(1f)
-                            val sWL = (fXL - eW).coerceAtLeast(0f)
-                            if (sWL > 0f) {
-                                clipRect(left = 0f, top = 0f, right = sWL, bottom = charBounds.height) {
-                                    drawText(letterLayouts[i], color = expressiveAccent)
-                                }
-                            }
-                            for (j in 0 until 12) {
-                                val start = sWL + (j * eW / 12f)
-                                val end = (sWL + ((j + 1) * eW / 12f) + 0.5f).coerceAtMost(fXL)
-                                if (end > start) {
-                                    clipRect(left = start, top = 0f, right = end, bottom = charBounds.height) {
-                                        drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = 1f - (j + 0.5f) / 12f))
-                                    }
-                                }
+                            clipRect(left = 0f, top = 0f, right = fXL, bottom = charBounds.height) {
+                                drawText(letterLayouts[i], color = expressiveAccent)
                             }
                         }
                     }

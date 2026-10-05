@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 object YouTubeMusicLibrary {
     private const val TAG = "YouTubeMusicLibrary"
     private const val ORIGIN = "https://music.youtube.com"
-    private const val CLIENT_VERSION = "1.20260213.01.00"
+    internal const val CLIENT_VERSION = "1.20260213.01.00"
     private const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     const val LIKED_MUSIC_ID = "LM"

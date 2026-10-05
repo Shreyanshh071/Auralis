@@ -67,7 +67,7 @@ internal fun AmbientArtworkPager(
     val context = LocalContext.current
     HorizontalPager(
         state = pager,
-        key = { tracks.getOrNull(it)?.id ?: it },
+        key = { page -> "${tracks.getOrNull(page)?.id.orEmpty()}_$page" },
         beyondViewportPageCount = 1,
         userScrollEnabled = tracks.size > 1,
         flingBehavior = PagerDefaults.flingBehavior(pager, snapPositionalThreshold = 0.35f),

@@ -332,12 +332,14 @@ class YouTubePlaylistImporter(
         val browseId = if (cleanId.startsWith("MPRE") || cleanId.startsWith("FEmusic_") || cleanId.startsWith("UC")) cleanId else "VL$cleanId"
 
         try {
+            val signedInHeaders = YouTubeMusicLibrary.signedInHeaders()
             val clientContext = JSONObject().apply {
                 put("client", JSONObject().apply {
                     put("clientName", "WEB_REMIX")
-                    put("clientVersion", "1.20241028.01.00")
+                    put("clientVersion", YouTubeMusicLibrary.CLIENT_VERSION)
                     put("hl", "en")
                     put("gl", "US")
+                    if (YouTubeSession.visitorData.isNotBlank()) put("visitorData", YouTubeSession.visitorData)
                 })
             }
 
@@ -347,27 +349,27 @@ class YouTubePlaylistImporter(
                 put("browseId", browseId)
             }
 
-            val initialRequest = Request.Builder()
-                .url("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
-                .post(initialPayload.toString().toRequestBody("application/json".toMediaType()))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-                .header("Referer", "https://music.youtube.com/")
-                .header("Origin", "https://music.youtube.com")
-                // Signed in to YouTube: private playlists and Liked Music read too.
-                .apply { YouTubeMusicLibrary.signedInHeaders().forEach { (k, v) -> header(k, v) } }
-                .build()
-
-            val initialResponse = client.newCall(initialRequest).execute()
-            if (!initialResponse.isSuccessful) return@withContext null
-
-            val body = initialResponse.body?.string() ?: ""
-            val json = JSONObject(body)
-
-            val playlistTitle = extractPlaylistTitle(json) ?: "Imported Playlist"
-            val playlistAuthor = extractPlaylistAuthor(json)
-            val playlistCover = extractPlaylistThumbnail(json)
+            var useSignedIn = signedInHeaders.isNotEmpty()
+            var json = fetchBrowsePage(initialPayload, null, if (useSignedIn) signedInHeaders else emptyMap())
+            var playlistTitle = json?.let(::extractPlaylistTitle) ?: "Imported Playlist"
+            var playlistAuthor = json?.let(::extractPlaylistAuthor)
+            var playlistCover = json?.let(::extractPlaylistThumbnail)
             val allTracks = mutableListOf<Track>()
-            allTracks.addAll(extractTracksFromJson(json, playlistTitle, playlistAuthor, playlistCover))
+            if (json != null) allTracks.addAll(extractTracksFromJson(json, playlistTitle, playlistAuthor, playlistCover))
+            // A stale account cookie can hide an otherwise public or unlisted playlist.
+            // Retry without account headers before deciding the link is unavailable.
+            if (allTracks.isEmpty()) {
+                val publicPage = fetchBrowsePage(initialPayload, null, emptyMap())
+                if (publicPage != null) {
+                    json = publicPage
+                    useSignedIn = false
+                    playlistTitle = extractPlaylistTitle(publicPage) ?: "Imported Playlist"
+                    playlistAuthor = extractPlaylistAuthor(publicPage)
+                    playlistCover = extractPlaylistThumbnail(publicPage)
+                    allTracks.addAll(extractTracksFromJson(publicPage, playlistTitle, playlistAuthor, playlistCover))
+                }
+            }
+            if (json == null || allTracks.isEmpty()) return@withContext null
 
             // 2. Fetch continuations to import all remaining songs (up to 5,000 tracks)
             var continuationToken = extractPlaylistContinuationToken(json)
@@ -382,21 +384,8 @@ class YouTubePlaylistImporter(
                         put("continuation", continuationToken)
                     }
 
-                    val contUrl = "https://music.youtube.com/youtubei/v1/browse?continuation=$continuationToken&ctoken=$continuationToken&type=next&prettyPrint=false"
-                    val contRequest = Request.Builder()
-                        .url(contUrl)
-                        .post(contPayload.toString().toRequestBody("application/json".toMediaType()))
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-                        .header("Referer", "https://music.youtube.com/")
-                        .header("Origin", "https://music.youtube.com")
-                        .apply { YouTubeMusicLibrary.signedInHeaders().forEach { (k, v) -> header(k, v) } }
-                        .build()
-
-                    val contResponse = client.newCall(contRequest).execute()
-                    if (!contResponse.isSuccessful) break
-
-                    val contBody = contResponse.body?.string() ?: ""
-                    val contJson = JSONObject(contBody)
+                    val contJson = fetchBrowsePage(contPayload, continuationToken, if (useSignedIn) signedInHeaders else emptyMap())
+                        ?: fetchBrowsePage(contPayload, continuationToken, emptyMap()) ?: break
 
                     val newTracks = extractTracksFromJson(contJson, playlistTitle, playlistAuthor, playlistCover)
                     allTracks.addAll(newTracks)
@@ -420,11 +409,42 @@ class YouTubePlaylistImporter(
                     tracks = validTracks
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            android.util.Log.w("YouTubePlaylistImporter", "Could not import playlist $cleanId: ${e.message}")
             if (e is IllegalArgumentException) throw e
         }
 
         null
+    }
+
+    private fun fetchBrowsePage(payload: JSONObject, continuation: String?, headers: Map<String, String>): JSONObject? {
+        val url = if (continuation == null) "https://music.youtube.com/youtubei/v1/browse?prettyPrint=false"
+        else "https://music.youtube.com/youtubei/v1/browse?continuation=$continuation&ctoken=$continuation&type=next&prettyPrint=false"
+        val request = Request.Builder()
+            .url(url)
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+            .header("Referer", "https://music.youtube.com/")
+            .header("Origin", "https://music.youtube.com")
+            .header("X-YouTube-Client-Name", "67")
+            .header("X-YouTube-Client-Version", YouTubeMusicLibrary.CLIENT_VERSION)
+            .apply { headers.forEach { (key, value) -> header(key, value) } }
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    android.util.Log.w("YouTubePlaylistImporter", "Browse returned HTTP ${response.code}")
+                    null
+                } else response.body?.string()?.let(::JSONObject)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("YouTubePlaylistImporter", "Browse request failed: ${e.message}")
+            null
+        }
     }
 
     private fun extractPlaylistTitle(json: JSONObject): String? {

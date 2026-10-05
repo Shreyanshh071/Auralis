@@ -8,8 +8,44 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import java.util.concurrent.atomic.AtomicInteger
 
 class YouTubePlaylistImporterTest {
+    @Test
+    fun publicPlaylistIsRetriedAfterFailedBrowse() = runBlocking {
+        val calls = AtomicInteger()
+        val page = """{
+          "header":{"musicDetailHeaderRenderer":{"title":{"runs":[{"text":"Public playlist"}]}}},
+          "contents":{"musicPlaylistShelfRenderer":{"contents":[
+            {"musicResponsiveListItemRenderer":{
+              "playlistItemData":{"videoId":"PvM79DJ2PmM"},
+              "flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"The Less I Know The Better"}]}}}],
+              "fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"3:37"}]}}}]
+            }}
+          ]}}
+        }"""
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val call = calls.incrementAndGet()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(if (call == 1) 403 else 200)
+                .message(if (call == 1) "Forbidden" else "OK")
+                .body((if (call == 1) "{}" else page).toResponseBody())
+                .build()
+        }.build()
+
+        val imported = YouTubePlaylistImporter(client).importPlaylist(
+            "https://music.youtube.com/playlist?list=PLaXJX-8WO2Us&si=EfXwrd999mHFhKZw"
+        )
+        assertEquals(2, calls.get())
+        assertEquals("PLaXJX-8WO2Us", imported?.id)
+        assertEquals("PvM79DJ2PmM", imported?.tracks?.singleOrNull()?.id)
+    }
+
 
     @Test
     fun shortVideoClassificationRejectsShortsAndGamingButKeepsShortMusic() {

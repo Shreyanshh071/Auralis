@@ -1,6 +1,7 @@
 package com.auralis.music.data.network
 
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
@@ -9,11 +10,24 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-class NewPipeDownloader private constructor(
+class NewPipeDownloader internal constructor(
     private val client: OkHttpClient
 ) : Downloader() {
 
     companion object {
+        private val requestDeadlineNs = ThreadLocal<Long>()
+
+        // NewPipe is synchronous. Coroutine timeouts cannot stop its blocking HTTP
+        // calls; share one deadline across every request in a single extraction.
+        internal fun <T> withRequestBudget(timeoutMs: Long, block: () -> T): T {
+            val previous = requestDeadlineNs.get()
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+            requestDeadlineNs.set(previous?.let { minOf(it, deadline) } ?: deadline)
+            return try { block() } finally {
+                if (previous == null) requestDeadlineNs.remove() else requestDeadlineNs.set(previous)
+            }
+        }
+
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
         private var cacheDir: java.io.File? = null
@@ -73,6 +87,11 @@ class NewPipeDownloader private constructor(
 
     @Throws(IOException::class)
     override fun execute(request: Request): Response {
+        val deadline = requestDeadlineNs.get()
+        val remainingNs = deadline?.minus(System.nanoTime())
+        if (Thread.currentThread().isInterrupted || (remainingNs != null && remainingNs <= 0)) {
+            throw java.io.InterruptedIOException("Audio extraction deadline reached")
+        }
         val url = request.url()
 
         // 1. Bypass heavy 'next' endpoint (comments, recommendations) - saves ~1.15s and 450KB payload
@@ -99,7 +118,13 @@ class NewPipeDownloader private constructor(
         val dataToSend = request.dataToSend()
 
         val reqBuilder = okhttp3.Request.Builder()
-            .url(url)
+            // Both hosts serve InnerTube. The googleapis route can stall on networks
+            // where normal YouTube playback works; use the same host as the player.
+            .url(url.toHttpUrl().let { endpoint ->
+                if (endpoint.host == "youtubei.googleapis.com" && endpoint.encodedPath.startsWith("/youtubei/v1/"))
+                    endpoint.newBuilder().host("www.youtube.com").build()
+                else endpoint
+            })
             .header("User-Agent", USER_AGENT)
 
         headers?.forEach { (name, values) ->
@@ -118,26 +143,34 @@ class NewPipeDownloader private constructor(
             reqBuilder.get()
         }
 
-        val okResponse = client.newCall(reqBuilder.build()).execute()
-        val responseBody = okResponse.body?.string() ?: ""
-        val responseHeaders = mutableMapOf<String, List<String>>()
-        okResponse.headers.names().forEach { name ->
-            responseHeaders[name] = okResponse.headers.values(name)
+        val call = client.newCall(reqBuilder.build())
+        // Covers DNS, connect, retries, response headers AND the response body.
+        if (deadline != null) {
+            val callBudgetNs = deadline - System.nanoTime()
+            if (callBudgetNs <= 0) throw java.io.InterruptedIOException("Audio extraction deadline reached")
+            call.timeout().timeout(callBudgetNs, TimeUnit.NANOSECONDS)
         }
+        return call.execute().use { okResponse ->
+            val responseBody = okResponse.body?.string() ?: ""
+            val responseHeaders = mutableMapOf<String, List<String>>()
+            okResponse.headers.names().forEach { name ->
+                responseHeaders[name] = okResponse.headers.values(name)
+            }
 
-        val res = Response(
-            okResponse.code,
-            okResponse.message,
-            responseHeaders,
-            responseBody,
-            okResponse.request.url.toString()
-        )
+            val res = Response(
+                okResponse.code,
+                okResponse.message,
+                responseHeaders,
+                responseBody,
+                okResponse.request.url.toString()
+            )
 
-        // Save fresh visitor_id response to token cache
-        if (url.contains("/youtubei/v1/visitor_id") && okResponse.code == 200) {
-            tokenCache[url] = System.currentTimeMillis() to res
+            // Save fresh visitor_id response to token cache
+            if (url.contains("/youtubei/v1/visitor_id") && okResponse.code == 200) {
+                tokenCache[url] = System.currentTimeMillis() to res
+            }
+
+            res
         }
-
-        return res
     }
 }

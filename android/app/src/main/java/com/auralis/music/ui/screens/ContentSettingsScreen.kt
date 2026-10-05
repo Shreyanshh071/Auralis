@@ -329,7 +329,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 title = str(R.string.app_language),
                 note = null,
                 options = listOf("" to str(R.string.system_default)) +
-                    com.auralis.music.ui.i18n.AppLanguage.available.map { tag ->
+                    com.auralis.music.ui.i18n.AppLanguage.available(context).map { tag ->
                         val locale = java.util.Locale.forLanguageTag(tag)
                         tag to locale.getDisplayName(locale).replaceFirstChar { it.titlecase(locale) }
                     },

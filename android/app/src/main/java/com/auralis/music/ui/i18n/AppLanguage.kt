@@ -7,6 +7,8 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.LocaleList
 import androidx.annotation.StringRes
+import com.auralis.music.R
+import org.xmlpull.v1.XmlPullParser
 import java.lang.ref.WeakReference
 import java.util.Locale
 
@@ -27,8 +29,20 @@ object AppLanguage {
     private const val PREFS = "auralis_app_language"
     private const val KEY_TAG = "tag"
 
-    /** Language tags with a translation (values-<tag>/strings.xml). Keep in sync with locales_config.xml. */
-    val available: List<String> = listOf("en") + TranslatedLocales.tags
+    /** Read the same locale config Android uses for the system per-app language picker. */
+    fun available(context: Context): List<String> {
+        val tags = mutableListOf<String>()
+        context.resources.getXml(R.xml.locales_config).use { parser ->
+            while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType == XmlPullParser.START_TAG && parser.name == "locale") {
+                    parser.getAttributeValue("http://schemas.android.com/apk/res/android", "name")
+                        ?.takeIf(String::isNotBlank)?.let(tags::add)
+                }
+                parser.next()
+            }
+        }
+        return tags
+    }
 
     /** Pre-33 choice ("" = system default). Ignored on 33+, where the system stores it. */
     fun storedTag(context: Context): String =

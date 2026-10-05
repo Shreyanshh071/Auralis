@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="back">Atzera</string>
+    <string name="cancel">Utzi</string>
+    <string name="close">Itxi</string>
+    <string name="downloaded">Jaiskia</string>
+    <string name="retry">Saiatu berriro</string>
+    <string name="customize_colors">Koloreak aldatu</string>
+    <string name="player_background_style">Erreproduzitzaile atzeko estiloa</string>
+    <string name="background_color">Atzealde kolorea</string>
+    <string name="text_color">Testu kolorea</string>
+    <string name="secondary_text_color">Bigarren testu kolorea</string>
+    <string name="now_playing">Orain jotzen</string>
+    <string name="lyrics">Letrak</string>
+    <string name="discord">Discord</string>
+    <string name="text_default">Lehenetsia</string>
+    <string name="enable_swipe_to_change_song">Irristatu abestia aldatzeko gaitu</string>
+    <string name="change_lyrics_on_click">Klik egitean letrak aldatu</string>
+    <string name="auto_scroll_lyrics">Letren mugimendu automatikoa</string>
+    <string name="auto_playlists">Erreproduzio-zerrenda automatikoa</string>
+    <string name="player_button_colors">Erreproduzitzaile botoi kolorea</string>
+    <string name="change_default_library_chip">Liburutegi lehenetsiaren chip-a aldatu</string>
+    <string name="my_top_list_length">Nire Top zerrenda luzera</string>
+    <string name="configure_proxy">Proxy-a ezarri</string>
+    <string name="select_all">Hautatu dena</string>
+    <string name="text_interface">Interfazea</string>
+    <string name="player_content">Jotzailea eta Edukia</string>
+    <string name="system_about">Sistema eta Honi buruz</string>
+    <string name="general">Orokorra</string>
+    <string name="app_language">Aplikazio hizkuntza</string>
+    <string name="proxy">Proxy</string>
+    <string name="opt_default">Lehenetsia</string>
+    <string name="opt_explore">Arakatu</string>
+    <string name="opt_slim">Argala</string>
+    <string name="opt_follow_theme">Jarraitu gaia</string>
+    <string name="opt_gradient">Gradientea</string>
+    <string name="opt_blur">Lauso-efektua</string>
+    <string name="continuous">Etengabe</string>
+    <string name="weeks">Asteak</string>
+    <string name="months">Hilabeteak</string>
+    <string name="years">Urteak</string>
+    <string name="liked">Gustoko</string>
+</resources>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compatible translations adapted from ViviMusic (GPL-3.0). Unlisted strings fall back to Auralis English. -->
+<resources>
+    <string name="back">Kembali</string>
+    <string name="cancel">Batal</string>
+    <string name="close">Tutup</string>
+    <string name="downloaded">Dimuat turun</string>
+    <string name="top_result">Hasil teratas</string>
+    <string name="retry">Cuba semula</string>
+    <string name="download_all_songs_for_offline_playback">Muat turun semua lagu untuk dimainkan di luar talian</string>
+    <string name="remove_this_playlist_permanently">Buang senarai main selamanya</string>
+    <string name="customize_colors">Sesuaikan warna</string>
+    <string name="player_background_style">Rupa latar pemain</string>
+    <string name="background_color">Warna latar</string>
+    <string name="text_color">Warna teks</string>
+    <string name="secondary_text_color">Warna kedua teks</string>
+    <string name="now_playing">Dimainkan Sekarang</string>
+    <string name="lyrics">Lirik</string>
+    <string name="text_default">Asal</string>
+    <string name="player_button_colors">Warna butang pemain</string>
+    <string name="select_all">Pilih semua</string>
+    <string name="opt_default">Asal</string>
+    <string name="opt_explore">Jelajah</string>
+    <string name="opt_follow_theme">Ikut tema</string>
+    <string name="opt_gradient">Kecerunan</string>
+    <string name="opt_blur">Kabur</string>
+    <string name="continuous">Bersambungan</string>
+    <string name="weeks">Mingguan</string>
+    <string name="months">Bulanan</string>
+    <string name="years">Tahunan</string>
+    <string name="liked">Disukai</string>
+</resources>

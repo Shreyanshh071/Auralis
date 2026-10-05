@@ -44,6 +44,21 @@ object ArtworkResolver {
         if (!existing.isNullOrBlank()) return@withContext existing
 
         val key = getCacheKey(track)
+        // Imported rows have a provider identity. A title search may return a different
+        // release of the same song, so only the exact YouTube video may fill missing art.
+        if (track.id.startsWith("sp_")) return@withContext null
+        if (track.id.length == 11) {
+            val exact = runCatching { InnerTubeClient().getQueue(listOf(track.id))
+                .firstOrNull { it.id == track.id } }.getOrNull()
+            val sourceArt = exact?.takeIf {
+                ArtworkSourceEvidence.matchesExactVideo(track, it)
+            }?.thumbnail
+            if (!sourceArt.isNullOrBlank()) {
+                resolvedArtworkCache[key] = sourceArt
+                return@withContext sourceArt
+            }
+            return@withContext null
+        }
         try {
             val master = com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(
                 track.title, track.artist, null, getCacheKey(track), track.album, track.duration

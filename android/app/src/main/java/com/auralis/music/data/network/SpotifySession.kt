@@ -13,7 +13,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.concurrent.TimeUnit
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Manages the user's Spotify Web Player session and tokens.
@@ -135,8 +138,7 @@ object SpotifySession {
 
     fun hasAuth(cookie: String, token: String): Boolean {
         if (token.isNotBlank()) return true
-        val names = parseCookies(cookie).keys
-        return "sp_dc" in names || "sp_key" in names
+        return !parseCookies(cookie)["sp_dc"].isNullOrBlank()
     }
 
     private fun parseCookies(raw: String): Map<String, String> =
@@ -169,48 +171,26 @@ object SpotifySession {
 
         if (currentCookie.isBlank()) {
             Log.w(TAG, "Cannot refresh Spotify access token: no session cookie available.")
-            return@withContext currentToken.takeIf { it.isNotBlank() }
+            return@withContext currentToken.takeIf { it.isNotBlank() && System.currentTimeMillis() < expiry }
         }
 
         try {
-            Log.d(TAG, "Refreshing Spotify access token via web player endpoint...")
-            val req = Request.Builder()
-                .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
-                .header("User-Agent", USER_AGENT)
-                .header("Cookie", currentCookie)
-                .header("Referer", "https://open.spotify.com/")
-                .header("Origin", "https://open.spotify.com")
-                .header("Accept", "application/json")
-                .build()
-
-            val resp = client.newCall(req).execute()
-            if (resp.isSuccessful) {
-                val body = resp.body?.string() ?: ""
-                val json = JSONObject(body)
-                val newToken = json.optString("accessToken")
-                val newExpiresMs = json.optLong("accessTokenExpirationTimestampMs", 0L)
-                val isAnon = json.optBoolean("isAnonymous", false)
-
-                if (newToken.isNotBlank() && !isAnon) {
-                    val finalExpiry = if (newExpiresMs > System.currentTimeMillis()) newExpiresMs else (System.currentTimeMillis() + 3600_000L)
-                    accessToken = newToken
-                    expiresAtMs = finalExpiry
-                    prefs?.edit()
-                        ?.putString(KEY_ACCESS_TOKEN, newToken)
-                        ?.putLong(KEY_EXPIRES_AT, finalExpiry)
-                        ?.apply()
-                    Log.i(TAG, "Successfully refreshed Spotify access token.")
-                    return@withContext newToken
-                }
-            } else {
-                Log.w(TAG, "Spotify token refresh returned HTTP ${resp.code}")
+            val refreshed = requestWebPlayerToken(currentCookie)
+            if (refreshed != null) {
+                accessToken = refreshed.first
+                expiresAtMs = refreshed.second
+                prefs?.edit()
+                    ?.putString(KEY_ACCESS_TOKEN, refreshed.first)
+                    ?.putLong(KEY_EXPIRES_AT, refreshed.second)
+                    ?.apply()
+                return@withContext refreshed.first
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error refreshing Spotify token: ${e.message}")
         }
 
         // Return current token as best-effort fallback if refresh failed
-        currentToken.takeIf { it.isNotBlank() }
+        currentToken.takeIf { it.isNotBlank() && System.currentTimeMillis() < expiry }
     }
 
     data class UserProfile(
@@ -224,29 +204,94 @@ object SpotifySession {
      */
     suspend fun fetchWebPlayerToken(cookieHeader: String): String? = withContext(Dispatchers.IO) {
         try {
-            val req = Request.Builder()
-                .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
-                .header("User-Agent", USER_AGENT)
-                .header("Cookie", cookieHeader)
-                .header("Referer", "https://open.spotify.com/")
-                .header("Origin", "https://open.spotify.com")
-                .header("Accept", "application/json")
-                .build()
-
-            val resp = client.newCall(req).execute()
-            if (resp.isSuccessful) {
-                val body = resp.body?.string() ?: ""
-                val json = JSONObject(body)
-                val token = json.optString("accessToken")
-                val isAnon = json.optBoolean("isAnonymous", false)
-                if (token.isNotBlank() && !isAnon) {
-                    return@withContext token
-                }
-            }
+            requestWebPlayerToken(cookieHeader)?.first
         } catch (e: Exception) {
             Log.w(TAG, "Error fetching web player token: ${e.message}")
+            null
         }
-        null
+    }
+
+    /** Spotify's current web-player token endpoint requires a time-based one-time password. */
+    private fun requestWebPlayerToken(cookieHeader: String): Pair<String, Long>? {
+        val gistRequest = Request.Builder()
+            .url("https://api.github.com/gists/22ed9c6ba463899e933427f7de1f0eef")
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        val gistResponse = client.newCall(gistRequest).execute()
+        if (!gistResponse.isSuccessful) {
+            Log.w(TAG, "Spotify TOTP source returned HTTP ${gistResponse.code}")
+            return null
+        }
+        val gist = JSONObject(gistResponse.body?.string().orEmpty())
+        val files = gist.optJSONObject("files") ?: return null
+        val firstFile = files.keys().asSequence().firstOrNull() ?: return null
+        val nuances = JSONArray(files.getJSONObject(firstFile).optString("content"))
+        val latest = (0 until nuances.length()).mapNotNull { nuances.optJSONObject(it) }
+            .maxByOrNull { it.optInt("v") } ?: return null
+        val secret = latest.optString("s")
+        val version = latest.optInt("v")
+        if (secret.isBlank()) return null
+
+        val timeRequest = Request.Builder().url("https://open.spotify.com/api/server-time")
+            .header("User-Agent", USER_AGENT).build()
+        val timeResponse = client.newCall(timeRequest).execute()
+        if (!timeResponse.isSuccessful) {
+            Log.w(TAG, "Spotify server-time request returned HTTP ${timeResponse.code}")
+            return null
+        }
+        val serverTime = JSONObject(timeResponse.body?.string().orEmpty()).optLong("serverTime")
+        if (serverTime <= 0L) return null
+
+        val totp = generateTotp(secret, serverTime)
+        val tokenRequest = Request.Builder()
+            .url("https://open.spotify.com/api/token?reason=transport&productType=web-player&totp=$totp&totpServer=$totp&totpVer=$version")
+            .header("User-Agent", USER_AGENT)
+            .header("Cookie", cookieHeader)
+            .header("Referer", "https://open.spotify.com/")
+            .header("Accept", "application/json")
+            .build()
+        val response = client.newCall(tokenRequest).execute()
+        if (!response.isSuccessful) {
+            Log.w(TAG, "Spotify token request returned HTTP ${response.code}")
+            return null
+        }
+        val json = JSONObject(response.body?.string().orEmpty())
+        val token = json.optString("accessToken")
+        if (token.isBlank() || json.optBoolean("isAnonymous")) {
+            Log.w(TAG, "Spotify returned an empty or anonymous web-player token")
+            return null
+        }
+        val expiry = json.optLong("accessTokenExpirationTimestampMs")
+            .takeIf { it > System.currentTimeMillis() } ?: System.currentTimeMillis() + 3_000_000L
+        return token to expiry
+    }
+
+    private fun generateTotp(base32Secret: String, unixSeconds: Long): String {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        var buffer = 0
+        var bits = 0
+        val key = ArrayList<Byte>()
+        for (char in base32Secret.uppercase()) {
+            val digit = alphabet.indexOf(char)
+            if (digit < 0) continue
+            buffer = (buffer shl 5) or digit
+            bits += 5
+            if (bits >= 8) {
+                bits -= 8
+                key.add(((buffer shr bits) and 0xff).toByte())
+            }
+        }
+        val step = unixSeconds / 30L
+        val message = ByteArray(8) { index -> (step ushr ((7 - index) * 8)).toByte() }
+        val mac = Mac.getInstance("HmacSHA1")
+        mac.init(SecretKeySpec(key.toByteArray(), "HmacSHA1"))
+        val hash = mac.doFinal(message)
+        val offset = hash.last().toInt() and 0x0f
+        val number = ((hash[offset].toInt() and 0x7f) shl 24) or
+            ((hash[offset + 1].toInt() and 0xff) shl 16) or
+            ((hash[offset + 2].toInt() and 0xff) shl 8) or
+            (hash[offset + 3].toInt() and 0xff)
+        return (number % 1_000_000).toString().padStart(6, '0')
     }
 
     /**
@@ -268,6 +313,8 @@ object SpotifySession {
                 val displayName = json.optString("display_name").ifBlank { id }
                 val avatarUrl = json.optJSONArray("images")?.optJSONObject(0)?.optString("url").orEmpty()
                 return@withContext UserProfile(id, displayName, avatarUrl)
+            } else {
+                Log.w(TAG, "Spotify profile request returned HTTP ${resp.code}")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error fetching user profile: ${e.message}")

@@ -67,6 +67,34 @@ internal fun lyricsTier(data: LyricsData?): Int = when {
     else -> 1
 }
 
+internal fun needsResolvedLyricsRefresh(
+    lookupTrackId: String?,
+    playingTrackId: String,
+    lookupVideoId: String?,
+    playingVideoId: String,
+    lookupDurationMs: Long,
+    playingDurationMs: Long
+): Boolean = lookupTrackId == playingTrackId && playingDurationMs > 0L &&
+    (lookupVideoId != playingVideoId || kotlin.math.abs(playingDurationMs - lookupDurationMs) >= 1500L)
+
+internal fun retainLyricsForResolvedPlayback(
+    lyrics: LyricsData?,
+    track: Track,
+    playbackVideoId: String,
+    playbackDurationMs: Long
+): LyricsData? = lyrics?.takeIf { candidate ->
+    lyricsTier(candidate) >= 2 &&
+        com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+            lyrics = candidate,
+            playbackDurationMs = playbackDurationMs,
+            playbackTitle = track.title,
+            candidateTitle = candidate.trackName ?: track.title,
+            playbackVideoId = playbackVideoId,
+            playbackArtist = track.artist,
+            candidateArtist = candidate.artistName ?: track.artist
+        )
+}
+
 /** A plain or empty first lookup can precede a timed result while providers warm up. */
 internal suspend fun searchForTimedLyrics(
     maxAttempts: Int = 3,
@@ -163,7 +191,12 @@ class PlayerViewModel(
 
     private var sleepTimerJob: Job? = null
     private var playJob: Job? = null
+    private var seekJob: Job? = null
     private var lyricsJob: Job? = null
+    private var lyricsLookupTrackId: String? = null
+    private var lyricsLookupVideoId: String? = null
+    private var lyricsLookupDurationMs: Long = 0L
+    private val lyricsLookupGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private var translationJob: Job? = null
 
     /**
@@ -340,6 +373,7 @@ class PlayerViewModel(
             viewModelScope.launch {
                 player.isPlaying.collect { playing ->
                     _uiState.update { it.copy(isPlaying = playing) }
+                    if (playing) refreshLyricsForResolvedPlayback()
                 }
             }
 
@@ -355,6 +389,7 @@ class PlayerViewModel(
                         if (dur > 0 && dur != _uiState.value.durationMs) {
                             _uiState.update { it.copy(durationMs = dur) }
                         }
+                        if (dur > 0 && player.isPlaying.value) refreshLyricsForResolvedPlayback()
                     }
             }
 
@@ -833,12 +868,19 @@ class PlayerViewModel(
         _playbackPositionMs.value = clamped
         _uiState.update { it.copy(playbackPositionMs = clamped) }
         if (audioPlayer != null) {
-            audioPlayer.seekTo(clamped)
+            val trackId = _uiState.value.currentTrack?.id
+            seekJob?.cancel()
+            // Rapid lyric taps should send only the latest seek to the audio engine.
+            seekJob = viewModelScope.launch {
+                delay(40L)
+                if (_uiState.value.currentTrack?.id == trackId) audioPlayer.seekTo(clamped)
+            }
         }
     }
 
     fun next() {
         Log.d("AuralisPlayback", "[PlayerViewModel] next() triggered")
+        seekJob?.cancel()
         palettePreloadJob?.cancel()
         val reqId = currentPlaybackRequestId.incrementAndGet()
 
@@ -1039,6 +1081,7 @@ class PlayerViewModel(
 
     fun previous() {
         Log.d("AuralisPlayback", "[PlayerViewModel] previous() triggered")
+        seekJob?.cancel()
         palettePreloadJob?.cancel()
         val now = System.currentTimeMillis()
         val isDoubleTap = (now - lastPreviousTapMs) <= 2000L
@@ -1228,11 +1271,34 @@ class PlayerViewModel(
         }
     }
 
-    private fun loadLyrics(track: Track, requestId: Long = currentPlaybackRequestId?.get() ?: 0L) {
+    private fun refreshLyricsForResolvedPlayback() {
+        val track = _uiState.value.currentTrack ?: return
+        val resolvedId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+        val playbackDuration = audioPlayer?.durationMs?.value?.takeIf { it > 0L } ?: return
+        if (needsResolvedLyricsRefresh(lyricsLookupTrackId, track.id, lyricsLookupVideoId, resolvedId, lyricsLookupDurationMs, playbackDuration)) {
+            Log.d("AuralisLyrics", "Refreshing lyrics for resolved playback: ${track.title}, videoId=$resolvedId, duration=$playbackDuration")
+            loadLyrics(track, currentPlaybackRequestId.get(), forceSourceRefresh = true)
+        }
+    }
+
+    private fun loadLyrics(
+        track: Track,
+        requestId: Long = currentPlaybackRequestId.get(),
+        forceSourceRefresh: Boolean = false
+    ) {
         lyricsJob?.cancel()
+        val generation = lyricsLookupGeneration.incrementAndGet()
+        fun isActive() = requestId == currentPlaybackRequestId.get() && generation == lyricsLookupGeneration.get()
+        val resolvedIdAtStart = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+        val resolvedDurationAtStart = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
+            ?: _uiState.value.durationMs.takeIf { it > 0L } ?: track.duration * 1000L
+        val safeFallback = if (forceSourceRefresh) {
+            retainLyricsForResolvedPlayback(_uiState.value.lyrics, track, resolvedIdAtStart, resolvedDurationAtStart)
+        } else null
         _uiState.update {
             it.copy(
-                lyrics = it.lyrics?.takeIf { lyricsTier(it) >= 2 && it.trackName?.equals(track.title, ignoreCase = true) == true },
+                lyrics = if (forceSourceRefresh) safeFallback else
+                    it.lyrics?.takeIf { lyricsTier(it) >= 2 && it.trackName?.equals(track.title, ignoreCase = true) == true },
                 isLoadingLyrics = true
             )
         }
@@ -1244,9 +1310,12 @@ class PlayerViewModel(
             val exactDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
                 ?: _uiState.value.durationMs.takeIf { it > 0L }
                 ?: (effectiveDurationSec * 1000L)
+            lyricsLookupTrackId = track.id
+            lyricsLookupVideoId = effectiveVideoId
+            lyricsLookupDurationMs = exactDurationMs
 
             val currentSilence = audioPlayer?.audioLeadingSilenceMs?.value
-            val cached = withContext(Dispatchers.IO) {
+            val cached = if (forceSourceRefresh) null else withContext(Dispatchers.IO) {
                 lyricsRepository.getCachedLyrics(
                     title = track.title,
                     artist = track.artist,
@@ -1261,7 +1330,7 @@ class PlayerViewModel(
             // A cached RICHSYNC entry is already the best tier available; nothing to
             // upgrade to, so it settles here.
             if (cached != null && lyricsTier(cached) == 3) {
-                if (requestId == currentPlaybackRequestId.get()) {
+                if (isActive()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
                 }
@@ -1290,7 +1359,7 @@ class PlayerViewModel(
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         null
                     }
-                    if (enriched != null && requestId == currentPlaybackRequestId.get()) {
+                    if (enriched != null && isActive()) {
                         _uiState.update { it.copy(lyrics = enriched, isLoadingLyrics = false) }
                         triggerAiTranslation(track, enriched, requestId)
                     }
@@ -1302,8 +1371,8 @@ class PlayerViewModel(
             // A network upgrade is only attempted once per unique (title, artist, duration)
             // track per session, and the result is kept only if it ranks higher.
             val cachedIsUsable = lyricsTier(cached) >= 2
-            if (requestId == currentPlaybackRequestId.get()) {
-                _uiState.update { it.copy(lyrics = cached.takeIf { cachedIsUsable }, isLoadingLyrics = !cachedIsUsable) }
+            if (isActive()) {
+                _uiState.update { it.copy(lyrics = cached.takeIf { cachedIsUsable } ?: safeFallback, isLoadingLyrics = !cachedIsUsable) }
                 if (cachedIsUsable) {
                     triggerAiTranslation(track, cached, requestId)
                 }
@@ -1321,7 +1390,7 @@ class PlayerViewModel(
                 val finalDelivered = java.util.concurrent.atomic.AtomicBoolean(false)
                 val data = searchForTimedLyrics(
                     timedLyricsVisible = {
-                        requestId == currentPlaybackRequestId.get() && lyricsTier(_uiState.value.lyrics) >= 2
+                        !forceSourceRefresh && isActive() && lyricsTier(_uiState.value.lyrics) >= 2
                     },
                     search = { attempt ->
                         if (attempt > 0) Log.d("AuralisLyrics", "Retrying timed lyrics lookup: attempt ${attempt + 1}")
@@ -1332,11 +1401,14 @@ class PlayerViewModel(
                         val resolvedDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
                             ?: _uiState.value.durationMs.takeIf { it > 0L }
                             ?: (resolvedDurationSec * 1000L)
+                        val lookupDurationSec = if (forceSourceRefresh && resolvedDurationMs > 0L) {
+                            (resolvedDurationMs + 500L) / 1000L
+                        } else resolvedDurationSec
                         withContext(Dispatchers.IO) {
                             lyricsRepository.getLyricsWithInterim(
                                 title = track.title,
                                 artist = track.artist,
-                                durationSec = resolvedDurationSec,
+                                durationSec = lookupDurationSec,
                                 videoId = resolvedVideoId,
                                 album = track.album,
                                 channelTitle = track.channelTitle,
@@ -1345,7 +1417,7 @@ class PlayerViewModel(
                                 // A prior plain/empty result may be cached; retry the sources.
                                 forceRefresh = true,
                                 onInterim = { interim ->
-                                    if (!finalDelivered.get() && lyricsTier(interim) >= 2 && requestId == currentPlaybackRequestId.get()) {
+                                    if (!finalDelivered.get() && lyricsTier(interim) >= 2 && isActive()) {
                                         _uiState.update { state ->
                                             if (!finalDelivered.get() && lyricsTier(interim) > lyricsTier(state.lyrics)) {
                                                 state.copy(lyrics = interim, isLoadingLyrics = false)
@@ -1359,10 +1431,10 @@ class PlayerViewModel(
                 )
                 finalDelivered.set(true)
 
-                if (requestId == currentPlaybackRequestId.get()) {
+                if (isActive()) {
                     _uiState.update { state ->
                         state.copy(
-                            lyrics = selectSettledLyrics(cached, state.lyrics, data),
+                            lyrics = if (forceSourceRefresh && lyricsTier(data) >= 2) data else selectSettledLyrics(cached, if (forceSourceRefresh) safeFallback else state.lyrics, data),
                             isLoadingLyrics = false
                         )
                     }
@@ -1376,8 +1448,8 @@ class PlayerViewModel(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 lyricsUpgradeAttempted.remove(trackKey)
-                if (requestId == currentPlaybackRequestId.get()) {
-                    _uiState.update { it.copy(lyrics = cached.takeIf { lyricsTier(cached) >= 2 }, isLoadingLyrics = false) }
+                if (isActive()) {
+                    _uiState.update { it.copy(lyrics = cached.takeIf { lyricsTier(cached) >= 2 } ?: if (forceSourceRefresh) safeFallback else it.lyrics, isLoadingLyrics = false) }
                 }
             }
         }

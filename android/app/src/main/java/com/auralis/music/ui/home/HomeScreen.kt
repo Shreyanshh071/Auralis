@@ -17,6 +17,7 @@ import androidx.compose.ui.res.painterResource
 import com.auralis.music.R
 import com.auralis.music.ui.components.rememberShimmerBrush
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.components.smoothScrollToTop
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -166,13 +167,16 @@ fun HomeScreen(
     val headerBackdrop = rememberLayerBackdrop()
     val headerGlass = rememberPageHeaderGlass(headerBackdrop)
     val homeScrollState = rememberLazyListState()
+    val reducedScrollMotion = LocalReducedMotion.current
     val headerScope = rememberCoroutineScope()
     androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
         floatingHeaderState?.glass = headerGlass
         onDispose { floatingHeaderState?.glass = null }
     }
     androidx.compose.runtime.SideEffect {
-        floatingHeaderState?.scrollToTop = { headerScope.launch { homeScrollState.animateScrollToItem(0) } }
+        floatingHeaderState?.scrollToTop = { headerScope.launch {
+            if (reducedScrollMotion) homeScrollState.scrollToItem(0) else homeScrollState.smoothScrollToTop()
+        } }
     }
     // When Home first appeared: its sections unfold in only during the first moments after launch.
     val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
@@ -948,7 +952,9 @@ fun HomeScreen(
     if (floatingHeaderState == null) headerGlass?.let { glass ->
         LiquidGlassPageHeader(
             glass = glass,
-            onLogoClick = { headerScope.launch { homeScrollState.animateScrollToItem(0) } },
+            onLogoClick = { headerScope.launch {
+                if (reducedScrollMotion) homeScrollState.scrollToItem(0) else homeScrollState.smoothScrollToTop()
+            } },
             onOpenProfile = onOpenProfile,
             onOpenStats = onOpenStats,
             onOpenHistory = onOpenHistory,
