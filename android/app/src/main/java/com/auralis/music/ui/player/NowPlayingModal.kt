@@ -494,10 +494,18 @@ fun NowPlayingModal(
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
 
+    // The immersive player has no inline lyrics, so "Show Lyrics" opens its lyrics tab.
+    val inlineLyricsSupported = PlayerDesign.fromDisplayName(com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerDesign) != PlayerDesign.IMMERSIVE
+    var handledLyricsRequest by remember { mutableIntStateOf(uiState.lyricsViewRequestId) }
     LaunchedEffect(uiState.showLyricsView, uiState.lyricsViewRequestId) {
+        val newRequest = uiState.lyricsViewRequestId != handledLyricsRequest
+        handledLyricsRequest = uiState.lyricsViewRequestId
         if (uiState.showLyricsView) {
             currentTab = NowPlayingTab.LYRICS
         } else if (uiState.showInlineLyrics) {
+            currentTab = if (inlineLyricsSupported) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS
+        } else if (newRequest && currentTab == NowPlayingTab.LYRICS) {
+            // "Hide Lyrics" from the menu.
             currentTab = NowPlayingTab.PLAYER
         }
     }
@@ -2129,6 +2137,18 @@ fun NowPlayingModal(
     // Direct Track Options Bottom Sheet
     if (showTrackOptions) {
         val isPinned = isTrackPinned?.invoke(track.id) == true
+        // Inside the player the menu knows whether lyrics are up: the lyrics tab counts too.
+        val baseActions = com.auralis.music.ui.components.LocalSongPresentationActions.current
+        val playerActions = baseActions?.copy(
+            isLyricsShown = { t ->
+                t.id == track.id && (currentTab == NowPlayingTab.LYRICS || (inlineLyricsSupported && uiState.showInlineLyrics))
+            },
+            hideLyrics = { t ->
+                currentTab = NowPlayingTab.PLAYER
+                baseActions.hideLyrics(t)
+            }
+        )
+        CompositionLocalProvider(com.auralis.music.ui.components.LocalSongPresentationActions provides playerActions) {
         TrackOptionsMenu(
             track = track,
             isFavorite = uiState.isFavorite,
@@ -2159,6 +2179,7 @@ fun NowPlayingModal(
             },
             onDismiss = { showTrackOptions = false }
         )
+        }
     }
 
     // Queue rows use the same track-action sheet, but actions target the selected row,

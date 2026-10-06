@@ -1112,4 +1112,5 @@
     <string name="fetching_lyrics">লিরিক্স আনা হচ্ছে…</string>
     <string name="lyrics_not_found">লিরিক্স পাওয়া যায়নি</string>
     <string name="lyrics_found_tap_to_use">লিরিক্স পাওয়া গেছে · ব্যবহার করতে ট্যাপ করুন</string>
+    <string name="hide_lyrics">লিরিক্স লুকান</string>
 </resources>

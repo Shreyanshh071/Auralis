@@ -1112,4 +1112,5 @@
     <string name="fetching_lyrics">लिरिक्स ला रहे हैं…</string>
     <string name="lyrics_not_found">लिरिक्स नहीं मिले</string>
     <string name="lyrics_found_tap_to_use">लिरिक्स मिले · इस्तेमाल के लिए टैप करें</string>
+    <string name="hide_lyrics">लिरिक्स छिपाएं</string>
 </resources>

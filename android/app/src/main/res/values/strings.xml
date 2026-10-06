@@ -1181,4 +1181,5 @@
     <string name="fetching_lyrics">Fetching lyrics…</string>
     <string name="lyrics_not_found">Lyrics not found</string>
     <string name="lyrics_found_tap_to_use">Lyrics found · Tap to use</string>
+    <string name="hide_lyrics">Hide Lyrics</string>
 </resources>

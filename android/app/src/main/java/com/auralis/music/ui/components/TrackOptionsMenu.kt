@@ -41,7 +41,10 @@ import kotlinx.coroutines.launch
 
 data class SongPresentationActions(
     val openAmbient: (Track) -> Unit,
-    val openLyrics: (Track) -> Unit
+    val openLyrics: (Track) -> Unit,
+    /** Lyrics for this song are on screen right now, so the menu offers to hide them. */
+    val isLyricsShown: (Track) -> Boolean = { false },
+    val hideLyrics: (Track) -> Unit = {}
 )
 
 val LocalSongPresentationActions = staticCompositionLocalOf<SongPresentationActions?> { null }
@@ -496,8 +499,9 @@ fun TrackOptionsMenu(
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(actionCardColor)) {
                             TrackOptionRow(icon = Icons.Default.Fullscreen, title = str(R.string.ambient_mode), subtitle = null,
                                 onClick = { onDismiss(); actions.openAmbient(track) })
-                            TrackOptionRow(icon = Icons.Default.Lyrics, title = str(R.string.show_lyrics), subtitle = null,
-                                onClick = { onDismiss(); actions.openLyrics(track) })
+                            val lyricsShown = actions.isLyricsShown(track)
+                            TrackOptionRow(icon = Icons.Default.Lyrics, title = str(if (lyricsShown) R.string.hide_lyrics else R.string.show_lyrics), subtitle = null,
+                                onClick = { onDismiss(); if (lyricsShown) actions.hideLyrics(track) else actions.openLyrics(track) })
                         }
                     }
 

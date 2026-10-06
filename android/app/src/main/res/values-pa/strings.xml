@@ -1112,4 +1112,5 @@
     <string name="fetching_lyrics">ਬੋਲ ਲਿਆ ਰਹੇ ਹਾਂ…</string>
     <string name="lyrics_not_found">ਬੋਲ ਨਹੀਂ ਮਿਲੇ</string>
     <string name="lyrics_found_tap_to_use">ਬੋਲ ਮਿਲੇ · ਵਰਤਣ ਲਈ ਟੈਪ ਕਰੋ</string>
+    <string name="hide_lyrics">ਬੋਲ ਲੁਕਾਓ</string>
 </resources>

@@ -67,6 +67,12 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.add
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -156,6 +162,7 @@ private val ACTION_SIZE = 44.dp
 private val SKIP_GLYPH_SIZE = 53.dp
 private val PLAY_GLYPH_SIZE = 74.dp
 private val PLAY_TOUCH_SIZE = 92.dp
+private val HANDLE_STRIP_HEIGHT = 32.dp
 private val PREVIEW_LINE_HEIGHT = 38.dp
 private val COMPACT_ART_SIZE = 54.dp
 private val COMPACT_ART_CORNER = 6.dp
@@ -289,9 +296,14 @@ fun ImmersivePlayerContainer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsTopHeight(WindowInsets.statusBars)
-                .graphicsLayer { alpha = 1f - heroProgress.value }
-                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent)))
+                // Behind the status bar and the handle strip, so both read on a white cover.
+                .windowInsetsTopHeight(WindowInsets.statusBars.add(WindowInsets(top = HANDLE_STRIP_HEIGHT + 20.dp)))
+                .graphicsLayer { alpha = 1f - 0.6f * heroProgress.value }
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.40f), Color.Black.copy(alpha = 0.18f), Color.Transparent)
+                    )
+                )
         )
 
         Column(
@@ -301,7 +313,13 @@ fun ImmersivePlayerContainer(
                 .navigationBarsPadding()
         ) {
             ImmersiveHandleStrip(
-                sourceTitle = uiState.queueSourceTitle,
+                originText = str(
+                    R.string.playing_from_x,
+                    uiState.queueSourceTitle?.takeIf { it.isNotBlank() }
+                        ?: track.album?.takeIf { it.isNotBlank() }
+                        ?: str(R.string.queue)
+                ),
+                heroProgress = heroProgress,
                 onDismiss = onDismiss,
                 modifier = Modifier.graphicsLayer { alpha = controlsAlpha }
             )
@@ -588,19 +606,24 @@ private fun Modifier.heroFadeMask(solidity: () -> Float): Modifier = this
         }
     }
 
-/** The grab handle and "Playing from …" — the strip that pulls the player down. */
+/**
+ * The grab handle and "Playing from …": the strip that pulls the player down. The caption
+ * fades out as the cover flies into the compact header and the handle settles into the
+ * middle of the emptied strip.
+ */
 @Composable
 private fun ImmersiveHandleStrip(
-    sourceTitle: String?,
+    originText: String,
+    heroProgress: State<Float>,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val dismiss by rememberUpdatedState(onDismiss)
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(30.dp)
+            .height(HANDLE_STRIP_HEIGHT)
             .pointerInput(Unit) {
                 var dragged = 0f
                 val threshold = with(density) { 56.dp.toPx() }
@@ -617,28 +640,37 @@ private fun ImmersiveHandleStrip(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onDismiss
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally
+            )
     ) {
-        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
-                .width(36.dp)
+                .align(Alignment.TopCenter)
+                .offset {
+                    val p = heroProgress.value.coerceIn(0f, 1f)
+                    val top = 6.dp.toPx()
+                    val centred = (HANDLE_STRIP_HEIGHT - 5.dp).toPx() / 2f
+                    IntOffset(0, (top + (centred - top) * p).roundToInt())
+                }
+                .width(38.dp)
                 .height(5.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.55f))
+                .shadow(2.dp, RoundedCornerShape(3.dp), clip = false)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color.White.copy(alpha = 0.70f))
         )
-        if (!sourceTitle.isNullOrBlank()) {
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = str(R.string.playing_from_x, sourceTitle),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 48.dp)
-            )
-        }
+        Text(
+            text = originText,
+            style = MaterialTheme.typography.labelSmall.copy(
+                shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 1f), blurRadius = 4f)
+            ),
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = SIDE_GUTTER, end = SIDE_GUTTER, bottom = 1.dp)
+                .graphicsLayer { alpha = 1f - heroProgress.value.coerceIn(0f, 1f) }
+        )
     }
 }
 
@@ -1099,7 +1131,7 @@ private fun ImmersiveTransportRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         TransportGlyph(
-            icon = Icons.Rounded.FastRewind,
+            icon = R.drawable.ic_transport_previous,
             contentDescription = str(R.string.previous),
             size = SKIP_GLYPH_SIZE,
             heightScale = 0.85f,
@@ -1111,7 +1143,7 @@ private fun ImmersiveTransportRow(
             }
         } else {
             TransportGlyph(
-                icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                icon = if (isPlaying) R.drawable.ic_transport_pause else R.drawable.ic_transport_play,
                 contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
                 size = PLAY_GLYPH_SIZE,
                 touchSize = PLAY_TOUCH_SIZE,
@@ -1119,7 +1151,7 @@ private fun ImmersiveTransportRow(
             )
         }
         TransportGlyph(
-            icon = Icons.Rounded.FastForward,
+            icon = R.drawable.ic_transport_next,
             contentDescription = str(R.string.next),
             size = SKIP_GLYPH_SIZE,
             heightScale = 0.85f,
@@ -1130,7 +1162,7 @@ private fun ImmersiveTransportRow(
 
 @Composable
 private fun TransportGlyph(
-    icon: ImageVector,
+    @androidx.annotation.DrawableRes icon: Int,
     contentDescription: String,
     size: Dp,
     onClick: () -> Unit,
@@ -1160,7 +1192,7 @@ private fun TransportGlyph(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = icon,
+            painter = androidx.compose.ui.res.painterResource(icon),
             contentDescription = contentDescription,
             tint = Color.White,
             modifier = Modifier
