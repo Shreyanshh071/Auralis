@@ -68,6 +68,23 @@ class LyricsClient(
          */
         private const val WORD_SYNC_GRACE_MS = 2200L
 
+        /** Order of the lyrics provider sheet: word sync first, plain text last. */
+        internal val PICK_ORDER = listOf(
+            LyricsProvider.BETTER_LYRICS,
+            LyricsProvider.AMLL,
+            LyricsProvider.PAXSENIX,
+            LyricsProvider.YOULYPLUS,
+            LyricsProvider.UNISON,
+            LyricsProvider.NETEASE,
+            LyricsProvider.SIMPMUSIC,
+            LyricsProvider.MUSIXMATCH,
+            LyricsProvider.LRCLIB,
+            LyricsProvider.KUGOU,
+            LyricsProvider.JIOSAAVN,
+            LyricsProvider.GENIUS,
+            LyricsProvider.YOUTUBE
+        )
+
         /** A user's one-provider pick gets the cold-fetch budget the slowest source needs. */
         private const val SINGLE_PROVIDER_TIMEOUT_MS = 15_000L
 
@@ -1118,11 +1135,12 @@ class LyricsClient(
         return query to coreTitle
     }
 
-    /** Sources the user can pick one by one from the lyrics provider sheet, in race order. */
-    fun selectableProviders(): List<LyricsProvider> = listOf(
-        betterLyricsSource, amllSource, unisonSource, paxsenixSource, youLyPlusSource, simpMusicSource,
-        musixmatchSource, lrcLibSource, kuGouSource, netEaseSource, jioSaavnSource, geniusSource, ytMusicSource
-    ).map { it.provider }.filter { isProviderEnabled(it) }
+    /**
+     * Sources the user can pick one by one, best timing first: syllable/word-synced TTML
+     * sources (the ones that also carry speakers), then word sync from Chinese and mixed
+     * sources, then line sync, then plain text.
+     */
+    fun selectableProviders(): List<LyricsProvider> = PICK_ORDER.filter { isProviderEnabled(it) }
 
     /**
      * Asks exactly one provider, bypassing the race, for the provider sheet. The result is
@@ -1162,15 +1180,41 @@ class LyricsClient(
             Log.w(TAG, "[Provider pick: $provider] exception: ${e.message}")
             null
         } ?: return@withContext null
-        val cleaned = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(candidate.lyricsData, coreTitle)
-        if (cleaned.lines.none { !it.isInstrumental && it.text.isNotBlank() }) return@withContext null
-        val syncType = when {
-            com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(cleaned.lines) -> SyncType.RICHSYNC
-            cleaned.lines.any { it.time > 0L } -> SyncType.LINE_SYNC
-            else -> SyncType.PLAIN
+        // The same gates the automatic race applies, so a manual pick can't put another
+        // song's lyrics, or another version's timing, on screen.
+        if (candidate.confidence in 0 until 50) {
+            Log.d(TAG, "[Provider pick: $provider] rejected: confidence ${candidate.confidence}")
+            return@withContext null
         }
-        Log.d(TAG, "[Provider pick: $provider] found $syncType, lines=${cleaned.lines.size}")
-        cleaned.copy(syncType = syncType, provider = provider)
+        val cleaned = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(candidate.lyricsData, coreTitle)
+        if (cleaned.lines.count { !it.isInstrumental && it.text.isNotBlank() } < MIN_SUNG_LINES) return@withContext null
+        val synced = cleaned.lines.any { it.time > 0L }
+        val syncType = when {
+            !synced -> SyncType.PLAIN
+            tierOf(cleaned) == TIER_WORD || com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(cleaned.lines) -> SyncType.RICHSYNC
+            else -> SyncType.LINE_SYNC
+        }
+        val labelled = cleaned.copy(syncType = syncType, provider = provider)
+        if (synced) {
+            val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
+            val acceptable = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(
+                lyrics = labelled,
+                playbackDurationMs = playbackMs,
+                playbackTitle = title,
+                candidateTitle = labelled.trackName,
+                playbackChannelTitle = channelTitle,
+                playbackVideoId = videoId,
+                audioLeadingSilenceMs = audioLeadingSilenceMs,
+                playbackArtist = artist,
+                candidateArtist = labelled.artistName
+            )
+            if (!acceptable) {
+                Log.d(TAG, "[Provider pick: $provider] rejected: timing is for another version (lyric=${labelled.effectiveDurationMs}ms, playback=${playbackMs}ms)")
+                return@withContext null
+            }
+        }
+        Log.d(TAG, "[Provider pick: $provider] found $syncType, lines=${labelled.lines.size}")
+        labelled
     }
 }
 

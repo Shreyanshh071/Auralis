@@ -1113,4 +1113,9 @@
     <string name="lyrics_not_found">লিরিক্স পাওয়া যায়নি</string>
     <string name="lyrics_found_tap_to_use">লিরিক্স পাওয়া গেছে · ব্যবহার করতে ট্যাপ করুন</string>
     <string name="hide_lyrics">লিরিক্স লুকান</string>
+    <string name="sync_word">শব্দে শব্দে সিঙ্ক</string>
+    <string name="sync_line">লাইন সিঙ্ক</string>
+    <string name="sync_none">সিঙ্ক নেই</string>
+    <string name="provider_status_x_y">%1$s · %2$s</string>
+    <string name="tap_to_use">ব্যবহার করতে ট্যাপ করুন</string>
 </resources>

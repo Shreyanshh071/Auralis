@@ -1113,4 +1113,9 @@
     <string name="lyrics_not_found">लिरिक्स नहीं मिले</string>
     <string name="lyrics_found_tap_to_use">लिरिक्स मिले · इस्तेमाल के लिए टैप करें</string>
     <string name="hide_lyrics">लिरिक्स छिपाएं</string>
+    <string name="sync_word">शब्द-दर-शब्द सिंक</string>
+    <string name="sync_line">लाइन सिंक</string>
+    <string name="sync_none">सिंक नहीं</string>
+    <string name="provider_status_x_y">%1$s · %2$s</string>
+    <string name="tap_to_use">इस्तेमाल के लिए टैप करें</string>
 </resources>

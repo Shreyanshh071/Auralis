@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.R
 import com.auralis.music.domain.model.LyricsProvider
+import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.i18n.str
 import com.auralis.music.ui.viewmodel.LyricsProviderStatus
 
@@ -67,6 +68,13 @@ internal fun LyricsProvider.label(): String = when (this) {
     LyricsProvider.SIMPMUSIC -> "SimpMusic"
 }
 
+@Composable
+private fun SyncType.label(): String = when (this) {
+    SyncType.RICHSYNC -> str(R.string.sync_word)
+    SyncType.LINE_SYNC -> str(R.string.sync_line)
+    SyncType.PLAIN -> str(R.string.sync_none)
+}
+
 private enum class ProviderRowState { CURRENT, FOUND, FETCHING, NOT_FOUND, IDLE }
 
 /**
@@ -78,7 +86,9 @@ private enum class ProviderRowState { CURRENT, FOUND, FETCHING, NOT_FOUND, IDLE 
 internal fun LyricsProviderSheet(
     providers: List<LyricsProvider>,
     currentProvider: LyricsProvider?,
+    currentSyncType: SyncType?,
     status: Map<LyricsProvider, LyricsProviderStatus>,
+    syncTypes: Map<LyricsProvider, SyncType>,
     onPick: (LyricsProvider) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -124,6 +134,7 @@ internal fun LyricsProviderSheet(
                     ProviderRow(
                         name = provider.label(),
                         state = rowState,
+                        syncType = if (provider == currentProvider) currentSyncType else syncTypes[provider],
                         onClick = { if (rowState != ProviderRowState.CURRENT) onPick(provider) }
                     )
                 }
@@ -134,7 +145,7 @@ internal fun LyricsProviderSheet(
 }
 
 @Composable
-private fun ProviderRow(name: String, state: ProviderRowState, onClick: () -> Unit) {
+private fun ProviderRow(name: String, state: ProviderRowState, syncType: SyncType?, onClick: () -> Unit) {
     val background by animateColorAsState(
         targetValue = if (state == ProviderRowState.CURRENT) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.07f),
         animationSpec = tween(220),
@@ -196,8 +207,10 @@ private fun ProviderRow(name: String, state: ProviderRowState, onClick: () -> Un
             )
             Text(
                 text = when (state) {
-                    ProviderRowState.CURRENT -> str(R.string.current_provider)
-                    ProviderRowState.FOUND -> str(R.string.lyrics_found_tap_to_use)
+                    ProviderRowState.CURRENT -> syncType?.let { str(R.string.provider_status_x_y, str(R.string.current_provider), it.label()) }
+                        ?: str(R.string.current_provider)
+                    ProviderRowState.FOUND -> syncType?.let { str(R.string.provider_status_x_y, it.label(), str(R.string.tap_to_use)) }
+                        ?: str(R.string.lyrics_found_tap_to_use)
                     ProviderRowState.FETCHING -> str(R.string.fetching_lyrics)
                     ProviderRowState.NOT_FOUND -> str(R.string.lyrics_not_found)
                     ProviderRowState.IDLE -> str(R.string.tap_to_fetch)
