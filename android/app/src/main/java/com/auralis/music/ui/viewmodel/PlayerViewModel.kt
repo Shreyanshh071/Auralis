@@ -1230,6 +1230,10 @@ class PlayerViewModel(
         _uiState.update { it.copy(showLyricsView = false, showInlineLyrics = true, lyricsViewRequestId = it.lyricsViewRequestId + 1) }
     }
 
+    fun hideLyrics() {
+        _uiState.update { it.copy(showLyricsView = false, showInlineLyrics = false, lyricsViewRequestId = it.lyricsViewRequestId + 1) }
+    }
+
     fun toggleLyricsView() {
         _uiState.update { it.copy(showLyricsView = !it.showLyricsView) }
     }

@@ -774,7 +774,9 @@ fun AuralisApp(
     }
     val songPresentationActions = com.auralis.music.ui.components.SongPresentationActions(
         openAmbient = { track -> preparePresentationTrack(track); obtainPlayerViewModel(); isAmbientOpen = true },
-        openLyrics = { track -> preparePresentationTrack(track); obtainPlayerViewModel().showLyrics(); expandPlayer() }
+        openLyrics = { track -> preparePresentationTrack(track); obtainPlayerViewModel().showLyrics(); expandPlayer() },
+        isLyricsShown = { track -> playerUiState.showInlineLyrics && playerUiState.currentTrack?.id == track.id },
+        hideLyrics = { obtainPlayerViewModel().hideLyrics() }
     )
 
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
