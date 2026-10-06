@@ -2403,7 +2403,7 @@ private fun ClassicQueueOutputActionTile(
 }
 
 @Composable
-private fun ClassicQueueContent(
+internal fun ClassicQueueContent(
     track: Track,
     uiState: PlayerUiState,
     queue: List<Track>,
@@ -2431,6 +2431,8 @@ private fun ClassicQueueContent(
     showHeader: Boolean = true,
     applyStatusBarPadding: Boolean = true,
     showBottomBar: Boolean = true,
+    /** False when the host player keeps its own transport under the queue (Immersive). */
+    showPlaybackControls: Boolean = true,
     modifier: Modifier = Modifier,
     queueListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     contentLayer: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {},
@@ -3033,7 +3035,7 @@ private fun ClassicQueueContent(
             }
 
             // 4. Playback Controls in Queue (Dynamic scroll visibility: hides on scroll down, reappears on scroll up)
-            androidx.compose.animation.AnimatedVisibility(
+            if (showPlaybackControls) androidx.compose.animation.AnimatedVisibility(
                 visible = queueControlsVisible,
                 // Draw-layer fade + slide only, no expand/shrink, so the list never relayouts.
                 enter = fadeIn(tween(ClassicPlayerViewportMotion.ControlsEnterDurationMillis, easing = FastOutSlowInEasing)) +

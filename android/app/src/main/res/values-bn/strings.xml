@@ -1106,5 +1106,4 @@
     <string name="lyrics_by_x">লিরিক্স: %1$s</string>
     <string name="change">বদলান</string>
     <string name="autoplay">অটোপ্লে</string>
-    <string name="autoplay_subtitle">একই ধরনের গান, এরপর বাজানোর জন্য বাছাই করা</string>
 </resources>
