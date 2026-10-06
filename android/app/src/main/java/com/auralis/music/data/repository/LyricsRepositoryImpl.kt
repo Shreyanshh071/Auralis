@@ -437,6 +437,54 @@ class LyricsRepositoryImpl(
         return null
     }
 
+    override fun selectableProviders(): List<com.auralis.music.domain.model.LyricsProvider> =
+        lyricsClient.selectableProviders()
+
+    override suspend fun fetchFromProvider(
+        provider: com.auralis.music.domain.model.LyricsProvider,
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?,
+        album: String?,
+        channelTitle: String?,
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?
+    ): LyricsData? {
+        val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
+        val result = lyricsClient.searchProvider(
+            provider = provider,
+            title = title,
+            artist = artist,
+            durationSec = durationSec,
+            videoId = videoId,
+            album = album,
+            channelTitle = channelTitle,
+            durationMs = playbackMs,
+            audioLeadingSilenceMs = audioLeadingSilenceMs
+        ) ?: return null
+        return if (playbackMs > 0L && result.syncType != SyncType.PLAIN) {
+            com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(result, playbackMs, audioLeadingSilenceMs)
+        } else result
+    }
+
+    override suspend fun useLyrics(
+        lyrics: LyricsData,
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?
+    ) {
+        val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
+        memoryCache[trackKey] = lyrics
+        try {
+            lyricsDao?.insertLyrics(domainToEntity(trackKey, lyrics, title, artist))
+            negativeLyricsDao?.removeNegativeEntry(trackKey)
+        } catch (e: Exception) {
+            android.util.Log.w("AuralisLyrics", "[useLyrics] Error writing to DB: ${e.message}")
+        }
+    }
+
     override suspend fun enrichSpeakerMetadata(
         title: String,
         artist: String,

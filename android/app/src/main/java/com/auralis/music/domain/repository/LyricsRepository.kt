@@ -3,6 +3,31 @@ package com.auralis.music.domain.repository
 import com.auralis.music.domain.model.LyricsData
 
 interface LyricsRepository {
+    /** Providers the lyrics sheet can ask one at a time. */
+    fun selectableProviders(): List<com.auralis.music.domain.model.LyricsProvider> = emptyList()
+
+    /** One provider's answer for the lyrics sheet, aligned to playback. Not cached. */
+    suspend fun fetchFromProvider(
+        provider: com.auralis.music.domain.model.LyricsProvider,
+        title: String,
+        artist: String,
+        durationSec: Long? = null,
+        videoId: String? = null,
+        album: String? = null,
+        channelTitle: String? = null,
+        durationMs: Long? = null,
+        audioLeadingSilenceMs: Long? = null
+    ): LyricsData? = null
+
+    /** The user picked [lyrics] for this track: they replace the cached copy. */
+    suspend fun useLyrics(
+        lyrics: LyricsData,
+        title: String,
+        artist: String,
+        durationSec: Long? = null,
+        videoId: String? = null
+    ) {}
+
     suspend fun getCachedLyrics(
         title: String,
         artist: String,

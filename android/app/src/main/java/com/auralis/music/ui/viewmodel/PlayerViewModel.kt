@@ -45,6 +45,14 @@ data class PlayerUiState(
     val audioLeadingSilenceMs: Long? = null
 )
 
+enum class LyricsProviderStatus { FETCHING, NOT_FOUND, FOUND }
+
+/** What the lyrics provider sheet knows for one song; [trackId] scopes it to that song. */
+data class LyricsProviderPicks(
+    val trackId: String? = null,
+    val status: Map<LyricsProvider, LyricsProviderStatus> = emptyMap()
+)
+
 /** Keep the best timed lyrics already displayed when the search settles. */
 internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, result: LyricsData?): LyricsData? {
     val cachedTier = lyricsTier(cached)
@@ -1523,6 +1531,93 @@ class PlayerViewModel(
                 _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
                 triggerAiTranslation(track, data, reqId)
             }
+        }
+    }
+
+    // ── Lyrics provider sheet: ask one source at a time and switch to its lyrics ──
+    private val _lyricsProviderPicks = MutableStateFlow(LyricsProviderPicks())
+    val lyricsProviderPicks: StateFlow<LyricsProviderPicks> = _lyricsProviderPicks.asStateFlow()
+    private val providerPickResults = java.util.concurrent.ConcurrentHashMap<LyricsProvider, LyricsData>()
+
+    fun selectableLyricsProviders(): List<LyricsProvider> = lyricsRepository.selectableProviders()
+
+    private fun providerPicksFor(trackId: String): LyricsProviderPicks {
+        val picks = _lyricsProviderPicks.value
+        if (picks.trackId == trackId) return picks
+        providerPickResults.clear()
+        return LyricsProviderPicks(trackId = trackId).also { _lyricsProviderPicks.value = it }
+    }
+
+    private fun setProviderStatus(trackId: String, provider: LyricsProvider, status: LyricsProviderStatus) {
+        _lyricsProviderPicks.update { picks ->
+            if (picks.trackId != trackId) picks else picks.copy(status = picks.status + (provider to status))
+        }
+    }
+
+    /**
+     * Fetches [provider] alone for the playing song, or reuses what it already returned.
+     * Found lyrics replace the shown ones at once and become this song's cached choice.
+     */
+    fun pickLyricsProvider(provider: LyricsProvider) {
+        val track = _uiState.value.currentTrack ?: return
+        val picks = providerPicksFor(track.id)
+        providerPickResults[provider]?.let { found ->
+            applyPickedLyrics(track, found)
+            return
+        }
+        if (picks.status[provider] == LyricsProviderStatus.FETCHING) return
+        setProviderStatus(track.id, provider, LyricsProviderStatus.FETCHING)
+        viewModelScope.launch {
+            val effectiveVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+            val effectiveDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
+            val exactDurationMs = audioPlayer?.durationMs?.value?.takeIf { it > 0L }
+                ?: _uiState.value.durationMs.takeIf { it > 0L }
+                ?: (effectiveDurationSec * 1000L)
+            val data = try {
+                withContext(Dispatchers.IO) {
+                    lyricsRepository.fetchFromProvider(
+                        provider = provider,
+                        title = track.title,
+                        artist = track.artist,
+                        durationSec = effectiveDurationSec,
+                        videoId = effectiveVideoId,
+                        album = track.album,
+                        channelTitle = track.channelTitle,
+                        durationMs = exactDurationMs,
+                        audioLeadingSilenceMs = audioPlayer?.audioLeadingSilenceMs?.value
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w("AuralisLyrics", "[pickLyricsProvider] $provider failed: ${e.message}")
+                null
+            }
+            if (_uiState.value.currentTrack?.id != track.id) return@launch
+            if (data == null || data.lines.isEmpty()) {
+                setProviderStatus(track.id, provider, LyricsProviderStatus.NOT_FOUND)
+            } else {
+                providerPickResults[provider] = data
+                setProviderStatus(track.id, provider, LyricsProviderStatus.FOUND)
+                applyPickedLyrics(track, data)
+            }
+        }
+    }
+
+    private fun applyPickedLyrics(track: Track, data: LyricsData) {
+        // The copy being replaced stays one tap away as "found".
+        _uiState.value.lyrics?.takeIf { it.lines.isNotEmpty() && it.provider != data.provider }?.let { shown ->
+            providerPickResults.putIfAbsent(shown.provider, shown)
+            setProviderStatus(track.id, shown.provider, LyricsProviderStatus.FOUND)
+        }
+        // A race still running for this song must not overwrite the user's pick.
+        lyricsLookupGeneration.incrementAndGet()
+        lyricsJob?.cancel()
+        val reqId = currentPlaybackRequestId.get()
+        _uiState.update { it.copy(lyrics = data, isLoadingLyrics = false) }
+        triggerAiTranslation(track, data, reqId)
+        viewModelScope.launch(Dispatchers.IO) {
+            val effectiveVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
+            val effectiveDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
+            lyricsRepository.useLyrics(data, track.title, track.artist, effectiveDurationSec, effectiveVideoId)
         }
     }
 

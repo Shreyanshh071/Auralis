@@ -1175,4 +1175,10 @@
     <string name="lyrics_by_x">Lyrics by %1$s</string>
     <string name="change">Change</string>
     <string name="autoplay">AutoPlay</string>
+    <string name="choose_lyrics_provider">Choose lyrics provider</string>
+    <string name="current_provider">Current provider</string>
+    <string name="tap_to_fetch">Tap to fetch</string>
+    <string name="fetching_lyrics">Fetching lyrics…</string>
+    <string name="lyrics_not_found">Lyrics not found</string>
+    <string name="lyrics_found_tap_to_use">Lyrics found · Tap to use</string>
 </resources>

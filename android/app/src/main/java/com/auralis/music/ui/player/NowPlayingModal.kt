@@ -449,6 +449,9 @@ fun NowPlayingModal(
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onOpenListenTogether: () -> Unit = {},
+    lyricsProviders: List<com.auralis.music.domain.model.LyricsProvider> = emptyList(),
+    lyricsProviderPicks: com.auralis.music.ui.viewmodel.LyricsProviderPicks = com.auralis.music.ui.viewmodel.LyricsProviderPicks(),
+    onPickLyricsProvider: (com.auralis.music.domain.model.LyricsProvider) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var lastValidTrack by remember { mutableStateOf(uiState.currentTrack) }
@@ -2103,6 +2106,9 @@ fun NowPlayingModal(
                     onShowSleepDialog = { showSleepDialog = true },
                     onShowOutputPicker = { showAudioOutputSheet = true },
                     onOpenListenTogether = onOpenListenTogether,
+                    lyricsProviders = lyricsProviders,
+                    lyricsProviderPicks = lyricsProviderPicks,
+                    onPickLyricsProvider = onPickLyricsProvider,
                     lyricsPositionState = lyricsPositionState,
                     lyricsClockSource = lyricsClockSource,
                     onLyricsOffsetChange = onLyricsOffsetChange,

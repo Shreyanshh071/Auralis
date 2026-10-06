@@ -145,6 +145,7 @@ import com.auralis.music.ui.components.AuralisPlayerSlider
 import com.auralis.music.ui.i18n.str
 import com.auralis.music.ui.lyrics.SyncedLyricsView
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
+import com.auralis.music.ui.viewmodel.LyricsProviderPicks
 import com.auralis.music.ui.viewmodel.PlayerUiState
 import kotlin.math.roundToInt
 
@@ -155,7 +156,7 @@ private val ACTION_SIZE = 44.dp
 private val SKIP_GLYPH_SIZE = 53.dp
 private val PLAY_GLYPH_SIZE = 74.dp
 private val PLAY_TOUCH_SIZE = 92.dp
-private val PREVIEW_LINE_HEIGHT = 44.dp
+private val PREVIEW_LINE_HEIGHT = 38.dp
 private val COMPACT_ART_SIZE = 54.dp
 private val COMPACT_ART_CORNER = 6.dp
 
@@ -194,6 +195,9 @@ fun ImmersivePlayerContainer(
     onShowSleepDialog: () -> Unit,
     onShowOutputPicker: () -> Unit,
     onOpenListenTogether: () -> Unit = {},
+    lyricsProviders: List<LyricsProvider> = emptyList(),
+    lyricsProviderPicks: LyricsProviderPicks = LyricsProviderPicks(),
+    onPickLyricsProvider: (LyricsProvider) -> Unit = {},
     lyricsPositionState: State<Long>,
     lyricsClockSource: PlaybackClockSource?,
     onLyricsOffsetChange: (Long) -> Unit,
@@ -224,6 +228,16 @@ fun ImmersivePlayerContainer(
     var containerWidthPx by remember { mutableIntStateOf(0) }
     var compactArtOriginInRoot by remember { mutableStateOf<Offset?>(null) }
     var compactArtSizePx by remember { mutableIntStateOf(0) }
+    var showLyricsProviders by remember { mutableStateOf(false) }
+    var pendingProviderPick by remember { mutableStateOf<LyricsProvider?>(null) }
+    // The sheet closes once the source the user picked is the one on screen.
+    val shownProvider = uiState.lyrics?.provider
+    LaunchedEffect(shownProvider) {
+        if (pendingProviderPick != null && pendingProviderPick == shownProvider) {
+            pendingProviderPick = null
+            showLyricsProviders = false
+        }
+    }
     // Hoisted so the queue keeps its scroll position across tab switches.
     val queueListState = rememberLazyListState()
 
@@ -235,6 +249,15 @@ fun ImmersivePlayerContainer(
                 containerWidthPx = it.size.width
             }
     ) {
+        // The cover's colours carried on below it; the seam rides the cover's bottom edge.
+        ImmersiveColorField(
+            artworkUrl = track.thumbnail,
+            seamPx = {
+                if (hidePlayerThumbnail) 0f
+                else containerWidthPx * (1f - heroProgress.value.coerceIn(0f, 1f))
+            }
+        )
+
         // ── FULL-BLEED SLEEVE AT REST (runs up behind the status bar, swipes between songs) ──
         if (heroAtRest && !hidePlayerThumbnail) {
             HorizontalPager(
@@ -436,7 +459,7 @@ fun ImmersivePlayerContainer(
                 ) { lyricsOpen ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                         if (lyricsOpen) {
-                            LyricsSourceCaption(lyrics = uiState.lyrics, onChange = onSearchLyricsManually)
+                            LyricsSourceCaption(lyrics = uiState.lyrics, onChange = { showLyricsProviders = true })
                         } else {
                             LyricPreviewLine(
                                 lyrics = uiState.lyrics,
@@ -486,8 +509,26 @@ fun ImmersivePlayerContainer(
                     }
                 )
 
-                Spacer(Modifier.height(6.dp))
+                // Room the reference keeps under the row (its output caption sits here).
+                Spacer(Modifier.height(44.dp))
             }
+        }
+
+        if (showLyricsProviders) {
+            val trackId = uiState.currentTrack?.id
+            LyricsProviderSheet(
+                providers = lyricsProviders,
+                currentProvider = shownProvider?.takeIf { uiState.lyrics?.lines?.isNotEmpty() == true },
+                status = if (lyricsProviderPicks.trackId == trackId) lyricsProviderPicks.status else emptyMap(),
+                onPick = { provider ->
+                    pendingProviderPick = provider
+                    onPickLyricsProvider(provider)
+                },
+                onDismiss = {
+                    pendingProviderPick = null
+                    showLyricsProviders = false
+                }
+            )
         }
 
         // ── SLEEVE IN FLIGHT: one cover morphing between the full-bleed banner and the header ──
@@ -923,24 +964,6 @@ private fun LyricsSourceCaption(lyrics: LyricsData?, onChange: () -> Unit) {
     }
 }
 
-private fun LyricsProvider.label(): String = when (this) {
-    LyricsProvider.AMLL -> "AMLL"
-    LyricsProvider.BETTER_LYRICS -> "BetterLyrics"
-    LyricsProvider.UNISON -> "Unison"
-    LyricsProvider.PAXSENIX -> "Paxsenix"
-    LyricsProvider.LRCLIB -> "LRCLIB"
-    LyricsProvider.KUGOU -> "KuGou"
-    LyricsProvider.JIOSAAVN -> "JioSaavn"
-    LyricsProvider.NETEASE -> "NetEase"
-    LyricsProvider.GENIUS -> "Genius"
-    LyricsProvider.MUSIXMATCH -> "Musixmatch"
-    LyricsProvider.YOUTUBE -> "YouTube Music"
-    LyricsProvider.YOUTUBE_CAPTIONS -> "YouTube"
-    LyricsProvider.LOCAL -> "Local"
-    LyricsProvider.YOULYPLUS -> "YouLy+"
-    LyricsProvider.SIMPMUSIC -> "SimpMusic"
-}
-
 /**
  * A hairline bar that thickens while held. Dragging moves the value relative to where the
  * finger landed, so grabbing the bar never makes the value jump to the touch point.
@@ -1034,12 +1057,21 @@ private fun ImmersiveScrubber(
     onSeekTo: (Long) -> Unit
 ) {
     val posMs = positionState.value
+    // Where the finger last was. The position state only reports the scrub point while
+    // scrubbing is on, so it can't be read back after scrubbing has been switched off.
+    var targetMs by remember { mutableStateOf<Long?>(null) }
     AuralisPlayerSlider(
         value = if (durationMs > 0) (posMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
-        onValueChange = { fraction -> onScrubbing(true, (fraction * durationMs).toLong()) },
+        onValueChange = { fraction ->
+            val ms = (fraction * durationMs).toLong()
+            targetMs = ms
+            onScrubbing(true, ms)
+        },
         onValueChangeFinished = {
-            onScrubbing(false, positionState.value)
-            onSeekTo(positionState.value)
+            val ms = targetMs ?: return@AuralisPlayerSlider
+            targetMs = null
+            onScrubbing(false, ms)
+            onSeekTo(ms)
         },
         isPlaying = isPlaying,
         currentPosMs = posMs,
