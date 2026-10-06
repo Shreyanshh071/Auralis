@@ -6,6 +6,16 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.delay
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -236,6 +246,55 @@ fun ImmersivePlayerContainer(
     var compactArtOriginInRoot by remember { mutableStateOf<Offset?>(null) }
     var compactArtSizePx by remember { mutableIntStateOf(0) }
     var showLyricsProviders by remember { mutableStateOf(false) }
+
+    // Playback controls on lyrics and the queue: same rules as the classic player.
+    var controlsShown by remember { mutableStateOf(true) }
+    var controlsInteraction by remember { mutableIntStateOf(0) }
+    var lyricsUserScrolling by remember { mutableStateOf(false) }
+    var controlsHeightPx by remember { mutableIntStateOf(0) }
+    val controlsHeightDp = with(density) { controlsHeightPx.toDp() }
+    val controlsVisible = currentTab == NowPlayingTab.PLAYER || controlsShown
+    val controlsReveal = animateFloatAsState(
+        targetValue = if (controlsVisible) 1f else 0f,
+        animationSpec = tween(
+            if (controlsVisible) ClassicPlayerViewportMotion.ControlsEnterDurationMillis
+            else ClassicPlayerViewportMotion.ControlsExitDurationMillis,
+            easing = FastOutSlowInEasing
+        ),
+        label = "immersiveControlsReveal"
+    )
+    LaunchedEffect(currentTab) {
+        controlsShown = true
+        controlsInteraction++
+    }
+    LaunchedEffect(currentTab, controlsInteraction, controlsShown, isScrubbing, lyricsUserScrolling) {
+        if (currentTab != NowPlayingTab.LYRICS || !controlsShown || isScrubbing || lyricsUserScrolling) return@LaunchedEffect
+        delay(ClassicPlayerViewportMotion.LyricsControlsTimeoutMillis)
+        controlsShown = false
+    }
+    val lyricsScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    if (available.y < -2f) {
+                        controlsShown = false
+                        lyricsUserScrolling = true
+                    } else if (available.y > 2f) {
+                        controlsShown = true
+                        lyricsUserScrolling = true
+                        controlsInteraction++
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                lyricsUserScrolling = false
+                controlsInteraction++
+                return Velocity.Zero
+            }
+        }
+    }
     var pendingProviderPick by remember { mutableStateOf<LyricsProvider?>(null) }
     // The sheet closes once the source the user picked is the one on screen.
     val shownProvider = uiState.lyrics?.provider
@@ -334,7 +393,7 @@ fun ImmersivePlayerContainer(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = SIDE_GUTTER)
+                            .padding(start = SIDE_GUTTER, end = SIDE_GUTTER, bottom = controlsHeightDp)
                             .graphicsLayer {
                                 alpha = controlsAlpha * ClassicPlayerViewportMotion.expandedMetadataAlpha(heroProgress.value)
                             }
@@ -374,6 +433,25 @@ fun ImmersivePlayerContainer(
                                 .weight(1f)
                                 .fillMaxWidth()
                                 .clipToBounds()
+                                // Lyrics and the queue run on under the controls; while those are up
+                                // the rows fade out where the panel starts and stay hidden beneath it.
+                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                                .drawWithContent {
+                                    drawContent()
+                                    val panel = controlsHeightPx.toFloat()
+                                    val reveal = controlsReveal.value
+                                    if (reveal > 0.001f && panel > 0f) {
+                                        val top = size.height - panel
+                                        drawRect(
+                                            brush = Brush.verticalGradient(
+                                                colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - reveal)),
+                                                startY = top,
+                                                endY = top + panel * 0.22f
+                                            ),
+                                            blendMode = BlendMode.DstIn
+                                        )
+                                    }
+                                }
                         ) {
                             if (lyricsLayerShown) {
                                 Box(
@@ -385,11 +463,20 @@ fun ImmersivePlayerContainer(
                                             translationY = motion.lyricsTranslationYDp.value.dp.toPx()
                                         }
                                         .padding(horizontal = SIDE_GUTTER - 8.dp)
+                                        .nestedScroll(lyricsScrollConnection)
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(onTap = {
+                                                controlsShown = !controlsShown
+                                                if (controlsShown) controlsInteraction++
+                                            })
+                                        }
                                 ) {
                                     SyncedLyricsView(
                                         lyrics = uiState.lyrics,
                                         positionState = lyricsPositionState,
                                         onSeekTo = { posMs ->
+                                            controlsShown = true
+                                            controlsInteraction++
                                             onSeekTo(posMs)
                                             if (!uiState.isPlaying) onPlayPauseClick()
                                         },
@@ -430,7 +517,9 @@ fun ImmersivePlayerContainer(
                                         onShowTrackOptions = onShowQueueTrackOptions,
                                         onToggleShuffle = onToggleShuffle,
                                         onToggleRepeat = onToggleRepeat,
-                                        onQueueControlsVisibilityChange = {},
+                                        onQueueControlsVisibilityChange = { visible ->
+                                            if (currentTab == NowPlayingTab.QUEUE) controlsShown = visible
+                                        },
                                         onCloseQueue = { onTabChange(NowPlayingTab.PLAYER) },
                                         onShowOutputPicker = onShowOutputPicker,
                                         onShowSleepDialog = onShowSleepDialog,
@@ -450,6 +539,7 @@ fun ImmersivePlayerContainer(
                                         showBottomBar = false,
                                         showPlaybackControls = false,
                                         queueListState = queueListState,
+                                        listBottomPadding = controlsHeightDp,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -457,79 +547,111 @@ fun ImmersivePlayerContainer(
                         }
                     }
                 }
-            }
 
-            // ── DECK: shared by every body ──
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = SIDE_GUTTER)
-                    .graphicsLayer { alpha = controlsAlpha }
-            ) {
-                AnimatedContent(
-                    targetState = currentTab == NowPlayingTab.LYRICS,
-                    transitionSpec = { fadeIn(tween(220, delayMillis = 80)) togetherWith fadeOut(tween(160)) },
-                    contentAlignment = Alignment.CenterStart,
-                    label = "immersiveDeckCaption",
+                // ── PLAYBACK CONTROLS: always up on the player; on lyrics and the queue they hide
+                // and come back the way the classic player's do (idle, scroll direction, tap). ──
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = controlsVisible,
+                    enter = fadeIn(tween(ClassicPlayerViewportMotion.ControlsEnterDurationMillis, easing = FastOutSlowInEasing)) +
+                        slideInVertically(tween(ClassicPlayerViewportMotion.ControlsEnterDurationMillis, easing = FastOutSlowInEasing)) {
+                            it / ClassicPlayerViewportMotion.ControlsSlideFraction
+                        },
+                    exit = fadeOut(tween(ClassicPlayerViewportMotion.ControlsExitDurationMillis, easing = FastOutSlowInEasing)) +
+                        slideOutVertically(tween(ClassicPlayerViewportMotion.ControlsExitDurationMillis, easing = FastOutSlowInEasing)) {
+                            it / ClassicPlayerViewportMotion.ControlsSlideFraction
+                        },
                     modifier = Modifier
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(PREVIEW_LINE_HEIGHT)
-                ) { lyricsOpen ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
-                        if (lyricsOpen) {
-                            LyricsSourceCaption(lyrics = uiState.lyrics, onChange = { showLyricsProviders = true })
-                        } else {
-                            LyricPreviewLine(
-                                lyrics = uiState.lyrics,
-                                positionState = lyricsPositionState,
-                                offsetMs = uiState.lyricsOffsetMs,
-                                isPlaying = uiState.isPlaying,
-                                isBuffering = uiState.isBuffering,
-                                onClick = { onTabChange(NowPlayingTab.LYRICS) }
-                            )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // Keep the last measured height, so nothing above resizes as they hide.
+                            .onSizeChanged { if (it.height > 0) controlsHeightPx = it.height }
+                            .padding(horizontal = SIDE_GUTTER)
+                            .graphicsLayer { alpha = controlsAlpha }
+                            // Any touch on the controls restarts the idle timer, without taking the touch.
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        if (event.changes.any { it.changedToDown() }) controlsInteraction++
+                                    }
+                                }
+                            }
+                    ) {
+                        AnimatedContent(
+                            targetState = currentTab == NowPlayingTab.LYRICS,
+                            transitionSpec = { fadeIn(tween(220, delayMillis = 80)) togetherWith fadeOut(tween(160)) },
+                            contentAlignment = Alignment.CenterStart,
+                            label = "immersiveDeckCaption",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(PREVIEW_LINE_HEIGHT)
+                        ) { lyricsOpen ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                                if (lyricsOpen) {
+                                    LyricsSourceCaption(lyrics = uiState.lyrics, onChange = { showLyricsProviders = true })
+                                } else {
+                                    LyricPreviewLine(
+                                        lyrics = uiState.lyrics,
+                                        isLoading = uiState.isLoadingLyrics,
+                                        trackId = track.id,
+                                        positionState = lyricsPositionState,
+                                        offsetMs = uiState.lyricsOffsetMs,
+                                        isPlaying = uiState.isPlaying,
+                                        isBuffering = uiState.isBuffering,
+                                        onClick = { onTabChange(NowPlayingTab.LYRICS) }
+                                    )
+                                }
+                            }
                         }
+
+                        ImmersiveScrubber(
+                            positionState = seekBarPositionState,
+                            durationMs = totalDurationMs,
+                            isPlaying = uiState.isPlaying,
+                            sliderStyle = sliderStyle,
+                            onScrubbing = onScrubbing,
+                            onSeekTo = onSeekTo
+                        )
+
+                        Spacer(Modifier.height(18.dp))
+
+                        ImmersiveTransportRow(
+                            isPlaying = uiState.isPlaying,
+                            isLoading = uiState.isBuffering && !uiState.isPlaying,
+                            onPrevious = onPreviousClick,
+                            onPlayPause = onPlayPauseClick,
+                            onNext = onNextClick
+                        )
+
+                        Spacer(Modifier.height(20.dp))
+
+                        ImmersiveVolumeRow()
+
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
-
-                ImmersiveScrubber(
-                    positionState = seekBarPositionState,
-                    durationMs = totalDurationMs,
-                    isPlaying = uiState.isPlaying,
-                    sliderStyle = sliderStyle,
-                    onScrubbing = onScrubbing,
-                    onSeekTo = onSeekTo
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                ImmersiveTransportRow(
-                    isPlaying = uiState.isPlaying,
-                    isLoading = uiState.isBuffering && !uiState.isPlaying,
-                    onPrevious = onPreviousClick,
-                    onPlayPause = onPlayPauseClick,
-                    onNext = onNextClick
-                )
-
-                Spacer(Modifier.height(20.dp))
-
-                ImmersiveVolumeRow()
-
-                Spacer(Modifier.height(10.dp))
-
-                ImmersiveActionRow(
-                    lyricsOpen = currentTab == NowPlayingTab.LYRICS,
-                    queueOpen = currentTab == NowPlayingTab.QUEUE,
-                    onToggleLyrics = {
-                        onTabChange(if (currentTab == NowPlayingTab.LYRICS) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS)
-                    },
-                    onToggleQueue = {
-                        onTabChange(if (currentTab == NowPlayingTab.QUEUE) NowPlayingTab.PLAYER else NowPlayingTab.QUEUE)
-                    }
-                )
-
-                // Room the reference keeps under the row (its output caption sits here).
-                Spacer(Modifier.height(44.dp))
             }
+
+            ImmersiveActionRow(
+                lyricsOpen = currentTab == NowPlayingTab.LYRICS,
+                queueOpen = currentTab == NowPlayingTab.QUEUE,
+                onToggleLyrics = {
+                    onTabChange(if (currentTab == NowPlayingTab.LYRICS) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS)
+                },
+                onToggleQueue = {
+                    onTabChange(if (currentTab == NowPlayingTab.QUEUE) NowPlayingTab.PLAYER else NowPlayingTab.QUEUE)
+                },
+                modifier = Modifier
+                    .padding(horizontal = SIDE_GUTTER)
+                    .graphicsLayer { alpha = controlsAlpha }
+            )
+
+            // Room the reference keeps under the row (its output caption sits here).
+            Spacer(Modifier.height(44.dp))
         }
 
         if (showLyricsProviders) {
@@ -828,14 +950,29 @@ private fun ImmersiveCircleGlyph(
     }
 }
 
+/** What the strip under the title is showing. Lines carry their index; the rest are fillers. */
+private sealed interface PreviewSlot {
+    data object Loading : PreviewSlot
+    data object Unsynced : PreviewSlot
+    data object Intro : PreviewSlot
+    data class Break(val index: Int) : PreviewSlot
+    data class Sung(val index: Int) : PreviewSlot
+}
+
 /**
  * The line being sung, drawn by the MetroLyrics word renderer (per-letter sweep, lift and
  * glow). When the line changes, the old line drifts up and dissolves while the next one
  * rises into its place, and the trailing chevron glides to the new line's end.
+ *
+ * Between lines it is never blank: a loading line while lyrics are fetched, one of the
+ * intro lines before the first sung line, "Instrumental" through a break, and a plain
+ * "Lyrics" link when the lyrics have no timing.
  */
 @Composable
 private fun LyricPreviewLine(
     lyrics: LyricsData?,
+    isLoading: Boolean,
+    trackId: String?,
     positionState: State<Long>,
     offsetMs: Long,
     isPlaying: Boolean,
@@ -847,18 +984,39 @@ private fun LyricPreviewLine(
         if (lyrics == null || lyrics.syncType == SyncType.PLAIN) emptyList()
         else lyrics.lines
             .map { WordTiming.splitMergedWordsInLine(it) }
-            .filter { !it.isInstrumental && !it.isBackground && it.text.isNotBlank() }
+            .filter { !it.isBackground && (it.isInstrumental || it.text.isNotBlank()) }
     }
-    if (lines.isEmpty()) return
+    val firstSung = remember(lines) { lines.indexOfFirst { !it.isInstrumental } }
+    // One filler per song, picked once so the clock never reshuffles it.
+    val introText = remember(trackId) { fillerLine(R.array.lyrics_intro_lines) }
+    val loadingText = remember(trackId) { fillerLine(R.array.lyrics_loading_lines) }
+    val hasPlainText = lyrics != null && lines.isEmpty() && lyrics.lines.any { it.text.isNotBlank() }
 
-    val activeIndex by remember(lines, offsetMs) {
-        derivedStateOf { LyricsEngine.findActiveLyricIndex(lines, positionState.value, offsetMs) }
+    val slot by remember(lines, offsetMs, isLoading, hasPlainText, firstSung) {
+        derivedStateOf {
+            when {
+                lines.isEmpty() && isLoading -> PreviewSlot.Loading
+                lines.isEmpty() && hasPlainText -> PreviewSlot.Unsynced
+                lines.isEmpty() -> null
+                else -> {
+                    val index = LyricsEngine.findActiveLyricIndex(lines, positionState.value, offsetMs)
+                    when {
+                        index < 0 || (firstSung >= 0 && index < firstSung) -> PreviewSlot.Intro
+                        lines[index].isInstrumental -> PreviewSlot.Break(index)
+                        else -> PreviewSlot.Sung(index)
+                    }
+                }
+            }
+        }
     }
+    val current = slot ?: return
 
     AnimatedContent(
-        targetState = activeIndex,
+        targetState = current,
         transitionSpec = {
-            val forward = targetState >= initialState
+            val from = (initialState as? PreviewSlot.Sung)?.index ?: (initialState as? PreviewSlot.Break)?.index ?: -1
+            val to = (targetState as? PreviewSlot.Sung)?.index ?: (targetState as? PreviewSlot.Break)?.index ?: -1
+            val forward = to >= from
             val enter = slideInVertically(tween(560, delayMillis = 70, easing = FastOutSlowInEasing)) {
                 if (forward) it else -it
             } + fadeIn(tween(420, delayMillis = 110, easing = LinearOutSlowInEasing)) +
@@ -871,12 +1029,7 @@ private fun LyricPreviewLine(
         },
         contentAlignment = Alignment.CenterStart,
         label = "immersiveLyricLine"
-    ) { index ->
-        val line = lines.getOrNull(index)
-        if (line == null) {
-            Spacer(Modifier.height(1.dp))
-            return@AnimatedContent
-        }
+    ) { shown ->
         // The leaving line softens out of focus as it goes; the arriving one sharpens in.
         val blur by transition.animateDp(
             transitionSpec = { tween(480, easing = FastOutSlowInEasing) },
@@ -893,22 +1046,53 @@ private fun LyricPreviewLine(
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MetroPreviewText(
-                line = line,
-                syncType = syncType,
-                positionMs = { positionState.value + offsetMs },
-                isPlaying = isPlaying,
-                isBuffering = isBuffering
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = str(R.string.lyrics),
-                tint = Color.White.copy(alpha = 0.55f),
-                modifier = Modifier.size(16.dp)
-            )
+            when (shown) {
+                is PreviewSlot.Sung -> MetroPreviewText(
+                    line = lines[shown.index],
+                    syncType = syncType,
+                    positionMs = { positionState.value + offsetMs },
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering
+                )
+                PreviewSlot.Loading -> FillerText(loadingText, withNote = false)
+                PreviewSlot.Unsynced -> FillerText(str(R.string.lyrics), withNote = true)
+                PreviewSlot.Intro -> FillerText(introText, withNote = true)
+                is PreviewSlot.Break -> FillerText(str(R.string.instrumental_break), withNote = true)
+            }
+            if (shown != PreviewSlot.Loading) {
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = str(R.string.lyrics),
+                    tint = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
+}
+
+private fun fillerLine(arrayRes: Int): String =
+    runCatching { com.auralis.music.ui.i18n.AppLanguage.context().resources.getStringArray(arrayRes).random() }
+        .getOrDefault("")
+
+@Composable
+private fun FillerText(text: String, withNote: Boolean) {
+    if (withNote) {
+        Icon(
+            imageVector = Icons.Rounded.MusicNote,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+    }
+    Text(
+        text = text,
+        style = PreviewLyricStyle.copy(color = Color.White.copy(alpha = 0.75f), fontWeight = FontWeight.Medium),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 private val PreviewLyricStyle = TextStyle(
@@ -1267,10 +1451,11 @@ private fun ImmersiveActionRow(
     lyricsOpen: Boolean,
     queueOpen: Boolean,
     onToggleLyrics: () -> Unit,
-    onToggleQueue: () -> Unit
+    onToggleQueue: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

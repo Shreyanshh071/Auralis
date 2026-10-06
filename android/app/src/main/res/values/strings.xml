@@ -1187,4 +1187,33 @@
     <string name="sync_none">Unsynced</string>
     <string name="provider_status_x_y">%1$s · %2$s</string>
     <string name="tap_to_use">Tap to use</string>
+    <string name="instrumental_break">Instrumental</string>
+    <string-array name="lyrics_intro_lines">
+        <item>The beat is landing</item>
+        <item>The song is starting</item>
+        <item>Warming up</item>
+        <item>Setting the mood</item>
+        <item>Bass first, words later</item>
+        <item>Wait for it</item>
+        <item>Feel that build</item>
+        <item>Just the groove for now</item>
+        <item>The hook is on the way</item>
+        <item>Let it breathe</item>
+        <item>Cue the vocals</item>
+        <item>First notes in</item>
+    </string-array>
+    <string-array name="lyrics_loading_lines">
+        <item>Getting the lyrics</item>
+        <item>Finding the words</item>
+        <item>Fetching the verses</item>
+        <item>Lyrics are loading</item>
+        <item>Checking the lyric sheet</item>
+        <item>Searching the songbook</item>
+        <item>Lining up the lyrics</item>
+        <item>Words are on the way</item>
+        <item>Checking the archives</item>
+        <item>Finding the right words</item>
+        <item>Lyrics are coming together</item>
+        <item>Almost found the words</item>
+    </string-array>
 </resources>

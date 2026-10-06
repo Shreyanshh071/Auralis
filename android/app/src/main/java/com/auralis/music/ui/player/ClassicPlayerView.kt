@@ -2433,6 +2433,8 @@ internal fun ClassicQueueContent(
     showBottomBar: Boolean = true,
     /** False when the host player keeps its own transport under the queue (Immersive). */
     showPlaybackControls: Boolean = true,
+    /** Extra room under the last row, for a host whose own controls overlay the list. */
+    listBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     modifier: Modifier = Modifier,
     queueListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     contentLayer: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {},
@@ -2781,7 +2783,7 @@ internal fun ClassicQueueContent(
                         .nestedScroll(queueNestedScrollConnection),
                     // Room to scroll the last songs clear of the overlaid controls.
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        bottom = with(density) { queueControlsHeightPx.toDp() }
+                        bottom = with(density) { queueControlsHeightPx.toDp() } + listBottomPadding
                     ),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {

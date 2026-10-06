@@ -291,6 +291,8 @@ fun AuralisApp(
     }
 
     val playerSheetProgress = remember { Animatable(0f) }
+    val immersivePlayerMorph = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(appearanceSettings.playerDesign) ==
+        com.auralis.music.domain.model.PlayerDesign.IMMERSIVE
     var isNowPlayingOpen by remember { mutableStateOf(false) }
     // The window flag, not View.keepScreenOn: some phones (seen on a Moto) ignored the view
     // setting. "Playing" comes from the audio player itself, which the screen's copy can lag.
@@ -1767,6 +1769,9 @@ fun AuralisApp(
                             val p = playerSheetProgress.value
                             alpha = if (reducedMotion) {
                                 if (isNowPlayingOpen || p > 0f) 1f else 0f
+                            } else if (immersivePlayerMorph) {
+                                // Only once the morph has filled the screen.
+                                ((p - 0.92f) / 0.08f).coerceIn(0f, 1f)
                             } else {
                                 (1.4f * kotlin.math.sqrt((p.coerceAtLeast(0.1f) - 0.1f))).coerceIn(0f, 1f)
                             }
@@ -1821,13 +1826,29 @@ fun AuralisApp(
                             .fillMaxSize()
                             .graphicsLayer {
                                 val p = playerSheetProgress.value
-                                translationY = if (reducedMotion) {
-                                    if (isNowPlayingOpen) 0f else travelDistance
+                                if (immersivePlayerMorph && !reducedMotion) {
+                                    // Immersive: the whole player grows out of the mini player's artwork
+                                    // and shrinks back into it, instead of sliding up as a sheet.
+                                    val scale = IMMERSIVE_MORPH_MIN_SCALE + (1f - IMMERSIVE_MORPH_MIN_SCALE) * p
+                                    scaleX = scale
+                                    scaleY = scale
+                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
+                                        pivotFractionX = with(density) { 28.dp.toPx() } / size.width.coerceAtLeast(1f),
+                                        pivotFractionY = ((fullHeightPx - collapsedBoundPx + with(density) { miniPlayerHeight.toPx() } / 2f) /
+                                            fullHeightPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                    )
+                                    // The layer's shape is drawn before scaling, so divide the scale out.
+                                    shape = if (p < 1f) RoundedCornerShape(with(density) { 28.dp.toPx() } / scale) else androidx.compose.ui.graphics.RectangleShape
+                                    clip = p < 1f
                                 } else {
-                                    (1f - p) * travelDistance
+                                    translationY = if (reducedMotion) {
+                                        if (isNowPlayingOpen) 0f else travelDistance
+                                    } else {
+                                        (1f - p) * travelDistance
+                                    }
+                                    shape = if (p < 1f) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else androidx.compose.ui.graphics.RectangleShape
+                                    clip = p < 1f
                                 }
-                                shape = if (p < 1f) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else androidx.compose.ui.graphics.RectangleShape
-                                clip = p < 1f
                             }
                             .pointerInput(travelDistance) {
                                 if (travelDistance <= 0f) return@pointerInput
@@ -1915,6 +1936,9 @@ fun AuralisApp(
                                     val p = playerSheetProgress.value
                                     alpha = if (reducedMotion) {
                                         if (isNowPlayingOpen) 1f else 0f
+                                    } else if (immersivePlayerMorph) {
+                                        // Visible from the first frames, so the mini player is seen growing.
+                                        (p * 6f).coerceIn(0f, 1f)
                                     } else {
                                         ((p - 0.15f) * 4f).coerceIn(0f, 1f)
                                     }
@@ -2865,3 +2889,6 @@ private fun MiniPlayerHost(
         )
     }
 }
+
+/** How small the immersive player starts when it grows out of the mini player. */
+private const val IMMERSIVE_MORPH_MIN_SCALE = 0.12f
