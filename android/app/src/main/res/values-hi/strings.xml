@@ -1118,4 +1118,5 @@
     <string name="sync_none">सिंक नहीं</string>
     <string name="provider_status_x_y">%1$s · %2$s</string>
     <string name="tap_to_use">इस्तेमाल के लिए टैप करें</string>
+    <string name="instrumental_break">वाद्य संगीत</string>
 </resources>
