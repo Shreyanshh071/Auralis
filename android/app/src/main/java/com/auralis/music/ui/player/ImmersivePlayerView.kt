@@ -4,8 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.media.AudioDeviceCallback
-import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterExitState
@@ -36,7 +34,6 @@ import com.auralis.music.ui.lyrics.presentationWordTimestamps
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
 import com.auralis.music.ui.theme.LocalReducedMotion
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -46,10 +43,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -62,20 +57,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -86,19 +77,11 @@ import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.AllInclusive
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Repeat
-import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -106,17 +89,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -145,40 +125,33 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.auralis.music.R
-import com.auralis.music.data.datastore.SettingsDataStore
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsMode
 import com.auralis.music.domain.model.LyricsProvider
-import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.AuralisPlayerSlider
 import com.auralis.music.ui.i18n.str
 import com.auralis.music.ui.lyrics.SyncedLyricsView
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.viewmodel.PlayerUiState
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** How much of the full-bleed sleeve, from its bottom edge, dissolves into the backdrop. */
 private const val HERO_FADE_FRACTION = 0.42f
 private val SIDE_GUTTER = 28.dp
 private val ACTION_SIZE = 44.dp
-private val SEGMENT_WIDTH = 64.dp
-private val SEGMENT_WIDTH_TRIPLE = 52.dp
 private val SKIP_GLYPH_SIZE = 53.dp
 private val PLAY_GLYPH_SIZE = 74.dp
 private val PLAY_TOUCH_SIZE = 92.dp
@@ -236,10 +209,6 @@ fun ImmersivePlayerContainer(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-    val settingsStore = remember(context) { SettingsDataStore(context) }
-    val playerSettings by settingsStore.settingsFlow.collectAsState(initial = null)
-    val autoplayEnabled = playerSettings?.autoLoadMore ?: true
 
     // Same tab motion as the classic player: the sleeve flies into the compact header on the
     // hero curve while the incoming body fades and glides up and the outgoing one fades out.
@@ -484,7 +453,8 @@ fun ImmersivePlayerContainer(
                 ImmersiveScrubber(
                     positionState = seekBarPositionState,
                     durationMs = totalDurationMs,
-                    trackId = track.id,
+                    isPlaying = uiState.isPlaying,
+                    sliderStyle = sliderStyle,
                     onScrubbing = onScrubbing,
                     onSeekTo = onSeekTo
                 )
@@ -508,27 +478,12 @@ fun ImmersivePlayerContainer(
                 ImmersiveActionRow(
                     lyricsOpen = currentTab == NowPlayingTab.LYRICS,
                     queueOpen = currentTab == NowPlayingTab.QUEUE,
-                    shuffleEnabled = uiState.isShuffled,
-                    repeatMode = uiState.repeatMode,
-                    autoplayEnabled = autoplayEnabled,
                     onToggleLyrics = {
                         onTabChange(if (currentTab == NowPlayingTab.LYRICS) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS)
                     },
                     onToggleQueue = {
                         onTabChange(if (currentTab == NowPlayingTab.QUEUE) NowPlayingTab.PLAYER else NowPlayingTab.QUEUE)
-                    },
-                    onToggleShuffle = onToggleShuffle,
-                    onCycleRepeat = onToggleRepeat,
-                    onToggleAutoplay = { scope.launch { settingsStore.setAutoLoadMore(!autoplayEnabled) } },
-                    onOpenOutput = onShowOutputPicker,
-                    onOpenSleepTimer = onShowSleepDialog,
-                    onListenTogether = onOpenListenTogether
-                )
-
-                ImmersiveOutputCaption(
-                    sleepTimerSeconds = uiState.sleepTimerSeconds,
-                    sleepAtEndOfSong = uiState.isSleepTimerEndOfSong,
-                    onClick = onShowOutputPicker
+                    }
                 )
 
                 Spacer(Modifier.height(6.dp))
@@ -1065,51 +1020,37 @@ private fun ImmersiveThinBar(
     }
 }
 
-private fun formatClock(ms: Long): String {
-    val seconds = ms.coerceAtLeast(0L) / 1000L
-    return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-}
-
+/**
+ * The app's own seek bar, so it follows the Player slider style setting (Wavy, Squiggly, Slim…)
+ * and seeks to wherever it is tapped, not only where it is dragged.
+ */
 @Composable
 private fun ImmersiveScrubber(
     positionState: State<Long>,
     durationMs: Long,
-    trackId: String?,
+    isPlaying: Boolean,
+    sliderStyle: String,
     onScrubbing: (Boolean, Long) -> Unit,
     onSeekTo: (Long) -> Unit
 ) {
-    var preview by remember(trackId) { mutableStateOf<Float?>(null) }
-    val length = durationMs.coerceAtLeast(0L)
-    val shown = { preview ?: if (length > 0) (positionState.value.toFloat() / length).coerceIn(0f, 1f) else 0f }
-    Column(Modifier.fillMaxWidth()) {
-        ImmersiveThinBar(
-            value = shown,
-            label = str(R.string.ambient_seek),
-            enabled = length > 0,
-            onChange = {
-                preview = it
-                onScrubbing(true, (it * length).toLong())
-            },
-            onFinish = {
-                val target = preview
-                preview = null
-                if (target != null) {
-                    onScrubbing(false, (target * length).toLong())
-                    onSeekTo((target * length).toLong())
-                }
-            }
-        )
-        val elapsed = (shown() * length).toLong()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .offset(y = (-9).dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(formatClock(elapsed), color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
-            Text("-" + formatClock(length - elapsed), color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
-        }
-    }
+    val posMs = positionState.value
+    AuralisPlayerSlider(
+        value = if (durationMs > 0) (posMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
+        onValueChange = { fraction -> onScrubbing(true, (fraction * durationMs).toLong()) },
+        onValueChangeFinished = {
+            onScrubbing(false, positionState.value)
+            onSeekTo(positionState.value)
+        },
+        isPlaying = isPlaying,
+        currentPosMs = posMs,
+        totalDurationMs = durationMs,
+        sliderStyle = sliderStyle,
+        activeTrackColor = Color.White,
+        inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+        thumbColor = Color.White,
+        textColor = Color.White.copy(alpha = 0.55f),
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 @Composable
@@ -1254,104 +1195,33 @@ private fun ImmersiveVolumeRow() {
     }
 }
 
-/**
- * Lyrics, the capsule, and the queue. The capsule is output + listen together normally,
- * and shuffle / repeat / autoplay while the queue is up.
- */
+/** Lyrics on one end, the queue on the other. */
 @Composable
 private fun ImmersiveActionRow(
     lyricsOpen: Boolean,
     queueOpen: Boolean,
-    shuffleEnabled: Boolean,
-    repeatMode: RepeatMode,
-    autoplayEnabled: Boolean,
     onToggleLyrics: () -> Unit,
-    onToggleQueue: () -> Unit,
-    onToggleShuffle: () -> Unit,
-    onCycleRepeat: () -> Unit,
-    onToggleAutoplay: () -> Unit,
-    onOpenOutput: () -> Unit,
-    onOpenSleepTimer: () -> Unit,
-    onListenTogether: () -> Unit
+    onToggleQueue: () -> Unit
 ) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // Sized for the wider three-up capsule in both states so the outer glyphs never slide.
-        val widestRow = ACTION_SIZE * 2 + SEGMENT_WIDTH * 3 + 2.dp
-        val edgeInset = ((maxWidth - widestRow) / 4).coerceAtLeast(0.dp)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = edgeInset),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            RoundActionGlyph(
-                icon = LyricsBubbleIcon,
-                contentDescription = str(R.string.lyrics),
-                highlighted = lyricsOpen,
-                onClick = onToggleLyrics
-            )
-            AnimatedContent(
-                targetState = queueOpen,
-                transitionSpec = {
-                    (fadeIn(tween(180, delayMillis = 140)) togetherWith fadeOut(tween(140)))
-                        .using(SizeTransform(clip = false) { _, _ -> tween(220) })
-                },
-                label = "immersiveCapsule"
-            ) { showQueueModes ->
-                if (showQueueModes) {
-                    Capsule {
-                        CapsuleSegment(
-                            icon = Icons.Rounded.Shuffle,
-                            contentDescription = str(R.string.shuffle),
-                            highlighted = shuffleEnabled,
-                            width = SEGMENT_WIDTH_TRIPLE,
-                            onClick = onToggleShuffle
-                        )
-                        CapsuleDivider()
-                        CapsuleSegment(
-                            icon = if (repeatMode == RepeatMode.ONE) null else Icons.Rounded.Repeat,
-                            label = if (repeatMode == RepeatMode.ONE) "1" else null,
-                            contentDescription = str(R.string.repeat),
-                            highlighted = repeatMode != RepeatMode.OFF,
-                            width = SEGMENT_WIDTH_TRIPLE,
-                            onClick = onCycleRepeat
-                        )
-                        CapsuleDivider()
-                        CapsuleSegment(
-                            icon = Icons.Rounded.AllInclusive,
-                            contentDescription = str(R.string.autoplay),
-                            highlighted = autoplayEnabled,
-                            width = SEGMENT_WIDTH_TRIPLE,
-                            onClick = onToggleAutoplay
-                        )
-                    }
-                } else {
-                    Capsule {
-                        CapsuleSegment(
-                            icon = Icons.Rounded.Headphones,
-                            iconSize = 23.dp,
-                            contentDescription = str(R.string.audio_output),
-                            onClick = onOpenOutput,
-                            onLongClick = onOpenSleepTimer
-                        )
-                        CapsuleDivider()
-                        CapsuleSegment(
-                            icon = Icons.Rounded.Person,
-                            iconSize = 22.dp,
-                            contentDescription = str(R.string.listen_together),
-                            onClick = onListenTogether
-                        )
-                    }
-                }
-            }
-            RoundActionGlyph(
-                icon = Icons.AutoMirrored.Rounded.FormatListBulleted,
-                contentDescription = str(R.string.queue),
-                highlighted = queueOpen,
-                onClick = onToggleQueue
-            )
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RoundActionGlyph(
+            icon = LyricsBubbleIcon,
+            contentDescription = str(R.string.lyrics),
+            highlighted = lyricsOpen,
+            onClick = onToggleLyrics
+        )
+        RoundActionGlyph(
+            icon = Icons.AutoMirrored.Rounded.FormatListBulleted,
+            contentDescription = str(R.string.queue),
+            highlighted = queueOpen,
+            onClick = onToggleQueue
+        )
     }
 }
 
@@ -1386,138 +1256,6 @@ private fun RoundActionGlyph(
             modifier = Modifier.size(26.dp)
         )
     }
-}
-
-@Composable
-private fun Capsule(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
-    Row(
-        modifier = Modifier
-            .height(ACTION_SIZE)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.12f))
-            .animateContentSize(spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)),
-        verticalAlignment = Alignment.CenterVertically,
-        content = content
-    )
-}
-
-@Composable
-private fun CapsuleDivider() {
-    Box(
-        Modifier
-            .width(1.dp)
-            .fillMaxHeight()
-            .background(Color.White.copy(alpha = 0.20f))
-    )
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun CapsuleSegment(
-    contentDescription: String,
-    onClick: () -> Unit,
-    icon: ImageVector? = null,
-    label: String? = null,
-    iconSize: Dp = 24.dp,
-    highlighted: Boolean = false,
-    width: Dp = SEGMENT_WIDTH,
-    onLongClick: (() -> Unit)? = null
-) {
-    val haptic = LocalHapticFeedback.current
-    val tint = Color.White.copy(alpha = if (highlighted) 1f else 0.75f)
-    Box(
-        modifier = Modifier
-            .width(width)
-            .height(ACTION_SIZE)
-            .background(if (highlighted) Color.White.copy(alpha = 0.14f) else Color.Transparent)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onLongClick = onLongClick?.let {
-                    {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        it()
-                    }
-                }
-            ) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
-            }
-            .semantics { this.contentDescription = contentDescription },
-        contentAlignment = Alignment.Center
-    ) {
-        when {
-            icon != null -> Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
-            label != null -> Text(label, color = tint, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-/** Where the sound is going — the connected headset's name, or "This phone". */
-@Composable
-private fun ImmersiveOutputCaption(
-    sleepTimerSeconds: Long,
-    sleepAtEndOfSong: Boolean,
-    onClick: () -> Unit
-) {
-    val route = rememberOutputRouteName()
-    val text = when {
-        sleepAtEndOfSong -> "$route · ${str(R.string.sleep_timer)}"
-        sleepTimerSeconds > 0 -> "$route · ${str(R.string.sleep_timer)} ${formatClock(sleepTimerSeconds * 1000L)}"
-        else -> route
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            color = Color.White.copy(alpha = 0.6f),
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-        )
-    }
-}
-
-@Composable
-private fun rememberOutputRouteName(): String {
-    val context = LocalContext.current
-    val audio = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    var deviceName by remember { mutableStateOf<String?>(null) }
-    DisposableEffect(audio) {
-        fun refresh() {
-            deviceName = runCatching {
-                val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                val device = outputs.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                } ?: outputs.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                        it.type == AudioDeviceInfo.TYPE_USB_HEADSET
-                }
-                device?.productName?.toString()?.trim()?.takeIf { it.isNotBlank() }
-            }.getOrNull()
-        }
-        val callback = object : AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = refresh()
-            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) = refresh()
-        }
-        refresh()
-        audio.registerAudioDeviceCallback(callback, null)
-        onDispose { audio.unregisterAudioDeviceCallback(callback) }
-    }
-    return deviceName ?: str(R.string.this_phone)
 }
 
 /** Speech bubble with a pair of quote marks — the lyrics control. */
