@@ -546,7 +546,25 @@ fun LibraryScreen(
             )
         } else {
 
-    val headerBackdrop = rememberLayerBackdrop()
+    val gridScrollState = rememberLazyGridState()
+    val listScrollState = rememberLazyListState()
+    val reducedScrollMotion = LocalReducedMotion.current
+    val headerScope = rememberCoroutineScope()
+    val libraryBackground = MaterialTheme.dynamicBackground
+    val headerBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit =
+        remember(libraryBackground, isGridView, gridScrollState, listScrollState) {
+            {
+                // Reading scroll offset establishes a Compose snapshot dependency so this layer
+                // automatically re-records and updates the header glass as content scrolls
+                @Suppress("UNUSED_VARIABLE")
+                val scrollOffset = if (isGridView) gridScrollState.firstVisibleItemScrollOffset else listScrollState.firstVisibleItemScrollOffset
+                @Suppress("UNUSED_VARIABLE")
+                val scrollIndex = if (isGridView) gridScrollState.firstVisibleItemIndex else listScrollState.firstVisibleItemIndex
+                drawRect(libraryBackground)
+                drawContent()
+            }
+        }
+    val headerBackdrop = rememberLayerBackdrop(onDraw = headerBackdropDraw)
     val headerGlass = rememberPageHeaderGlass(headerBackdrop)
     var sourceFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
     var pageOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -560,10 +578,6 @@ fun LibraryScreen(
             .onGloballyPositioned { pageOrigin = it.positionInRoot() }
             .background(MaterialTheme.dynamicBackground)
     ) {
-        val gridScrollState = rememberLazyGridState()
-        val listScrollState = rememberLazyListState()
-        val reducedScrollMotion = LocalReducedMotion.current
-        val headerScope = rememberCoroutineScope()
         androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
             floatingHeaderState?.glass = headerGlass
             onDispose { floatingHeaderState?.glass = null }

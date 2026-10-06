@@ -410,6 +410,7 @@
     <string name="force_deep_amoled_black_background_on_mi">মিনি-প্লেয়ারে গাঢ় AMOLED কালো ব্যাকগ্রাউন্ড দিন</string>
     <string name="mini_player_background_style">মিনি-প্লেয়ারের ব্যাকগ্রাউন্ড স্টাইল</string>
     <string name="unavailable_when_pure_black_is_enabled">সম্পূর্ণ কালো চালু থাকলে উপলব্ধ নয়</string>
+    <string name="unavailable_with_immersive_player">ইমারসিভ প্লেয়ারে উপলব্ধ নয়</string>
     <string name="new_player_design">নতুন প্লেয়ার ডিজাইন</string>
     <string name="modern_expanded_now_playing_screen_with">উন্নত জেসচারসহ আধুনিক \'এখন বাজছে\' স্ক্রিন</string>
     <string name="player_slider_style">প্লেয়ার স্লাইডার স্টাইল</string>

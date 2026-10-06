@@ -230,9 +230,11 @@ internal fun resolveExperimentalWordTimestamps(
 /**
  * Some rich-sync files stretch a middle word across an instrumental break and
  * place the following word at the break's end. Repair only the displayed timing:
- * a multi-second outlier finishes its sweep at the line's normal word pace
- * and brings subsequent words forward by the removed delay. Provider timestamps
- * remain untouched for storage, seeking, and source comparison.
+ * a multi-second outlier finishes its sweep at the line's normal word pace.
+ *
+ * CRITICAL: Subsequent words MUST ALWAYS remain anchored to their true audio start
+ * timestamps. Never bring subsequent words forward in time (which caused highlights
+ * to rush ahead of the singer at hyper speed on held notes and ballads).
  */
 internal fun presentationWordTimestamps(words: List<ExperimentalWordTimestamp>): List<ExperimentalWordTimestamp> {
     if (words.size < 2) return words
@@ -244,24 +246,22 @@ internal fun presentationWordTimestamps(words: List<ExperimentalWordTimestamp>):
     val medianMs = ordinaryDurationsMs[ordinaryDurationsMs.size / 2]
     val maxSweepMs = maxOf(600.0, medianMs * 1.75)
 
-    var removedDelaySec = 0.0
     return words.mapIndexed { index, word ->
-        val start = word.startTime - removedDelaySec
-        val end = word.endTime?.minus(removedDelaySec)
-        val nextStart = words.getOrNull(index + 1)?.startTime?.minus(removedDelaySec)
+        val start = word.startTime
+        val end = word.endTime
+        val nextStart = words.getOrNull(index + 1)?.startTime
         if (end == null || nextStart == null || nextStart <= start) {
-            word.copy(startTime = start, endTime = end)
+            word
         } else {
             val durationMs = (end - start) * 1000.0
-            // A long held note can be valid. This only catches a rest so large
-            // that the following word was placed at the previous word's end.
+            // Only cap visual sweep for genuine multi-second instrumental rest anomalies
+            // (e.g. provider attached a multi-second musical rest before the next word to this word's end).
             val anomalous = durationMs > 4_000.0 &&
                 durationMs > medianMs * 6.0 && nextStart >= end - 0.2
             if (!anomalous) {
-                word.copy(startTime = start, endTime = end)
+                word
             } else {
                 val visualEnd = minOf(end, nextStart, start + maxSweepMs / 1000.0)
-                removedDelaySec += end - visualEnd
                 word.copy(startTime = start, endTime = visualEnd)
             }
         }
@@ -509,17 +509,19 @@ fun ExperimentalLyricsView(
     val isSynced = (lyrics?.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
     val hasWordTimings = remember(effectiveLines) { effectiveLines.any { it.hasWordTiming } }
 
-    var currentPositionState by remember { mutableLongStateOf(positionState.value + offsetMs) }
+    // Keep the fast clock in a State object. Passing a Long to every list row made the
+    // entire visible lyrics list recompose about 40 times per second.
+    val currentPositionState = remember { mutableLongStateOf(positionState.value + offsetMs) }
 
     val isIntroActiveState = remember(isSynced, introDurationMs) {
         derivedStateOf {
             if (!isSynced || introDurationMs < 1500L) return@derivedStateOf false
-            currentPositionState < introDurationMs
+            currentPositionState.longValue < introDurationMs
         }
     }
     val introTimeState = remember {
         derivedStateOf {
-            (currentPositionState.coerceAtLeast(0L) / 50L) * 50L
+            (currentPositionState.longValue.coerceAtLeast(0L) / 50L) * 50L
         }
     }
 
@@ -657,7 +659,7 @@ fun ExperimentalLyricsView(
                 // Adding a second extrapolation here made every word run early.
                 basePos + offsetMs
             }
-            currentPositionState = currentPos
+            currentPositionState.longValue = currentPos
 
             if (isSeekingInFlight && pending != null) {
                 val target = pending.lineIndex
@@ -751,7 +753,7 @@ fun ExperimentalLyricsView(
     val activeListIndexState = remember(mergedLyricsList, hasWordTimings, isSynced) {
         derivedStateOf {
             val isLineOnlyFallback = !hasWordTimings && isSynced
-            val curPos = currentPositionState
+            val curPos = currentPositionState.longValue
             val curIdx = if (isLineOnlyFallback || authoritativeTargetIndex < 0) {
                 // currentPositionState already includes the user's offset.
                 LyricsEngine.findActiveLyricIndex(effectiveLines, curPos, 0L)
@@ -895,7 +897,7 @@ fun ExperimentalLyricsView(
         lastPreviewTime = 0L
         isUserInteracting = false
         pendingSeekTarget = null
-        val target = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState)
+        val target = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPositionState.longValue)
         if (target != -1) {
             authoritativeTargetIndex = target
             deferredCurrentLineIndex = target
@@ -1038,10 +1040,13 @@ fun ExperimentalLyricsView(
                                 (index - 1 downTo 0).firstOrNull { effectiveLines.getOrNull(it)?.isBackground == false } ?: -1
                             } else -1
 
-                            val isInGapWithMain = if (line.isBackground && pairedMainLineIndex != -1) {
-                                val paired = effectiveLines[pairedMainLineIndex]
-                                currentPositionState >= paired.time && currentPositionState <= line.time
-                            } else false
+                            val pairedStartMs = effectiveLines.getOrNull(pairedMainLineIndex)?.time
+                            val isInGapWithMain by remember(pairedStartMs, line.time, line.isBackground) {
+                                derivedStateOf {
+                                    pairedStartMs != null && line.isBackground &&
+                                        currentPositionState.longValue in pairedStartMs..line.time
+                                }
+                            }
 
                             val speakerStyle = speakerStyles?.getOrNull(index)
                             val bgVisible = !isAutoScrollEnabled || (line.isBackground && (activeLineIndices.contains(pairedMainLineIndex) || activeLineIndices.contains(index) || isInGapWithMain))
@@ -1112,8 +1117,6 @@ fun ExperimentalLyricsView(
                                     isAutoScrollEnabled = isAutoScrollEnabled,
                                     displayedCurrentLineIndex = deferredCurrentLineIndex,
                                     syncType = lyrics?.syncType ?: SyncType.PLAIN,
-                                    isPlaying = isPlaying,
-                                    isBuffering = isBuffering || (pendingSeekTarget != null) || !clockAdvancing,
                                     standardBlur = standardLyricsBlur,
                                     lineCenterPx = blurGeometry.lineCenterPx,
                                     activeLineCenterPx = blurGeometry.activeLineCenterPx,
@@ -1161,12 +1164,12 @@ fun ExperimentalLyricsView(
                         }
                         is ExperimentalLyricsListItem.Indicator -> {
                             val indicatorVisible = isAutoScrollEnabled &&
-                                currentPositionState >= (listItem.gapStartMs - 300L) &&
-                                currentPositionState <= listItem.gapEndMs
+                                currentPositionState.longValue >= (listItem.gapStartMs - 300L) &&
+                                currentPositionState.longValue <= listItem.gapEndMs
                             LyricsIntervalIndicator(
                                 gapStartMs = listItem.gapStartMs,
                                 gapEndMs = listItem.gapEndMs,
-                                currentPositionMs = currentPositionState,
+                                currentPositionMs = currentPositionState.longValue,
                                 visible = indicatorVisible,
                                 color = Color.White,
                                 isMetroLyrics = true,
@@ -1337,7 +1340,7 @@ internal fun ExperimentalLyricsLine(
     bgVisible: Boolean,
     isSelected: Boolean,
     isSelectionModeActive: Boolean,
-    currentPositionState: Long,
+    currentPositionState: State<Long>,
     lyricsTextSize: Float,
     lyricsLineSpacing: Float,
     expressiveAccent: Color,
@@ -1345,8 +1348,6 @@ internal fun ExperimentalLyricsLine(
     isAutoScrollEnabled: Boolean,
     displayedCurrentLineIndex: Int,
     syncType: SyncType,
-    isPlaying: Boolean,
-    isBuffering: Boolean = false,
     standardBlur: Boolean = false,
     lineCenterPx: Float = Float.NaN,
     activeLineCenterPx: Float = Float.NaN,
@@ -1616,9 +1617,7 @@ internal fun ExperimentalLyricsLine(
                         expressiveAccent = expressiveAccent,
                         isBackground = line.isBackground,
                         focusedAlpha = focusedAlpha,
-                        alignment = agentTextAlign,
-                        isPlaying = isPlaying,
-                        isBuffering = isBuffering
+                        alignment = agentTextAlign
                     )
                 } else {
                     Text(
@@ -1671,44 +1670,16 @@ internal fun ExperimentalWordLevelLyrics(
     mainText: String,
     words: List<ExperimentalWordTimestamp>,
     isActiveLine: Boolean,
-    currentPositionState: Long,
+    currentPositionState: State<Long>,
     lyricStyle: TextStyle,
     lineColor: Color,
     expressiveAccent: Color,
     isBackground: Boolean,
     focusedAlpha: Float,
-    alignment: TextAlign,
-    isPlaying: Boolean,
-    isBuffering: Boolean = false
+    alignment: TextAlign
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
-    val currentPositionUpdated by rememberUpdatedState(currentPositionState)
-
-    var smoothPosition by remember { mutableLongStateOf(currentPositionState) }
-
-    val shouldSmooth = isActiveLine && isPlaying && !isBuffering
-
-    LaunchedEffect(shouldSmooth) {
-        if (shouldSmooth) {
-            while (isActive) {
-                withFrameMillis {
-                    // The shared lyric clock already interpolates the audio position.
-                    // A second carry here advances every word ahead of that clock.
-                    smoothPosition = currentPositionUpdated
-                }
-            }
-        } else {
-            smoothPosition = currentPositionUpdated
-        }
-    }
-
-    LaunchedEffect(currentPositionState) {
-        if (!shouldSmooth) {
-            smoothPosition = currentPositionState
-        }
-    }
-
     val (effectiveWords, effectiveToOriginalIdx) = remember(words) {
         words to words.indices.toList()
     }
@@ -1824,7 +1795,10 @@ internal fun ExperimentalWordLevelLyrics(
                 .fillMaxWidth()
                 .height(with(density) { layoutResult.size.height.toDp() })
         ) {
-            if (mainText.isEmpty()) return@Canvas
+            if (mainText.isEmpty() || layoutResult.layoutInput.text.text != mainText) return@Canvas
+            // Reading the clock in the draw phase invalidates only this Canvas, not the
+            // text measurement or surrounding LazyColumn on every playback tick.
+            val smoothPosition = currentPositionState.value
             if (!isActiveLine) {
                 drawText(layoutResult, color = lineColor)
             } else {

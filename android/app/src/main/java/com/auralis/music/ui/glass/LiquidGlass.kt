@@ -82,6 +82,11 @@ fun Modifier.liquidGlass(
     val blurPx = with(density) { 18.dp.toPx() }
     val lensHeightPx = with(density) { 20.dp.toPx() }
     val lensAmountPx = with(density) { 28.dp.toPx() }
+    val fallbackBaseColor = if (glass.isDark) {
+        Color(0xFF1C1D20).copy(alpha = 0.70f)
+    } else {
+        Color(0xFFF2F2F5).copy(alpha = 0.75f)
+    }
     // Clip the whole element to its shape from the outside. The library clips its own layer to
     // the shape, but on this Compose version that clip doesn't hold, and the glass filled its
     // square bounding box (a dark square behind every circle and pill end). An outer clip
@@ -104,6 +109,9 @@ fun Modifier.liquidGlass(
         highlight = { Highlight.Default },
         // An outer shadow would be cut off by the clip above, so none is drawn.
         shadow = null,
+        // Base translucent glass fill behind the live backdrop. Guarantees the element never degrades
+        // into a transparent frame when sampling unattached coordinates, transparent pixels, or during transitions.
+        onDrawBehind = { drawOutline(shape.createOutline(size, layoutDirection, this), fallbackBaseColor) },
         // Fill the tint in the element's own shape. A plain drawRect relied on the layer clipping
         // to the shape, which it doesn't on this Compose version: the tint showed as a dark
         // square around every glass circle and pill.

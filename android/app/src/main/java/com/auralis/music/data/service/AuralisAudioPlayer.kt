@@ -558,6 +558,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     persistQueue()
                     requestAutoQueueExtension(advanceWhenLoaded = true)
                 } else {
+                    syncWantsPlay = false
                     if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.OFF) {
                         _isPlaying.value = false
                     }
@@ -1242,7 +1243,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         return true
     }
 
-    private val _syncWantsPlay = MutableStateFlow(true)
+    private val _syncWantsPlay = MutableStateFlow(false)
+    /** User playback intent survives a temporary audio-focus pause. */
+    val playbackRequested: StateFlow<Boolean> = _syncWantsPlay.asStateFlow()
     private var syncWantsPlay: Boolean
         get() = _syncWantsPlay.value
         set(value) { _syncWantsPlay.value = value }
@@ -1864,6 +1867,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun clearQueue() {
+        syncWantsPlay = false
         val qState = queueManager.clearQueue()
         _queueState.value = qState
         _currentTrack.value = null
@@ -1872,6 +1876,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun clearCurrentTrack() {
+        syncWantsPlay = false
         _currentTrack.value = null
         _isPlaying.value = false
         _playbackPositionMs.value = 0L
@@ -1908,6 +1913,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun stop() {
+        syncWantsPlay = false
         autoQueueJob?.cancel()
         advanceAfterAutoLoad = false
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] stop() called -> flushing streams")

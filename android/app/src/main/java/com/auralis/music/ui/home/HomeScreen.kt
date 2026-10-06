@@ -164,11 +164,29 @@ fun HomeScreen(
 ) {
     val showWrappedCard = com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState().value.showWrappedCard
     val context = LocalContext.current
-    val headerBackdrop = rememberLayerBackdrop()
-    val headerGlass = rememberPageHeaderGlass(headerBackdrop)
     val homeScrollState = rememberLazyListState()
     val reducedScrollMotion = LocalReducedMotion.current
     val headerScope = rememberCoroutineScope()
+    // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
+    // immediately recompose the screen and visible elements without requiring scroll.
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val themeBackground = MaterialTheme.dynamicBackground
+    val themeOnBackground = MaterialTheme.dynamicOnBackground
+    val headerBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit =
+        remember(themeBackground, homeScrollState) {
+            {
+                // Reading scroll offset establishes a Compose snapshot dependency so this layer
+                // automatically re-records and updates the header glass as content scrolls
+                @Suppress("UNUSED_VARIABLE")
+                val scrollOffset = homeScrollState.firstVisibleItemScrollOffset
+                @Suppress("UNUSED_VARIABLE")
+                val scrollIndex = homeScrollState.firstVisibleItemIndex
+                drawRect(themeBackground)
+                drawContent()
+            }
+        }
+    val headerBackdrop = rememberLayerBackdrop(onDraw = headerBackdropDraw)
+    val headerGlass = rememberPageHeaderGlass(headerBackdrop)
     androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
         floatingHeaderState?.glass = headerGlass
         onDispose { floatingHeaderState?.glass = null }
@@ -184,11 +202,6 @@ fun HomeScreen(
     var selectedAlbumForMenu by remember { mutableStateOf<PlaylistResult?>(null) }
     var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
     var activeMood by remember { mutableStateOf<String?>(null) }
-    // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
-    // immediately recompose the screen and visible elements without requiring scroll.
-    val themePrimary = MaterialTheme.dynamicPrimary
-    val themeBackground = MaterialTheme.dynamicBackground
-    val themeOnBackground = MaterialTheme.dynamicOnBackground
 
     Box(
         modifier = modifier

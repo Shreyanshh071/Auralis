@@ -747,11 +747,14 @@ fun NowPlayingModal(
     var scrubPositionMs by remember { mutableFloatStateOf(0f) }
 
     // The player's own clock, sampled once per displayed frame and interpolated
-    // between readings. Runs only while the lyrics tab is visible and audio is
-    // actually advancing; otherwise it mirrors the coarse ticker.
+    // between readings. Runs only while lyrics are visible and audio is actually
+    // advancing; otherwise it mirrors the coarse 100 ms ticker. The immersive
+    // player always sweeps its current lyric line on the player tab, so it needs
+    // the clock there too, or the sweep moves in 100 ms jumps.
     val lyricsClock = com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = lyricsClockSource,
-        enabled = (currentTab == NowPlayingTab.LYRICS || (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying,
+        enabled = (currentTab == NowPlayingTab.LYRICS ||
+            (currentTab == NowPlayingTab.PLAYER && (uiState.showInlineLyrics || !inlineLyricsSupported))) && uiState.isPlaying,
         fallbackPositionMs = playbackPositionState
     )
 
@@ -853,7 +856,8 @@ fun NowPlayingModal(
     // Proactively pre-extract artwork palettes in parallel for current + upcoming queue tracks
     // so swiping or fast-skipping immediately hits memory cache with zero delay or color interruption.
     LaunchedEffect(currentTrackIndex, pagerState.currentPage, currentTab, queue, isDynamicAccent) {
-        if (queue.isNotEmpty() && isDynamicAccent) {
+        val isImmersive = PlayerDesign.fromDisplayName(appearance.playerDesign) == PlayerDesign.IMMERSIVE
+        if (queue.isNotEmpty() && isDynamicAccent && !isImmersive) {
             val cur = if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex
             val immediateTargets = listOfNotNull(
                 queue.getOrNull(cur + 1),
@@ -975,7 +979,8 @@ fun NowPlayingModal(
         // ====================================================================
         // 1. DYNAMIC BACKGROUND RENDERING (Follow theme, Gradient, Blur, Glow Motion, Apple Music, Live Mesh)
         // ====================================================================
-        if (renderBackground) {
+        // The immersive player paints its own backdrop from the cover; the background style is not used there.
+        if (renderBackground && PlayerDesign.fromDisplayName(appearance.playerDesign) != PlayerDesign.IMMERSIVE) {
             NowPlayingDynamicBackground(
                 style = playerBgStyle,
                 pagerState = pagerState,
@@ -999,6 +1004,7 @@ fun NowPlayingModal(
         // ====================================================================
         when (PlayerDesign.fromDisplayName(appearance.playerDesign)) {
             PlayerDesign.NEW -> {
+            val modernPlayerContent: @Composable () -> Unit = {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2022,7 +2028,9 @@ fun NowPlayingModal(
                 }
             }
         }
-    }
+            }
+            }
+            modernPlayerContent()
             }
             PlayerDesign.OLD -> {
             CompositionLocalProvider(LocalClassicLyricsHazeState provides classicLyricsHazeState) {

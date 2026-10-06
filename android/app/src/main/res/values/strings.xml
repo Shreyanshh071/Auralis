@@ -425,6 +425,7 @@
     <string name="force_deep_amoled_black_background_on_mi">Force deep AMOLED black background on mini-player</string>
     <string name="mini_player_background_style">Mini-player background style</string>
     <string name="unavailable_when_pure_black_is_enabled">Unavailable when pure black is enabled</string>
+    <string name="unavailable_with_immersive_player">Unavailable with the immersive player</string>
     <string name="new_player_design">New player design</string>
     <string name="player_design">Player design</string>
     <string name="modern_expanded_now_playing_screen_with">Modern expanded now-playing screen with rich gestures</string>
@@ -1095,7 +1096,7 @@
     <string name="you_can_ask_to_add_songs_the_host_allows">You can ask to add songs; the host allows them</string>
     <string name="you_can_add_songs_to_the_queue_song_menu">You can add songs to the queue (song menu &gt; Add to room queue)</string>
     <string name="only_the_host_adds_songs">Only the host adds songs</string>
-    <string name="your_most_played_song_is">Your most played song is</string>
+    <string name="your_most_played_song_is">Your most listened-to song is</string>
     <string name="your_top_songs_of_the_year">YOUR TOP SONGS OF THE YEAR</string>
     <string name="your_top_album_is">YOUR TOP ALBUM IS</string>
     <string name="your_top_5_albums">YOUR TOP 5 ALBUMS</string>

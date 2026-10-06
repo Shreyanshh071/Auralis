@@ -45,44 +45,79 @@ class AmllLyricsSource(
         private const val APPLE_MUSIC_API_BASE = "https://amp-api.music.apple.com/v1/catalog/us"
         private const val NETEASE_SEARCH_URL = "https://music.163.com/api/search/get"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+        private const val INDEX_PATH = "metadata/raw-lyrics-index.jsonl"
+        private const val INDEX_FILE_NAME = "amll-raw-lyrics-index.jsonl"
+        private const val INDEX_TTL_MS = 24L * 60 * 60 * 1000
+
+        /** Where the DB index is kept between launches; set once from the Application. */
+        @Volatile var indexCacheDir: java.io.File? = null
     }
 
     /**
-     * Fetches raw TTML content from the AMLL TTML DB via fast edge CDN with GitHub raw fallback.
+     * Fetches raw TTML content from the AMLL TTML DB: GitHub raw first (~0.5s), jsDelivr as the
+     * fallback (~2s per file, and slower still on a 404).
      */
     fun fetchTtmlFromDb(folder: String, id: String): String? {
         if (id.isBlank() || folder.isBlank()) return null
-        val cdnUrl = "$JSDELIVR_BASE/$folder/$id.ttml"
-        try {
-            val req = Request.Builder()
-                .url(cdnUrl)
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "application/xml, text/xml, */*")
-                .build()
+        return fetchText("$GITHUB_RAW_BASE/$folder/$id.ttml", "application/xml, text/xml, */*")
+            ?: fetchText("$JSDELIVR_BASE/$folder/$id.ttml", "application/xml, text/xml, */*")
+    }
 
-            val cdnResult = client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
-            if (!cdnResult.isNullOrBlank()) {
-                return cdnResult
-            }
-        } catch (_: Exception) {}
-
-        // Fallback directly to GitHub raw if CDN has not cached or is unreachable
-        try {
-            val rawUrl = "$GITHUB_RAW_BASE/$folder/$id.ttml"
-            val req = Request.Builder()
-                .url(rawUrl)
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "application/xml, text/xml, */*")
-                .build()
-
-            return client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
-        } catch (_: Exception) {
-            return null
+    private fun fetchText(url: String, accept: String): String? = try {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", accept)
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.isSuccessful) resp.body?.string()?.takeIf { it.isNotBlank() } else null
         }
+    } catch (_: Exception) {
+        null
+    }
+
+    @Volatile private var index: AmllIndex? = null
+    @Volatile private var indexLoadedAtMs = 0L
+    private val indexLock = Any()
+
+    /**
+     * The DB's metadata index, refreshed daily. Kept on disk when [indexCacheDir] is set so a cold
+     * start doesn't re-download 1.6 MB; a stale copy is used when the refresh fails.
+     * Null only when no copy could be had at all.
+     */
+    private fun loadIndex(): AmllIndex? = synchronized(indexLock) {
+        val now = System.currentTimeMillis()
+        index?.let { if (now - indexLoadedAtMs < INDEX_TTL_MS) return it }
+
+        val file = indexCacheDir?.let { java.io.File(it, INDEX_FILE_NAME) }
+        if (index == null && file != null && file.exists() && now - file.lastModified() < INDEX_TTL_MS) {
+            runCatching { AmllIndex.parse(file.readText()) }.getOrNull()?.takeIf { it.size > 0 }?.let {
+                index = it
+                indexLoadedAtMs = file.lastModified()
+                return it
+            }
+        }
+
+        val fresh = (fetchText("$GITHUB_RAW_BASE/$INDEX_PATH", "*/*") ?: fetchText("$JSDELIVR_BASE/$INDEX_PATH", "*/*"))
+            ?.let { text -> runCatching { AmllIndex.parse(text) to text }.getOrNull() }
+            ?.takeIf { it.first.size > 0 }
+        if (fresh != null) {
+            index = fresh.first
+            indexLoadedAtMs = now
+            file?.let { f -> runCatching { f.writeText(fresh.second) } }
+            Log.d(TAG, "AMLL index loaded: ${fresh.first.size} entries")
+            return fresh.first
+        }
+
+        // Refresh failed: keep whatever copy there is, and retry no sooner than a minute from now.
+        val stale = index ?: file?.takeIf { it.exists() }
+            ?.let { runCatching { AmllIndex.parse(it.readText()) }.getOrNull() }
+            ?.takeIf { it.size > 0 }
+        if (stale != null) {
+            index = stale
+            indexLoadedAtMs = now - INDEX_TTL_MS + 60_000L
+        }
+        stale
     }
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
@@ -108,12 +143,28 @@ class AmllLyricsSource(
             }
         }
 
-        // 2. Resolve via Apple Music Catalog Search -> am-lyrics/{appleMusicId}.ttml
+        // 2. The DB's own index lists every song it holds (~3k, mostly CJK). Matching it locally
+        // costs one cached download; the Apple/NetEase path below takes 6-12 sequential requests
+        // (10-18s on a phone), so it always lost the race and AMLL never showed anything.
+        val index = loadIndex()
+        if (index != null) {
+            val matches = index.match(query, cleanTitle, cleanArtist)
+            for (entry in matches.take(3)) {
+                fetchTtmlCandidate("raw-lyrics", entry.rawFile.removeSuffix(".ttml"), cleanTitle, cleanArtist, targetDurationMs, query)?.let {
+                    Log.d(TAG, "Resolved AMLL TTML via DB index: ${entry.rawFile}")
+                    return@withContext it
+                }
+            }
+            // The index is the whole DB: a song it doesn't list isn't there to find.
+            return@withContext null
+        }
+
+        // 3. Index unreachable: resolve via Apple Music Catalog Search -> am-lyrics/{appleMusicId}.ttml
         searchViaAppleMusicCatalog(cleanTitle, cleanArtist, targetDurationMs, query)?.let {
             return@withContext it
         }
 
-        // 3. Resolve via NetEase Search -> ncm-lyrics/{ncmMusicId}.ttml
+        // 4. Resolve via NetEase Search -> ncm-lyrics/{ncmMusicId}.ttml
         searchViaNetEase(cleanTitle, cleanArtist, targetDurationMs, query)?.let {
             return@withContext it
         }
@@ -139,23 +190,34 @@ class AmllLyricsSource(
         val candArtist = parsed.artistName?.ifBlank { null } ?: fallbackArtist
         val effectiveDurMs = parsed.durationMs ?: parsed.effectiveDurationMs
 
-        // Master alignment gate
-        if (targetDurationMs != null && targetDurationMs > 0L && effectiveDurMs > 0L) {
-            val deltaMs = abs(targetDurationMs - effectiveDurMs)
-            if (deltaMs > LyricsAlignmentEngine.COMPATIBLE_OFFSET_MAX_DELTA_MS) {
-                Log.w(TAG, "[Master Mismatch] Rejecting AMLL candidate '$candTitle' ($folder/$id) due to duration delta ${deltaMs}ms > 3.5s")
-                return null
+        // Master alignment gate:
+        // When parsed.durationMs is explicitly provided by TTML (<body dur="...">), verify match against audio stream.
+        // When parsed.durationMs is absent, effectiveDurMs is merely the timestamp of the last vocal line.
+        // Outros (fades, guitar solos) frequently mean effectiveDurMs is 5-30s shorter than audio duration.
+        // Therefore, only reject if vocal timestamps overrun the audio stream (+ tolerance).
+        if (targetDurationMs != null && targetDurationMs > 0L) {
+            if (parsed.durationMs != null && parsed.durationMs > 0L) {
+                val deltaMs = abs(targetDurationMs - parsed.durationMs)
+                if (deltaMs > 5000L) {
+                    Log.w(TAG, "[Master Mismatch] Rejecting AMLL candidate '$candTitle' ($folder/$id) due to duration delta ${deltaMs}ms > 5s")
+                    return null
+                }
+            } else if (effectiveDurMs > 0L) {
+                if (effectiveDurMs > targetDurationMs + LyricsAlignmentEngine.COMPATIBLE_OFFSET_MAX_DELTA_MS) {
+                    Log.w(TAG, "[Master Overrun] Rejecting AMLL candidate '$candTitle' ($folder/$id) vocal end ${effectiveDurMs}ms exceeds audio ${targetDurationMs}ms")
+                    return null
+                }
             }
         }
 
-        val candDurSec = (effectiveDurMs.takeIf { it > 0L } ?: 0L) / 1000L
+        val candDurSec = parsed.durationMs?.let { it / 1000L }
         val confidence = LyricsMatcher.calculateConfidence(
             queryTitle = query.title,
             queryArtist = query.artist,
             candidateTitle = candTitle,
             candidateArtist = candArtist,
             queryDurationSec = query.durationSec,
-            candidateDurationSec = candDurSec.takeIf { it > 0L },
+            candidateDurationSec = candDurSec,
             queryAlbum = query.album
         )
 
@@ -170,7 +232,7 @@ class AmllLyricsSource(
         val resolvedData = parsed.copy(
             trackName = candTitle,
             artistName = candArtist,
-            durationMs = effectiveDurMs.takeIf { it > 0L } ?: parsed.durationMs,
+            durationMs = parsed.durationMs ?: targetDurationMs ?: effectiveDurMs.takeIf { it > 0L },
             syncType = resolvedSyncType
         )
 
@@ -203,16 +265,23 @@ class AmllLyricsSource(
                 tracks = executeAppleMusicSearch(searchTerm, token)
             }
 
+            if (tracks.isNullOrEmpty() && primaryArtist != cleanArtist) {
+                tracks = executeAppleMusicSearch("$cleanTitle $cleanArtist".trim(), token)
+            }
+            if (tracks.isNullOrEmpty()) {
+                tracks = executeAppleMusicSearch(cleanTitle, token)
+            }
+
             val candidates = tracks ?: emptyList()
             if (candidates.isEmpty()) return null
 
             val bestTrack = selectBestAppleTrack(candidates, cleanTitle, cleanArtist, targetDurationMs, query.album)
                 ?: return null
 
-            // Enforce master match window
+            // Enforce master match window (tolerant up to 5s between YouTube stream and Apple master)
             if (targetDurationMs != null && targetDurationMs > 0L && bestTrack.durationInMillis != null && bestTrack.durationInMillis > 0L) {
                 val deltaMs = abs(targetDurationMs - bestTrack.durationInMillis)
-                if (deltaMs > LyricsAlignmentEngine.COMPATIBLE_OFFSET_MAX_DELTA_MS) {
+                if (deltaMs > 5000L) {
                     return null
                 }
             }
@@ -307,6 +376,7 @@ class AmllLyricsSource(
                 val delta = abs(targetDurationMs - t.durationInMillis)
                 if (delta <= 1500L) score += 20.0
                 else if (delta <= 3500L) score += 10.0
+                else if (delta <= 5000L) score += 5.0
                 else continue // Delta exceeds acceptable window
             }
 
@@ -363,7 +433,7 @@ class AmllLyricsSource(
 
                 if (targetDurationMs != null && durationMs != null) {
                     val delta = abs(targetDurationMs - durationMs)
-                    if (delta > LyricsAlignmentEngine.COMPATIBLE_OFFSET_MAX_DELTA_MS) continue
+                    if (delta > 5000L) continue
                 }
 
                 val cand = fetchTtmlCandidate("ncm-lyrics", songId.toString(), songName, artistName, targetDurationMs, query)
@@ -373,5 +443,69 @@ class AmllLyricsSource(
             }
         } catch (_: Exception) {}
         return null
+    }
+}
+
+/** One song in the AMLL DB index: its names, artists, platform ids and the raw-lyrics file. */
+internal class AmllIndexEntry(
+    val names: List<String>,
+    val artists: List<String>,
+    val ids: Set<String>,
+    val rawFile: String,
+    val normNames: List<String>
+)
+
+internal class AmllIndex(private val entries: List<AmllIndexEntry>) {
+    val size: Int get() = entries.size
+
+    /** Matching entries, newest first (the index is appended in submission order). */
+    fun match(query: LyricsSearchQuery, cleanTitle: String, cleanArtist: String): List<AmllIndexEntry> {
+        val ids = listOfNotNull(query.spotifyId, query.appleMusicId).filter { it.isNotBlank() }
+        if (ids.isNotEmpty()) {
+            val byId = entries.asReversed().filter { e -> ids.any { it in e.ids } }
+            if (byId.isNotEmpty()) return byId
+        }
+        val qNorm = normalize(TitleCleaner.extractBareSongTitle(cleanTitle))
+        if (qNorm.isEmpty()) return emptyList()
+        return entries.asReversed().filter { e ->
+            // Cheap containment pre-filter before the real matchers run.
+            e.normNames.any { it.isNotEmpty() && (it.contains(qNorm) || qNorm.contains(it)) } &&
+                e.names.any { LyricsMatcher.isTitleMatching(cleanTitle, it) } &&
+                LyricsMatcher.isArtistMatching(cleanArtist, e.artists.joinToString(", "))
+        }
+    }
+
+    companion object {
+        private val NON_ALNUM = Regex("[^\\p{L}\\p{N}]+")
+
+        fun normalize(s: String): String = s.lowercase().replace(NON_ALNUM, "")
+
+        fun parse(jsonl: String): AmllIndex {
+            val out = ArrayList<AmllIndexEntry>(4096)
+            jsonl.lineSequence().forEach { line ->
+                if (line.isBlank()) return@forEach
+                runCatching {
+                    val obj = JSONObject(line)
+                    val rawFile = obj.optString("rawLyricFile").takeIf { it.isNotBlank() } ?: return@runCatching
+                    val meta = obj.optJSONArray("metadata") ?: return@runCatching
+                    val names = mutableListOf<String>()
+                    val artists = mutableListOf<String>()
+                    val ids = mutableSetOf<String>()
+                    for (i in 0 until meta.length()) {
+                        val pair = meta.optJSONArray(i) ?: continue
+                        val values = pair.optJSONArray(1) ?: continue
+                        val list = (0 until values.length()).mapNotNull { values.optString(it).takeIf { v -> v.isNotBlank() } }
+                        when (pair.optString(0)) {
+                            "musicName" -> names += list
+                            "artists" -> artists += list
+                            "spotifyId", "appleMusicId", "ncmMusicId", "qqMusicId" -> ids += list
+                        }
+                    }
+                    if (names.isEmpty()) return@runCatching
+                    out += AmllIndexEntry(names, artists, ids, rawFile, names.map { normalize(TitleCleaner.extractBareSongTitle(it)) })
+                }
+            }
+            return AmllIndex(out)
+        }
     }
 }
