@@ -50,7 +50,9 @@ enum class LyricsProviderStatus { FETCHING, NOT_FOUND, FOUND }
 /** What the lyrics provider sheet knows for one song; [trackId] scopes it to that song. */
 data class LyricsProviderPicks(
     val trackId: String? = null,
-    val status: Map<LyricsProvider, LyricsProviderStatus> = emptyMap()
+    val status: Map<LyricsProvider, LyricsProviderStatus> = emptyMap(),
+    /** Timing of what each source returned, so the sheet can say word / line / unsynced. */
+    val syncTypes: Map<LyricsProvider, SyncType> = emptyMap()
 )
 
 /** Keep the best timed lyrics already displayed when the search settles. */
@@ -1552,9 +1554,17 @@ class PlayerViewModel(
         return LyricsProviderPicks(trackId = trackId).also { _lyricsProviderPicks.value = it }
     }
 
-    private fun setProviderStatus(trackId: String, provider: LyricsProvider, status: LyricsProviderStatus) {
+    private fun setProviderStatus(
+        trackId: String,
+        provider: LyricsProvider,
+        status: LyricsProviderStatus,
+        syncType: SyncType? = null
+    ) {
         _lyricsProviderPicks.update { picks ->
-            if (picks.trackId != trackId) picks else picks.copy(status = picks.status + (provider to status))
+            if (picks.trackId != trackId) picks else picks.copy(
+                status = picks.status + (provider to status),
+                syncTypes = if (syncType != null) picks.syncTypes + (provider to syncType) else picks.syncTypes
+            )
         }
     }
 
@@ -1600,7 +1610,7 @@ class PlayerViewModel(
                 setProviderStatus(track.id, provider, LyricsProviderStatus.NOT_FOUND)
             } else {
                 providerPickResults[provider] = data
-                setProviderStatus(track.id, provider, LyricsProviderStatus.FOUND)
+                setProviderStatus(track.id, provider, LyricsProviderStatus.FOUND, data.syncType)
                 applyPickedLyrics(track, data)
             }
         }
@@ -1610,7 +1620,7 @@ class PlayerViewModel(
         // The copy being replaced stays one tap away as "found".
         _uiState.value.lyrics?.takeIf { it.lines.isNotEmpty() && it.provider != data.provider }?.let { shown ->
             providerPickResults.putIfAbsent(shown.provider, shown)
-            setProviderStatus(track.id, shown.provider, LyricsProviderStatus.FOUND)
+            setProviderStatus(track.id, shown.provider, LyricsProviderStatus.FOUND, shown.syncType)
         }
         // A race still running for this song must not overwrite the user's pick.
         lyricsLookupGeneration.incrementAndGet()

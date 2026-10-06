@@ -537,7 +537,9 @@ fun ImmersivePlayerContainer(
             LyricsProviderSheet(
                 providers = lyricsProviders,
                 currentProvider = shownProvider?.takeIf { uiState.lyrics?.lines?.isNotEmpty() == true },
+                currentSyncType = uiState.lyrics?.syncType,
                 status = if (lyricsProviderPicks.trackId == trackId) lyricsProviderPicks.status else emptyMap(),
+                syncTypes = if (lyricsProviderPicks.trackId == trackId) lyricsProviderPicks.syncTypes else emptyMap(),
                 onPick = { provider ->
                     pendingProviderPick = provider
                     onPickLyricsProvider(provider)
