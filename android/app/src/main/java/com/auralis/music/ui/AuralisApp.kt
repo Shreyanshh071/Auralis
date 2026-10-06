@@ -2060,7 +2060,10 @@ fun AuralisApp(
                                     onOpenListenTogether = {
                                         collapsePlayer()
                                         isListenTogetherOpen = true
-                                    }
+                                    },
+                                    lyricsProviders = remember(currentPV) { currentPV.selectableLyricsProviders() },
+                                    lyricsProviderPicks = currentPV.lyricsProviderPicks.collectAsState().value,
+                                    onPickLyricsProvider = { currentPV.pickLyricsProvider(it) }
                                 )
                             }
                         }

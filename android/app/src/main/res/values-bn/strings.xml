@@ -1106,4 +1106,10 @@
     <string name="lyrics_by_x">লিরিক্স: %1$s</string>
     <string name="change">বদলান</string>
     <string name="autoplay">অটোপ্লে</string>
+    <string name="choose_lyrics_provider">লিরিক্সের উৎস বেছে নিন</string>
+    <string name="current_provider">বর্তমান উৎস</string>
+    <string name="tap_to_fetch">আনতে ট্যাপ করুন</string>
+    <string name="fetching_lyrics">লিরিক্স আনা হচ্ছে…</string>
+    <string name="lyrics_not_found">লিরিক্স পাওয়া যায়নি</string>
+    <string name="lyrics_found_tap_to_use">লিরিক্স পাওয়া গেছে · ব্যবহার করতে ট্যাপ করুন</string>
 </resources>

@@ -68,6 +68,9 @@ class LyricsClient(
          */
         private const val WORD_SYNC_GRACE_MS = 2200L
 
+        /** A user's one-provider pick gets the cold-fetch budget the slowest source needs. */
+        private const val SINGLE_PROVIDER_TIMEOUT_MS = 15_000L
+
         /**
          * Upper limit for waiting on BetterLyrics when it is actively processing
          * in parallel with an early line-synced result (e.g. from LRCLIB).
@@ -632,24 +635,7 @@ class LyricsClient(
         /** Displayable results while the race keeps waiting for better; see LyricsRepository.getLyricsWithInterim. */
         onInterim: ((LyricsData) -> Unit)? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
-        val (splitArtist, splitTitle) = TitleCleaner.splitArtistAndTitle(title, artist)
-        val cleanedTitle = TitleCleaner.cleanTitle(splitTitle)
-        val coreTitle = TitleCleaner.cleanCoreSongTitle(splitTitle)
-            .replace(Regex("(?i)\\b(official\\s*(music)?\\s*video|official\\s*audio|lyric(al)?\\s*video|full\\s*song|video|audio|remastered|remaster)\\b.*"), "")
-            .replace(Regex("""\s*[\(\[](?:feat\.?|ft\.?|with)\s+[^)\]]+[\)\]]""", RegexOption.IGNORE_CASE), "")
-            .trim(' ', '-', '|', ':', '_')
-            .ifBlank { cleanedTitle }
-
-        val query = LyricsSearchQuery(
-            title = coreTitle,
-            artist = TitleCleaner.cleanArtist(splitArtist),
-            durationSec = durationSec,
-            videoId = videoId,
-            album = album,
-            channelTitle = channelTitle,
-            durationMs = durationMs,
-            audioLeadingSilenceMs = audioLeadingSilenceMs
-        )
+        val (query, coreTitle) = buildSearchQuery(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
 
         val t0 = System.currentTimeMillis()
         Log.d(TAG, "Starting ultra-fast synced lyrics search for: '$coreTitle' by '${query.artist}' (${durationSec ?: 0}s)")
@@ -1099,6 +1085,92 @@ class LyricsClient(
 
         Log.d(TAG, "No lyrics found after ${System.currentTimeMillis() - t0}ms for '$coreTitle'")
         null
+    }
+
+    private fun buildSearchQuery(
+        title: String,
+        artist: String,
+        durationSec: Long?,
+        videoId: String?,
+        album: String?,
+        channelTitle: String?,
+        durationMs: Long?,
+        audioLeadingSilenceMs: Long?
+    ): Pair<LyricsSearchQuery, String> {
+        val (splitArtist, splitTitle) = TitleCleaner.splitArtistAndTitle(title, artist)
+        val cleanedTitle = TitleCleaner.cleanTitle(splitTitle)
+        val coreTitle = TitleCleaner.cleanCoreSongTitle(splitTitle)
+            .replace(Regex("(?i)\\b(official\\s*(music)?\\s*video|official\\s*audio|lyric(al)?\\s*video|full\\s*song|video|audio|remastered|remaster)\\b.*"), "")
+            .replace(Regex("""\s*[\(\[](?:feat\.?|ft\.?|with)\s+[^)\]]+[\)\]]""", RegexOption.IGNORE_CASE), "")
+            .trim(' ', '-', '|', ':', '_')
+            .ifBlank { cleanedTitle }
+
+        val query = LyricsSearchQuery(
+            title = coreTitle,
+            artist = TitleCleaner.cleanArtist(splitArtist),
+            durationSec = durationSec,
+            videoId = videoId,
+            album = album,
+            channelTitle = channelTitle,
+            durationMs = durationMs,
+            audioLeadingSilenceMs = audioLeadingSilenceMs
+        )
+        return query to coreTitle
+    }
+
+    /** Sources the user can pick one by one from the lyrics provider sheet, in race order. */
+    fun selectableProviders(): List<LyricsProvider> = listOf(
+        betterLyricsSource, amllSource, unisonSource, paxsenixSource, youLyPlusSource, simpMusicSource,
+        musixmatchSource, lrcLibSource, kuGouSource, netEaseSource, jioSaavnSource, geniusSource, ytMusicSource
+    ).map { it.provider }.filter { isProviderEnabled(it) }
+
+    /**
+     * Asks exactly one provider, bypassing the race, for the provider sheet. The result is
+     * cleaned and labelled the same way race candidates are; null when it has nothing usable.
+     */
+    suspend fun searchProvider(
+        provider: LyricsProvider,
+        title: String,
+        artist: String,
+        durationSec: Long? = null,
+        videoId: String? = null,
+        album: String? = null,
+        channelTitle: String? = null,
+        durationMs: Long? = null,
+        audioLeadingSilenceMs: Long? = null
+    ): LyricsData? = withContext(Dispatchers.IO) {
+        val source: LyricsSource = when (provider) {
+            LyricsProvider.BETTER_LYRICS -> betterLyricsSource
+            LyricsProvider.AMLL -> amllSource
+            LyricsProvider.UNISON -> unisonSource
+            LyricsProvider.PAXSENIX -> paxsenixSource
+            LyricsProvider.YOULYPLUS -> youLyPlusSource
+            LyricsProvider.SIMPMUSIC -> simpMusicSource
+            LyricsProvider.MUSIXMATCH -> musixmatchSource
+            LyricsProvider.LRCLIB -> lrcLibSource
+            LyricsProvider.KUGOU -> kuGouSource
+            LyricsProvider.NETEASE -> netEaseSource
+            LyricsProvider.JIOSAAVN -> jioSaavnSource
+            LyricsProvider.GENIUS -> geniusSource
+            LyricsProvider.YOUTUBE -> ytMusicSource
+            LyricsProvider.YOUTUBE_CAPTIONS, LyricsProvider.LOCAL -> return@withContext null
+        }
+        val (query, coreTitle) = buildSearchQuery(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
+        val candidate = try {
+            withTimeoutOrNull(SINGLE_PROVIDER_TIMEOUT_MS) { source.search(query) }
+        } catch (e: Exception) {
+            Log.w(TAG, "[Provider pick: $provider] exception: ${e.message}")
+            null
+        } ?: return@withContext null
+        val cleaned = com.auralis.music.data.parser.LyricsContentFilter.cleanForDisplay(candidate.lyricsData, coreTitle)
+        if (cleaned.lines.none { !it.isInstrumental && it.text.isNotBlank() }) return@withContext null
+        val syncType = when {
+            com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(cleaned.lines) -> SyncType.RICHSYNC
+            cleaned.lines.any { it.time > 0L } -> SyncType.LINE_SYNC
+            else -> SyncType.PLAIN
+        }
+        Log.d(TAG, "[Provider pick: $provider] found $syncType, lines=${cleaned.lines.size}")
+        cleaned.copy(syncType = syncType, provider = provider)
     }
 }
 

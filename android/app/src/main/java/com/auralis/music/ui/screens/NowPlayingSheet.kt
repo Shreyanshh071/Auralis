@@ -57,6 +57,9 @@ fun NowPlayingSheet(
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onOpenListenTogether: () -> Unit = {},
+    lyricsProviders: List<com.auralis.music.domain.model.LyricsProvider> = emptyList(),
+    lyricsProviderPicks: com.auralis.music.ui.viewmodel.LyricsProviderPicks = com.auralis.music.ui.viewmodel.LyricsProviderPicks(),
+    onPickLyricsProvider: (com.auralis.music.domain.model.LyricsProvider) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     NowPlayingModal(
@@ -96,6 +99,9 @@ fun NowPlayingSheet(
         isTrackPinned = isTrackPinned,
         onPinTrackToSpeedDial = onPinTrackToSpeedDial,
         onOpenListenTogether = onOpenListenTogether,
+        lyricsProviders = lyricsProviders,
+        lyricsProviderPicks = lyricsProviderPicks,
+        onPickLyricsProvider = onPickLyricsProvider,
         modifier = modifier
     )
 }

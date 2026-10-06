@@ -1106,4 +1106,10 @@
     <string name="lyrics_by_x">ਬੋਲ: %1$s</string>
     <string name="change">ਬਦਲੋ</string>
     <string name="autoplay">ਆਟੋਪਲੇ</string>
+    <string name="choose_lyrics_provider">ਬੋਲਾਂ ਦਾ ਸਰੋਤ ਚੁਣੋ</string>
+    <string name="current_provider">ਮੌਜੂਦਾ ਸਰੋਤ</string>
+    <string name="tap_to_fetch">ਲਿਆਉਣ ਲਈ ਟੈਪ ਕਰੋ</string>
+    <string name="fetching_lyrics">ਬੋਲ ਲਿਆ ਰਹੇ ਹਾਂ…</string>
+    <string name="lyrics_not_found">ਬੋਲ ਨਹੀਂ ਮਿਲੇ</string>
+    <string name="lyrics_found_tap_to_use">ਬੋਲ ਮਿਲੇ · ਵਰਤਣ ਲਈ ਟੈਪ ਕਰੋ</string>
 </resources>
