@@ -23,8 +23,8 @@ import kotlinx.coroutines.withContext
  * Previously every song start was logged as a full-length listen, so a song skipped after five
  * seconds still added its whole duration, and "time listened" was just plays × length.
  *
- * This watches the app-wide [AuralisAudioPlayer] (not a screen), sums the wall time spent in the
- * playing state for the current song, and writes a playback event with that real duration when
+ * This watches the app-wide [AuralisAudioPlayer] (not a screen), measures progress of the
+ * playback position while audio is playing, and writes a playback event with that duration when
  * the song changes, playback shuts down, or (while still playing) every [PERIODIC_FLUSH_MS] — the
  * periodic flush is what lets Stats climb while a song is still playing instead of only once it
  * ends. One listen is one event: the first flush inserts it and later flushes add to it. (Each
@@ -37,6 +37,7 @@ object ListeningTimeTracker {
 
     /** How often an in-progress listen is banked, so Stats updates while still playing. */
     private const val PERIODIC_FLUSH_MS = 10_000L
+    private const val POSITION_SAMPLE_MS = 1_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
@@ -53,7 +54,9 @@ object ListeningTimeTracker {
     private var track: Track? = null
     private var listen = Listen(0L)
     private var accumulatedMs = 0L
-    private var segmentStartElapsed: Long? = null
+    private var lastPositionMs: Long? = null
+    private var lastSampleElapsed: Long? = null
+    private var wasPlaying = false
 
     /** Idempotent: safe to call from both the activity and the media service. */
     fun start(context: Context) {
@@ -61,22 +64,23 @@ object ListeningTimeTracker {
         val appContext = context.applicationContext
         val player = AuralisAudioPlayer.getInstance(appContext)
         job = scope.launch {
-            combine(player.currentTrack, player.isPlaying) { t, playing -> t to playing }
-                .collect { (current, playing) ->
+            combine(player.currentTrack, player.isPlaying, player.isBuffering) { t, playing, buffering ->
+                t to (playing && !buffering)
+            }.collect { (current, playing) ->
                     val now = SystemClock.elapsedRealtime()
                     if (current?.id != track?.id) {
-                        flush(appContext, now)
+                        flush(appContext)
                         track = current
                         listen = Listen(System.currentTimeMillis())
                         accumulatedMs = 0L
-                        segmentStartElapsed = null
+                        lastPositionMs = null
+                        lastSampleElapsed = null
+                        wasPlaying = false
+                        lastFlushElapsed = now
                     }
-                    if (playing && current != null && segmentStartElapsed == null) {
-                        segmentStartElapsed = now
-                    } else if (!playing) {
-                        segmentStartElapsed?.let { accumulatedMs += now - it }
-                        segmentStartElapsed = null
-                    }
+                    // A play request or a WebView "play" event can occur before media advances.
+                    // Never count that stationary time, including time spent buffering at 00:00.
+                    sampleProgress(player, now, playing && current != null)
                 }
         }
         // Same scope (single-threaded Main.immediate) as the collector above, so a periodic
@@ -84,9 +88,12 @@ object ListeningTimeTracker {
         if (tickerJob?.isActive != true) {
             tickerJob = scope.launch {
                 while (true) {
-                    kotlinx.coroutines.delay(PERIODIC_FLUSH_MS)
-                    if (segmentStartElapsed != null) {
-                        flush(appContext, SystemClock.elapsedRealtime())
+                    kotlinx.coroutines.delay(POSITION_SAMPLE_MS)
+                    val now = SystemClock.elapsedRealtime()
+                    if (track?.id == player.currentTrack.value?.id) sampleProgress(player, now)
+                    if (accumulatedMs > 0L && now - lastFlushElapsed >= PERIODIC_FLUSH_MS) {
+                        flush(appContext)
+                        lastFlushElapsed = now
                     }
                 }
             }
@@ -97,17 +104,34 @@ object ListeningTimeTracker {
     fun flushNow(context: Context) {
         val appContext = context.applicationContext
         val now = SystemClock.elapsedRealtime()
-        scope.launch { flush(appContext, now) }
+        scope.launch {
+            val player = AuralisAudioPlayer.getInstance(appContext)
+            if (track?.id == player.currentTrack.value?.id) sampleProgress(player, now)
+            flush(appContext)
+        }
     }
 
-    private suspend fun flush(context: Context, nowElapsed: Long) {
+    private var lastFlushElapsed = 0L
+
+    private fun sampleProgress(player: AuralisAudioPlayer, now: Long, playing: Boolean = player.isPlaying()) {
+        val position = player.rawPositionMs().coerceAtLeast(0L)
+        val previous = lastPositionMs
+        val elapsed = lastSampleElapsed?.let { (now - it).coerceAtLeast(0L) } ?: 0L
+        if (playing && wasPlaying && previous != null) {
+            accumulatedMs += measuredProgressMs(previous, position, elapsed, POSITION_SAMPLE_MS)
+        }
+        lastPositionMs = position
+        lastSampleElapsed = now
+        wasPlaying = playing
+    }
+
+    private suspend fun flush(context: Context) {
         val finished = track ?: return
         val current = listen
-        val listenedMs = accumulatedMs + (segmentStartElapsed?.let { nowElapsed - it } ?: 0L)
+        val listenedMs = accumulatedMs
         // Reset first so a second flush can't bank the same time twice. The listen itself stays
         // until the song changes, so a periodic flush adds to its row instead of starting another.
         accumulatedMs = 0L
-        segmentStartElapsed = if (segmentStartElapsed != null) nowElapsed else null
         if (finished.id.isBlank() || listenedMs <= 0L) return
         // A skip under a second is noise, but once a listen has a row every second counts.
         if (current.eventId == null && listenedMs < MIN_RECORDED_MS) {
@@ -141,4 +165,11 @@ object ListeningTimeTracker {
             }
         }
     }
+}
+
+/** Stationary playback and position jumps (seeks) contribute no listening time. */
+internal fun measuredProgressMs(previousMs: Long, currentMs: Long, elapsedMs: Long, sampleSlackMs: Long): Long {
+    val advance = currentMs - previousMs
+    if (advance <= 0L || elapsedMs <= 0L || advance > elapsedMs + sampleSlackMs) return 0L
+    return advance.coerceAtMost(elapsedMs)
 }

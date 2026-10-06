@@ -614,7 +614,9 @@ class LyricsClient(
             // Silence alignment evaluation: if audioLeadingSilenceMs is known and candidate provides leadingSilenceMs,
             // reward candidate whose leading silence matches the audio, and penalize large silence discrepancies.
             val candSilence = cand.lyricsData.leadingSilenceMs
-            if (audioLeadingSilenceMs != null && candSilence != null) {
+            // Better Lyrics is synchronized to the media timeline. Decoded near-silence at the
+            // start of that same recording is not evidence that its timestamps need shifting.
+            if (cand.provider != LyricsProvider.BETTER_LYRICS && audioLeadingSilenceMs != null && candSilence != null) {
                 val silenceDelta = kotlin.math.abs(audioLeadingSilenceMs - candSilence)
                 if (silenceDelta <= 300L) {
                     score += 25.0 // Strong match with playback stream pre-roll

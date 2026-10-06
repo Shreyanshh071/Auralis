@@ -172,11 +172,17 @@ class BetterLyricsSource(
                 artistName = candArtist
             ) ?: return null
 
-            // Derive candidate duration from parsed TTML when JSON duration is missing (e.g. Boidu TTML)
-            val candDuration = rawParsed.durationMs?.let { it / 1000L }?.takeIf { it > 0 }
-                ?: json.optLong("duration", 0L).takeIf { it > 0 }
+            // A TTML <body dur> can end at the last vocal, well before an instrumental outro.
+            // Loving Machine's official Better Lyrics file ends at 2:52, while the song is 3:47.
+            // It is not evidence of a different audio master when the vocals end there too.
+            val serverDurationMs = json.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
+            val candDurationMs = serverDurationMs ?: rawParsed.durationMs?.takeUnless {
+                isVocalWindowDuration(rawParsed, query.durationMs ?: (query.durationSec ?: 0L) * 1000L)
+            }
+            val candDuration = candDurationMs?.let { it / 1000L }
+            val parsedForAlignment = rawParsed.copy(durationMs = candDurationMs)
 
-            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, candDuration)
+            val aligned = LyricsMatcher.autoAlignLyrics(parsedForAlignment, query.durationSec, candDuration)
 
             val confidence = LyricsMatcher.calculateConfidence(
                 queryTitle = query.title,
@@ -190,16 +196,10 @@ class BetterLyricsSource(
 
             if (confidence < 50) return null
 
-            val finalData = if (aligned.durationMs == null && candDuration != null) {
-                aligned.copy(durationMs = candDuration * 1000L)
-            } else {
-                aligned
-            }
-
             return LyricsCandidate(
-                lyricsData = finalData,
+                lyricsData = aligned,
                 confidence = confidence,
-                syncType = finalData.syncType,
+                syncType = aligned.syncType,
                 provider = LyricsProvider.BETTER_LYRICS
             )
         } catch (_: Exception) {
@@ -323,9 +323,13 @@ class BetterLyricsSource(
                 artistName = candArtist
             ) ?: return null
 
-            val finalCandDur = candDuration ?: rawParsed.durationMs?.let { it / 1000L }
+            val playbackMs = query.durationMs ?: (query.durationSec ?: 0L) * 1000L
+            val finalDurationMs = candDuration?.times(1000L) ?: rawParsed.durationMs?.takeUnless {
+                isVocalWindowDuration(rawParsed, playbackMs)
+            }
+            val finalCandDur = finalDurationMs?.let { it / 1000L }
 
-            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed, query.durationSec, finalCandDur)
+            val aligned = LyricsMatcher.autoAlignLyrics(rawParsed.copy(durationMs = finalDurationMs), query.durationSec, finalCandDur)
             val confidence = LyricsMatcher.calculateConfidence(
                 queryTitle = query.title,
                 queryArtist = query.artist,
@@ -338,20 +342,23 @@ class BetterLyricsSource(
 
             if (confidence < 50) return null
 
-            val finalData = if (aligned.durationMs == null && finalCandDur != null) {
-                aligned.copy(durationMs = finalCandDur * 1000L)
-            } else {
-                aligned
-            }
-
             return LyricsCandidate(
-                lyricsData = finalData,
+                lyricsData = aligned,
                 confidence = confidence,
-                syncType = finalData.syncType,
+                syncType = aligned.syncType,
                 provider = LyricsProvider.BETTER_LYRICS
             )
         } catch (_: Exception) {
             return null
         }
+    }
+
+    /** True when TTML's body duration describes the lyric window rather than the full song. */
+    internal fun isVocalWindowDuration(data: LyricsData, playbackDurationMs: Long): Boolean {
+        val bodyEndMs = data.durationMs ?: return false
+        if (playbackDurationMs <= 0L || playbackDurationMs - bodyEndMs <= 3_500L) return false
+        val lastVocalEndMs = data.lines.lastOrNull { !it.isInstrumental }
+            ?.let { it.wordTimingEndMs ?: it.endTime ?: it.time } ?: return false
+        return kotlin.math.abs(bodyEndMs - lastVocalEndMs) <= 5_000L
     }
 }

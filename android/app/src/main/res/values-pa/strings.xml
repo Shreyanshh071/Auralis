@@ -410,6 +410,7 @@
     <string name="force_deep_amoled_black_background_on_mi">ਮਿੰਨੀ-ਪਲੇਅਰ \'ਤੇ ਗੂੜ੍ਹਾ AMOLED ਕਾਲਾ ਬੈਕਗ੍ਰਾਊਂਡ ਲਗਾਓ</string>
     <string name="mini_player_background_style">ਮਿੰਨੀ-ਪਲੇਅਰ ਬੈਕਗ੍ਰਾਊਂਡ ਸਟਾਈਲ</string>
     <string name="unavailable_when_pure_black_is_enabled">ਪੂਰਾ ਕਾਲਾ ਚਾਲੂ ਹੋਣ \'ਤੇ ਉਪਲਬਧ ਨਹੀਂ</string>
+    <string name="unavailable_with_immersive_player">ਇਮਰਸਿਵ ਪਲੇਅਰ ਨਾਲ ਉਪਲਬਧ ਨਹੀਂ</string>
     <string name="new_player_design">ਨਵਾਂ ਪਲੇਅਰ ਡਿਜ਼ਾਈਨ</string>
     <string name="modern_expanded_now_playing_screen_with">ਵਧੀਆ ਇਸ਼ਾਰਿਆਂ ਵਾਲੀ ਆਧੁਨਿਕ \'ਹੁਣ ਵੱਜ ਰਿਹਾ ਹੈ\' ਸਕ੍ਰੀਨ</string>
     <string name="player_slider_style">ਪਲੇਅਰ ਸਲਾਈਡਰ ਸਟਾਈਲ</string>

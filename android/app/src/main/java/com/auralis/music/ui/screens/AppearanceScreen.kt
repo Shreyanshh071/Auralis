@@ -369,16 +369,24 @@ fun AppearanceScreen(
                     val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
                         if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else it
                     }
+                    // The immersive player draws its own backdrop from the cover, so the style has no effect there.
+                    val isImmersivePlayer = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(settings.playerDesign) ==
+                        com.auralis.music.domain.model.PlayerDesign.IMMERSIVE
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = str(R.string.player_background_style),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(resolvedPlayerBg.displayName),
+                        subtitle = if (isImmersivePlayer) str(R.string.unavailable_with_immersive_player)
+                            else com.auralis.music.ui.i18n.UiLabels.of(resolvedPlayerBg.displayName),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
                         onSurfaceVariant = onSurfaceVariant,
                         outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.PLAYER_BG }
+                        onClick = {
+                            if (!isImmersivePlayer) {
+                                activeDialog = AppearanceDialogType.PLAYER_BG
+                            }
+                        }
                     )
                 }
                 item(key = "item_player_slider_style") {

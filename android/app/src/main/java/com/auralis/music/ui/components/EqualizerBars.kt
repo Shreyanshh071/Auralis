@@ -1,16 +1,14 @@
 package com.auralis.music.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -19,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.LocalReducedMotion
+import kotlinx.coroutines.delay
 
 // Resting bar heights, as a fraction of the available height.
 private const val IdleBar1 = 0.3f
@@ -48,48 +47,45 @@ fun EqualizerBars(
     }
 }
 
+/**
+ * The bars tick at [TickMs] instead of every vsync. They sit under the blurred dock and mini
+ * player, so each redraw of the bars makes the whole screen's blur re-render: at 120 Hz that cost
+ * ~13 ms a frame and made every list with a playing row lag. A meter reads fine at ~15 fps.
+ */
 @Composable
 private fun AnimatedEqualizerBars(
     modifier: Modifier,
     color: Color
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "equalizer")
-
-    val height1 by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(400, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar1"
-    )
-
-    val height2 by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(550, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar2"
-    )
-
-    val height3 by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(480, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar3"
-    )
-
-    // Reading the animated values inside the draw lambda keeps this to a draw
-    // invalidation per frame — no recomposition, no relayout.
-    Canvas(modifier = modifier) {
-        drawEqualizerBars(color, height1, height2, height3)
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        val start = System.nanoTime()
+        while (true) {
+            elapsedMs = (System.nanoTime() - start) / 1_000_000
+            delay(TickMs)
+        }
     }
+
+    // Reading the clock inside the draw lambda keeps this to a draw invalidation per tick —
+    // no recomposition, no relayout.
+    Canvas(modifier = modifier) {
+        val t = elapsedMs
+        drawEqualizerBars(
+            color,
+            pingPong(t, 400, 0.2f, 0.9f),
+            pingPong(t, 550, 0.8f, 0.3f),
+            pingPong(t, 480, 0.4f, 1.0f)
+        )
+    }
+}
+
+private const val TickMs = 66L
+
+/** Linear back-and-forth between [from] and [to], [halfMs] each way. */
+private fun pingPong(t: Long, halfMs: Int, from: Float, to: Float): Float {
+    val phase = (t % (2L * halfMs)).toFloat() / halfMs
+    val f = if (phase <= 1f) phase else 2f - phase
+    return from + (to - from) * f
 }
 
 private fun DrawScope.drawEqualizerBars(

@@ -32,9 +32,11 @@ class ExperimentalLyricsSourceFaithfulTimingTest {
         val shown = presentationWordTimestamps(source)
 
         assertEquals(171.83, shown[2].endTime!!, 0.001)
-        assertEquals(171.83, shown[3].startTime, 0.001)
-        assertEquals(172.37, shown[3].endTime!!, 0.001)
-        assertTrue(experimentalWordProgress(shown[3], 172_000L) > 0f)
+        // Subsequent words must remain anchored to audio start time so they don't rush ahead of the singer
+        assertEquals(184.07, shown[3].startTime, 0.001)
+        assertEquals(184.61, shown[3].endTime!!, 0.001)
+        assertEquals(0f, experimentalWordProgress(shown[3], 172_000L), 0.0f)
+        assertTrue(experimentalWordProgress(shown[3], 184_200L) > 0f)
         assertEquals(184.07, source[3].startTime, 0.0)
     }
 
@@ -73,7 +75,7 @@ class ExperimentalLyricsSourceFaithfulTimingTest {
 
         val shown = presentationWordTimestamps(source)
         assertEquals(1.8, shown[1].endTime!!, 0.001)
-        assertEquals(1.8, shown[2].startTime, 0.001)
+        assertEquals(6.2, shown[2].startTime, 0.001)
     }
 
     @Test

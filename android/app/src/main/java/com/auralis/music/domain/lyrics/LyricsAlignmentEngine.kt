@@ -328,6 +328,8 @@ object LyricsAlignmentEngine {
      * - When [audioLeadingSilenceMs] is provided and differs from provider [LyricsData.leadingSilenceMs],
      *   calculates safe intro offset: delta = audioLeadingSilenceMs - providerLeadingSilenceMs.
      * - Bounded strictly to [-2000ms, 2000ms] to prevent runaway shifts.
+     * - Better Lyrics uses its source timestamps directly; decoded intro quietness is not
+     *   a verified stream offset and must not move the lyrics late.
      * - If delta == 0, returns [lyrics] untouched.
      * - If [MasterMatchStatus.MASTER_MISMATCH] is detected, skips shift to prevent compounding error.
      * - If [MasterMatchStatus.COMPATIBLE_OFFSET] without measured [audioLeadingSilenceMs] and not exact video,
@@ -345,12 +347,19 @@ object LyricsAlignmentEngine {
         }
         val isGenuineExactVideo = lyrics.isExactVideoMatch &&
             lyrics.provider == com.auralis.music.domain.model.LyricsProvider.UNISON
-        if (masterMatch == MasterMatchStatus.COMPATIBLE_OFFSET && audioLeadingSilenceMs == null && !isGenuineExactVideo) {
+        if (masterMatch == MasterMatchStatus.COMPATIBLE_OFFSET && audioLeadingSilenceMs == null &&
+            !isGenuineExactVideo && lyrics.provider != com.auralis.music.domain.model.LyricsProvider.BETTER_LYRICS) {
             return lyrics
         }
 
         val providerLeadingSilence = lyrics.leadingSilenceMs
-        val targetOffsetMs = if (audioLeadingSilenceMs != null && providerLeadingSilence != null) {
+        // Better Lyrics timestamps are authored against the media timeline, as used by its
+        // YouTube Music extension. The decoded-audio silence detector measures the song's own
+        // quiet intro, not a verified extra delay in the stream; adding that difference makes
+        // every line late. Keep the provider timing, including when undoing an older cached shift.
+        val targetOffsetMs = if (lyrics.provider == com.auralis.music.domain.model.LyricsProvider.BETTER_LYRICS) {
+            0L
+        } else if (audioLeadingSilenceMs != null && providerLeadingSilence != null) {
             (audioLeadingSilenceMs - providerLeadingSilence).coerceIn(-2000L, 2000L)
         } else {
             0L

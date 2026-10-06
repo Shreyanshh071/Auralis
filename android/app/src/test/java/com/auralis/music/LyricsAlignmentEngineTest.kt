@@ -246,7 +246,7 @@ class LyricsAlignmentEngineTest {
         )
         val originalLyrics = LyricsData(
             syncType = SyncType.RICHSYNC,
-            provider = LyricsProvider.BETTER_LYRICS,
+            provider = LyricsProvider.AMLL,
             durationMs = 180_000L,
             leadingSilenceMs = 400L,
             lines = listOf(originalLine)

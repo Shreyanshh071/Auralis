@@ -39,16 +39,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.zIndex
 import com.auralis.music.data.parser.WordTiming
 import com.auralis.music.domain.model.LyricLine
-import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
-import com.auralis.music.ui.lyrics.presentationWordTimestamps
-import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
+import com.auralis.music.ui.lyrics.renderers.MetroLyricsLine
 import com.auralis.music.ui.theme.LocalReducedMotion
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -113,6 +114,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -128,6 +130,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -142,6 +145,8 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -186,7 +191,7 @@ private val PLAY_TOUCH_SIZE = 92.dp
 private val HANDLE_STRIP_HEIGHT = 32.dp
 /** Rows fade out over this band above the controls, and are fully hidden beneath them. */
 private val CONTROLS_FADE_ABOVE = 36.dp
-private val PREVIEW_LINE_HEIGHT = 38.dp
+private val PREVIEW_LINE_HEIGHT = 60.dp
 private val COMPACT_ART_SIZE = 54.dp
 private val COMPACT_ART_CORNER = 6.dp
 
@@ -753,7 +758,10 @@ private fun sheetChromeAlpha(p: Float): Float = ((p - 0.35f) / 0.6f).coerceIn(0f
  * (0 = full fade, 1 = none) as the cover shrinks into a plain thumbnail.
  */
 private fun Modifier.heroFadeMask(solidity: () -> Float): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .graphicsLayer {
+        val firm = solidity().coerceIn(0f, 1f)
+        compositingStrategy = if (firm < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+    }
     .drawWithContent {
         drawContent()
         val firm = solidity().coerceIn(0f, 1f)
@@ -989,13 +997,17 @@ private fun ImmersiveCircleGlyph(
     }
 }
 
-/** What the strip under the title is showing. Lines carry their index; the rest are fillers. */
+/**
+ * What the strip under the title is showing. Lines carry their index; the rest are fillers.
+ * A sung slot carries its own line: AnimatedContent keeps composing the outgoing slot after
+ * the song (and so the lyrics list) has changed, so it must never index back into the list.
+ */
 private sealed interface PreviewSlot {
     data object Loading : PreviewSlot
     data object Unsynced : PreviewSlot
     data object Intro : PreviewSlot
     data class Break(val index: Int) : PreviewSlot
-    data class Sung(val index: Int) : PreviewSlot
+    data class Sung(val index: Int, val line: LyricLine) : PreviewSlot
 }
 
 /**
@@ -1039,10 +1051,11 @@ private fun LyricPreviewLine(
                 lines.isEmpty() -> null
                 else -> {
                     val index = LyricsEngine.findActiveLyricIndex(lines, positionState.value, offsetMs)
+                    val line = lines.getOrNull(index)
                     when {
-                        index < 0 || (firstSung >= 0 && index < firstSung) -> PreviewSlot.Intro
-                        lines[index].isInstrumental -> PreviewSlot.Break(index)
-                        else -> PreviewSlot.Sung(index)
+                        line == null || (firstSung >= 0 && index < firstSung) -> PreviewSlot.Intro
+                        line.isInstrumental -> PreviewSlot.Break(index)
+                        else -> PreviewSlot.Sung(index, line)
                     }
                 }
             }
@@ -1050,7 +1063,42 @@ private fun LyricPreviewLine(
     }
     val current = slot ?: return
 
-    AnimatedContent(
+    key(trackId) {
+    val reducedMotion = LocalReducedMotion.current
+    val lineTransition = updateTransition(targetState = current, label = "previewWordMorph")
+    val animatedLineIndex by lineTransition.animateFloat(
+        transitionSpec = { if (reducedMotion) snap() else tween(620, easing = FastOutSlowInEasing) },
+        label = "previewLineIndex"
+    ) { state -> (state as? PreviewSlot.Sung)?.index?.toFloat() ?: -1f }
+    val fromLine = lineTransition.currentState as? PreviewSlot.Sung
+    val toLine = lineTransition.targetState as? PreviewSlot.Sung
+    if (!reducedMotion && fromLine != null && toLine != null && fromLine.index != toLine.index) {
+        val morphProgress = ((animatedLineIndex - fromLine.index) / (toLine.index - fromLine.index))
+            .coerceIn(0f, 1f)
+        Row(
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MetroPreviewWordMorph(
+                fromText = fromLine.line.text.trim(),
+                toLine = toLine.line,
+                progress = morphProgress,
+                positionMs = positionState.value + offsetMs,
+                hasWordTiming = syncType == SyncType.RICHSYNC
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = str(R.string.lyrics),
+                tint = Color.White.copy(alpha = 0.55f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    } else AnimatedContent(
         targetState = current,
         transitionSpec = {
             val from = (initialState as? PreviewSlot.Sung)?.index ?: (initialState as? PreviewSlot.Break)?.index ?: -1
@@ -1069,15 +1117,8 @@ private fun LyricPreviewLine(
         contentAlignment = Alignment.CenterStart,
         label = "immersiveLyricLine"
     ) { shown ->
-        // The leaving line softens out of focus as it goes; the arriving one sharpens in.
-        val blur by transition.animateDp(
-            transitionSpec = { tween(480, easing = FastOutSlowInEasing) },
-            label = "lyricLineBlur"
-        ) { if (it == EnterExitState.Visible) 0.dp else 6.dp }
-
         Row(
             modifier = Modifier
-                .blur(blur, edgeTreatment = BlurredEdgeTreatment.Unbounded)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -1087,7 +1128,7 @@ private fun LyricPreviewLine(
         ) {
             when (shown) {
                 is PreviewSlot.Sung -> MetroPreviewText(
-                    line = lines[shown.index],
+                    line = shown.line,
                     syncType = syncType,
                     positionMs = { positionState.value + offsetMs },
                     isPlaying = isPlaying,
@@ -1109,11 +1150,14 @@ private fun LyricPreviewLine(
             }
         }
     }
+    }
 }
 
 private fun fillerLine(arrayRes: Int): String =
-    runCatching { com.auralis.music.ui.i18n.AppLanguage.context().resources.getStringArray(arrayRes).random() }
-        .getOrDefault("")
+    runCatching {
+        val arr = com.auralis.music.ui.i18n.AppLanguage.context().resources.getStringArray(arrayRes)
+        if (arr.isNotEmpty()) arr.random() else ""
+    }.getOrDefault("")
 
 @Composable
 private fun FillerText(text: String, withNote: Boolean) {
@@ -1135,10 +1179,10 @@ private fun FillerText(text: String, withNote: Boolean) {
 }
 
 private val PreviewLyricStyle = TextStyle(
-    fontSize = 15.sp,
-    fontWeight = FontWeight.Bold,
-    lineHeight = 19.sp,
-    letterSpacing = (-0.2).sp,
+    fontSize = 17.sp,
+    fontWeight = FontWeight.ExtraBold,
+    lineHeight = 21.sp,
+    letterSpacing = (-0.5).sp,
     textAlign = TextAlign.Left,
     platformStyle = PlatformTextStyle(includeFontPadding = false),
     lineHeightStyle = LineHeightStyle(
@@ -1157,9 +1201,6 @@ private fun MetroPreviewText(
     isBuffering: Boolean
 ) {
     val text = line.text.trim()
-    val words = remember(line, syncType) {
-        resolveExperimentalWordTimestamps(line, syncType)?.let { presentationWordTimestamps(it) }
-    }
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     BoxWithConstraints {
@@ -1168,24 +1209,121 @@ private fun MetroPreviewText(
             (measurer.measure(text, PreviewLyricStyle, softWrap = false).size.width + 2).coerceAtMost(availablePx)
         }
         Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
-            if (words != null) {
-                ExperimentalWordLevelLyrics(
-                    mainText = text,
-                    words = words,
-                    isActiveLine = true,
-                    currentPositionState = positionMs(),
-                    lyricStyle = PreviewLyricStyle,
+            if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
+                MetroLyricsLine(
+                    line = line,
+                    words = line.words,
+                    isActive = true,
+                    distanceFromCurrent = 0,
+                    effectivePlaybackPosition = positionMs(),
                     lineColor = Color.White.copy(alpha = 0.5f),
-                    expressiveAccent = Color.White,
-                    isBackground = false,
-                    focusedAlpha = 0.5f,
-                    alignment = TextAlign.Left,
-                    isPlaying = isPlaying,
-                    isBuffering = isBuffering
+                    accentColor = Color.White,
+                    textAlign = TextAlign.Left,
+                    alignment = Alignment.Start,
+                    fontSizeSp = PreviewLyricStyle.fontSize.value,
+                    lineSpacingMultiplier = 1.22f,
+                    isPlaying = isPlaying && !isBuffering
                 )
             } else {
-                // Line-timed lyrics have no word clock to sweep; the whole line is lit, as in Metro.
-                Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = 2)
+                Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = 3)
+            }
+        }
+    }
+}
+
+private data class PreviewMorphWord(val text: String, val start: Int)
+
+private fun previewMorphWords(text: String): List<PreviewMorphWord> =
+    Regex("\\S+").findAll(text).map { PreviewMorphWord(it.value, it.range.first) }.toList()
+
+private fun pairedWordIndex(index: Int, sourceCount: Int, targetCount: Int): Int {
+    if (targetCount <= 1 || sourceCount <= 1) return 0
+    return ((index.toFloat() / (sourceCount - 1)) * (targetCount - 1)).roundToInt()
+        .coerceIn(0, targetCount - 1)
+}
+
+/** Moves each outgoing word toward its counterpart while the next line takes its shape. */
+@Composable
+private fun MetroPreviewWordMorph(
+    fromText: String,
+    toLine: LyricLine,
+    progress: Float,
+    positionMs: Long,
+    hasWordTiming: Boolean
+) {
+    val toText = toLine.text.trim()
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val fromWords = remember(fromText) { previewMorphWords(fromText) }
+    val toWords = remember(toText) { previewMorphWords(toText) }
+    val timedWords = if (hasWordTiming) toLine.words.orEmpty() else emptyList()
+    if (fromWords.isEmpty() || toWords.isEmpty()) {
+        Text(toText, style = PreviewLyricStyle.copy(color = Color.White), maxLines = 3)
+        return
+    }
+    BoxWithConstraints {
+        val availablePx = with(density) { (maxWidth - 22.dp).roundToPx() }.coerceAtLeast(1)
+        val widthPx = remember(fromText, toText, availablePx) {
+            maxOf(
+                textMeasurer.measure(fromText, PreviewLyricStyle, softWrap = false).size.width,
+                textMeasurer.measure(toText, PreviewLyricStyle, softWrap = false).size.width
+            ).coerceAtMost(availablePx).coerceAtLeast(1)
+        }
+        val fromLayout = remember(fromText, widthPx) {
+            textMeasurer.measure(fromText, PreviewLyricStyle, constraints = Constraints(maxWidth = widthPx))
+        }
+        val toLayout = remember(toText, widthPx) {
+            textMeasurer.measure(toText, PreviewLyricStyle, constraints = Constraints(maxWidth = widthPx))
+        }
+        val fromAnchors = remember(fromLayout, fromWords) {
+            fromWords.map { fromLayout.getBoundingBox(it.start).topLeft }
+        }
+        val toAnchors = remember(toLayout, toWords) {
+            toWords.map { toLayout.getBoundingBox(it.start).topLeft }
+        }
+        val fromGlyphs = remember(fromWords) {
+            fromWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
+        }
+        val toGlyphs = remember(toWords) {
+            toWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
+        }
+        val heightPx = maxOf(fromLayout.size.height, toLayout.size.height)
+            .coerceAtMost(with(density) { 58.dp.roundToPx() })
+        Canvas(Modifier.width(with(density) { widthPx.toDp() }).height(with(density) { heightPx.toDp() })) {
+            val p = progress.coerceIn(0f, 1f)
+            fromWords.indices.forEach { index ->
+                val target = toAnchors[pairedWordIndex(index, fromWords.size, toWords.size)]
+                val source = fromAnchors[index]
+                val x = source.x + (target.x - source.x) * p
+                val y = source.y + (target.y - source.y) * p
+                withTransform({
+                    translate(x, y)
+                    scale(1f - 0.05f * p, 1f - 0.05f * p, pivot = Offset.Zero)
+                }) {
+                    drawText(fromGlyphs[index], color = Color.White.copy(alpha = 1f - p))
+                }
+            }
+            toWords.indices.forEach { index ->
+                val source = fromAnchors[pairedWordIndex(index, toWords.size, fromWords.size)]
+                val target = toAnchors[index]
+                val x = source.x + (target.x - source.x) * p
+                val y = source.y + (target.y - source.y) * p
+                // The Metro renderer starts unsung letters at 35% opacity. Match that
+                // baseline during the morph, then reveal only words their timestamps
+                // have reached so the renderer does not make the new line flash white.
+                val incomingAlpha = if (timedWords.isEmpty()) 1f else {
+                    val word = timedWords[pairedWordIndex(index, toWords.size, timedWords.size)]
+                    val durationMs = (word.duration ?: 200L).coerceAtLeast(100L)
+                    val sungProgress = ((positionMs - word.time).toFloat() / durationMs).coerceIn(0f, 1f)
+                    val highlightReveal = ((p - 0.5f) * 2f).coerceIn(0f, 1f)
+                    0.35f + 0.65f * sungProgress * highlightReveal
+                }
+                withTransform({
+                    translate(x, y)
+                    scale(0.95f + 0.05f * p, 0.95f + 0.05f * p, pivot = Offset.Zero)
+                }) {
+                    drawText(toGlyphs[index], color = Color.White.copy(alpha = p * incomingAlpha))
+                }
             }
         }
     }

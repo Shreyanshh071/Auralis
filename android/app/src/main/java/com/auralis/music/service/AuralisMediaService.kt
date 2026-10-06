@@ -360,6 +360,14 @@ class AuralisMediaService : MediaSessionService() {
         }
 
         serviceScope.launch {
+            audioPlayer.playbackRequested.collectLatest {
+                withContext(Dispatchers.Main) {
+                    refreshNotification(immediate = false)
+                }
+            }
+        }
+
+        serviceScope.launch {
             audioPlayer.isFavorite.collectLatest { isFav ->
                 try {
                     mediaSession?.setCustomLayout(buildCustomLayout(isFav))
@@ -677,7 +685,9 @@ class AuralisMediaService : MediaSessionService() {
         // Otherwise Android stops it (or kills the app outright when it's swiped away) and
         // onTaskRemoved never runs, so the others kept seeing this phone in the room.
         val inRoom = com.auralis.music.data.sync.ListenTogetherManager.activeRoomCode != null
-        val shouldRunForeground = isPlaying || isBuffering || inRoom
+        // Audio focus can pause the engine while another app plays sound. Keep the service
+        // foreground until the user pauses or stops, so Android can resume this session.
+        val shouldRunForeground = isPlaying || isBuffering || audioPlayer.playbackRequested.value || inRoom
         if (shouldRunForeground) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -949,7 +959,7 @@ class AuralisMediaService : MediaSessionService() {
         serviceScope.launch {
             val settings = com.auralis.music.data.datastore.SettingsDataStore(applicationContext).settingsFlow.first()
             val player = AuralisAudioPlayer.getInstance(applicationContext)
-            if (!settings.stopMusicOnTaskClear && (player.isPlaying.value || player.isBuffering.value)) {
+            if (!settings.stopMusicOnTaskClear) {
                 player.persistQueue()
                 return@launch
             }

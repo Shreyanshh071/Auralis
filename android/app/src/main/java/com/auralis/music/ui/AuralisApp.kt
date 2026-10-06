@@ -1783,7 +1783,8 @@ fun AuralisApp(
                             onClick = { collapsePlayer() }
                         )
                 ) {
-                    if (currentTrack != null) {
+                    // The immersive player paints its own backdrop, so the background style is not drawn for it.
+                    if (currentTrack != null && !immersivePlayerMorph) {
                         PlayerBackground(
                             style = resolvedPlayerBgStyle,
                             artworkUrl = currentTrack.thumbnail,

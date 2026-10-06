@@ -52,21 +52,28 @@ internal fun ImmersiveColorField(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var shown by remember { mutableStateOf<ImageBitmap?>(artworkUrl?.let { fieldCache[it] }) }
+    var shown by remember { mutableStateOf<ImageBitmap?>(artworkUrl?.let { fieldCache.get(it) }) }
     var incoming by remember { mutableStateOf<ImageBitmap?>(null) }
     val fade = remember { Animatable(0f) }
 
     LaunchedEffect(artworkUrl) {
         val url = artworkUrl ?: return@LaunchedEffect
-        val next = fieldCache[url] ?: withContext(Dispatchers.IO) {
-            val request = ImageRequest.Builder(context)
-                .data(url)
-                .size(FIELD_SOURCE_PX)
-                .allowHardware(false)
-                .build()
-            val bitmap = ((context.imageLoader.execute(request) as? SuccessResult)?.drawable as? BitmapDrawable)?.bitmap
-            bitmap?.takeIf { !it.isRecycled }?.let { colorFieldOf(it, url.hashCode()) }
-        }?.also { fieldCache[url] = it } ?: return@LaunchedEffect
+        val next = try {
+            fieldCache.get(url) ?: withContext(Dispatchers.IO) {
+                val request = ImageRequest.Builder(context)
+                    .data(url)
+                    .size(FIELD_SOURCE_PX)
+                    .allowHardware(false)
+                    .build()
+                val drawable = (context.imageLoader.execute(request) as? SuccessResult)?.drawable
+                val bitmap = (drawable as? BitmapDrawable)?.bitmap
+                if (bitmap != null && !bitmap.isRecycled) {
+                    colorFieldOf(bitmap, url.hashCode())
+                } else null
+            }?.also { fieldCache.put(url, it) }
+        } catch (_: Throwable) {
+            null
+        } ?: return@LaunchedEffect
 
         incoming?.let { shown = it }
         incoming = null
@@ -85,9 +92,8 @@ internal fun ImmersiveColorField(
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            // Opaque floor outside the blur, so nothing behind the player can show through.
+            // Opaque floor outside the backdrop, so nothing behind the player can show through.
             .background(Color(0xFF121212))
-            .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(32.dp) else Modifier)
     ) {
         val seam = seamPx().coerceIn(0f, size.height)
         shown?.let { drawField(it, seam, 1f) }
@@ -108,7 +114,7 @@ private fun DrawScope.drawField(field: ImageBitmap, seam: Float, alpha: Float) {
             dstOffset = IntOffset.Zero,
             dstSize = IntSize(width, seam.roundToInt()),
             alpha = alpha,
-            filterQuality = FilterQuality.Low
+            filterQuality = FilterQuality.Medium
         )
     }
     drawImage(
@@ -118,50 +124,53 @@ private fun DrawScope.drawField(field: ImageBitmap, seam: Float, alpha: Float) {
         dstOffset = IntOffset(0, seam.roundToInt()),
         dstSize = IntSize(width, (size.height - seam).roundToInt().coerceAtLeast(1)),
         alpha = alpha,
-        filterQuality = FilterQuality.Low
+        filterQuality = FilterQuality.Medium
     )
 }
 
 private const val FIELD_SOURCE_PX = 120
 private const val FIELD_GRID = 6
-private const val FIELD_TEXTURE = 32
-private const val FIELD_FADE_MS = 900
+private const val FIELD_TEXTURE = 48
+private const val FIELD_FADE_MS = 400
 
-private val fieldCache = object : LinkedHashMap<String, ImageBitmap>(0, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>) = size > 48
-}
+private val fieldCache = android.util.LruCache<String, ImageBitmap>(32)
 
 private fun colorFieldOf(source: Bitmap, seed: Int): ImageBitmap? {
-    val width = source.width
-    val height = source.height
-    if (width < 1 || height < 1) return null
-    val cols = FIELD_GRID.coerceAtMost(width)
-    val rows = FIELD_GRID.coerceAtMost(height)
-    val cells = cols * rows
-    val red = LongArray(cells)
-    val green = LongArray(cells)
-    val blue = LongArray(cells)
-    val count = IntArray(cells)
-    val line = IntArray(width)
-    for (y in 0 until height) {
-        source.getPixels(line, 0, width, 0, y, width, 1)
-        // Flipped while reading: row 0 is the cover's bottom edge.
-        val rowBase = ((height - 1 - y) * rows / height) * cols
-        for (x in 0 until width) {
-            val cell = rowBase + x * cols / width
-            val pixel = line[x]
-            red[cell] += (pixel shr 16) and 0xFF
-            green[cell] += (pixel shr 8) and 0xFF
-            blue[cell] += pixel and 0xFF
-            count[cell]++
+    try {
+        val width = source.width
+        val height = source.height
+        if (width < 1 || height < 1 || source.isRecycled) return null
+        val cols = FIELD_GRID.coerceAtMost(width)
+        val rows = FIELD_GRID.coerceAtMost(height)
+        val cells = cols * rows
+        val red = LongArray(cells)
+        val green = LongArray(cells)
+        val blue = LongArray(cells)
+        val count = IntArray(cells)
+        val line = IntArray(width)
+        for (y in 0 until height) {
+            if (source.isRecycled) return null
+            source.getPixels(line, 0, width, 0, y, width, 1)
+            // Flipped while reading: row 0 is the cover's bottom edge.
+            val rowBase = ((height - 1 - y) * rows / height) * cols
+            for (x in 0 until width) {
+                val cell = rowBase + x * cols / width
+                val pixel = line[x]
+                red[cell] += (pixel shr 16) and 0xFF
+                green[cell] += (pixel shr 8) and 0xFF
+                blue[cell] += pixel and 0xFF
+                count[cell]++
+            }
         }
+        val grid = IntArray(cells) { cell ->
+            val n = count[cell].coerceAtLeast(1)
+            lifted(argb((red[cell] / n).toInt(), (green[cell] / n).toInt(), (blue[cell] / n).toInt()))
+        }
+        val texels = smoothed(shiftedBelowSeam(grid, cols, rows, seed), cols, rows, FIELD_TEXTURE)
+        return Bitmap.createBitmap(texels, FIELD_TEXTURE, FIELD_TEXTURE, Bitmap.Config.ARGB_8888).asImageBitmap()
+    } catch (_: Throwable) {
+        return null
     }
-    val grid = IntArray(cells) { cell ->
-        val n = count[cell].coerceAtLeast(1)
-        lifted(argb((red[cell] / n).toInt(), (green[cell] / n).toInt(), (blue[cell] / n).toInt()))
-    }
-    val texels = smoothed(shiftedBelowSeam(grid, cols, rows, seed), cols, rows, FIELD_TEXTURE)
-    return Bitmap.createBitmap(texels, FIELD_TEXTURE, FIELD_TEXTURE, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
 /** Every row but the seam row shifted (and sometimes mirrored) by one seeded amount. */

@@ -410,6 +410,7 @@
     <string name="force_deep_amoled_black_background_on_mi">मिनी-प्लेयर पर गहरा AMOLED काला बैकग्राउंड लगाएँ</string>
     <string name="mini_player_background_style">मिनी-प्लेयर बैकग्राउंड स्टाइल</string>
     <string name="unavailable_when_pure_black_is_enabled">पूरा काला चालू होने पर उपलब्ध नहीं</string>
+    <string name="unavailable_with_immersive_player">इमर्सिव प्लेयर के साथ उपलब्ध नहीं</string>
     <string name="new_player_design">नया प्लेयर डिज़ाइन</string>
     <string name="modern_expanded_now_playing_screen_with">बेहतर जेस्चर वाली आधुनिक \'अभी बज रहा है\' स्क्रीन</string>
     <string name="player_slider_style">प्लेयर स्लाइडर स्टाइल</string>
