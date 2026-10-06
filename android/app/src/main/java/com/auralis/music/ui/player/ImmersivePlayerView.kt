@@ -167,12 +167,25 @@ import kotlin.math.roundToInt
 
 /** How much of the full-bleed sleeve, from its bottom edge, dissolves into the backdrop. */
 private const val HERO_FADE_FRACTION = 0.42f
+
+/**
+ * How far the player sheet has slid open (0 = mini player, 1 = full screen), read in the
+ * draw phase. The immersive player grows its cover out of the mini player's thumbnail
+ * with it and fades everything else in behind.
+ */
+val LocalPlayerSheetProgress = androidx.compose.runtime.staticCompositionLocalOf<() -> Float> { { 1f } }
+
+/** Size and inset of the mini player's thumbnail the cover grows out of. */
+private val MINI_THUMB_SIZE = 48.dp
+private val MINI_THUMB_INSET = 14.dp
 private val SIDE_GUTTER = 28.dp
 private val ACTION_SIZE = 44.dp
 private val SKIP_GLYPH_SIZE = 53.dp
 private val PLAY_GLYPH_SIZE = 74.dp
 private val PLAY_TOUCH_SIZE = 92.dp
 private val HANDLE_STRIP_HEIGHT = 32.dp
+/** Rows fade out over this band above the controls, and are fully hidden beneath them. */
+private val CONTROLS_FADE_ABOVE = 36.dp
 private val PREVIEW_LINE_HEIGHT = 38.dp
 private val COMPACT_ART_SIZE = 54.dp
 private val COMPACT_ART_CORNER = 6.dp
@@ -234,6 +247,7 @@ fun ImmersivePlayerContainer(
     // Same tab motion as the classic player: the sleeve flies into the compact header on the
     // hero curve while the incoming body fades and glides up and the outgoing one fades out.
     val motion = rememberClassicPlayerMotion(currentTab, LocalReducedMotion.current)
+    val sheetProgress = LocalPlayerSheetProgress.current
     val heroProgress = motion.compactHeaderProgress
     val compactActionsEnabled by remember(heroProgress) { derivedStateOf { heroProgress.value > 0.5f } }
     val heroAtRest by remember(heroProgress) { derivedStateOf { heroProgress.value <= 0.001f } }
@@ -321,7 +335,8 @@ fun ImmersivePlayerContainer(
             seamPx = {
                 if (hidePlayerThumbnail) 0f
                 else containerWidthPx * (1f - heroProgress.value.coerceIn(0f, 1f))
-            }
+            },
+            modifier = Modifier.graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) }
         )
 
         // ── FULL-BLEED SLEEVE AT REST (runs up behind the status bar, swipes between songs) ──
@@ -334,7 +349,23 @@ fun ImmersivePlayerContainer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .heroFadeMask { 0f }
+                    .graphicsLayer {
+                        val p = sheetProgress().coerceIn(0f, 1f)
+                        if (p < 1f) {
+                            val thumb = MINI_THUMB_SIZE.toPx() / size.width.coerceAtLeast(1f)
+                            val grow = FastOutSlowInEasing.transform(p)
+                            val s = thumb + (1f - thumb) * grow
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            scaleX = s
+                            scaleY = s
+                            translationX = MINI_THUMB_INSET.toPx() * (1f - grow)
+                            translationY = 8.dp.toPx() * (1f - grow)
+                            shape = RoundedCornerShape((8.dp.toPx() / s) * (1f - grow))
+                            clip = true
+                        }
+                    }
+                    // A plain square while it is small; the banner's fade only once it is open.
+                    .heroFadeMask { 1f - sheetProgress().coerceIn(0f, 1f) }
             ) { page ->
                 val pageTrack = queue.getOrNull(page)?.let { if (it.id == track.id) track else it } ?: track
                 ArtworkCard(
@@ -357,7 +388,7 @@ fun ImmersivePlayerContainer(
                 .fillMaxWidth()
                 // Behind the status bar and the handle strip, so both read on a white cover.
                 .windowInsetsTopHeight(WindowInsets.statusBars.add(WindowInsets(top = HANDLE_STRIP_HEIGHT + 20.dp)))
-                .graphicsLayer { alpha = 1f - 0.6f * heroProgress.value }
+                .graphicsLayer { alpha = (1f - 0.6f * heroProgress.value) * sheetChromeAlpha(sheetProgress()) }
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.Black.copy(alpha = 0.40f), Color.Black.copy(alpha = 0.18f), Color.Transparent)
@@ -368,6 +399,7 @@ fun ImmersivePlayerContainer(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = sheetChromeAlpha(sheetProgress()) }
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
@@ -442,11 +474,12 @@ fun ImmersivePlayerContainer(
                                     val reveal = controlsReveal.value
                                     if (reveal > 0.001f && panel > 0f) {
                                         val top = size.height - panel
+                                        val fade = CONTROLS_FADE_ABOVE.toPx()
                                         drawRect(
                                             brush = Brush.verticalGradient(
                                                 colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - reveal)),
-                                                startY = top,
-                                                endY = top + panel * 0.22f
+                                                startY = top - fade,
+                                                endY = top
                                             ),
                                             blendMode = BlendMode.DstIn
                                         )
@@ -539,7 +572,7 @@ fun ImmersivePlayerContainer(
                                         showBottomBar = false,
                                         showPlaybackControls = false,
                                         queueListState = queueListState,
-                                        listBottomPadding = controlsHeightDp,
+                                        listBottomPadding = controlsHeightDp + CONTROLS_FADE_ABOVE,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -708,6 +741,12 @@ fun ImmersivePlayerContainer(
         }
     }
 }
+
+/** The backdrop arrives with the sheet, ahead of the controls. */
+private fun sheetBackdropAlpha(p: Float): Float = (p / 0.7f).coerceIn(0f, 1f)
+
+/** Title, controls and chrome fade in over the second half of the slide, behind the cover. */
+private fun sheetChromeAlpha(p: Float): Float = ((p - 0.35f) / 0.6f).coerceIn(0f, 1f)
 
 /**
  * Dissolves the banner's lower edge into the backdrop. [solidity] firms that edge back up

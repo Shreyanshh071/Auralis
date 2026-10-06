@@ -1770,8 +1770,8 @@ fun AuralisApp(
                             alpha = if (reducedMotion) {
                                 if (isNowPlayingOpen || p > 0f) 1f else 0f
                             } else if (immersivePlayerMorph) {
-                                // Only once the morph has filled the screen.
-                                ((p - 0.92f) / 0.08f).coerceIn(0f, 1f)
+                                // The immersive player paints its own backdrop and fades it with the slide.
+                                0f
                             } else {
                                 (1.4f * kotlin.math.sqrt((p.coerceAtLeast(0.1f) - 0.1f))).coerceIn(0f, 1f)
                             }
@@ -1826,29 +1826,13 @@ fun AuralisApp(
                             .fillMaxSize()
                             .graphicsLayer {
                                 val p = playerSheetProgress.value
-                                if (immersivePlayerMorph && !reducedMotion) {
-                                    // Immersive: the whole player grows out of the mini player's artwork
-                                    // and shrinks back into it, instead of sliding up as a sheet.
-                                    val scale = IMMERSIVE_MORPH_MIN_SCALE + (1f - IMMERSIVE_MORPH_MIN_SCALE) * p
-                                    scaleX = scale
-                                    scaleY = scale
-                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
-                                        pivotFractionX = with(density) { 28.dp.toPx() } / size.width.coerceAtLeast(1f),
-                                        pivotFractionY = ((fullHeightPx - collapsedBoundPx + with(density) { miniPlayerHeight.toPx() } / 2f) /
-                                            fullHeightPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                                    )
-                                    // The layer's shape is drawn before scaling, so divide the scale out.
-                                    shape = if (p < 1f) RoundedCornerShape(with(density) { 28.dp.toPx() } / scale) else androidx.compose.ui.graphics.RectangleShape
-                                    clip = p < 1f
+                                translationY = if (reducedMotion) {
+                                    if (isNowPlayingOpen) 0f else travelDistance
                                 } else {
-                                    translationY = if (reducedMotion) {
-                                        if (isNowPlayingOpen) 0f else travelDistance
-                                    } else {
-                                        (1f - p) * travelDistance
-                                    }
-                                    shape = if (p < 1f) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else androidx.compose.ui.graphics.RectangleShape
-                                    clip = p < 1f
+                                    (1f - p) * travelDistance
                                 }
+                                shape = if (p < 1f) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else androidx.compose.ui.graphics.RectangleShape
+                                clip = p < 1f
                             }
                             .pointerInput(travelDistance) {
                                 if (travelDistance <= 0f) return@pointerInput
@@ -1937,8 +1921,9 @@ fun AuralisApp(
                                     alpha = if (reducedMotion) {
                                         if (isNowPlayingOpen) 1f else 0f
                                     } else if (immersivePlayerMorph) {
-                                        // Visible from the first frames, so the mini player is seen growing.
-                                        (p * 6f).coerceIn(0f, 1f)
+                                        // The immersive player fades its own layers: the cover stays solid
+                                        // while it grows out of the mini player.
+                                        1f
                                     } else {
                                         ((p - 0.15f) * 4f).coerceIn(0f, 1f)
                                     }
@@ -1947,7 +1932,10 @@ fun AuralisApp(
                             val currentPV = obtainPlayerViewModel()
                             val currentLibVM = obtainLibraryViewModel()
                             val modalPositionState = currentPV.playbackPositionMs.collectAsState()
-                            CompositionLocalProvider(com.auralis.music.ui.player.LocalClassicLyricsHazeState provides playerBackdropHazeState) {
+                            CompositionLocalProvider(
+                                com.auralis.music.ui.player.LocalClassicLyricsHazeState provides playerBackdropHazeState,
+                                com.auralis.music.ui.player.LocalPlayerSheetProgress provides { if (reducedMotion) 1f else playerSheetProgress.value }
+                            ) {
                                 NowPlayingSheet(
                                     followHostOnly = isGuestInRoom && !guestCanSwipe,
                                     uiState = playerUiState,
@@ -2889,6 +2877,3 @@ private fun MiniPlayerHost(
         )
     }
 }
-
-/** How small the immersive player starts when it grows out of the mini player. */
-private const val IMMERSIVE_MORPH_MIN_SCALE = 0.12f
