@@ -1667,7 +1667,7 @@ internal fun ExperimentalLyricsLine(
  * Word-level kinetic typography canvas with character letter-progress, wobble, crescendo & glow.
  */
 @Composable
-private fun ExperimentalWordLevelLyrics(
+internal fun ExperimentalWordLevelLyrics(
     mainText: String,
     words: List<ExperimentalWordTimestamp>,
     isActiveLine: Boolean,
