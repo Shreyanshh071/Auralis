@@ -162,20 +162,15 @@ import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsMode
 import com.auralis.music.domain.model.LyricsProvider
-import com.auralis.music.domain.model.QueueOperations
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
-import com.auralis.music.ui.components.createQueueTrackItem
-import com.auralis.music.ui.components.syncLocalQueueWithSnapshot
 import com.auralis.music.ui.i18n.str
 import com.auralis.music.ui.lyrics.SyncedLyricsView
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.viewmodel.PlayerUiState
 import kotlinx.coroutines.launch
-import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.math.roundToInt
 
 /** How much of the full-bleed sleeve, from its bottom edge, dissolves into the backdrop. */
@@ -260,6 +255,8 @@ fun ImmersivePlayerContainer(
     var containerWidthPx by remember { mutableIntStateOf(0) }
     var compactArtOriginInRoot by remember { mutableStateOf<Offset?>(null) }
     var compactArtSizePx by remember { mutableIntStateOf(0) }
+    // Hoisted so the queue keeps its scroll position across tab switches.
+    val queueListState = rememberLazyListState()
 
     Box(
         modifier = Modifier
@@ -410,13 +407,39 @@ fun ImmersivePlayerContainer(
                                             translationY = motion.queueTranslationYDp.value.dp.toPx()
                                         }
                                 ) {
-                                    ImmersiveQueueList(
+                                    // The classic player's queue, whole: History, Continue Playing,
+                                    // lock-to-reorder and its quick tiles. The deck below stays the
+                                    // transport, so the queue's own controls are left out.
+                                    ClassicQueueContent(
+                                        track = track,
                                         uiState = uiState,
-                                        autoplayEnabled = autoplayEnabled,
+                                        queue = queue,
                                         onSelectQueueTrack = onSelectQueueTrack,
                                         onReorderQueue = onReorderQueue,
                                         onRemoveQueueItem = onRemoveQueueItem,
-                                        onShowQueueTrackOptions = onShowQueueTrackOptions,
+                                        onShowTrackOptions = onShowQueueTrackOptions,
+                                        onToggleShuffle = onToggleShuffle,
+                                        onToggleRepeat = onToggleRepeat,
+                                        onQueueControlsVisibilityChange = {},
+                                        onCloseQueue = { onTabChange(NowPlayingTab.PLAYER) },
+                                        onShowOutputPicker = onShowOutputPicker,
+                                        onShowSleepDialog = onShowSleepDialog,
+                                        onToggleLyrics = { onTabChange(NowPlayingTab.LYRICS) },
+                                        seekBarPositionState = seekBarPositionState,
+                                        totalDurationMs = totalDurationMs,
+                                        isScrubbing = isScrubbing,
+                                        onScrubbing = onScrubbing,
+                                        onSeekTo = onSeekTo,
+                                        onPlayPauseClick = onPlayPauseClick,
+                                        onPreviousClick = onPreviousClick,
+                                        onNextClick = onNextClick,
+                                        controlsAlpha = 1f,
+                                        sliderStyle = sliderStyle,
+                                        showHeader = false,
+                                        applyStatusBarPadding = false,
+                                        showBottomBar = false,
+                                        showPlaybackControls = false,
+                                        queueListState = queueListState,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -1495,238 +1518,6 @@ private fun rememberOutputRouteName(): String {
         onDispose { audio.unregisterAudioDeviceCallback(callback) }
     }
     return deviceName ?: str(R.string.this_phone)
-}
-
-/**
- * The queue body: "Now playing", then what plays next. History stays out of this view;
- * only upcoming songs can be dragged, removed, or tapped to jump to.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ImmersiveQueueList(
-    uiState: PlayerUiState,
-    autoplayEnabled: Boolean,
-    onSelectQueueTrack: (Int) -> Unit,
-    onReorderQueue: ((Int, Int) -> Unit)?,
-    onRemoveQueueItem: ((Int) -> Unit)?,
-    onShowQueueTrackOptions: (Track) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val queueSnapshot = uiState.queue
-    val haptic = LocalHapticFeedback.current
-    val localQueue = remember { queueSnapshot.map { createQueueTrackItem(it) }.toMutableStateList() }
-    val listState = rememberLazyListState()
-    var startDragIndex by remember { mutableIntStateOf(-1) }
-
-    val activeIndex by remember(uiState.currentTrack, uiState.currentIndex) {
-        derivedStateOf {
-            QueueOperations.findActiveTrackIndex(
-                queue = localQueue.map { it.track },
-                currentTrack = uiState.currentTrack,
-                currentIndex = uiState.currentIndex
-            )
-        }
-    }
-
-    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
-        val fromIndex = localQueue.indexOfFirst { it.instanceId == from.key }
-        val toIndex = localQueue.indexOfFirst { it.instanceId == to.key }
-        if (fromIndex > activeIndex && toIndex > activeIndex && fromIndex != toIndex) {
-            localQueue.add(toIndex, localQueue.removeAt(fromIndex))
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        }
-    }
-
-    LaunchedEffect(queueSnapshot) {
-        syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderState.isAnyItemDragging)
-    }
-
-    val current = localQueue.getOrNull(activeIndex)?.track ?: uiState.currentTrack
-    val upcoming = if (activeIndex >= 0) localQueue.drop(activeIndex + 1) else localQueue.toList()
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = str(R.string.queue),
-            color = Color.White,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = SIDE_GUTTER, vertical = 4.dp)
-        )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            if (current != null) {
-                item(key = "now_playing_header", contentType = "header") {
-                    Text(
-                        text = str(R.string.now_playing),
-                        color = Color.White.copy(alpha = 0.55f),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = SIDE_GUTTER, end = SIDE_GUTTER, top = 12.dp, bottom = 6.dp)
-                    )
-                }
-                item(key = "now_playing_row", contentType = "current") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = SIDE_GUTTER, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ArtworkCard(
-                            url = current.thumbnail,
-                            fallbackTrack = current,
-                            modifier = Modifier.size(48.dp),
-                            cornerRadius = 6.dp,
-                            elevation = 0.dp,
-                            contentDescription = current.title,
-                            crossfade = true
-                        )
-                        Spacer(Modifier.width(14.dp))
-                        QueueRowText(current, Modifier.weight(1f))
-                        Icon(
-                            Icons.Rounded.GraphicEq,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            item(key = "up_next_header", contentType = "header") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = SIDE_GUTTER - 2.dp, end = SIDE_GUTTER, top = 14.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (autoplayEnabled) {
-                        Icon(
-                            Icons.Rounded.AllInclusive,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(str(R.string.autoplay), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            Text(str(R.string.autoplay_subtitle), color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
-                        }
-                    } else {
-                        Text(
-                            text = str(R.string.up_next_x_songs, upcoming.size),
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 2.dp)
-                        )
-                    }
-                }
-            }
-
-            items(items = upcoming, key = { it.instanceId }, contentType = { "queue_track" }) { item ->
-                ReorderableItem(state = reorderState, key = item.instanceId) { isDragging ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(if (isDragging) Color.White.copy(alpha = 0.12f) else Color.Transparent)
-                            .combinedClickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onLongClick = { onShowQueueTrackOptions(item.track) }
-                            ) {
-                                val index = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                                if (index != -1) onSelectQueueTrack(index)
-                            }
-                            .padding(start = SIDE_GUTTER - 14.dp, end = SIDE_GUTTER - 10.dp, top = 6.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(width = 32.dp, height = 44.dp)
-                                .draggableHandle(
-                                    onDragStarted = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        startDragIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                                    },
-                                    onDragStopped = {
-                                        val finalIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                                        val startIndex = startDragIndex
-                                        if (startIndex != -1 && finalIndex != -1 && startIndex != finalIndex) {
-                                            onReorderQueue?.invoke(startIndex, finalIndex)
-                                        }
-                                        startDragIndex = -1
-                                    }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.DragHandle,
-                                contentDescription = str(R.string.drag_to_reorder_x, item.track.title),
-                                tint = Color.White.copy(alpha = 0.45f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        ArtworkCard(
-                            url = item.track.thumbnail,
-                            fallbackTrack = item.track,
-                            modifier = Modifier.size(48.dp),
-                            cornerRadius = 6.dp,
-                            elevation = 0.dp,
-                            contentDescription = item.track.title,
-                            crossfade = true
-                        )
-                        Spacer(Modifier.width(14.dp))
-                        QueueRowText(item.track, Modifier.weight(1f))
-                        if (onRemoveQueueItem != null) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        val index = localQueue.indexOfFirst { it.instanceId == item.instanceId }
-                                        if (index != -1) onRemoveQueueItem(index)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Close,
-                                    contentDescription = str(R.string.remove_from_queue),
-                                    tint = Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QueueRowText(track: Track, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            text = track.title,
-            color = Color.White,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = track.artist,
-            color = Color.White.copy(alpha = 0.55f),
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
 }
 
 /** Speech bubble with a pair of quote marks — the lyrics control. */

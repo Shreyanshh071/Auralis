@@ -1175,5 +1175,4 @@
     <string name="lyrics_by_x">Lyrics by %1$s</string>
     <string name="change">Change</string>
     <string name="autoplay">AutoPlay</string>
-    <string name="autoplay_subtitle">Similar music, selected to play next</string>
 </resources>
