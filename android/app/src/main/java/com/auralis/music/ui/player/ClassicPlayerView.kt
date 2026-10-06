@@ -1339,7 +1339,7 @@ private fun formatClassicTime(millis: Long): String {
 /**
  * Top-level container for the Classic Player mode that routes between PLAYER, LYRICS, and QUEUE tabs.
  */
-private class ClassicPlayerMotionHolder(
+internal class ClassicPlayerMotionHolder(
     val compactHeaderProgress: State<Float>,
     val topBarAlpha: State<Float>,
     val topBarTranslationYDp: State<Float>,
@@ -1356,7 +1356,7 @@ private class ClassicPlayerMotionHolder(
 )
 
 @Composable
-private fun rememberClassicPlayerMotion(
+internal fun rememberClassicPlayerMotion(
     currentTab: NowPlayingTab,
     reducedMotion: Boolean
 ): ClassicPlayerMotionHolder {

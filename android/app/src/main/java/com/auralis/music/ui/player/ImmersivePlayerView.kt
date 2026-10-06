@@ -8,6 +8,33 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.zIndex
+import com.auralis.music.data.parser.WordTiming
+import com.auralis.music.domain.model.LyricLine
+import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
+import com.auralis.music.ui.lyrics.presentationWordTimestamps
+import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
+import com.auralis.music.ui.theme.LocalReducedMotion
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -160,6 +187,9 @@ private val SEGMENT_WIDTH_TRIPLE = 52.dp
 private val SKIP_GLYPH_SIZE = 53.dp
 private val PLAY_GLYPH_SIZE = 74.dp
 private val PLAY_TOUCH_SIZE = 92.dp
+private val PREVIEW_LINE_HEIGHT = 44.dp
+private val COMPACT_ART_SIZE = 54.dp
+private val COMPACT_ART_CORNER = 6.dp
 
 /**
  * Immersive Player:
@@ -210,45 +240,46 @@ fun ImmersivePlayerContainer(
     onAddToPlaylist: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val settingsStore = remember(context) { SettingsDataStore(context) }
     val playerSettings by settingsStore.settingsFlow.collectAsState(initial = null)
     val autoplayEnabled = playerSettings?.autoLoadMore ?: true
 
-    val heroShown = currentTab == NowPlayingTab.PLAYER && !hidePlayerThumbnail
-    val heroAlpha by animateFloatAsState(
-        targetValue = if (heroShown) 1f else 0f,
-        animationSpec = tween(if (heroShown) 280 else 180),
-        label = "immersiveHeroAlpha"
-    )
+    // Same tab motion as the classic player: the sleeve flies into the compact header on the
+    // hero curve while the incoming body fades and glides up and the outgoing one fades out.
+    val motion = rememberClassicPlayerMotion(currentTab, LocalReducedMotion.current)
+    val heroProgress = motion.compactHeaderProgress
+    val compactActionsEnabled by remember(heroProgress) { derivedStateOf { heroProgress.value > 0.5f } }
+    val heroAtRest by remember(heroProgress) { derivedStateOf { heroProgress.value <= 0.001f } }
+    val expandedTitleShown by remember(heroProgress) {
+        derivedStateOf { ClassicPlayerViewportMotion.expandedMetadataAlpha(heroProgress.value) > 0.001f }
+    }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // ── FULL-BLEED SLEEVE (runs up behind the status bar, swipes between songs) ──
-        if (heroAlpha > 0f) {
+    var containerOriginInRoot by remember { mutableStateOf(Offset.Zero) }
+    var containerWidthPx by remember { mutableIntStateOf(0) }
+    var compactArtOriginInRoot by remember { mutableStateOf<Offset?>(null) }
+    var compactArtSizePx by remember { mutableIntStateOf(0) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned {
+                containerOriginInRoot = it.positionInRoot()
+                containerWidthPx = it.size.width
+            }
+    ) {
+        // ── FULL-BLEED SLEEVE AT REST (runs up behind the status bar, swipes between songs) ──
+        if (heroAtRest && !hidePlayerThumbnail) {
             HorizontalPager(
                 state = pagerState,
                 key = { page -> "${queue.getOrNull(page)?.id.orEmpty()}_$page" },
-                userScrollEnabled = enableSwipeToChangeSong && heroShown,
+                userScrollEnabled = enableSwipeToChangeSong && currentTab == NowPlayingTab.PLAYER,
                 beyondViewportPageCount = 1,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .graphicsLayer {
-                        alpha = heroAlpha
-                        // DstIn below can only erase what this layer drew in a buffer of its own.
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color.Black, Color.Transparent),
-                                startY = size.height * (1f - HERO_FADE_FRACTION),
-                                endY = size.height
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
+                    .heroFadeMask { 0f }
             ) { page ->
                 val pageTrack = queue.getOrNull(page)?.let { if (it.id == track.id) track else it } ?: track
                 ArtworkCard(
@@ -270,8 +301,7 @@ fun ImmersivePlayerContainer(
             modifier = Modifier
                 .fillMaxWidth()
                 .windowInsetsTopHeight(WindowInsets.statusBars)
-                .padding(bottom = 0.dp)
-                .graphicsLayer { alpha = heroAlpha }
+                .graphicsLayer { alpha = 1f - heroProgress.value }
                 .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent)))
         )
 
@@ -287,90 +317,110 @@ fun ImmersivePlayerContainer(
                 modifier = Modifier.graphicsLayer { alpha = controlsAlpha }
             )
 
-            // ── BODY: artwork title block, lyrics, or queue ──
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                AnimatedContent(
-                    targetState = currentTab,
-                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
-                    label = "immersiveBody"
-                ) { tab ->
-                    when (tab) {
-                        NowPlayingTab.PLAYER -> Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = SIDE_GUTTER)
-                        ) {
-                            Spacer(Modifier.weight(1f))
-                            ImmersiveTitleBlock(
-                                track = track,
-                                onShowTrackOptions = onShowTrackOptions,
-                                onArtistClick = onArtistClick,
-                                modifier = Modifier.graphicsLayer { alpha = controlsAlpha }
-                            )
-                            Spacer(Modifier.height(18.dp))
-                        }
-
-                        NowPlayingTab.LYRICS -> Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = controlsAlpha }
-                        ) {
-                            ImmersiveCompactHeader(
-                                track = track,
-                                onClick = { onTabChange(NowPlayingTab.PLAYER) },
-                                onShowTrackOptions = onShowTrackOptions
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = SIDE_GUTTER - 8.dp)
-                            ) {
-                                SyncedLyricsView(
-                                    lyrics = uiState.lyrics,
-                                    positionState = lyricsPositionState,
-                                    onSeekTo = { posMs ->
-                                        onSeekTo(posMs)
-                                        if (!uiState.isPlaying) onPlayPauseClick()
-                                    },
-                                    isLoading = uiState.isLoadingLyrics,
-                                    lyricsMode = LyricsMode.CINEMA,
-                                    offsetMs = uiState.lyricsOffsetMs,
-                                    onOffsetChange = onLyricsOffsetChange,
-                                    onSearchManually = onSearchLyricsManually,
-                                    track = uiState.currentTrack,
-                                    lyricsClockSource = lyricsClockSource,
-                                    isPlaying = uiState.isPlaying,
-                                    isBuffering = uiState.isBuffering,
-                                    audioLeadingSilenceMs = uiState.audioLeadingSilenceMs,
-                                    readingFocusFraction = 0.22f
-                                )
+                // Player body: the large title fades out as soon as the cover starts to move.
+                if (expandedTitleShown) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = SIDE_GUTTER)
+                            .graphicsLayer {
+                                alpha = controlsAlpha * ClassicPlayerViewportMotion.expandedMetadataAlpha(heroProgress.value)
                             }
-                        }
+                    ) {
+                        Spacer(Modifier.weight(1f))
+                        ImmersiveTitleBlock(
+                            track = track,
+                            onShowTrackOptions = onShowTrackOptions,
+                            onArtistClick = onArtistClick
+                        )
+                        Spacer(Modifier.height(18.dp))
+                    }
+                }
 
-                        NowPlayingTab.QUEUE -> Column(
+                val lyricsLayerShown by motion.showLyricsLayer
+                val queueLayerShown by motion.showQueueLayer
+                if (lyricsLayerShown || queueLayerShown || !heroAtRest) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = controlsAlpha }
+                    ) {
+                        ImmersiveCompactHeader(
+                            track = track,
+                            heroProgress = heroProgress,
+                            enabled = compactActionsEnabled,
+                            drawOwnArtwork = hidePlayerThumbnail,
+                            onArtworkPositioned = { origin, sizePx ->
+                                compactArtOriginInRoot = origin
+                                compactArtSizePx = sizePx
+                            },
+                            onClick = { onTabChange(NowPlayingTab.PLAYER) },
+                            onShowTrackOptions = onShowTrackOptions
+                        )
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = controlsAlpha }
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .clipToBounds()
                         ) {
-                            ImmersiveCompactHeader(
-                                track = track,
-                                onClick = { onTabChange(NowPlayingTab.PLAYER) },
-                                onShowTrackOptions = onShowTrackOptions
-                            )
-                            ImmersiveQueueList(
-                                uiState = uiState,
-                                autoplayEnabled = autoplayEnabled,
-                                onSelectQueueTrack = onSelectQueueTrack,
-                                onReorderQueue = onReorderQueue,
-                                onRemoveQueueItem = onRemoveQueueItem,
-                                onShowQueueTrackOptions = onShowQueueTrackOptions,
-                                modifier = Modifier.weight(1f)
-                            )
+                            if (lyricsLayerShown) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(if (currentTab == NowPlayingTab.LYRICS) 1f else 0f)
+                                        .graphicsLayer {
+                                            alpha = motion.lyricsAlpha.value
+                                            translationY = motion.lyricsTranslationYDp.value.dp.toPx()
+                                        }
+                                        .padding(horizontal = SIDE_GUTTER - 8.dp)
+                                ) {
+                                    SyncedLyricsView(
+                                        lyrics = uiState.lyrics,
+                                        positionState = lyricsPositionState,
+                                        onSeekTo = { posMs ->
+                                            onSeekTo(posMs)
+                                            if (!uiState.isPlaying) onPlayPauseClick()
+                                        },
+                                        isLoading = uiState.isLoadingLyrics,
+                                        lyricsMode = LyricsMode.CINEMA,
+                                        offsetMs = uiState.lyricsOffsetMs,
+                                        onOffsetChange = onLyricsOffsetChange,
+                                        onSearchManually = onSearchLyricsManually,
+                                        track = uiState.currentTrack,
+                                        lyricsClockSource = lyricsClockSource,
+                                        isPlaying = uiState.isPlaying,
+                                        isBuffering = uiState.isBuffering,
+                                        audioLeadingSilenceMs = uiState.audioLeadingSilenceMs,
+                                        readingFocusFraction = 0.22f
+                                    )
+                                }
+                            }
+                            if (queueLayerShown) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(if (currentTab == NowPlayingTab.QUEUE) 1f else 0f)
+                                        .graphicsLayer {
+                                            alpha = motion.queueAlpha.value
+                                            translationY = motion.queueTranslationYDp.value.dp.toPx()
+                                        }
+                                ) {
+                                    ImmersiveQueueList(
+                                        uiState = uiState,
+                                        autoplayEnabled = autoplayEnabled,
+                                        onSelectQueueTrack = onSelectQueueTrack,
+                                        onReorderQueue = onReorderQueue,
+                                        onRemoveQueueItem = onRemoveQueueItem,
+                                        onShowQueueTrackOptions = onShowQueueTrackOptions,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -383,25 +433,30 @@ fun ImmersivePlayerContainer(
                     .padding(horizontal = SIDE_GUTTER)
                     .graphicsLayer { alpha = controlsAlpha }
             ) {
-                Box(
+                AnimatedContent(
+                    targetState = currentTab == NowPlayingTab.LYRICS,
+                    transitionSpec = { fadeIn(tween(220, delayMillis = 80)) togetherWith fadeOut(tween(160)) },
+                    contentAlignment = Alignment.CenterStart,
+                    label = "immersiveDeckCaption",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(22.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (currentTab == NowPlayingTab.LYRICS) {
-                        LyricsSourceCaption(lyrics = uiState.lyrics, onChange = onSearchLyricsManually)
-                    } else {
-                        LyricPreviewLine(
-                            lyrics = uiState.lyrics,
-                            positionState = lyricsPositionState,
-                            offsetMs = uiState.lyricsOffsetMs,
-                            onClick = { onTabChange(NowPlayingTab.LYRICS) }
-                        )
+                        .height(PREVIEW_LINE_HEIGHT)
+                ) { lyricsOpen ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                        if (lyricsOpen) {
+                            LyricsSourceCaption(lyrics = uiState.lyrics, onChange = onSearchLyricsManually)
+                        } else {
+                            LyricPreviewLine(
+                                lyrics = uiState.lyrics,
+                                positionState = lyricsPositionState,
+                                offsetMs = uiState.lyricsOffsetMs,
+                                isPlaying = uiState.isPlaying,
+                                isBuffering = uiState.isBuffering,
+                                onClick = { onTabChange(NowPlayingTab.LYRICS) }
+                            )
+                        }
                     }
                 }
-
-                Spacer(Modifier.height(6.dp))
 
                 ImmersiveScrubber(
                     positionState = seekBarPositionState,
@@ -456,8 +511,63 @@ fun ImmersivePlayerContainer(
                 Spacer(Modifier.height(6.dp))
             }
         }
+
+        // ── SLEEVE IN FLIGHT: one cover morphing between the full-bleed banner and the header ──
+        val compactOrigin = compactArtOriginInRoot
+        if (!heroAtRest && !hidePlayerThumbnail && containerWidthPx > 0 && compactOrigin != null && compactArtSizePx > 0) {
+            val compactCornerPx = with(density) { COMPACT_ART_CORNER.toPx() }
+            ArtworkCard(
+                url = track.thumbnail,
+                fallbackTrack = track,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .zIndex(4f)
+                    .graphicsLayer {
+                        val p = heroProgress.value.coerceIn(0f, 1f)
+                        val endScale = compactArtSizePx.toFloat() / containerWidthPx
+                        val s = 1f + (endScale - 1f) * p
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = s
+                        scaleY = s
+                        translationX = (compactOrigin.x - containerOriginInRoot.x) * p
+                        translationY = (compactOrigin.y - containerOriginInRoot.y) * p
+                        // The layer's shape is drawn before scaling, so divide out the scale.
+                        shape = RoundedCornerShape((compactCornerPx / s) * p)
+                        clip = true
+                    }
+                    .heroFadeMask { heroProgress.value },
+                cornerRadius = 0.dp,
+                elevation = 0.dp,
+                contentDescription = track.title,
+                contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
+                highRes = true,
+                crossfade = false
+            )
+        }
     }
 }
+
+/**
+ * Dissolves the banner's lower edge into the backdrop. [solidity] firms that edge back up
+ * (0 = full fade, 1 = none) as the cover shrinks into a plain thumbnail.
+ */
+private fun Modifier.heroFadeMask(solidity: () -> Float): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val firm = solidity().coerceIn(0f, 1f)
+        if (firm < 1f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black, Color.Black.copy(alpha = firm)),
+                    startY = size.height * (1f - HERO_FADE_FRACTION),
+                    endY = size.height
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
 
 /** The grab handle and "Playing from …" — the strip that pulls the player down. */
 @Composable
@@ -556,10 +666,18 @@ private fun ImmersiveTitleBlock(
     }
 }
 
-/** Small sleeve, title and menu: what the artwork shrinks to while lyrics or the queue are up. */
+/**
+ * Small sleeve, title and menu: where the artwork lands while lyrics or the queue are up.
+ * The sleeve itself is the flying cover drawn by the container; this only reserves and
+ * reports its slot, and fades the text in once the cover has mostly landed.
+ */
 @Composable
 private fun ImmersiveCompactHeader(
     track: Track,
+    heroProgress: State<Float>,
+    enabled: Boolean,
+    drawOwnArtwork: Boolean,
+    onArtworkPositioned: (Offset, Int) -> Unit,
     onClick: () -> Unit,
     onShowTrackOptions: () -> Unit
 ) {
@@ -568,45 +686,64 @@ private fun ImmersiveCompactHeader(
             .fillMaxWidth()
             .padding(horizontal = SIDE_GUTTER, vertical = 8.dp)
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ArtworkCard(
-            url = track.thumbnail,
-            fallbackTrack = track,
-            modifier = Modifier.size(54.dp),
-            cornerRadius = 6.dp,
-            elevation = 0.dp,
-            contentDescription = track.title,
-            crossfade = true
-        )
+        Box(
+            modifier = Modifier
+                .size(COMPACT_ART_SIZE)
+                .onGloballyPositioned { onArtworkPositioned(it.positionInRoot(), it.size.width) }
+        ) {
+            if (drawOwnArtwork) {
+                ArtworkCard(
+                    url = track.thumbnail,
+                    fallbackTrack = track,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = ClassicPlayerViewportMotion.compactMetadataAlpha(heroProgress.value) },
+                    cornerRadius = COMPACT_ART_CORNER,
+                    elevation = 0.dp,
+                    contentDescription = track.title,
+                    crossfade = true
+                )
+            }
+        }
         Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = track.artist,
-                color = Color.White.copy(alpha = 0.62f),
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .graphicsLayer { alpha = ClassicPlayerViewportMotion.compactMetadataAlpha(heroProgress.value) },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = track.artist,
+                    color = Color.White.copy(alpha = 0.62f),
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            ImmersiveCircleGlyph(
+                icon = Icons.Rounded.MoreHoriz,
+                contentDescription = str(R.string.more_options),
+                enabled = enabled,
+                onClick = onShowTrackOptions
             )
         }
-        Spacer(Modifier.width(12.dp))
-        ImmersiveCircleGlyph(
-            icon = Icons.Rounded.MoreHoriz,
-            contentDescription = str(R.string.more_options),
-            onClick = onShowTrackOptions
-        )
     }
 }
 
@@ -614,7 +751,8 @@ private fun ImmersiveCompactHeader(
 private fun ImmersiveCircleGlyph(
     icon: ImageVector,
     contentDescription: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
     Box(
@@ -623,6 +761,7 @@ private fun ImmersiveCircleGlyph(
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.18f))
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
@@ -637,80 +776,142 @@ private fun ImmersiveCircleGlyph(
 }
 
 /**
- * The line being sung, filled left to right as it is sung. Tapping it opens the lyrics.
- * Only the fill's character count is observed, so the clock recomposes this line alone
- * and only when another character lights up.
+ * The line being sung, drawn by the MetroLyrics word renderer (per-letter sweep, lift and
+ * glow). When the line changes, the old line drifts up and dissolves while the next one
+ * rises into its place, and the trailing chevron glides to the new line's end.
  */
 @Composable
 private fun LyricPreviewLine(
     lyrics: LyricsData?,
     positionState: State<Long>,
     offsetMs: Long,
+    isPlaying: Boolean,
+    isBuffering: Boolean,
     onClick: () -> Unit
 ) {
+    val syncType = lyrics?.syncType ?: SyncType.PLAIN
     val lines = remember(lyrics) {
         if (lyrics == null || lyrics.syncType == SyncType.PLAIN) emptyList()
-        else lyrics.lines.filter { !it.isInstrumental && it.text.isNotBlank() }
+        else lyrics.lines
+            .map { WordTiming.splitMergedWordsInLine(it) }
+            .filter { !it.isInstrumental && !it.isBackground && it.text.isNotBlank() }
     }
     if (lines.isEmpty()) return
 
     val activeIndex by remember(lines, offsetMs) {
         derivedStateOf { LyricsEngine.findActiveLyricIndex(lines, positionState.value, offsetMs) }
     }
-    val line = lines.getOrNull(activeIndex) ?: return
-    val nextStart = lines.getOrNull(activeIndex + 1)?.time
-    val litChars by remember(line, offsetMs, nextStart) {
-        derivedStateOf {
-            val now = positionState.value + offsetMs
-            val words = line.words?.filter { it.word.isNotBlank() }
-            val fraction = if (!words.isNullOrEmpty()) {
-                val total = words.sumOf { it.word.length }.coerceAtLeast(1)
-                var lit = 0f
-                for (word in words) {
-                    if (now < word.time) break
-                    val end = word.endTime
-                    lit += if (end == null || end <= word.time || now >= end) {
-                        word.word.length.toFloat()
-                    } else {
-                        word.word.length * ((now - word.time).toFloat() / (end - word.time))
-                    }
-                }
-                lit / total
-            } else {
-                val end = line.effectiveEndTime ?: nextStart ?: (line.time + 4000L)
-                if (end <= line.time) 1f else (now - line.time).toFloat() / (end - line.time)
-            }
-            (fraction.coerceIn(0f, 1f) * line.text.length).roundToInt()
+
+    AnimatedContent(
+        targetState = activeIndex,
+        transitionSpec = {
+            val forward = targetState >= initialState
+            val enter = slideInVertically(tween(560, delayMillis = 70, easing = FastOutSlowInEasing)) {
+                if (forward) it else -it
+            } + fadeIn(tween(420, delayMillis = 110, easing = LinearOutSlowInEasing)) +
+                scaleIn(tween(560, delayMillis = 70, easing = FastOutSlowInEasing), initialScale = 0.94f, transformOrigin = TransformOrigin(0f, 0.5f))
+            val exit = slideOutVertically(tween(520, easing = FastOutSlowInEasing)) {
+                if (forward) -it else it
+            } + fadeOut(tween(340, easing = FastOutLinearInEasing)) +
+                scaleOut(tween(520, easing = FastOutSlowInEasing), targetScale = 0.94f, transformOrigin = TransformOrigin(0f, 0.5f))
+            (enter togetherWith exit).using(SizeTransform(clip = false) { _, _ -> tween(520, easing = FastOutSlowInEasing) })
+        },
+        contentAlignment = Alignment.CenterStart,
+        label = "immersiveLyricLine"
+    ) { index ->
+        val line = lines.getOrNull(index)
+        if (line == null) {
+            Spacer(Modifier.height(1.dp))
+            return@AnimatedContent
+        }
+        // The leaving line softens out of focus as it goes; the arriving one sharpens in.
+        val blur by transition.animateDp(
+            transitionSpec = { tween(480, easing = FastOutSlowInEasing) },
+            label = "lyricLineBlur"
+        ) { if (it == EnterExitState.Visible) 0.dp else 6.dp }
+
+        Row(
+            modifier = Modifier
+                .blur(blur, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MetroPreviewText(
+                line = line,
+                syncType = syncType,
+                positionMs = { positionState.value + offsetMs },
+                isPlaying = isPlaying,
+                isBuffering = isBuffering
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = str(R.string.lyrics),
+                tint = Color.White.copy(alpha = 0.55f),
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
+}
 
-    Row(
-        modifier = Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onClick
-        ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = buildAnnotatedString {
-                val split = litChars.coerceIn(0, line.text.length)
-                withStyle(SpanStyle(color = Color.White)) { append(line.text.substring(0, split)) }
-                withStyle(SpanStyle(color = Color.White.copy(alpha = 0.5f))) { append(line.text.substring(split)) }
-            },
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-        Spacer(Modifier.width(6.dp))
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = str(R.string.lyrics),
-            tint = Color.White.copy(alpha = 0.55f),
-            modifier = Modifier.size(16.dp)
-        )
+private val PreviewLyricStyle = TextStyle(
+    fontSize = 15.sp,
+    fontWeight = FontWeight.Bold,
+    lineHeight = 19.sp,
+    letterSpacing = (-0.2).sp,
+    textAlign = TextAlign.Left,
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = LineHeightStyle(
+        alignment = LineHeightStyle.Alignment.Center,
+        trim = LineHeightStyle.Trim.Both
+    )
+)
+
+/** One line through the Metro word renderer, sized to its own text so the chevron can follow it. */
+@Composable
+private fun MetroPreviewText(
+    line: LyricLine,
+    syncType: SyncType,
+    positionMs: () -> Long,
+    isPlaying: Boolean,
+    isBuffering: Boolean
+) {
+    val text = line.text.trim()
+    val words = remember(line, syncType) {
+        resolveExperimentalWordTimestamps(line, syncType)?.let { presentationWordTimestamps(it) }
+    }
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    BoxWithConstraints {
+        val availablePx = with(density) { (maxWidth - 22.dp).roundToPx() }.coerceAtLeast(1)
+        val textWidthPx = remember(text, availablePx) {
+            (measurer.measure(text, PreviewLyricStyle, softWrap = false).size.width + 2).coerceAtMost(availablePx)
+        }
+        Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
+            if (words != null) {
+                ExperimentalWordLevelLyrics(
+                    mainText = text,
+                    words = words,
+                    isActiveLine = true,
+                    currentPositionState = positionMs(),
+                    lyricStyle = PreviewLyricStyle,
+                    lineColor = Color.White.copy(alpha = 0.5f),
+                    expressiveAccent = Color.White,
+                    isBackground = false,
+                    focusedAlpha = 0.5f,
+                    alignment = TextAlign.Left,
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering
+                )
+            } else {
+                // Line-timed lyrics have no word clock to sweep; the whole line is lit, as in Metro.
+                Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = 2)
+            }
+        }
     }
 }
 
