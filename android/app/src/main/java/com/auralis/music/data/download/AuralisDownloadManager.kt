@@ -43,7 +43,11 @@ object AuralisDownloadManager {
 
     private const val TAG = "AuralisDownload"
     /** YouTube only serves this video to a signed-in, age-verified account. */
-    const val AGE_RESTRICTED_ERROR = "Age-restricted on YouTube (needs a signed-in account)"
+    const val AGE_RESTRICTED_ERROR = "Age-restricted on YouTube. Sign in to YouTube in Profile to download it"
+    /** Signed in, but no YouTube client handed over a downloadable stream. */
+    const val AGE_RESTRICTED_ACCOUNT_ERROR = "Age-restricted on YouTube. Couldn't download it even with your YouTube sign-in"
+
+    fun isAgeRestrictedError(error: String?) = error == AGE_RESTRICTED_ERROR || error == AGE_RESTRICTED_ACCOUNT_ERROR
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -313,10 +317,23 @@ object AuralisDownloadManager {
                 }
             }
 
+            // Strategy G: age-restricted videos only play for a signed-in YouTube account.
+            if (streamUrl.isNullOrBlank() && ageRestricted && com.auralis.music.data.network.YouTubeSession.isSignedIn) {
+                streamUrl = withTimeoutOrNull(30000L) {
+                    com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id)
+                }
+                if (!streamUrl.isNullOrBlank()) Log.d(TAG, "Strategy G resolved via YouTube sign-in for '${track.title}'")
+            }
+
             val initialUrl = streamUrl
             if (initialUrl.isNullOrBlank()) {
-                // Every YouTube client asks for a signed-in account here; retrying can't help.
-                if (ageRestricted) throw IllegalStateException(AGE_RESTRICTED_ERROR)
+                // Every signed-out YouTube client asks for an account here; retrying can't help.
+                if (ageRestricted) {
+                    throw IllegalStateException(
+                        if (com.auralis.music.data.network.YouTubeSession.isSignedIn) AGE_RESTRICTED_ACCOUNT_ERROR
+                        else AGE_RESTRICTED_ERROR
+                    )
+                }
                 throw IllegalStateException("Unable to resolve audio stream URL for '${track.title}'")
             }
 
@@ -332,7 +349,14 @@ object AuralisDownloadManager {
             if (!downloadSuccess) {
                 Log.w(TAG, "Initial download failed. Attempting fresh stream re-resolution...")
                 AudioStreamResolver.clearCache()
-                var freshStream = withTimeoutOrNull(15000L) {
+                // A refused signed-in stream can mean a stale player config: refresh it, then retry.
+                var freshStream = if (ageRestricted) {
+                    com.auralis.music.data.network.InnerTubePlayerResolver.onSignedInStreamRejected()
+                    withTimeoutOrNull(30000L) {
+                        com.auralis.music.data.network.InnerTubePlayerResolver.resolveSignedInStream(track.id)
+                    }
+                } else null
+                if (freshStream.isNullOrBlank()) freshStream = withTimeoutOrNull(15000L) {
                     AudioStreamResolver.resolveAudioStream(
                         videoId = track.id,
                         title = track.title,
@@ -431,7 +455,10 @@ object AuralisDownloadManager {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for '${track.title}' (${track.id}) at $stage: ${e.message}", e)
-            showToast("Download failed for '${track.title}'")
+            showToast(
+                if (isAgeRestrictedError(e.message)) "'${track.title}': ${e.message}"
+                else "Download failed for '${track.title}'"
+            )
             return TrackDownloadResult(track.id, DownloadOutcome.FAILURE, stage, e.message ?: e.javaClass.simpleName)
         } finally {
             tempFile?.takeIf { it.exists() }?.delete()
@@ -465,7 +492,8 @@ object AuralisDownloadManager {
                 httpClient.newCall(request).execute().use { response ->
                     if ((response.isSuccessful || response.code == 206) && response.body != null) {
                         val body = response.body!!
-                        val contentLength = body.contentLength().coerceAtLeast(1L)
+                        val expectedBytes = body.contentLength()
+                        val contentLength = expectedBytes.coerceAtLeast(1L)
                         var bytesReadTotal = 0L
 
                         body.byteStream().use { input ->
@@ -490,7 +518,12 @@ object AuralisDownloadManager {
                             }
                         }
 
-                        if (tempFile.exists() && tempFile.length() > 5000) {
+                        // Some YouTube streams stop after a free first MiB instead of failing outright;
+                        // a cut-off file must not be saved as the song.
+                        val complete = expectedBytes <= 0L || bytesReadTotal >= expectedBytes
+                        if (!complete) {
+                            Log.w(TAG, "Stream ended early: $bytesReadTotal of $expectedBytes bytes")
+                        } else if (tempFile.exists() && tempFile.length() > 5000) {
                             return true
                         }
                     } else {

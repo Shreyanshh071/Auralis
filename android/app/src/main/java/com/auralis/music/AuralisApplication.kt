@@ -16,6 +16,11 @@ import kotlinx.coroutines.launch
 class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
+        com.auralis.music.data.network.YouTubeSession.init(this)
+        // zemer-cipher logs through Timber; keep its lines in logcat for diagnosing downloads.
+        if (timber.log.Timber.treeCount == 0) timber.log.Timber.plant(timber.log.Timber.DebugTree())
+        com.zemer.cipher.ZemerCipher.initialize(this)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
                 com.auralis.music.data.network.AudioStreamResolver.init(this@AuralisApplication)
