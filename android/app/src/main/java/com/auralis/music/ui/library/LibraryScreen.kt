@@ -2014,6 +2014,7 @@ private fun PlaylistDetailView(
     var originalDragIndex by remember { mutableStateOf(-1) }
     var currentPointerY by remember { mutableStateOf(0f) }
     var grabOffsetY by remember { mutableStateOf(0f) }
+    var listTopInRoot by remember { mutableStateOf(0f) }
     val reorderState = remember { PlaylistDragReorderState() }
     // playlistListState preserved for scroll position retention
     val playlistListState = androidx.compose.runtime.saveable.rememberSaveable(
@@ -2301,72 +2302,7 @@ private fun PlaylistDetailView(
                 state = playlistListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(canReorder) {
-                        if (!canReorder) return@pointerInput
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { startOffset ->
-                                if (localItems.isEmpty() || localItems.size != validPlaylistTracks.size) {
-                                    localItems.clear()
-                                    localItems.addAll(
-                                        validPlaylistTracks.mapIndexed { index, track ->
-                                            PlaylistTrackItem(
-                                                instanceId = "${track.id}_$index",
-                                                track = track
-                                            )
-                                        }
-                                    )
-                                }
-                                val visibleSongItems = playlistListState.layoutInfo.visibleItemsInfo.filter { it.contentType == "song" }
-                                val hitItem = visibleSongItems.find { info ->
-                                    startOffset.y.toInt() in info.offset..(info.offset + info.size)
-                                }
-                                if (hitItem != null) {
-                                    val hitInstanceId = hitItem.key as? String
-                                    val idx = if (hitInstanceId != null) localItems.indexOfFirst { it.instanceId == hitInstanceId } else -1
-                                    if (idx != -1) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        originalDragIndex = idx
-                                        draggingInstanceId = hitInstanceId
-                                        grabOffsetY = startOffset.y - hitItem.offset.toFloat()
-                                        currentPointerY = startOffset.y
-                                        reorderState.reset()
-                                        isDragging = true
-                                    }
-                                }
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                currentPointerY = change.position.y
-                                checkTargetSwap(currentPointerY)
-                            },
-                            onDragEnd = {
-                                val finalIdx = localItems.indexOfFirst { it.instanceId == draggingInstanceId }
-                                val startIdx = originalDragIndex
-                                isDragging = false
-                                draggingInstanceId = null
-                                originalDragIndex = -1
-                                reorderState.reset()
-                                if (startIdx != -1 && finalIdx != -1 && startIdx != finalIdx) {
-                                    onReorderTracks?.invoke(startIdx, finalIdx)
-                                }
-                            },
-                            onDragCancel = {
-                                localItems.clear()
-                                localItems.addAll(
-                                    validPlaylistTracks.mapIndexed { index, track ->
-                                        PlaylistTrackItem(
-                                            instanceId = "${track.id}_$index",
-                                            track = track
-                                        )
-                                    }
-                                )
-                                isDragging = false
-                                draggingInstanceId = null
-                                originalDragIndex = -1
-                                reorderState.reset()
-                            }
-                        )
-                    },
+                    .onGloballyPositioned { listTopInRoot = it.positionInRoot().y },
                 contentPadding = bottomChromePadding()
             ) {
                 // Header Content
@@ -2731,6 +2667,54 @@ private fun PlaylistDetailView(
                         onMenuClick = onMenuClick,
                         onPlayNext = onPlayNextTrack,
                         onAddToQueue = onAddToQueueTrack,
+                        listTopInRoot = listTopInRoot,
+                        onReorderDragStart = { pointerY ->
+                            if (localItems.isEmpty() || localItems.size != validPlaylistTracks.size) {
+                                localItems.clear()
+                                localItems.addAll(validPlaylistTracks.mapIndexed { index, song ->
+                                    PlaylistTrackItem(instanceId = "${song.id}_$index", track = song)
+                                })
+                            }
+                            val index = localItems.indexOfFirst { it.instanceId == item.instanceId }
+                            val visibleItem = playlistListState.layoutInfo.visibleItemsInfo
+                                .firstOrNull { it.key == item.instanceId }
+                            if (index >= 0 && visibleItem != null) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                originalDragIndex = index
+                                draggingInstanceId = item.instanceId
+                                grabOffsetY = pointerY - visibleItem.offset
+                                currentPointerY = pointerY
+                                reorderState.reset()
+                                isDragging = true
+                            }
+                        },
+                        onReorderDrag = { deltaY ->
+                            if (isDragging) {
+                                currentPointerY += deltaY
+                                checkTargetSwap(currentPointerY)
+                            }
+                        },
+                        onReorderDragEnd = {
+                            val finalIndex = localItems.indexOfFirst { it.instanceId == draggingInstanceId }
+                            val startIndex = originalDragIndex
+                            isDragging = false
+                            draggingInstanceId = null
+                            originalDragIndex = -1
+                            reorderState.reset()
+                            if (startIndex >= 0 && finalIndex >= 0 && startIndex != finalIndex) {
+                                onReorderTracks?.invoke(startIndex, finalIndex)
+                            }
+                        },
+                        onReorderDragCancel = {
+                            localItems.clear()
+                            localItems.addAll(validPlaylistTracks.mapIndexed { index, song ->
+                                PlaylistTrackItem(instanceId = "${song.id}_$index", track = song)
+                            })
+                            isDragging = false
+                            draggingInstanceId = null
+                            originalDragIndex = -1
+                            reorderState.reset()
+                        },
                         onRemoveFromPlaylist = { trackId ->
                             localItems.removeAll { it.track.id == trackId }
                             onRemoveTrack(trackId)
@@ -3738,6 +3722,11 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     onMenuClick: (Track) -> Unit,
     onPlayNext: ((Track) -> Unit)?,
     onAddToQueue: ((Track) -> Unit)?,
+    listTopInRoot: Float,
+    onReorderDragStart: (Float) -> Unit,
+    onReorderDrag: (Float) -> Unit,
+    onReorderDragEnd: () -> Unit,
+    onReorderDragCancel: () -> Unit,
     onRemoveFromPlaylist: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -3751,6 +3740,12 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             track.artist
         }
     }
+    var handleTopInRoot by remember { mutableStateOf(0f) }
+    val currentListTop by androidx.compose.runtime.rememberUpdatedState(listTopInRoot)
+    val currentDragStart by androidx.compose.runtime.rememberUpdatedState(onReorderDragStart)
+    val currentDrag by androidx.compose.runtime.rememberUpdatedState(onReorderDrag)
+    val currentDragEnd by androidx.compose.runtime.rememberUpdatedState(onReorderDragEnd)
+    val currentDragCancel by androidx.compose.runtime.rememberUpdatedState(onReorderDragCancel)
 
     com.auralis.music.ui.components.SwipeableTrackContainer(
         onPlayNext = onPlayNext?.let { { it(track) } },
@@ -3787,7 +3782,8 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                             onPlayTrack(track)
                         }
                     },
-                    // Custom sort uses the hold to start dragging the row instead.
+                    // While unlocked, only the handle owns a long press. Other row areas
+                    // retain their normal tap behavior without starting a reorder.
                     onLongClick = if (!isCustomSort) { { onMenuClick(track) } } else null
                 )
                 .padding(vertical = 4.dp),
@@ -3836,7 +3832,22 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
 
             if (isCustomSort) {
                 Box(
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .onGloballyPositioned { handleTopInRoot = it.positionInRoot().y }
+                        .pointerInput(isCustomSort) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { offset ->
+                                    currentDragStart(handleTopInRoot - currentListTop + offset.y)
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    currentDrag(amount.y)
+                                },
+                                onDragEnd = { currentDragEnd() },
+                                onDragCancel = { currentDragCancel() }
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

@@ -1391,7 +1391,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         // restart the fetch and put this guest further behind.
         if (streamResolveJob?.isActive == true) return
         val curTrack = _currentTrack.value ?: return
-        if (isUsingExoPlayer && exoPlayer.mediaItemCount > 0) {
+        // Playback resumption may restore a metadata-only item into ExoPlayer. It has no
+        // stream URI; resolve the saved track again instead of trying to play that item.
+        if (isUsingExoPlayer && exoPlayer.mediaItemCount > 0 &&
+            exoPlayer.currentMediaItem?.localConfiguration?.uri != null) {
             if (exoPlayer.playbackState == Player.STATE_IDLE) {
                 exoPlayer.prepare()
             }
