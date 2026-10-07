@@ -54,6 +54,9 @@
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_notification_auralis" />
 
+        <!-- Lets on-device profilers (perfetto heapprofd) attach to release builds; no runtime cost. -->
+        <profileable android:shell="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

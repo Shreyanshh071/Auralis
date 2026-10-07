@@ -86,7 +86,13 @@ object TrackDeduplicator {
     /**
      * Extracts a normalized fingerprint for a track using TitleCleaner.
      */
-    fun getSongFingerprint(track: Track): SongFingerprint {
+    fun getSongFingerprint(track: Track): SongFingerprint =
+        // Keyed by the whole Track: every field the fingerprint reads is part of it.
+        fingerprintMemo.getOrPut(track) { computeSongFingerprint(track) }
+
+    private val fingerprintMemo = com.auralis.music.util.BoundedMemo<Track, SongFingerprint>(4096)
+
+    private fun computeSongFingerprint(track: Track): SongFingerprint {
         val (rawArtist, rawTitle) = TitleCleaner.splitArtistAndTitle(track.title, track.artist)
         val cleaned = TitleCleaner.cleanTitle(rawTitle).ifBlank { rawTitle.trim() }
         val normTitle = cleaned.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")

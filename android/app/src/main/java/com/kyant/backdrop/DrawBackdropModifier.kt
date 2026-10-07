@@ -27,6 +27,7 @@ import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.LayoutModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.ObserverModifierNode
+import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.platform.InspectorInfo
@@ -177,6 +178,7 @@ private class DrawBackdropElement(
     }
 
     override fun update(node: DrawBackdropNode) {
+        val backdropChanged = node.backdrop != backdrop
         node.backdrop = backdrop
         node.shapeProvider = shapeProvider
         node.effects = effects
@@ -190,6 +192,10 @@ private class DrawBackdropElement(
         node.onDrawSurface = onDrawSurface
         node.onDrawFront = onDrawFront
         node.invalidateDrawCache()
+        // The recorded image changes when a tab replaces its page backdrop even if the
+        // glass control keeps the same size and position. Re-record its draw layer now;
+        // otherwise it can keep showing the previous tab's empty fallback surface.
+        if (backdropChanged) node.invalidateDraw()
     }
 
     override fun InspectorInfo.inspectableProperties() {

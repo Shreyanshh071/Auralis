@@ -273,6 +273,11 @@ fun ImmersivePlayerContainer(
     var controlsHeightPx by remember { mutableIntStateOf(0) }
     val controlsHeightDp = with(density) { controlsHeightPx.toDp() }
     val controlsVisible = currentTab == NowPlayingTab.PLAYER || controlsShown
+    val previewHeight by animateDpAsState(
+        targetValue = if (currentTab == NowPlayingTab.LYRICS || uiState.showInlineLyrics) PREVIEW_LINE_HEIGHT else 24.dp,
+        animationSpec = if (LocalReducedMotion.current) snap() else tween(250, easing = FastOutSlowInEasing),
+        label = "immersivePreviewHeight"
+    )
     val controlsReveal = animateFloatAsState(
         targetValue = if (controlsVisible) 1f else 0f,
         animationSpec = tween(
@@ -527,8 +532,7 @@ fun ImmersivePlayerContainer(
                                         lyricsClockSource = lyricsClockSource,
                                         isPlaying = uiState.isPlaying,
                                         isBuffering = uiState.isBuffering,
-                                        audioLeadingSilenceMs = uiState.audioLeadingSilenceMs,
-                                        readingFocusFraction = 0.22f
+                                        audioLeadingSilenceMs = uiState.audioLeadingSilenceMs
                                     )
                                 }
                             }
@@ -626,12 +630,12 @@ fun ImmersivePlayerContainer(
                             label = "immersiveDeckCaption",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(PREVIEW_LINE_HEIGHT)
+                                .height(previewHeight)
                         ) { lyricsOpen ->
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                                 if (lyricsOpen) {
                                     LyricsSourceCaption(lyrics = uiState.lyrics, onChange = { showLyricsProviders = true })
-                                } else {
+                                } else if (uiState.showInlineLyrics) {
                                     LyricPreviewLine(
                                         lyrics = uiState.lyrics,
                                         isLoading = uiState.isLoadingLyrics,

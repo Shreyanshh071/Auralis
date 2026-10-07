@@ -57,9 +57,12 @@ private const val GLOW_MIN_HELD_MS = 900L
 private const val GLOW_ALPHA = 0.55f
 private val GLOW_RADIUS = 6.dp
 
-/** Falloff by distance from the playing line: alpha, then blur in dp. Last entry covers the rest. */
-internal val FluidFalloffAlpha = floatArrayOf(1f, 0.78f, 0.62f, 0.5f, 0.4f)
-internal val FluidFalloffBlurDp = floatArrayOf(0f, 1.2f, 1.8f, 2.6f, 3.4f)
+/**
+ * Alpha by distance from the playing line, Metro's own curve. Last entry covers the rest.
+ * The old 0.78/0.62 steps on top of the 0.42 grey left neighbours at ~0.33: blurred white text at
+ * that level reads as lit, not as a line that is over.
+ */
+internal val FluidFalloffAlpha = floatArrayOf(1f, 0.20f, 0.20f, 0.15f, 0.10f, 0.08f)
 
 internal fun fluidFalloffIndex(distance: Int): Int = distance.coerceIn(0, FluidFalloffAlpha.lastIndex)
 
@@ -117,7 +120,9 @@ private fun buildTiming(line: LyricLine, words: List<LyricWord>): FluidTiming {
 
 /**
  * The playing line, swept and lifted in time with [positionMs]. [words] are the provider's word
- * timings; without them the whole line lights at once.
+ * timings; without them the whole line lights at once. Every other line ([isActive] false), sung
+ * or not, is the dim copy only: a finished line going back to dim is what keeps the sung one
+ * standing out, as in Metro.
  */
 @Composable
 internal fun FluidLyricLine(
@@ -125,8 +130,20 @@ internal fun FluidLyricLine(
     words: List<LyricWord>?,
     positionMs: State<Long>,
     style: TextStyle,
+    isActive: Boolean,
     modifier: Modifier = Modifier
 ) {
+    if (!isActive) {
+        // Full white: the row's alpha is the whole dimming ([FluidFalloffAlpha]), as in Metro.
+        Text(
+            text = line.text,
+            style = style,
+            color = Color.White,
+            overflow = TextOverflow.Visible,
+            modifier = modifier.fillMaxWidth()
+        )
+        return
+    }
     val timing = remember(line, words) {
         if (words.isNullOrEmpty()) null else buildTiming(line, words)
     }

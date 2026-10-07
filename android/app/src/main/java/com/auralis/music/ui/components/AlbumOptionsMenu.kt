@@ -69,13 +69,11 @@ fun AlbumOptionsMenu(
     val context = LocalContext.current
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
-    // surfaceVariant alone reads near-white under artwork-derived (dynamic) palettes;
-    // pulled 40% back toward the sheet so the cards stay distinct but calm.
-    val actionCardColor = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.surface,
-        MaterialTheme.colorScheme.surfaceVariant,
-        0.6f
-    )
+    // The sheet sits on the album cover's own colour field; cards are translucent over it.
+    val actionCardColor = Color.White.copy(alpha = 0.08f)
+    // Long-pressed in liquid glass mode: the small glass menu pops from the album instead.
+    val glassAnchor = rememberContextMenuAnchor()
+    var useGlassMenu by remember { mutableStateOf(glassAnchor != null) }
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -83,15 +81,58 @@ fun AlbumOptionsMenu(
     var localIsFavorite by remember(isFavorite) { mutableStateOf(isFavorite) }
     var localIsPinned by remember(isPinned) { mutableStateOf(isPinned) }
 
+    if (useGlassMenu && glassAnchor != null) {
+        val items = buildList {
+            add(GlassMenuItem(str(R.string.play_next), Icons.AutoMirrored.Filled.QueueMusic) { onPlayNext() })
+            add(GlassMenuItem(str(R.string.add_to_queue), Icons.AutoMirrored.Filled.QueueMusic) { onAddToQueue() })
+            add(GlassMenuItem(str(R.string.shuffle), Icons.Default.Shuffle) { onShuffle() })
+            add(GlassMenuItem(str(R.string.add_to_playlist), Icons.AutoMirrored.Filled.PlaylistAdd) { onCreatePlaylistAndAdd(album.title) })
+            // Hands over to the regular sheet's playlist picker.
+            add(GlassMenuItem(str(R.string.add_to_other_playlist), Icons.Default.Add, dismisses = false) {
+                showPlaylistPicker = true
+                useGlassMenu = false
+            })
+            add(GlassMenuItem(
+                if (localIsFavorite) str(R.string.remove_from_library) else str(R.string.add_to_library),
+                if (localIsFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                tint = if (localIsFavorite) Color(0xFFFF4081) else null
+            ) {
+                val newFav = !localIsFavorite
+                localIsFavorite = newFav
+                onToggleFavorite()
+                android.widget.Toast.makeText(
+                    context,
+                    if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            })
+            add(GlassMenuItem(
+                if (localIsPinned) str(R.string.unpin_from_speed_dial) else str(R.string.pin_to_speed_dial),
+                if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add
+            ) {
+                localIsPinned = !localIsPinned
+                onPinToSpeedDial()
+            })
+            add(GlassMenuItem(str(R.string.download), Icons.Default.Download) { onDownload() })
+            if (!album.author.isNullOrBlank() && onViewArtist != null) {
+                add(GlassMenuItem(str(R.string.view_artist), Icons.Default.Person) { onViewArtist() })
+            }
+            add(GlassMenuItem(str(R.string.share), Icons.Default.Share) { onShare() })
+        }
+        GlassContextMenu(anchor = glassAnchor, items = items, onDismiss = onDismiss)
+    } else CoverSheetTheme {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = dynamicSurface,
+        containerColor = CoverSheetFloor,
         contentColor = MaterialTheme.colorScheme.onSurface,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         modifier = modifier
     ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+        // The album cover's own colours fill the sheet behind its content.
+        Box(modifier = Modifier.matchParentSize()) { CoverSheetBackground(album.thumbnail) }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -496,6 +537,8 @@ fun AlbumOptionsMenu(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+        }
+    }
     }
 
     if (showCreatePlaylistDialog) {

@@ -1,5 +1,6 @@
 package com.auralis.music.ui.home
 
+import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.ui.i18n.str
 
 import com.auralis.music.ui.theme.*
@@ -592,6 +593,7 @@ fun HomeScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .contextMenuAnchor()
                                                 .clip(RoundedCornerShape(10.dp))
                                                 .combinedClickable(
                                                     onClick = { onTrackClick(track, listOf(track)) },
@@ -692,6 +694,7 @@ fun HomeScreen(
                                 Column(
                                     modifier = Modifier
                                         .width(115.dp)
+                                        .contextMenuAnchor()
                                         .clip(RoundedCornerShape(14.dp))
                                         .combinedClickable(
                                             onClick = { onTrackClick(track, listOf(track)) },
@@ -799,6 +802,7 @@ fun HomeScreen(
                                     Column(
                                         modifier = Modifier
                                             .width(115.dp)
+                                            .contextMenuAnchor()
                                             .clip(RoundedCornerShape(12.dp))
                                             // Long-press opens the song's ⋮ menu, like every other Home shelf.
                                             .combinedClickable(
@@ -875,6 +879,7 @@ fun HomeScreen(
                                             Column(
                                                 modifier = Modifier
                                                     .width(120.dp)
+                                                    .contextMenuAnchor()
                                                     .clip(RoundedCornerShape(12.dp))
                                                     .combinedClickable(
                                                         onClick = { onTrackClick(track, listOf(track)) },
@@ -1200,6 +1205,7 @@ private fun SpeedDialTile(
     // Track Tile (Full Square Album Cover + Title Overlay)
     Box(
         modifier = modifier
+            .then(if (onLongClick != null) Modifier.contextMenuAnchor() else Modifier)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
             .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)), RoundedCornerShape(14.dp))

@@ -1,5 +1,6 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -480,6 +481,7 @@ fun ArtistScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .contextMenuAnchor()
                                 .combinedClickable(
                                     onClick = { onTrackClick(track, artistPage.topSongs) },
                                     onLongClick = { selectedTrackForMenu = track }
@@ -567,6 +569,7 @@ fun ArtistScreen(
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
+                                    .contextMenuAnchor()
                                     .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
                                         onClick = { onAlbumClick(album) },
@@ -626,6 +629,7 @@ fun ArtistScreen(
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
+                                    .contextMenuAnchor()
                                     .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
                                         onClick = { onAlbumClick(single) },

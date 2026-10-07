@@ -150,7 +150,8 @@ import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private const val LYRICS_ANCHOR_RATIO = 0.35f
+/** Where the sung line rests, as a fraction of the lyrics viewport. Every lyrics style uses it. */
+internal const val LYRICS_ANCHOR_RATIO = 0.35f
 private val LYRICS_ITEM_FALLBACK_HEIGHT_DP = 68.dp
 private val LYRICS_ITEM_GAP_DP = 16.dp
 private val LYRICS_FADE_TOP_DP = 44.dp

@@ -22,6 +22,7 @@ open class InnerTubeClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         const val FILTER_SONGS = "EgWKAQIIAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
+        const val FILTER_VIDEOS = "EgWKAQIQAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
         const val FILTER_ARTISTS = "EgWKAQIgAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
         const val FILTER_PLAYLISTS = "EgeKAQQoADgBahIQBRAJEAoQAxAOEAQQEBAVEBE%3D"
         const val FILTER_ALBUMS = "EgWKAQIYAWoSEAUQCRAKEAMQDhAEEBAQFRAR"

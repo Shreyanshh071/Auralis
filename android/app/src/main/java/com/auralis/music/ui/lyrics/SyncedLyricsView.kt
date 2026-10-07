@@ -100,6 +100,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.pow
 
@@ -136,7 +137,7 @@ fun SyncedLyricsView(
     isPlaying: Boolean = true,
     isBuffering: Boolean = false,
     audioLeadingSilenceMs: Long? = null,
-    readingFocusFraction: Float = 0.45f,
+    readingFocusFraction: Float = LYRICS_ANCHOR_RATIO,
     listState: LazyListState = rememberLazyListState(),
     standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
     loadingAlignment: Alignment = Alignment.Center
@@ -173,10 +174,15 @@ fun SyncedLyricsView(
     // ── DIAGNOSTIC REQUIREMENT 2: Log exact playback sync state when the first vocal starts ──
     var hasLoggedFirstVocalDiag by remember(lyrics, track?.id) { mutableStateOf(false) }
     val firstVocalLine = remember(lyrics) { lyrics?.lines?.firstOrNull { !it.isInstrumental } }
-    LaunchedEffect(positionState.value, lyrics, track?.id) {
+    // The clock is read inside snapshotFlow, never as an effect key: keying on positionState.value
+    // recomposed this whole view on every lyric-clock frame, which is what made autoscroll stutter
+    // in every style but Metro (Metro's view never read it at this level).
+    LaunchedEffect(lyrics, track?.id) {
         val fvLine = firstVocalLine ?: return@LaunchedEffect
-        val curPos = positionState.value + offsetMs
-        if (!hasLoggedFirstVocalDiag && curPos >= (fvLine.time - 50L) && curPos <= (fvLine.time + 4000L)) {
+        if (hasLoggedFirstVocalDiag) return@LaunchedEffect
+        val curPos = snapshotFlow { positionState.value + offsetMs }
+            .first { it >= (fvLine.time - 50L) && it <= (fvLine.time + 4000L) }
+        run {
             hasLoggedFirstVocalDiag = true
             val exoPos = lyricsClockSource?.rawPositionMs() ?: -1L
             val appliedOffset = lyrics?.appliedOffsetMs ?: 0L
@@ -339,18 +345,20 @@ fun SyncedLyricsView(
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     var pendingSeekTarget by remember { mutableStateOf<SyncedPendingSeekTarget?>(null) }
 
-    LaunchedEffect(positionState.value, isBuffering) {
-        val pending = pendingSeekTarget
-        if (pending != null) {
+    // Runs only while a seek is pending, and reads the clock inside the effect (see above).
+    LaunchedEffect(pendingSeekTarget, isBuffering) {
+        val pending = pendingSeekTarget ?: return@LaunchedEffect
+        launch {
+            delay((pending.timestamp + 1500L - System.currentTimeMillis()).coerceAtLeast(0L))
+            if (pendingSeekTarget === pending) pendingSeekTarget = null
+        }
+        snapshotFlow { positionState.value + offsetMs }.collect { currentPos ->
             val now = System.currentTimeMillis()
-            val currentPos = positionState.value + offsetMs
             val clockSourceBuffering = isBuffering || (lyricsClockSource?.isBuffering() == true)
             val clockSourcePlaying = lyricsClockSource?.isPlaying() ?: isPlaying
             val hasReachedTarget = kotlin.math.abs(currentPos - pending.targetTimeMs) <= 350L
             val minTimeElapsed = (now - pending.timestamp) >= 80L
-            val hasConverged = minTimeElapsed && hasReachedTarget && !clockSourceBuffering && clockSourcePlaying
-            val isTimedOut = (now - pending.timestamp) > 1500L
-            if (hasConverged || isTimedOut) {
+            if (minTimeElapsed && hasReachedTarget && !clockSourceBuffering && clockSourcePlaying) {
                 pendingSeekTarget = null
             }
         }
@@ -511,8 +519,9 @@ fun SyncedLyricsView(
         // the user's natural reading focal point while providing generous space for
         // reading upcoming lines below.
         val targetCenterFraction = readingFocusFraction.coerceIn(0.2f, 0.6f)
-        val topPaddingDp = 8.dp
-        val bottomPaddingDp = (maxHeight * (1f - targetCenterFraction) + 40.dp).coerceAtLeast(160.dp)
+        // Metro's padding: the first line can rest on the anchor instead of starting pinned to the top.
+        val topPaddingDp = (maxHeight * targetCenterFraction - 40.dp).coerceAtLeast(32.dp)
+        val bottomPaddingDp = (maxHeight * (1f - targetCenterFraction) + 60.dp).coerceAtLeast(180.dp)
 
         // Track whether initial scroll has completed
         var hasInitialCentered by rememberSaveable(track?.id) { mutableStateOf(false) }
@@ -667,13 +676,8 @@ fun SyncedLyricsView(
                         }
 
                         if (itemInfo != null) {
-                            val targetCenterYActual = if (targetIndex == 0) {
-                                layoutInfo.viewportStartOffset + with(density) { 16.dp.toPx() } + (itemInfo.size / 2f)
-                            } else {
-                                targetCenterY
-                            }
                             val itemCenterY = itemInfo.offset + (itemInfo.size / 2f)
-                            val scrollDelta = itemCenterY - targetCenterYActual
+                            val scrollDelta = itemCenterY - targetCenterY
                             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                                 try {
                                     if (animate) {
@@ -1481,10 +1485,9 @@ private fun LyricLineRow(
 
     val isFluid = animationMode == LyricsAnimationMode.FLUID
     val fluidFalloff = com.auralis.music.ui.lyrics.renderers.fluidFalloffIndex(distanceFromCurrent)
-    // Fluid's distance falloff is its own blur curve, but still only when "Standard lyrics blur" is on.
-    val targetBlur = if (isFluid && standardBlur && isSynced && !isPlain && !isUserInteracting && !isSelected) {
-        com.auralis.music.ui.lyrics.renderers.FluidFalloffBlurDp[fluidFalloff]
-    } else computeLyricsProgressiveBlur(
+    // "Standard lyrics blur" is the same positional blur Metro uses, Fluid included. Fluid's own
+    // 1-3 dp distance curve was too faint to read as the setting doing anything.
+    val targetBlur = computeLyricsProgressiveBlur(
         standardBlur = standardBlur,
         isSynced = isSynced,
         isPlain = isPlain,
@@ -1545,7 +1548,7 @@ private fun LyricLineRow(
 
     val scaleRatio = (fontSizeSp / 22f).coerceIn(0.7f, 1.6f)
     val baseFontSize = when {
-        isFluid && !isPlain -> (26f * scaleRatio).sp
+        isFluid && !isPlain -> (30f * scaleRatio).sp
         isPlain -> (20f * scaleRatio).sp
         isCurrent -> if (lyricsMode == LyricsMode.CINEMA) (28f * scaleRatio).sp else (21f * scaleRatio).sp
         else -> if (lyricsMode == LyricsMode.CINEMA) (22f * scaleRatio).sp else (20f * scaleRatio).sp
@@ -1896,6 +1899,7 @@ private fun LyricLineRow(
                         words = effectiveWords,
                         positionMs = fluidPosition,
                         style = textStyle,
+                        isActive = isCurrent,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

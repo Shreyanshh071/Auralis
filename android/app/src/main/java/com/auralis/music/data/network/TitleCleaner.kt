@@ -4,6 +4,15 @@ import com.auralis.music.data.parser.IndicScriptNormalizer
 
 object TitleCleaner {
 
+    // Every function here is pure and runs a dozen regexes, each of which allocates a native ICU
+    // matcher. Home and history dedupe compare the same few hundred titles thousands of times, so
+    // uncached cleaning churned ~20 MB/s of native memory while a song played (measured with
+    // heapprofd on device): enough to push the app to 4 GB and get it killed. One entry per
+    // distinct string; 4096 covers the library and feeds.
+    private val cleanTitleMemo = com.auralis.music.util.BoundedMemo<String, String>(4096)
+    private val cleanArtistMemo = com.auralis.music.util.BoundedMemo<String, String>(4096)
+    private val splitMemo = com.auralis.music.util.BoundedMemo<Pair<String, String?>, Pair<String, String>>(4096)
+
     // Meaningful musical versions that MUST be preserved when matching lyrics
     // Meaningful musical versions that MUST be preserved when matching lyrics
     private val VERSION_KEYWORDS = listOf(
@@ -168,6 +177,10 @@ object TitleCleaner {
      */
     fun cleanTitle(rawTitle: String): String {
         if (rawTitle.isBlank()) return ""
+        return cleanTitleMemo.getOrPut(rawTitle) { computeCleanTitle(rawTitle) }
+    }
+
+    private fun computeCleanTitle(rawTitle: String): String {
 
         var title = IndicScriptNormalizer.normalizeIndicText(rawTitle).trim()
 
@@ -249,7 +262,10 @@ object TitleCleaner {
     /**
      * Cleans artist names, stripping YouTube - Topic, VEVO, and Official suffixes.
      */
-    fun cleanArtist(rawArtist: String): String {
+    fun cleanArtist(rawArtist: String): String =
+        cleanArtistMemo.getOrPut(rawArtist) { computeCleanArtist(rawArtist) }
+
+    private fun computeCleanArtist(rawArtist: String): String {
         var artist = IndicScriptNormalizer.normalizeIndicText(rawArtist).trim()
         artist = artist
             .replace(ARTIST_TOPIC_REGEX, "")
@@ -268,7 +284,10 @@ object TitleCleaner {
      * Splits a raw "Artist - Song Title" YouTube title into pair of (artist, title).
      * Prevents false splits on movie titles (e.g. "Song - From Movie") and musical version suffixes.
      */
-    fun splitArtistAndTitle(rawTitle: String, fallbackArtist: String? = null): Pair<String, String> {
+    fun splitArtistAndTitle(rawTitle: String, fallbackArtist: String? = null): Pair<String, String> =
+        splitMemo.getOrPut(rawTitle to fallbackArtist) { computeSplitArtistAndTitle(rawTitle, fallbackArtist) }
+
+    private fun computeSplitArtistAndTitle(rawTitle: String, fallbackArtist: String?): Pair<String, String> {
         val cleaned = cleanTitle(rawTitle)
         val cleanFallback = fallbackArtist?.let { cleanArtist(it) }?.ifBlank { null }
 

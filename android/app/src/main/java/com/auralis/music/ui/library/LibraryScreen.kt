@@ -1,5 +1,9 @@
 package com.auralis.music.ui.library
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material.icons.filled.LockOpen
+import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.ui.components.AuralisRefreshBox
 import com.auralis.music.ui.i18n.str
 
@@ -1131,6 +1135,107 @@ fun LibraryScreen(
 } // AnimatedContent lambda
 } // AnimatedContent call
 
+/**
+ * A playlist's cover exactly as its page shows it: the album art for an album, the chosen photo,
+ * the 4-cover collage, or the first song's art. The edit dialog previews through this too, so
+ * what it shows is what saving gives.
+ */
+@Composable
+internal fun PlaylistCoverArt(
+    playlist: Playlist,
+    savedAlbums: List<SavedAlbum>,
+    cornerRadius: Dp
+) {
+    val detailValidTracks = remember(playlist.tracks) {
+        playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+    }
+    val detailDistinctTracks = remember(playlist.tracks) {
+        getDistinctArtworkTracks(playlist.tracks)
+    }
+
+    val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
+        isAlbumPlaylist(playlist, savedAlbums)
+    }
+
+    if (isAlbum) {
+        val albumCoverUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums) {
+            resolveAlbumArtworkUrl(playlist, savedAlbums)
+        }
+        ArtworkCard(
+            url = albumCoverUrl,
+            fallbackTrack = detailValidTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
+            modifier = Modifier.fillMaxSize(),
+            cornerRadius = cornerRadius,
+            contentDescription = playlist.title
+        )
+    } else if (!playlist.coverUrl.isNullOrBlank() && !usesTrackCollage(playlist, detailDistinctTracks.size)) {
+        ArtworkCard(
+            url = playlist.coverUrl,
+            fallbackTrack = detailValidTracks.firstOrNull(),
+            modifier = Modifier.fillMaxSize(),
+            cornerRadius = cornerRadius,
+            contentDescription = playlist.title
+        )
+    } else if (detailDistinctTracks.size >= 4) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                ArtworkCard(
+                    url = detailDistinctTracks[0].thumbnail,
+                    fallbackTrack = detailDistinctTracks[0],
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    cornerRadius = 0.dp,
+                    contentDescription = null
+                )
+                ArtworkCard(
+                    url = detailDistinctTracks[1].thumbnail,
+                    fallbackTrack = detailDistinctTracks[1],
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    cornerRadius = 0.dp,
+                    contentDescription = null
+                )
+            }
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                ArtworkCard(
+                    url = detailDistinctTracks[2].thumbnail,
+                    fallbackTrack = detailDistinctTracks[2],
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    cornerRadius = 0.dp,
+                    contentDescription = null
+                )
+                ArtworkCard(
+                    url = detailDistinctTracks[3].thumbnail,
+                    fallbackTrack = detailDistinctTracks[3],
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    cornerRadius = 0.dp,
+                    contentDescription = null
+                )
+            }
+        }
+    } else if (detailValidTracks.isNotEmpty()) {
+        ArtworkCard(
+            url = detailValidTracks.first().thumbnail,
+            fallbackTrack = detailValidTracks.first(),
+            modifier = Modifier.fillMaxSize(),
+            cornerRadius = cornerRadius,
+            contentDescription = playlist.title
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = null,
+                tint = LIME_TEXT,
+                modifier = Modifier.size(64.dp)
+            )
+        }
+    }
+}
+
 // ============================================================================
 // 🔲 SMART LIBRARY CARD (Liked, Downloaded, Cached, My Top 50, Uploaded)
 // ============================================================================
@@ -1321,6 +1426,7 @@ private fun SmartLibraryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .contextMenuAnchor()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -1472,6 +1578,7 @@ private fun UserPlaylistGridCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .contextMenuAnchor()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -1593,6 +1700,7 @@ private fun SmartLibraryListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .contextMenuAnchor()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
             .combinedClickable(
@@ -1683,6 +1791,7 @@ private fun UserPlaylistListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .contextMenuAnchor()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
             .combinedClickable(
@@ -1892,6 +2001,10 @@ private fun PlaylistDetailView(
     }
 
     val isCustomSort = sortOption == PlaylistSortOption.CUSTOM && searchQuery.isBlank() && !playlist.id.startsWith("smart_")
+    // Custom order is locked until the lock beside "Custom order" is opened: only then do the
+    // drag handles show and a held row drag. Locked, holding a song opens its menu.
+    var orderUnlocked by remember(playlist.id) { mutableStateOf(false) }
+    val canReorder = isCustomSort && orderUnlocked
     val localItems = remember(playlist.id) {
         androidx.compose.runtime.mutableStateListOf<PlaylistTrackItem>()
     }
@@ -2058,24 +2171,28 @@ private fun PlaylistDetailView(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.dynamicBackground)
-    ) {
-        // ================================================================
-        // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
-        // ================================================================
+    // Liquid glass: the cover fills the top of the page edge to edge and fades into it, with
+    // the back / search buttons floating over it. Searching falls back to the plain header.
+    val heroMode = com.auralis.music.ui.glass.LocalLiquidGlass.current != null && !isSearchActive
+    // The hero cover is recorded on its own, so the buttons over and under it can render it as
+    // liquid glass (the page's own backdrop can't be used here: these buttons are part of it).
+    val heroBackdrop = rememberLayerBackdrop()
+    val heroGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(heroBackdrop)?.takeIf { heroMode }
+    val topBarButton: Modifier = if (heroGlass != null) {
+        Modifier.liquidGlass(heroGlass, CircleShape)
+    } else Modifier
+
+    val topBar: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 4.dp),
+                .padding(start = 8.dp, end = 8.dp, top = if (heroMode) 6.dp else 2.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
                 onClick = onBack,
-                modifier = Modifier.tactileBounce(scaleDown = 0.88f)
+                modifier = Modifier.tactileBounce(scaleDown = 0.88f).then(topBarButton)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -2086,7 +2203,7 @@ private fun PlaylistDetailView(
             }
             IconButton(
                 onClick = { isSearchActive = !isSearchActive },
-                modifier = Modifier.tactileBounce(scaleDown = 0.88f)
+                modifier = Modifier.tactileBounce(scaleDown = 0.88f).then(topBarButton)
             ) {
                 Icon(
                     imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
@@ -2096,6 +2213,18 @@ private fun PlaylistDetailView(
                 )
             }
         }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.dynamicBackground)
+    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // ================================================================
+        // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
+        // ================================================================
+        if (!heroMode) topBar()
 
         if (isSearchActive) {
             Box(
@@ -2172,8 +2301,8 @@ private fun PlaylistDetailView(
                 state = playlistListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(isCustomSort) {
-                        if (!isCustomSort) return@pointerInput
+                    .pointerInput(canReorder) {
+                        if (!canReorder) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = { startOffset ->
                                 if (localItems.isEmpty() || localItems.size != validPlaylistTracks.size) {
@@ -2248,100 +2377,44 @@ private fun PlaylistDetailView(
                             .padding(horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Centered Hero Cover (210dp x 210dp) with Custom Cover or 4-Quadrant Collage
+                        // Centered Hero Cover (210dp x 210dp) with Custom Cover or 4-Quadrant Collage.
+                        // Liquid glass: full-bleed square cover fading into the page instead.
+                        val heroOverlapPx = with(LocalDensity.current) { 72.dp.roundToPx() }
                         Box(
-                            modifier = Modifier
+                            modifier = if (heroMode) {
+                                Modifier
+                                    .layout { measurable, constraints ->
+                                        val sidePad = 24.dp.roundToPx()
+                                        val width = constraints.maxWidth + sidePad * 2
+                                        val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(width, width))
+                                        // Reports less height than it draws, so the title sits on the faded bottom.
+                                        layout(constraints.maxWidth, (width - heroOverlapPx).coerceAtLeast(0)) {
+                                            placeable.place(-sidePad, 0)
+                                        }
+                                    }
+                                    .background(CARD_DARK_BG)
+                                    .layerBackdrop(heroBackdrop)
+                            } else Modifier
                                 .size(210.dp)
                                 .clip(RoundedCornerShape(18.dp))
                                 .background(CARD_DARK_BG)
                         ) {
-                            val detailValidTracks = remember(playlist.tracks) {
-                                playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
-                            }
-                            val detailDistinctTracks = remember(playlist.tracks) {
-                                getDistinctArtworkTracks(playlist.tracks)
-                            }
+                            PlaylistCoverArt(playlist, savedAlbums, cornerRadius = if (heroMode) 0.dp else 18.dp)
 
-                            val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
-                                isAlbumPlaylist(playlist, savedAlbums)
-                            }
-
-                            if (isAlbum) {
-                                val albumCoverUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums) {
-                                    resolveAlbumArtworkUrl(playlist, savedAlbums)
-                                }
-                                ArtworkCard(
-                                    url = albumCoverUrl,
-                                    fallbackTrack = detailValidTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
-                                    modifier = Modifier.fillMaxSize(),
-                                    cornerRadius = 18.dp,
-                                    contentDescription = playlist.title
-                                )
-                            } else if (!playlist.coverUrl.isNullOrBlank() && !usesTrackCollage(playlist, detailDistinctTracks.size)) {
-                                ArtworkCard(
-                                    url = playlist.coverUrl,
-                                    fallbackTrack = detailValidTracks.firstOrNull(),
-                                    modifier = Modifier.fillMaxSize(),
-                                    cornerRadius = 18.dp,
-                                    contentDescription = playlist.title
-                                )
-                            } else if (detailDistinctTracks.size >= 4) {
-                                Column(modifier = Modifier.fillMaxSize()) {
-                                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                        ArtworkCard(
-                                            url = detailDistinctTracks[0].thumbnail,
-                                            fallbackTrack = detailDistinctTracks[0],
-                                            modifier = Modifier.weight(1f).fillMaxSize(),
-                                            cornerRadius = 0.dp,
-                                            contentDescription = null
-                                        )
-                                        ArtworkCard(
-                                            url = detailDistinctTracks[1].thumbnail,
-                                            fallbackTrack = detailDistinctTracks[1],
-                                            modifier = Modifier.weight(1f).fillMaxSize(),
-                                            cornerRadius = 0.dp,
-                                            contentDescription = null
-                                        )
-                                    }
-                                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                        ArtworkCard(
-                                            url = detailDistinctTracks[2].thumbnail,
-                                            fallbackTrack = detailDistinctTracks[2],
-                                            modifier = Modifier.weight(1f).fillMaxSize(),
-                                            cornerRadius = 0.dp,
-                                            contentDescription = null
-                                        )
-                                        ArtworkCard(
-                                            url = detailDistinctTracks[3].thumbnail,
-                                            fallbackTrack = detailDistinctTracks[3],
-                                            modifier = Modifier.weight(1f).fillMaxSize(),
-                                            cornerRadius = 0.dp,
-                                            contentDescription = null
-                                        )
-                                    }
-                                }
-                            } else if (detailValidTracks.isNotEmpty()) {
-                                ArtworkCard(
-                                    url = detailValidTracks.first().thumbnail,
-                                    fallbackTrack = detailValidTracks.first(),
-                                    modifier = Modifier.fillMaxSize(),
-                                    cornerRadius = 18.dp,
-                                    contentDescription = playlist.title
-                                )
-                            } else {
+                            if (heroMode) {
+                                val pageBackground = MaterialTheme.dynamicBackground
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Favorite,
-                                        contentDescription = null,
-                                        tint = LIME_TEXT,
-                                        modifier = Modifier.size(64.dp)
-                                    )
-                                }
+                                        .matchParentSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                0f to Color.Black.copy(alpha = 0.30f),
+                                                0.22f to Color.Transparent,
+                                                0.55f to Color.Transparent,
+                                                1f to pageBackground
+                                            )
+                                        )
+                                )
                             }
 
                             // Edit Pencil Overlay in bottom right corner (Opens Edit Photo & Name dialog)
@@ -2349,7 +2422,11 @@ private fun PlaylistDetailView(
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
-                                        .padding(8.dp)
+                                        .padding(
+                                            end = if (heroMode) 20.dp else 8.dp,
+                                            bottom = if (heroMode) 84.dp else 8.dp,
+                                            start = 8.dp, top = 8.dp
+                                        )
                                         .size(32.dp)
                                         .clip(CircleShape)
                                         .background(Color.Black.copy(alpha = 0.75f))
@@ -2370,7 +2447,7 @@ private fun PlaylistDetailView(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(if (heroMode) 0.dp else 16.dp))
 
                         // Playlist Title
                         Text(
@@ -2462,8 +2539,10 @@ private fun PlaylistDetailView(
                             Box(
                                 modifier = Modifier
                                     .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .then(
+                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape)
+                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
+                                    )
                                     .clickable {
                                         if (displayedTracks.isNotEmpty()) {
                                             val shuffled = displayedTracks.shuffled()
@@ -2475,7 +2554,7 @@ private fun PlaylistDetailView(
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = str(R.string.shuffle),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -2486,8 +2565,14 @@ private fun PlaylistDetailView(
                             Box(
                                 modifier = Modifier
                                     .size(64.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
+                                    .then(
+                                        // Glass tinted with the accent, so play still reads as the main action.
+                                        if (heroGlass != null) Modifier.liquidGlass(
+                                            heroGlass, CircleShape,
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
+                                        )
+                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                                    )
                                     .clickable {
                                         if (displayedTracks.isNotEmpty()) {
                                             onPlayTrack(displayedTracks.first(), displayedTracks)
@@ -2498,7 +2583,7 @@ private fun PlaylistDetailView(
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
                                     contentDescription = str(R.string.play),
-                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(32.dp)
                                 )
                             }
@@ -2509,15 +2594,17 @@ private fun PlaylistDetailView(
                             Box(
                                 modifier = Modifier
                                     .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .then(
+                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape)
+                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
+                                    )
                                     .clickable { showOptionsMenu = true },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = str(R.string.playlist_options),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -2596,6 +2683,27 @@ private fun PlaylistDetailView(
                                 }
                             }
 
+                            if (isCustomSort) {
+                                val lockContext = androidx.compose.ui.platform.LocalContext.current
+                                IconButton(
+                                    onClick = {
+                                        orderUnlocked = !orderUnlocked
+                                        Toast.makeText(
+                                            lockContext,
+                                            if (orderUnlocked) str(R.string.playlist_order_unlocked) else str(R.string.playlist_order_locked),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (orderUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                                        contentDescription = if (orderUnlocked) str(R.string.lock_playlist_order) else str(R.string.unlock_playlist_order),
+                                        tint = if (orderUnlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2616,7 +2724,7 @@ private fun PlaylistDetailView(
                         track = track,
                         isCurrent = isCurrent,
                         isPlaying = isPlaying,
-                        isCustomSort = isCustomSort,
+                        isCustomSort = canReorder,
                         isItemBeingDragged = isItemBeingDragged,
                         isDragging = isDragging,
                         onPlayTrack = onPlayTrackWithList,
@@ -2717,6 +2825,9 @@ private fun PlaylistDetailView(
             }
         }
     }
+    // Floats over the hero cover in liquid glass mode.
+    if (heroMode) topBar()
+    }
 
     if (showOptionsMenu) {
         PlaylistOptionsBottomSheet(
@@ -2783,14 +2894,81 @@ internal fun PlaylistOptionsBottomSheet(
         }
     }
 
-    if (activeDialog == null) {
+    val isSmartPlaylistMenu = playlist.id.startsWith("smart_")
+    val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
+    fun addPlaylistToQueue() {
+        onAddToQueue?.invoke(playlist.tracks)
+        Toast.makeText(context, str(R.string.added_x_tracks_to_queue, playlist.tracks.size), Toast.LENGTH_SHORT).show()
+    }
+    fun sharePlaylist() {
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, playlist.title)
+            putExtra(
+                Intent.EXTRA_TEXT,
+                str(R.string.listen_to_x_on_auralis_music_x_songs_dow, playlist.title, playlist.tracks.size)
+            )
+        }
+        context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_playlist)))
+    }
+    fun downloadPlaylist() {
+        com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(
+            context = context,
+            playlistId = playlist.id,
+            playlistName = playlist.title,
+            tracks = playlist.tracks
+        )
+    }
+
+    // Long-pressed in liquid glass mode: a small glass menu pops from the playlist instead.
+    val glassAnchor = com.auralis.music.ui.components.rememberContextMenuAnchor()
+    if (activeDialog == null && glassAnchor != null) {
+        val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
+        val items = buildList {
+            add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.add_to_queue), Icons.Default.PlaylistAdd) { addPlaylistToQueue() })
+            if (!isSmartPlaylistMenu) {
+                add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.edit), Icons.Default.Edit, dismisses = false) {
+                    editTitle = playlist.title
+                    editDesc = playlist.description ?: ""
+                    editCoverUrl = playlist.coverUrl ?: ""
+                    activeDialog = PlaylistDialogType.EDIT
+                })
+            }
+            add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.export_playlist), Icons.Default.Share, dismisses = false) {
+                activeDialog = PlaylistDialogType.EXPORT
+            })
+            if (playlist.id != "smart_downloaded") {
+                add(com.auralis.music.ui.components.GlassMenuItem(
+                    if (isAllDownloaded) str(R.string.downloaded) else str(R.string.download_playlist),
+                    if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                    tint = if (isAllDownloaded) Color(0xFF4CAF50) else null
+                ) { downloadPlaylist() })
+            }
+            add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.share), Icons.Default.Share) { sharePlaylist() })
+            if (playlist.id == "smart_downloaded") {
+                add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.delete_all_downloads), Icons.Default.Delete, tint = Color(0xFFFF5252), dismisses = false) {
+                    activeDialog = PlaylistDialogType.DELETE_ALL_DOWNLOADS
+                })
+            } else if (!isSmartPlaylistMenu || isRemovableMostPlayedPlaylist(playlist.id)) {
+                add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.delete), Icons.Default.Delete, tint = Color(0xFFFF5252), dismisses = false) {
+                    activeDialog = PlaylistDialogType.DELETE
+                })
+            }
+        }
+        com.auralis.music.ui.components.GlassContextMenu(anchor = glassAnchor, items = items, onDismiss = onDismiss)
+    } else if (activeDialog == null) com.auralis.music.ui.components.CoverSheetTheme {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
+            containerColor = com.auralis.music.ui.components.CoverSheetFloor,
+            contentColor = Color.White,
             dragHandle = null,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+            // The playlist's own cover colours fill the sheet behind its content.
+            Box(modifier = Modifier.matchParentSize()) {
+                com.auralis.music.ui.components.CoverSheetBackground(coverUrl)
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2820,7 +2998,6 @@ internal fun PlaylistOptionsBottomSheet(
                         .padding(bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
                     ArtworkCard(
                         url = coverUrl,
                         modifier = Modifier
@@ -2877,11 +3054,10 @@ internal fun PlaylistOptionsBottomSheet(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF262021))
+                                .background(Color.White.copy(alpha = 0.08f))
                                 .clickable {
                                     onDismiss()
-                                    onAddToQueue?.invoke(playlist.tracks)
-                                    Toast.makeText(context, str(R.string.added_x_tracks_to_queue, playlist.tracks.size), Toast.LENGTH_SHORT).show()
+                                    addPlaylistToQueue()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -2911,7 +3087,7 @@ internal fun PlaylistOptionsBottomSheet(
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF262021))
+                                .background(Color.White.copy(alpha = 0.08f))
                                 .clickable {
                                     onDismiss()
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -2954,7 +3130,7 @@ internal fun PlaylistOptionsBottomSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF262021))
+                            .background(Color.White.copy(alpha = 0.08f))
                     ) {
                         if (!isSmartPlaylist) {
                             PlaylistActionRow(
@@ -2992,7 +3168,7 @@ internal fun PlaylistOptionsBottomSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF262021))
+                                .background(Color.White.copy(alpha = 0.08f))
                         ) {
                             PlaylistActionRow(
                                 icon = if (isAllDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
@@ -3019,7 +3195,7 @@ internal fun PlaylistOptionsBottomSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF262021))
+                                .background(Color.White.copy(alpha = 0.08f))
                         ) {
                             PlaylistActionRow(
                                 icon = Icons.Default.Delete,
@@ -3037,7 +3213,7 @@ internal fun PlaylistOptionsBottomSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF262021))
+                                .background(Color.White.copy(alpha = 0.08f))
                         ) {
                             PlaylistActionRow(
                                 icon = Icons.Default.Delete,
@@ -3056,6 +3232,7 @@ internal fun PlaylistOptionsBottomSheet(
                     Spacer(modifier = Modifier.height(18.dp))
                 }
             }
+        }
         }
     }
 
@@ -3095,12 +3272,12 @@ internal fun PlaylistOptionsBottomSheet(
                                 .clickable { photoPickerLauncher.launch("image/*") },
                             contentAlignment = Alignment.Center
                         ) {
-                            val previewUrl = editCoverUrl.ifBlank { playlist.tracks.firstOrNull()?.thumbnail }
-                            ArtworkCard(
-                                url = previewUrl,
-                                modifier = Modifier.fillMaxSize(),
-                                cornerRadius = 16.dp,
-                                contentDescription = str(R.string.playlist_cover_preview)
+                            // What the page will show once saved (a reset cover falls back to the
+                            // collage when the playlist has four different covers, not the first song's art).
+                            PlaylistCoverArt(
+                                playlist = playlist.copy(coverUrl = editCoverUrl.ifBlank { null }),
+                                savedAlbums = emptyList(),
+                                cornerRadius = 16.dp
                             )
 
                             // Camera overlay badge
@@ -3602,12 +3779,17 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (!isCustomSort) Modifier.contextMenuAnchor() else Modifier)
                 .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    if (!isDragging) {
-                        onPlayTrack(track)
-                    }
-                }
+                .combinedClickable(
+                    onClick = {
+                        if (!isDragging) {
+                            onPlayTrack(track)
+                        }
+                    },
+                    // Custom sort uses the hold to start dragging the row instead.
+                    onLongClick = if (!isCustomSort) { { onMenuClick(track) } } else null
+                )
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
