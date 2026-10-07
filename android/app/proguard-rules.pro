@@ -57,3 +57,9 @@
 -keep class com.discord.** { *; }
 -keep class org.webrtc.** { *; }
 -keep class com.auralis.music.data.network.discord.DiscordSocialClient { *; }
+
+# WebView JavaScript bridges (PO token BotGuard WebView, YouTube engine): JS calls these by name.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keepattributes JavascriptInterface

@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Auralis"
 include(":app")
+include(":zemer-cipher")

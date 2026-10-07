@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
@@ -65,6 +66,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -136,11 +138,15 @@ fun ProfileSheet(
     val profile = authUiState.profile
     var isSettingsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isDiscordIntegrationOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var isYouTubeAccountOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val youTubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
     var youtubeUrlInput by remember { mutableStateOf("") }
     var spotifyUrlInput by remember { mutableStateOf("") }
 
     androidx.activity.compose.BackHandler(enabled = true) {
-        if (isDiscordIntegrationOpen) {
+        if (isYouTubeAccountOpen) {
+            isYouTubeAccountOpen = false
+        } else if (isDiscordIntegrationOpen) {
             isDiscordIntegrationOpen = false
         } else if (isSettingsOpen) {
             isSettingsOpen = false
@@ -151,6 +157,7 @@ fun ProfileSheet(
 
     // Settings and Discord push over the profile instead of replacing it on one frame.
     val subPage = when {
+        isYouTubeAccountOpen -> ProfileSubPage.YOUTUBE
         isDiscordIntegrationOpen -> ProfileSubPage.DISCORD
         isSettingsOpen -> ProfileSubPage.SETTINGS
         else -> null
@@ -366,6 +373,72 @@ fun ProfileSheet(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = "Open Discord Integration",
                         tint = Color(0xFF5865F2),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // ── YOUTUBE ACCOUNT CARD (age-restricted songs) ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                    .clickable { isYouTubeAccountOpen = true }
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF0033).copy(alpha = 0.16f))
+                                .border(1.dp, Color(0xFFFF0033).copy(alpha = 0.5f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (youTubeSignedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
+                                contentDescription = "YouTube",
+                                tint = Color(0xFFFF0033),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Text(
+                                text = "YouTube account",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = if (youTubeSignedIn) "Age-restricted songs unlocked"
+                                else "Sign in to download age-restricted songs",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Open YouTube account",
+                        tint = Color(0xFFFF0033),
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -839,6 +912,9 @@ fun ProfileSheet(
 
     AuralisPushedPage(page = subPage) { page ->
         when (page) {
+            ProfileSubPage.YOUTUBE -> com.auralis.music.ui.screens.YouTubeAccountScreen(
+                onDismiss = { isYouTubeAccountOpen = false }
+            )
             ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
                 onDismiss = { isDiscordIntegrationOpen = false }
             )
@@ -862,7 +938,7 @@ fun ProfileSheet(
     }
 }
 
-private enum class ProfileSubPage { SETTINGS, DISCORD }
+private enum class ProfileSubPage { SETTINGS, DISCORD, YOUTUBE }
 
 @Composable
 private fun GoogleLogoIcon(modifier: Modifier = Modifier) {

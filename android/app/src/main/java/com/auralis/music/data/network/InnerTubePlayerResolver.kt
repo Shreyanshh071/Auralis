@@ -46,12 +46,157 @@ object InnerTubePlayerResolver {
         null
     }
 
+    /** A YouTube web client that accepts the user's sign-in (versions from zemer-app, 2026-09). */
+    private class SignedInClient(
+        val name: String,
+        val id: Int,
+        val version: String,
+        val origin: String
+    )
+
+    private const val WEB_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
+    // zemer-app validates clients against the live CDN (whole-song HTTP 206). The two that accept
+    // a login and stream the whole song with PO tokens; the TV clients (SABR-only / 403 wall),
+    // plain WEB and MWEB are dead for this, and VISIONOS doesn't take a login.
+    private val SIGNED_IN_CLIENTS = listOf(
+        SignedInClient("WEB_REMIX", 67, "1.20260213.01.00", "https://music.youtube.com"),
+        SignedInClient("WEB_CREATOR", 62, "1.20260213.00.00", "https://www.youtube.com")
+    )
+
+    private val poTokenGenerator by lazy { com.zemer.cipher.potoken.PoTokenGenerator() }
+
+    /**
+     * Age-restricted videos answer "Sign in to confirm your age" to every signed-out client. With
+     * the user's own YouTube sign-in ([YouTubeSession]) the web clients serve them; the stream
+     * downloads once its signature and `n` parameter are deciphered with YouTube's own player JS
+     * and it carries PO tokens. Both come from zemer-cipher (vendored module, self-updating player
+     * configs): the session-bound token goes in the player request, the video-bound one on the URL
+     * as `pot=`, and the session is the visitor ID even when signed in (as zemer-app does).
+     * Null when signed out or when no client returns a usable stream.
+     */
+    suspend fun resolveSignedInStream(videoId: String): String? = withContext(Dispatchers.IO) {
+        if (!YouTubeSession.isSignedIn) return@withContext null
+        val visitorData = YouTubeSession.visitorData
+        val sts = com.zemer.cipher.CipherDeobfuscator.signatureTimestamp()
+            ?: PlayerJsCache.getSignatureTimestamp() ?: 20689
+        val tokens = if (visitorData.isNotBlank()) {
+            runCatching { poTokenGenerator.getWebClientPoToken(videoId, visitorData) }.getOrNull()
+        } else null
+        Log.i(TAG, "Signed-in resolve $videoId: sts=$sts, poTokens=${tokens != null}")
+        if (tokens == null) return@withContext null
+
+        for (client in SIGNED_IN_CLIENTS) {
+            val url = requestSignedInStream(videoId, client, sts, tokens.playerRequestPoToken) ?: continue
+            val finalUrl = url + "&pot=" + java.net.URLEncoder.encode(tokens.streamingDataPoToken, "UTF-8")
+            Log.i(TAG, "Signed-in stream for $videoId via ${client.name} ${client.version}")
+            return@withContext finalUrl
+        }
+        null
+    }
+
+    /**
+     * After the CDN refused a signed-in stream: a wrong-but-non-throwing signature from a stale
+     * player config only shows up this way, so let zemer-cipher refetch its configs.
+     */
+    suspend fun onSignedInStreamRejected() {
+        runCatching { com.zemer.cipher.CipherDeobfuscator.onStreamRejected() }
+    }
+
+    /** The best audio stream URL (signature and n parameter deciphered) from one signed-in client. */
+    private suspend fun requestSignedInStream(videoId: String, client: SignedInClient, sts: Int, playerPoToken: String): String? {
+        try {
+            val payload = JSONObject().apply {
+                put("videoId", videoId)
+                put("contentCheckOk", true)
+                put("racyCheckOk", true)
+                put(
+                    "playbackContext",
+                    JSONObject().put(
+                        "contentPlaybackContext",
+                        JSONObject().put("signatureTimestamp", sts).put("html5Preference", "HTML5_PREF_WANTS")
+                    )
+                )
+                put("context", JSONObject().put("client", JSONObject().apply {
+                    put("clientName", client.name)
+                    put("clientVersion", client.version)
+                    put("hl", "en")
+                    put("gl", "US")
+                    if (YouTubeSession.visitorData.isNotBlank()) put("visitorData", YouTubeSession.visitorData)
+                }))
+                put("serviceIntegrityDimensions", JSONObject().put("poToken", playerPoToken))
+            }
+            val request = Request.Builder()
+                .url(client.origin + "/youtubei/v1/player?prettyPrint=false")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("User-Agent", WEB_USER_AGENT)
+                .header("Origin", client.origin)
+                .header("Referer", client.origin + "/")
+                .header("X-YouTube-Client-Name", client.id.toString())
+                .header("X-YouTube-Client-Version", client.version)
+                .apply { YouTubeSession.authHeaders(client.origin).forEach { (k, v) -> header(k, v) } }
+                .build()
+
+            val json = execute(request) ?: return null
+            val streamingData = json.optJSONObject("streamingData")
+            if (streamingData == null) {
+                val playability = json.optJSONObject("playabilityStatus")
+                Log.w(TAG, "Signed-in ${client.name}: ${playability?.optString("status")} ${playability?.optString("reason")}")
+                return null
+            }
+            val formats = streamingData.optJSONArray("adaptiveFormats") ?: return null
+            var best: JSONObject? = null
+            for (i in 0 until formats.length()) {
+                val fmt = formats.getJSONObject(i)
+                if (!fmt.optString("mimeType").startsWith("audio/")) continue
+                if (best == null || fmt.optInt("bitrate") > best.optInt("bitrate")) best = fmt
+            }
+            if (best == null) {
+                Log.w(TAG, "Signed-in ${client.name}: no audio formats (SABR-only=${streamingData.has("serverAbrStreamingUrl")})")
+                return null
+            }
+
+            val direct = best.optString("url")
+            val url = if (direct.isNotBlank()) direct else {
+                val cipher = best.optString("signatureCipher", best.optString("cipher"))
+                if (cipher.isBlank()) {
+                    Log.w(TAG, "Signed-in ${client.name}: audio format has neither url nor signatureCipher")
+                    return null
+                }
+                com.zemer.cipher.CipherDeobfuscator.deobfuscateStreamUrl(cipher, videoId) ?: run {
+                    Log.w(TAG, "Signed-in ${client.name}: signature deciphering failed")
+                    return null
+                }
+            }
+            return com.zemer.cipher.CipherDeobfuscator.transformNParamInUrl(url)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Signed-in ${client.name} ${client.version} failed: ${e.javaClass.simpleName} ${e.message}")
+            return null
+        }
+    }
+
+    private fun execute(request: Request): JSONObject? =
+        client.newCall(request).execute().use { res ->
+            if (!res.isSuccessful) {
+                Log.w(TAG, "Signed-in player request got HTTP ${res.code}")
+                return null
+            }
+            JSONObject(res.body?.string() ?: return null)
+        }
+
     private suspend fun requestPlayerStream(
         videoId: String,
         sts: Int,
         clientName: String,
         clientVersion: String,
-        origin: String
+        origin: String,
+        userAgent: String = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        extraHeaders: Map<String, String> = emptyMap(),
+        visitorData: String = "",
+        apiHost: String = "https://www.youtube.com"
     ): String? {
         try {
             val payload = JSONObject().apply {
@@ -70,24 +215,34 @@ object InnerTubePlayerResolver {
                         put("clientVersion", clientVersion)
                         put("hl", "en")
                         put("gl", "US")
+                        if (visitorData.isNotBlank()) put("visitorData", visitorData)
                     })
                 })
             }
 
             val req = Request.Builder()
-                .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                .url("$apiHost/youtubei/v1/player?prettyPrint=false")
                 .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+                .header("User-Agent", userAgent)
                 .header("Origin", origin)
                 .header("Referer", "$origin/")
+                .apply { extraHeaders.forEach { (name, value) -> header(name, value) } }
                 .build()
 
             val res = client.newCall(req).execute()
-            if (!res.isSuccessful) return null
+            if (!res.isSuccessful) {
+                if (extraHeaders.isNotEmpty()) Log.w(TAG, "Signed-in player request for $videoId ($clientName) got HTTP ${res.code}")
+                return null
+            }
 
             val body = res.body?.string() ?: return null
             val json = JSONObject(body)
-            val streamingData = json.optJSONObject("streamingData") ?: return null
+            val streamingData = json.optJSONObject("streamingData")
+            if (streamingData == null) {
+                val playability = json.optJSONObject("playabilityStatus")
+                Log.w(TAG, "No streams for $videoId ($clientName): ${playability?.optString("status")} ${playability?.optString("reason")}")
+                return null
+            }
             val formats = streamingData.optJSONArray("adaptiveFormats") ?: return null
 
             var bestUrl: String? = null
@@ -114,7 +269,10 @@ object InnerTubePlayerResolver {
                 }
             }
 
-            if (bestUrl.isNullOrBlank()) return null
+            if (bestUrl.isNullOrBlank()) {
+                Log.w(TAG, "No usable audio URL for $videoId ($clientName): ${formats.length()} formats, SABR-only=${streamingData.has("serverAbrStreamingUrl")}")
+                return null
+            }
 
             // Transform n parameter if present in query string
             return applyNParamTransformation(bestUrl)

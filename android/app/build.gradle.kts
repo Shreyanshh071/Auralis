@@ -201,6 +201,11 @@ dependencies {
         exclude(group = "com.google.protobuf")
     }
 
+    // YouTube signature/n deciphering and PO tokens for signed-in (age-restricted) downloads.
+    // Vendored module, see zemer-cipher/NOTICE.md. It logs through Timber.
+    implementation(project(":zemer-cipher"))
+    implementation("com.jakewharton.timber:timber:5.0.1")
+
     // High-performance live backdrop blur (Frosted Glass like Photo 2)
     implementation("dev.chrisbanes.haze:haze:1.3.1")
     implementation("dev.chrisbanes.haze:haze-materials:1.3.1")
