@@ -356,6 +356,24 @@ fun auralisDetailForwardEnter(durationMillis: Int = 200, gradualFade: Boolean = 
 }
 
 /**
+ * Pages opened from the floating header (Profile, History, Listen Together, Stats). A near-cut,
+ * as in BitChord: a long fade had both pages showing through each other while the header's
+ * capsule closed, so the swap is over in a few frames and the capsule carries the motion.
+ */
+@Composable
+fun auralisHeaderPageEnter(): EnterTransition {
+    if (LocalReducedMotion.current) return EnterTransition.None
+    return fadeIn(tween(90, easing = androidx.compose.animation.core.LinearEasing))
+}
+
+/** Counterpart to [auralisHeaderPageEnter]. */
+@Composable
+fun auralisHeaderPageExit(): ExitTransition {
+    if (LocalReducedMotion.current) return ExitTransition.None
+    return fadeOut(tween(90, easing = androidx.compose.animation.core.LinearEasing))
+}
+
+/**
  * Forward exit for the parent screen when a detail is opening over it.
  * Slides slightly to the left and fades.
  */

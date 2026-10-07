@@ -2215,7 +2215,6 @@ private fun ClassicLyricsContent(
                     isPlaying = uiState.isPlaying,
                     isBuffering = uiState.isBuffering,
                     audioLeadingSilenceMs = uiState.audioLeadingSilenceMs,
-                    readingFocusFraction = if (showHeader) 0.45f else 0.30f,
                     listState = listState,
                     standardLyricsBlur = standardLyricsBlur,
                     loadingAlignment = androidx.compose.ui.BiasAlignment(0f, -0.28f)
@@ -2675,10 +2674,40 @@ internal fun ClassicQueueContent(
                     }
                 }
                 val continueHeaderIndex = if (historyCount > 0) historyCount + 1 else 0
+                val baseBottomPadding = with(density) { queueControlsHeightPx.toDp() } + listBottomPadding
+                var viewportHeightPx by remember(queueListState) { mutableIntStateOf(0) }
+                var continueSectionHeightPx by remember(queueListState, historyCount, localQueue.size) {
+                    mutableIntStateOf(0)
+                }
+                // When the remaining queue is shorter than the viewport, LazyColumn clamps its
+                // maximum scroll before Continue Playing can reach the top. Measure that section
+                // in the same list and give its end only the space needed to reach the normal
+                // queue position. History stays before it and is revealed only by scrolling up.
+                LaunchedEffect(queueListState, historyCount, localQueue.size) {
+                    snapshotFlow { queueListState.layoutInfo }.collect { info ->
+                        if (info.totalItemsCount == 0) return@collect
+                        viewportHeightPx = info.viewportSize.height
+                        val header = info.visibleItemsInfo.firstOrNull { it.index == continueHeaderIndex }
+                        val last = info.visibleItemsInfo.firstOrNull { it.index == info.totalItemsCount - 1 }
+                        if (header != null && last != null) {
+                            continueSectionHeightPx = last.offset + last.size - header.offset
+                        }
+                    }
+                }
+                val baseBottomPaddingPx = with(density) { baseBottomPadding.roundToPx() }
+                val extraBottomPaddingPx = if (continueSectionHeightPx > 0) {
+                    (viewportHeightPx - continueSectionHeightPx - baseBottomPaddingPx).coerceAtLeast(0)
+                } else 0
+                var userScrolledQueue by remember(queueListState) { mutableStateOf(false) }
 
                 // Opening the Queue tab lands on Continue Playing with History hidden above.
                 LaunchedEffect(Unit) {
                     queueListState.scrollToItem(continueHeaderIndex)
+                }
+                LaunchedEffect(extraBottomPaddingPx) {
+                    if (extraBottomPaddingPx > 0 && !userScrolledQueue) {
+                        queueListState.scrollToItem(continueHeaderIndex)
+                    }
                 }
                 // When the song changes, played songs move up into History. The list keeps its first
                 // visible item (normally the Continue Playing header) in place by key, so the
@@ -2749,6 +2778,9 @@ internal fun ClassicQueueContent(
                     object : NestedScrollConnection {
                         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                             if (reorderableLazyListState.isAnyItemDragging) return Offset.Zero
+                            if (source == NestedScrollSource.UserInput && available.y != 0f) {
+                                userScrolledQueue = true
+                            }
 
                             val delta = available.y
                             if (delta < -2f && queueControlsVisible) {
@@ -2783,7 +2815,7 @@ internal fun ClassicQueueContent(
                         .nestedScroll(queueNestedScrollConnection),
                     // Room to scroll the last songs clear of the overlaid controls.
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        bottom = with(density) { queueControlsHeightPx.toDp() } + listBottomPadding
+                        bottom = baseBottomPadding + with(density) { extraBottomPaddingPx.toDp() }
                     ),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {

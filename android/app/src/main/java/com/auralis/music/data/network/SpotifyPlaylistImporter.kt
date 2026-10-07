@@ -1194,6 +1194,17 @@ class SpotifyPlaylistImporter(
             val generalResult = songs(primaryQuery, filter = null)
             topMatch = pick(generalResult)
         }
+
+        // 5. A fan edit (sped up / slowed / nightcore) is often uploaded only by other channels,
+        // and only as a plain video: the YouTube Music song searches above never list it.
+        if (topMatch == null && com.auralis.music.domain.search.SearchQueryMatcher.isFanEdit(track.title)) {
+            // The raw title: the cleaners above can strip the very "- Sped Up" that finds the edit.
+            val editQuery = if (primaryArtist.isNotBlank()) "${track.title} $primaryArtist" else track.title
+            topMatch = com.auralis.music.domain.search.SearchQueryMatcher.findReuploadOfEdit(
+                track,
+                songs(editQuery, InnerTubeClient.FILTER_VIDEOS) + songs(track.title, InnerTubeClient.FILTER_VIDEOS)
+            )
+        }
         return topMatch
     }
 

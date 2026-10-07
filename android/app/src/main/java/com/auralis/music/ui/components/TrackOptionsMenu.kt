@@ -44,7 +44,9 @@ data class SongPresentationActions(
     val openLyrics: (Track) -> Unit,
     /** Lyrics for this song are on screen right now, so the menu offers to hide them. */
     val isLyricsShown: (Track) -> Boolean = { false },
-    val hideLyrics: (Track) -> Unit = {}
+    val hideLyrics: (Track) -> Unit = {},
+    /** Ambient mode and lyrics only make sense for the song that is playing. */
+    val isNowPlaying: (Track) -> Boolean = { false }
 )
 
 val LocalSongPresentationActions = staticCompositionLocalOf<SongPresentationActions?> { null }
@@ -54,7 +56,7 @@ val LocalSongPresentationActions = staticCompositionLocalOf<SongPresentationActi
  * - Compact drag handle
  * - Artwork, Title, Subtitle (Artist), Favorite heart
  * - Quick Action Buttons: [ Play next ], [ Add ], [ Share ]
- * - Action Group 1: Start radio, Add to queue
+ * - Action Group 1: Add to queue
  * - Action Group 2: Pin to Speed dial
  * - Action Group 3: Add to library / Remove from library
  * - Action Group 4: Download
@@ -83,6 +85,7 @@ fun TrackOptionsMenu(
     onDismiss: () -> Unit,
     queueReferenceStyle: Boolean = false,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+    sheetBackground: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val presentationActions = LocalSongPresentationActions.current
@@ -90,13 +93,13 @@ fun TrackOptionsMenu(
     val coroutineScope = rememberCoroutineScope()
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
-    // surfaceVariant alone reads near-white under artwork-derived (dynamic) palettes;
-    // pulled 40% back toward the sheet so the cards stay distinct but calm.
-    val actionCardColor = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.surface,
-        MaterialTheme.colorScheme.surfaceVariant,
-        0.6f
-    )
+    // The sheet always sits on the song's own colour field (the immersive player's backdrop,
+    // built from this song's cover); the cards are translucent so it reads through them.
+    val actionCardColor = Color.White.copy(alpha = 0.08f)
+    val background: @Composable () -> Unit = sheetBackground ?: { CoverSheetBackground(track.thumbnail) }
+    // Long-pressed in liquid glass mode: the small glass menu pops from the song instead.
+    val glassAnchor = rememberContextMenuAnchor()
+    var useGlassMenu by remember { mutableStateOf(glassAnchor != null) }
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -176,15 +179,110 @@ fun TrackOptionsMenu(
     val displayAlbum: String? = resolvedAlbumName
         ?: track.album.takeIf { !it.isNullOrBlank() && !AlbumMetadataResolver.isRedundantOrSingle(it, track.title) }
 
+    fun shareTrack() {
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, track.title)
+            putExtra(
+                Intent.EXTRA_TEXT,
+                "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
+            )
+        }
+        context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_track)))
+    }
+
+    fun toggleFavorite() {
+        val newFav = !localIsFavorite
+        localIsFavorite = newFav
+        onToggleFavorite()
+        Toast.makeText(
+            context,
+            if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    fun togglePin() {
+        val nextPinned = !localIsPinned
+        localIsPinned = nextPinned
+        val msg = if (nextPinned) str(R.string.pinned_to_speed_dial) else str(R.string.unpinned_from_speed_dial)
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        onPinToSpeedDial?.invoke()
+    }
+
+    fun openAlbum() {
+        val albumTitle = displayAlbum ?: return
+        val targetAlbumId = resolvedAlbumId
+            ?: track.albumId.takeIf { !AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title) }
+        onGoToAlbum?.invoke(
+            targetAlbumId,
+            albumTitle,
+            resolvedArtistName ?: track.artist,
+            resolvedAlbumArt ?: track.thumbnail
+        )
+    }
+
+    if (useGlassMenu && glassAnchor != null) {
+        val isDownloaded = AuralisDownloadManager.isDownloaded(track.id)
+        val isDownloading = AuralisDownloadManager.isDownloading(track.id)
+        val glassItems = buildList {
+            add(GlassMenuItem(str(R.string.play_next), Icons.AutoMirrored.Filled.PlaylistPlay) { onPlayNext() })
+            add(GlassMenuItem(str(R.string.add_to_queue), Icons.AutoMirrored.Filled.QueueMusic) { onAddToQueue() })
+            if (onRemoveFromQueue != null) {
+                add(GlassMenuItem(str(R.string.remove_from_queue), Icons.Default.RemoveCircleOutline) { onRemoveFromQueue() })
+            }
+            // Hands over to the regular sheet's playlist picker.
+            add(GlassMenuItem(str(R.string.add_to_playlist), Icons.AutoMirrored.Filled.PlaylistAdd, dismisses = false) {
+                showPlaylistPicker = true
+                useGlassMenu = false
+            })
+            add(GlassMenuItem(
+                if (localIsFavorite) str(R.string.remove_from_library) else str(R.string.add_to_library),
+                if (localIsFavorite) Icons.Default.LibraryAddCheck else Icons.Default.LibraryAdd,
+                tint = if (localIsFavorite) Color(0xFFFF4081) else null
+            ) { toggleFavorite() })
+            add(GlassMenuItem(
+                if (isDownloaded) str(R.string.remove_download) else if (isDownloading) str(R.string.downloading_2) else str(R.string.download),
+                if (isDownloaded) Icons.Default.DownloadDone else if (isDownloading) Icons.Default.CloudDownload else Icons.Default.Download,
+                tint = if (isDownloaded) Color(0xFF4CAF50) else null
+            ) {
+                if (isDownloaded) AuralisDownloadManager.removeDownload(track.id) else AuralisDownloadManager.downloadTrack(track)
+            })
+            add(GlassMenuItem(str(R.string.view_album), Icons.Default.Album, enabled = displayAlbum != null) { openAlbum() })
+            add(GlassMenuItem(str(R.string.view_artist), Icons.Default.Person) { onGoToArtist?.invoke() })
+            if (!queueReferenceStyle) {
+                add(GlassMenuItem(
+                    if (localIsPinned) str(R.string.unpin_from_speed_dial) else str(R.string.pin_to_speed_dial),
+                    if (localIsPinned) Icons.Default.PushPin else Icons.Default.Add
+                ) { togglePin() })
+            }
+            presentationActions?.takeIf { it.isNowPlaying(track) }?.let { actions ->
+                add(GlassMenuItem(str(R.string.ambient_mode), Icons.Default.Fullscreen) { actions.openAmbient(track) })
+                val lyricsShown = actions.isLyricsShown(track)
+                add(GlassMenuItem(str(if (lyricsShown) R.string.hide_lyrics else R.string.show_lyrics), Icons.Default.Lyrics) {
+                    if (lyricsShown) actions.hideLyrics(track) else actions.openLyrics(track)
+                })
+            }
+            if (isInListenTogetherRoom && onRecommendToRoom != null) {
+                add(GlassMenuItem(str(R.string.add_to_room_queue), Icons.Default.Group) { onRecommendToRoom(track) })
+            }
+            add(GlassMenuItem(str(R.string.share), Icons.Default.Share) { shareTrack() })
+        }
+        GlassContextMenu(anchor = glassAnchor, items = glassItems, onDismiss = onDismiss)
+    } else CoverSheetTheme {
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = dynamicSurface,
+        containerColor = CoverSheetFloor,
         contentColor = MaterialTheme.colorScheme.onSurface,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         modifier = modifier
     ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+        // The colour field fills the sheet behind the content; the sheet's shape clips it.
+        Box(modifier = Modifier.matchParentSize()) { background() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -249,16 +347,7 @@ fun TrackOptionsMenu(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     IconButton(
-                        onClick = {
-                            val newFav = !localIsFavorite
-                            localIsFavorite = newFav
-                            onToggleFavorite()
-                            Toast.makeText(
-                                context,
-                                if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
+                        onClick = { toggleFavorite() },
                         modifier = Modifier.size(42.dp)
                     ) {
                         Icon(
@@ -282,12 +371,12 @@ fun TrackOptionsMenu(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Classic Queue follows the reference's Radio / Add / Share action row.
+                    // Play next / Add / Share action row.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Pill 1: Radio in classic Queue, Play next elsewhere.
+                        // Pill 1: Play next
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -295,7 +384,7 @@ fun TrackOptionsMenu(
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(actionCardColor)
                                 .clickable {
-                                    if (queueReferenceStyle) onStartRadio?.invoke() else onPlayNext()
+                                    onPlayNext()
                                     onDismiss()
                                 },
                             contentAlignment = Alignment.Center
@@ -305,14 +394,14 @@ fun TrackOptionsMenu(
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 Icon(
-                                    imageVector = if (queueReferenceStyle) Icons.Default.Sensors else Icons.AutoMirrored.Filled.PlaylistPlay,
-                                    contentDescription = if (queueReferenceStyle) str(R.string.radio) else str(R.string.play_next),
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = str(R.string.play_next),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (queueReferenceStyle) str(R.string.radio) else str(R.string.play_next),
+                                    text = str(R.string.play_next),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
@@ -360,15 +449,7 @@ fun TrackOptionsMenu(
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(actionCardColor)
                                 .clickable {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_SUBJECT, track.title)
-                                        putExtra(
-                                            Intent.EXTRA_TEXT,
-                                            "Listen to '${track.title}' by ${track.artist} on Auralis Music\nhttps://music.youtube.com/watch?v=${track.id}\n\nDownload Auralis App: https://auralis-self-nu.vercel.app/"
-                                        )
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, str(R.string.share_track)))
+                                    shareTrack()
                                     onDismiss()
                                 },
                             contentAlignment = Alignment.Center
@@ -396,28 +477,13 @@ fun TrackOptionsMenu(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // ── GROUP 1: PLAY NEXT / RADIO, ADD TO QUEUE ──
+                    // ── GROUP 1: ADD TO QUEUE ──
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
                             .background(actionCardColor)
                     ) {
-                        TrackOptionRow(
-                            icon = if (queueReferenceStyle) Icons.AutoMirrored.Filled.PlaylistPlay else Icons.Default.Sensors,
-                            title = if (queueReferenceStyle) str(R.string.play_next) else str(R.string.start_radio),
-                            subtitle = if (queueReferenceStyle) str(R.string.add_to_the_top_of_your_queue) else str(R.string.create_a_station_based_on_this_item),
-                            onClick = {
-                                if (queueReferenceStyle) onPlayNext() else onStartRadio?.invoke()
-                                onDismiss()
-                            }
-                        )
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
                         TrackOptionRow(
                             icon = Icons.AutoMirrored.Filled.QueueMusic,
                             title = str(R.string.add_to_queue),
@@ -457,12 +523,8 @@ fun TrackOptionsMenu(
                             title = if (localIsPinned) str(R.string.unpin_from_speed_dial) else str(R.string.pin_to_speed_dial),
                             subtitle = null,
                             onClick = {
-                                val nextPinned = !localIsPinned
-                                localIsPinned = nextPinned
-                                val msg = if (nextPinned) str(R.string.pinned_to_speed_dial) else str(R.string.unpinned_from_speed_dial)
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 onDismiss()
-                                onPinToSpeedDial?.invoke()
+                                togglePin()
                             }
                         )
                     }
@@ -481,21 +543,14 @@ fun TrackOptionsMenu(
                             iconTint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                             titleColor = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface,
                             onClick = {
-                                val newFav = !localIsFavorite
-                                localIsFavorite = newFav
-                                onToggleFavorite()
-                                Toast.makeText(
-                                    context,
-                                    if (newFav) str(R.string.saved_to_library) else str(R.string.removed_from_library),
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                                toggleFavorite()
                                 onDismiss()
                             }
                         )
                     }
 
                     // ── GROUP 4: DOWNLOAD ──
-                    presentationActions?.let { actions ->
+                    presentationActions?.takeIf { it.isNowPlaying(track) }?.let { actions ->
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(actionCardColor)) {
                             TrackOptionRow(icon = Icons.Default.Fullscreen, title = str(R.string.ambient_mode), subtitle = null,
                                 onClick = { onDismiss(); actions.openAmbient(track) })
@@ -563,15 +618,8 @@ fun TrackOptionsMenu(
                             },
                             enabled = displayAlbum != null,
                             onClick = {
-                                val albumTitle = displayAlbum ?: return@TrackOptionRow
-                                val targetAlbumId = resolvedAlbumId
-                                    ?: track.albumId.takeIf { !AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title) }
-                                onGoToAlbum?.invoke(
-                                    targetAlbumId,
-                                    albumTitle,
-                                    resolvedArtistName ?: track.artist,
-                                    resolvedAlbumArt ?: track.thumbnail
-                                )
+                                if (displayAlbum == null) return@TrackOptionRow
+                                openAlbum()
                                 onDismiss()
                             }
                         )
@@ -719,6 +767,8 @@ fun TrackOptionsMenu(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+        }
+    }
     }
 
     // ── CREATE PLAYLIST DIALOG ──

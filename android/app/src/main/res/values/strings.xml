@@ -289,6 +289,10 @@
     <string name="queue_unlocked_drag_the_handles_to_reord">Queue unlocked: drag the handles to reorder</string>
     <string name="unlock_queue_reordering">Unlock queue reordering</string>
     <string name="lock_queue_reordering">Lock queue reordering</string>
+    <string name="playlist_order_locked">Order locked</string>
+    <string name="playlist_order_unlocked">Order unlocked: drag the handles to reorder</string>
+    <string name="unlock_playlist_order">Unlock playlist order</string>
+    <string name="lock_playlist_order">Lock playlist order</string>
     <string name="audio_output_settings_unavailable">Audio Output Settings unavailable</string>
     <string name="artist_x">Artist: %1$s</string>
     <string name="previous_track">Previous Track</string>

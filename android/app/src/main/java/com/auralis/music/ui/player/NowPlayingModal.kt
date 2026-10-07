@@ -494,8 +494,8 @@ fun NowPlayingModal(
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
 
-    // The immersive player has no inline lyrics, so "Show Lyrics" opens its lyrics tab.
-    val inlineLyricsSupported = PlayerDesign.fromDisplayName(com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerDesign) != PlayerDesign.IMMERSIVE
+    // Every player design has an inline lyric preview, including Immersive. The menu
+    // toggles that preview; the lyrics tab remains a separate full-screen action.
     var handledLyricsRequest by remember { mutableIntStateOf(uiState.lyricsViewRequestId) }
     LaunchedEffect(uiState.showLyricsView, uiState.lyricsViewRequestId) {
         val newRequest = uiState.lyricsViewRequestId != handledLyricsRequest
@@ -503,7 +503,7 @@ fun NowPlayingModal(
         if (uiState.showLyricsView) {
             currentTab = NowPlayingTab.LYRICS
         } else if (uiState.showInlineLyrics) {
-            currentTab = if (inlineLyricsSupported) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS
+            currentTab = NowPlayingTab.PLAYER
         } else if (newRequest && currentTab == NowPlayingTab.LYRICS) {
             // "Hide Lyrics" from the menu.
             currentTab = NowPlayingTab.PLAYER
@@ -748,13 +748,11 @@ fun NowPlayingModal(
 
     // The player's own clock, sampled once per displayed frame and interpolated
     // between readings. Runs only while lyrics are visible and audio is actually
-    // advancing; otherwise it mirrors the coarse 100 ms ticker. The immersive
-    // player always sweeps its current lyric line on the player tab, so it needs
-    // the clock there too, or the sweep moves in 100 ms jumps.
+    // advancing; otherwise it mirrors the coarse 100 ms ticker.
     val lyricsClock = com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = lyricsClockSource,
         enabled = (currentTab == NowPlayingTab.LYRICS ||
-            (currentTab == NowPlayingTab.PLAYER && (uiState.showInlineLyrics || !inlineLyricsSupported))) && uiState.isPlaying,
+            (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying,
         fallbackPositionMs = playbackPositionState
     )
 
@@ -2149,7 +2147,7 @@ fun NowPlayingModal(
         val baseActions = com.auralis.music.ui.components.LocalSongPresentationActions.current
         val playerActions = baseActions?.copy(
             isLyricsShown = { t ->
-                t.id == track.id && (currentTab == NowPlayingTab.LYRICS || (inlineLyricsSupported && uiState.showInlineLyrics))
+                t.id == track.id && (currentTab == NowPlayingTab.LYRICS || uiState.showInlineLyrics)
             },
             hideLyrics = { t ->
                 currentTab = NowPlayingTab.PLAYER

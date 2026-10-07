@@ -70,6 +70,7 @@ fun ImportPlaylistsScreen(
     onClearYouTubeImportMessage: () -> Unit,
     onImportYouTubePlaylist: (String) -> Unit,
     onImportSpotifyPlaylist: (String) -> Unit,
+    onImportSpotifyLibraryPlaylists: (List<SpotifyLibrary.LibraryPlaylist>) -> Unit = {},
     isImportingSpotify: Boolean,
     spotifyImportMessage: String?,
     onClearSpotifyImportMessage: () -> Unit,

@@ -76,6 +76,8 @@ import com.auralis.music.ui.theme.auralisFadeEnter
 import com.auralis.music.ui.theme.auralisFadeExit
 import com.auralis.music.ui.theme.auralisDetailBackwardExit
 import com.auralis.music.ui.theme.auralisDetailForwardEnter
+import com.auralis.music.ui.theme.auralisHeaderPageEnter
+import com.auralis.music.ui.theme.auralisHeaderPageExit
 import com.auralis.music.ui.theme.auralisPushEnter
 import com.auralis.music.ui.theme.auralisPushExit
 import com.auralis.music.ui.theme.auralisSheetEnter
@@ -137,7 +139,9 @@ fun AuralisApp(
             else -> AppDestination.HOME
         }
     }
-    var currentDestination by remember { mutableStateOf(initialDestination) }
+    // Saveable (as are the open player and header pages below): when Android reclaims the app in
+    // the background, coming back must land where the user left, not on a fresh start.
+    var currentDestination by rememberSaveable { mutableStateOf(initialDestination) }
     var detailOriginDestination by remember { mutableStateOf<AppDestination?>(null) }
     val visitedDestinations = remember { androidx.compose.runtime.mutableStateListOf(initialDestination) }
     LaunchedEffect(currentDestination) {
@@ -276,7 +280,7 @@ fun AuralisApp(
         }
     }
     val coroutineScope = rememberCoroutineScope()
-    var hasAppliedDefaultTab by remember { mutableStateOf(false) }
+    var hasAppliedDefaultTab by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(appearanceSettings.defaultOpenTab) {
         val target = when (appearanceSettings.defaultOpenTab) {
@@ -290,10 +294,11 @@ fun AuralisApp(
         }
     }
 
-    val playerSheetProgress = remember { Animatable(0f) }
+    var isNowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+    // A restored open player starts open, not sliding up from the mini player.
+    val playerSheetProgress = remember { Animatable(if (isNowPlayingOpen) 1f else 0f) }
     val immersivePlayerMorph = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(appearanceSettings.playerDesign) ==
         com.auralis.music.domain.model.PlayerDesign.IMMERSIVE
-    var isNowPlayingOpen by remember { mutableStateOf(false) }
     // The window flag, not View.keepScreenOn: some phones (seen on a Moto) ignored the view
     // setting. "Playing" comes from the audio player itself, which the screen's copy can lag.
     val keepAwakeActivity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
@@ -369,8 +374,14 @@ fun AuralisApp(
         }
     }
 
+    // After the app is reclaimed in the background the player can be restored open before the
+    // saved queue has reloaded, so give the track a moment to arrive before closing for lack of one.
+    var hasSeenTrack by remember { mutableStateOf(false) }
     LaunchedEffect(playerUiState.currentTrack) {
-        if (playerUiState.currentTrack == null) {
+        if (playerUiState.currentTrack != null) {
+            hasSeenTrack = true
+        } else {
+            if (!hasSeenTrack && isNowPlayingOpen) kotlinx.coroutines.delay(4_000L)
             sheetAnimationJob?.cancel()
             dismissAnimationJob?.cancel()
             playerSheetProgress.snapTo(0f)
@@ -391,9 +402,9 @@ fun AuralisApp(
         keyboardController?.hide()
     }
 
-    var isListenTogetherOpen by remember { mutableStateOf(false) }
-    var isProfileOpen by remember { mutableStateOf(false) }
-    var isHistoryOpen by remember { mutableStateOf(false) }
+    var isListenTogetherOpen by rememberSaveable { mutableStateOf(false) }
+    var isProfileOpen by rememberSaveable { mutableStateOf(false) }
+    var isHistoryOpen by rememberSaveable { mutableStateOf(false) }
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
     var isAmbientOpen by rememberSaveable { mutableStateOf(false) }
     var isExternalCreatePlaylistOpen by remember { mutableStateOf(false) }
@@ -719,6 +730,13 @@ fun AuralisApp(
         com.auralis.music.ui.player.PlayerBackgroundStyle.APPLE_MUSIC
     // The pages are recorded for glass whenever anything is drawing it.
     val recordGlassBackdrop = glassEnabled || miniPlayerGlass
+    val transitionProgress = remember { Animatable(1f) }
+    // Tab alpha and translation change on a graphics layer without necessarily redrawing its
+    // parent. Drive both backdrop recordings from the same animation so they contain the pixels
+    // currently visible behind the dock and header on every transition frame.
+    val tabBackdropFrame = remember {
+        androidx.compose.runtime.derivedStateOf { currentDestination to transitionProgress.value }
+    }
     val glassPageBackground = MaterialTheme.dynamicBackground
     val glassBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit =
         remember(glassPageBackground) {
@@ -778,7 +796,8 @@ fun AuralisApp(
         openAmbient = { track -> preparePresentationTrack(track); obtainPlayerViewModel(); isAmbientOpen = true },
         openLyrics = { track -> preparePresentationTrack(track); obtainPlayerViewModel().showLyrics(); expandPlayer() },
         isLyricsShown = { track -> playerUiState.showInlineLyrics && playerUiState.currentTrack?.id == track.id },
-        hideLyrics = { obtainPlayerViewModel().hideLyrics() }
+        hideLyrics = { obtainPlayerViewModel().hideLyrics() },
+        isNowPlaying = { track -> playerUiState.currentTrack?.id == track.id }
     )
 
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
@@ -865,7 +884,7 @@ fun AuralisApp(
                         if (collapseOnScroll) Modifier.nestedScroll(dockMinimize.connection) else Modifier
                     )
                     .then(
-                        if (recordGlassBackdrop) Modifier.layerBackdrop(glassBackdrop) else Modifier
+                        if (recordGlassBackdrop) Modifier.layerBackdrop(glassBackdrop, tabBackdropFrame) else Modifier
                     )
                     .hazeSource(state = hazeState)
                     .hazeSource(state = pillHazeState, zIndex = 0f)
@@ -919,12 +938,21 @@ fun AuralisApp(
                         val slideOffsetPx = constraints.maxWidth.toFloat() / 8f
                         val homeHeaderState = remember { com.auralis.music.ui.components.LiquidGlassHeaderPageState() }
                         val libraryHeaderState = remember { com.auralis.music.ui.components.LiquidGlassHeaderPageState() }
+                        // Record the composited tabs, excluding the glass header itself. This
+                        // includes both pages during their crossfade and becomes the new page as
+                        // soon as it is visible, so the logo never samples an inactive tab.
+                        val tabHeaderBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(
+                            onDraw = glassBackdropDraw
+                        )
+                        val tabHeaderGlass = remember(tabHeaderBackdrop, glassIsDark) {
+                            com.auralis.music.ui.glass.LiquidGlassContext(
+                                tabHeaderBackdrop, glassIsDark, dockCollapse
+                            )
+                        }
 
                         var previousDestination by remember { mutableStateOf(currentDestination) }
                         var activeDestination by remember { mutableStateOf(currentDestination) }
                         var transitionDirection by remember { mutableIntStateOf(1) } // +1 forward (from right), -1 backward (from left)
-                        val transitionProgress = remember { Animatable(1f) }
-
                         LaunchedEffect(currentDestination) {
                             if (currentDestination != activeDestination) {
                                 val prevIdx = AppDestinations.indexOfFirst { it == activeDestination }
@@ -949,6 +977,12 @@ fun AuralisApp(
 
                         val currentProgress = transitionProgress.value
 
+                        Box(
+                            modifier = Modifier.fillMaxSize().then(
+                                if (glassEnabled) Modifier.layerBackdrop(tabHeaderBackdrop, tabBackdropFrame)
+                                else Modifier
+                            )
+                        ) {
                         AppDestinations.forEach { destination ->
                             if (visitedDestinations.contains(destination)) {
                                 val isCurrentlyActive = destination == activeDestination
@@ -1420,6 +1454,7 @@ fun AuralisApp(
                                 }
                             }
                         }
+                        }
                         // Keep one glass surface stationary while its page content transitions.
                         val headerPage = when (currentDestination) {
                             AppDestination.HOME -> homeHeaderState
@@ -1428,12 +1463,10 @@ fun AuralisApp(
                         }
                         val libraryHeaderVisible = libraryUiState.selectedPlaylist == null &&
                             libraryUiState.selectedSmartCollection != com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED
-                        // Use the already-recorded page during the first composition of the other tab.
-                        val pageGlass = headerPage?.glass ?: homeHeaderState.glass ?: libraryHeaderState.glass
-                        if (glassEnabled && headerPage != null && pageGlass != null &&
+                        if (glassEnabled && headerPage != null &&
                             (currentDestination != AppDestination.LIBRARY || libraryHeaderVisible)) {
                             com.auralis.music.ui.components.LiquidGlassPageHeader(
-                                glass = pageGlass,
+                                glass = tabHeaderGlass,
                                 onLogoClick = { headerPage.scrollToTop() },
                                 onOpenProfile = {
                                     obtainAuthViewModel()
@@ -1449,6 +1482,8 @@ fun AuralisApp(
                                     obtainStatsViewModel()
                                     isStatsOpen = true
                                 }) else null,
+                                // Shut while a page opened from it covers the tab, so it can't show through that page's fade.
+                                collapsed = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen,
                                 modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
                             )
                         }
@@ -1460,8 +1495,8 @@ fun AuralisApp(
         // Listen Together Sheet with unified navigation transition
         AnimatedVisibility(
             visible = isListenTogetherOpen,
-            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
-            exit = auralisDetailBackwardExit(),
+            enter = auralisHeaderPageEnter(),
+            exit = auralisHeaderPageExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(togetherGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
@@ -1606,8 +1641,8 @@ fun AuralisApp(
         // Profile & YouTube Music Account Sync Modal Sheet
         AnimatedVisibility(
             visible = isProfileOpen,
-            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
-            exit = auralisDetailBackwardExit(),
+            enter = auralisHeaderPageEnter(),
+            exit = auralisHeaderPageExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(profileGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
@@ -1650,6 +1685,7 @@ fun AuralisApp(
                     onDeselectAllPlaylists = { authVM.deselectAllPlaylists() },
                     onImportSelectedPlaylists = { authVM.importSelectedPlaylists() },
                     onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
+                    onImportSpotifyLibraryPlaylists = { libVM.importSpotifyLibraryPlaylists(it) },
                     onClearSpotifyImportMessage = { libVM.clearSpotifyImportMessage() },
                     isImportingSpotify = libraryUiState.isImportingSpotify,
                     spotifyImportMessage = libraryUiState.spotifyImportMessage,
@@ -1668,8 +1704,8 @@ fun AuralisApp(
         // Listening History Modal Sheet
         AnimatedVisibility(
             visible = isHistoryOpen,
-            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
-            exit = auralisDetailBackwardExit(),
+            enter = auralisHeaderPageEnter(),
+            exit = auralisHeaderPageExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(historyGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
@@ -1699,8 +1735,8 @@ fun AuralisApp(
         // Listening Stats Modal Sheet
         AnimatedVisibility(
             visible = isStatsOpen,
-            enter = auralisDetailForwardEnter(durationMillis = if (glassEnabled) 300 else 200, gradualFade = glassEnabled),
-            exit = auralisDetailBackwardExit(),
+            enter = auralisHeaderPageEnter(),
+            exit = auralisHeaderPageExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(statsGlassBackdrop) else Modifier)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {

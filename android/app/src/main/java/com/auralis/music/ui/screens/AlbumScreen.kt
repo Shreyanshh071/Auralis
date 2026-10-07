@@ -1,5 +1,6 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -381,6 +382,7 @@ fun AlbumScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .contextMenuAnchor()
                                 .combinedClickable(
                                     onClick = { onTrackClick(track, tracks) },
                                     onLongClick = { selectedTrackForMenu = track }

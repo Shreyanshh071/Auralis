@@ -26,6 +26,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         com.auralis.music.data.network.ContentProxy.install()
         // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
         com.auralis.music.data.network.YouTubeSession.init(this)
+        com.auralis.music.data.network.SpotifySession.init(this)
         com.auralis.music.data.sync.LocalDataOwner.init(this)
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = cacheDir
         // zemer-cipher logs through Timber; keep its lines in logcat for diagnosing downloads.

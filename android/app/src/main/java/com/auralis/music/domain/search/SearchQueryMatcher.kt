@@ -851,6 +851,44 @@ object SearchQueryMatcher {
         return null
     }
 
+    /**
+     * For a fan edit (sped up, slowed, nightcore...) that has no upload under its credited artist:
+     * another channel's upload of the same edit. Spotify lists "CARNIVAL x FEIN - Sped Up" by
+     * Kemi not a Kid (2:09), but YouTube only has that artist's original (3:30); the 2:08 "(sped
+     * up)" uploads are the edit. Accepted only with the same base title, the same edit tags and a
+     * length within [MAX_RECORDING_DELTA_SEC], so an original song never falls through to a
+     * stranger's cover. Credited-artist uploads first, then the closest length.
+     */
+    fun findReuploadOfEdit(target: Track, candidates: List<Track>): Track? {
+        if (target.duration <= 0) return null
+        if (!isFanEdit(target.title)) return null
+        val markers = versionMarkers(target.title)
+        val baseTitle = baseTitle(target.title)
+        if (baseTitle.isBlank()) return null
+        val targetArtist = if (target.artist.equals("Spotify Artist", ignoreCase = true)) "" else normalize(target.artist)
+        return candidates
+            .filter { c ->
+                c.id.isNotBlank() && !c.id.startsWith("sp_") && c.duration > 0 &&
+                    kotlin.math.abs(c.duration - target.duration) <= MAX_RECORDING_DELTA_SEC &&
+                    versionMarkers(c.title) == markers &&
+                    baseTitle(c.title) == baseTitle
+            }
+            .sortedWith(
+                compareByDescending<Track> { targetArtist.isNotBlank() && normalize(it.artist).contains(targetArtist) }
+                    .thenBy { kotlin.math.abs(it.duration - target.duration) }
+            )
+            .firstOrNull()
+    }
+
+    /** Sped up, slowed, nightcore and the like: the edits [findReuploadOfEdit] looks for. */
+    fun isFanEdit(title: String): Boolean = "slowed" in versionMarkers(title)
+
+    /** The title with its bracketed and " - " suffix segments removed, normalized. */
+    private fun baseTitle(title: String): String {
+        val noBrackets = title.replace(Regex("""[\(\[\{][^)\]\}]*[\)\]\}]"""), " ")
+        return normalize(noBrackets.split(Regex("""\s[-–—]\s""")).first())
+    }
+
     fun findBestCandidateForTrack(
         target: Track,
         candidates: List<Track>

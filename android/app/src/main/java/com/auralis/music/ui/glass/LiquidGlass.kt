@@ -110,7 +110,7 @@ fun Modifier.liquidGlass(
         // An outer shadow would be cut off by the clip above, so none is drawn.
         shadow = null,
         // Base translucent glass fill behind the live backdrop. Guarantees the element never degrades
-        // into a transparent frame when sampling unattached coordinates, transparent pixels, or during transitions.
+        // into a transparent frame when sampling unattached coordinates or transparent pixels.
         onDrawBehind = { drawOutline(shape.createOutline(size, layoutDirection, this), fallbackBaseColor) },
         // Fill the tint in the element's own shape. A plain drawRect relied on the layer clipping
         // to the shape, which it doesn't on this Compose version: the tint showed as a dark
