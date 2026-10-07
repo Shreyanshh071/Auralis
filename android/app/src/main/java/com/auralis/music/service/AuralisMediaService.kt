@@ -23,9 +23,10 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
@@ -41,45 +42,60 @@ import com.auralis.music.util.ArtworkProcessor
 import com.auralis.music.util.MasterArtworkResolver
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 /**
- * Pure native AndroidX Media3 MediaSessionService providing:
+ * Native AndroidX Media3 library session providing:
  * - Immediate synchronous startForeground() execution in onCreate() and onStartCommand().
  * - Full Android 13/14 Quick Settings & Lockscreen System Media Controls:
  *   App icon badge at top-left, interactive seekbar, previous/next, heart/favorite, repeat, and play/pause.
  */
 @OptIn(UnstableApi::class)
-class AuralisMediaService : MediaSessionService() {
+class AuralisMediaService : MediaLibraryService() {
 
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
 
-    /**
-     * A controller connected to our own session keeps this service *bound* for as long as
-     * the app process lives (the usual Media3 way to keep the media notification
-     * working). Without it, a paused service is only *started*; Android
-     * stops idle background services, onDestroy released the session, and the notification
-     * that stayed behind was re-drawn by System UI from its plain actions and a downscaled
-     * large icon (no seek bar, no repeat, blurrier cover).
-     */
+    /** Keep the live session bound while playback is active; release it on idle timeout. */
     private var selfControllerFuture: ListenableFuture<MediaController>? = null
+    private var inactiveSessionJob: Job? = null
+    private val inactiveTimeoutMs = 10 * 60 * 1000L
 
     private fun releaseSelfController() {
         selfControllerFuture?.let {
             try { MediaController.releaseFuture(it) } catch (_: Exception) {}
         }
         selfControllerFuture = null
+    }
+
+    private fun updateInactiveSessionTimer() {
+        inactiveSessionJob?.cancel()
+        inactiveSessionJob = null
+        val player = AuralisAudioPlayer.getInstance(applicationContext)
+        if (player.currentTrack.value == null || player.isPlaying.value || player.isBuffering.value ||
+            player.playbackRequested.value ||
+            com.auralis.music.data.sync.ListenTogetherManager.activeRoomCode != null) return
+        inactiveSessionJob = serviceScope.launch {
+            kotlinx.coroutines.delay(inactiveTimeoutMs)
+            // MediaLibraryService and MediaButtonReceiver let System UI replace the live session
+            // with its native, muted playback-resumption card after this idle period.
+            player.persistQueue()
+            releaseSelfController()
+            stopSelf()
+        }
     }
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var lastArtworkUrl: String? = null
@@ -118,7 +134,10 @@ class AuralisMediaService : MediaSessionService() {
                 .map { it != null }
                 .distinctUntilChanged()
                 .drop(1)
-                .collect { refreshNotification(immediate = true) }
+                .collect {
+                    refreshNotification(immediate = true)
+                    updateInactiveSessionTimer()
+                }
         }
         // 1. Create notification channel synchronously with low importance and public lockscreen visibility
         createNotificationChannel()
@@ -324,9 +343,8 @@ class AuralisMediaService : MediaSessionService() {
         }
 
         // 2. Build Custom MediaSession with custom actions and command handling
-        val session = MediaSession.Builder(this, forwardingPlayer)
+        val session = MediaLibrarySession.Builder(this, forwardingPlayer, AuralisSessionCallback())
             .setSessionActivity(sessionActivityPendingIntent!!)
-            .setCallback(AuralisSessionCallback())
             .setCustomLayout(buildCustomLayout(audioPlayer.isFavorite.value))
             .build()
         mediaSession = session
@@ -348,6 +366,7 @@ class AuralisMediaService : MediaSessionService() {
                     refreshNotification(immediate = false)
                 }
                 updateMediaSessionMetadata(audioPlayer.currentTrack.value, isPlaying, audioPlayer.isFavorite.value)
+                updateInactiveSessionTimer()
             }
         }
 
@@ -356,6 +375,7 @@ class AuralisMediaService : MediaSessionService() {
                 withContext(Dispatchers.Main) {
                     refreshNotification(immediate = false)
                 }
+                updateInactiveSessionTimer()
             }
         }
 
@@ -364,6 +384,7 @@ class AuralisMediaService : MediaSessionService() {
                 withContext(Dispatchers.Main) {
                     refreshNotification(immediate = false)
                 }
+                updateInactiveSessionTimer()
             }
         }
 
@@ -459,6 +480,7 @@ class AuralisMediaService : MediaSessionService() {
                     }
                 }
                 updateMediaSessionMetadata(track, audioPlayer.isPlaying.value, audioPlayer.isFavorite.value)
+                updateInactiveSessionTimer()
             }
         }
 
@@ -466,6 +488,7 @@ class AuralisMediaService : MediaSessionService() {
         if (audioPlayer.currentTrack.value != null) {
             refreshNotification(immediate = true)
         }
+        updateInactiveSessionTimer()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -870,14 +893,92 @@ class AuralisMediaService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         return mediaSession
+    }
+
+    private fun resumptionItem(track: Track): androidx.media3.common.MediaItem {
+        val artworkUri = runCatching {
+            val artworkDir = java.io.File(cacheDir, "artwork")
+            val id = track.id.filter { it.isLetterOrDigit() }.take(16)
+            val cached = artworkDir.listFiles()
+                ?.filter { it.name.startsWith("media_art_${id}_") && it.extension == "jpg" }
+                ?.maxByOrNull { it.lastModified() }
+            cached?.let {
+                androidx.core.content.FileProvider.getUriForFile(
+                    this, "$packageName.fileprovider", it
+                ).also { uri ->
+                    grantUriPermission("com.android.systemui", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+        }.getOrNull() ?: track.thumbnail?.let(android.net.Uri::parse)
+        val metadata = androidx.media3.common.MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setArtworkUri(artworkUri)
+            .setIsPlayable(true)
+            .build()
+        return androidx.media3.common.MediaItem.Builder()
+            .setMediaId(track.id)
+            .setMediaMetadata(metadata)
+            .build()
     }
 
     /**
      * Custom MediaSession Callback handling playback commands, speeds, favorites, and navigation.
      */
-    private inner class AuralisSessionCallback : MediaSession.Callback {
+    private inner class AuralisSessionCallback : MediaLibrarySession.Callback {
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<androidx.media3.common.MediaItem>> {
+            val root = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("auralis_root")
+                .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle("Auralis")
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .build())
+                .build()
+            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<androidx.media3.common.MediaItem>>> {
+            val item = currentActiveMediaItem ?: AuralisAudioPlayer.getInstance(applicationContext)
+                .currentTrack.value?.let(::resumptionItem)
+            val children = if (parentId == "auralis_root" && page == 0 && item != null) listOf(item) else emptyList()
+            return Futures.immediateFuture(LibraryResult.ofItemList(children, params))
+        }
+
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch {
+                val player = AuralisAudioPlayer.getInstance(applicationContext)
+                val track = player.currentTrack.value ?: withTimeoutOrNull(2_000L) {
+                    player.currentTrack.filterNotNull().first()
+                }
+                if (track == null) {
+                    result.setException(IllegalStateException("No saved track to resume"))
+                } else {
+                    result.set(MediaSession.MediaItemsWithStartPosition(
+                        listOf(resumptionItem(track)), 0, player.playbackPositionMs.value
+                    ))
+                }
+            }
+            return result
+        }
 
         override fun onConnect(
             session: MediaSession,
