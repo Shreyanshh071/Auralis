@@ -130,14 +130,14 @@ class AmllLyricsSource(
 
         // 1. Direct platform track ID lookups if provided
         if (!query.appleMusicId.isNullOrBlank()) {
-            fetchTtmlCandidate("am-lyrics", query.appleMusicId, cleanTitle, cleanArtist, targetDurationMs, query)?.let {
+            fetchTtmlCandidate("am-lyrics", query.appleMusicId!!, cleanTitle, cleanArtist, targetDurationMs, query)?.let {
                 Log.d(TAG, "Resolved AMLL TTML via explicit Apple Music ID: ${query.appleMusicId}")
                 return@withContext it
             }
         }
 
         if (!query.spotifyId.isNullOrBlank()) {
-            fetchTtmlCandidate("spotify-lyrics", query.spotifyId, cleanTitle, cleanArtist, targetDurationMs, query)?.let {
+            fetchTtmlCandidate("spotify-lyrics", query.spotifyId!!, cleanTitle, cleanArtist, targetDurationMs, query)?.let {
                 Log.d(TAG, "Resolved AMLL TTML via explicit Spotify ID: ${query.spotifyId}")
                 return@withContext it
             }

@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.selects.select
 
 /** Accept a prepared stream only until the web engine starts audio. */
-internal suspend fun awaitNativeDuringWebStartup(
+suspend fun awaitNativeDuringWebStartup(
     nativeStream: Deferred<String?>,
     webPlaying: StateFlow<Boolean>
 ): String? = coroutineScope {

@@ -1,9 +1,9 @@
 package com.auralis.music.data.service
 
-internal fun acceptsWebPlaybackCallback(
+fun acceptsWebPlaybackCallback(
     activeVideoId: String?, activeRequestId: Long, callbackRequestId: Long
 ): Boolean = activeVideoId != null && activeRequestId == callbackRequestId
 
-internal fun acceptsWebPlaybackPage(
+fun acceptsWebPlaybackPage(
     activeVideoId: String?, activeRequestId: Long, navigationRequestId: Long, pageVideoId: String?
 ): Boolean = activeVideoId != null && activeVideoId == pageVideoId && activeRequestId == navigationRequestId

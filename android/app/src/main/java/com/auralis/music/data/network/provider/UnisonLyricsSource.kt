@@ -44,7 +44,7 @@ class UnisonLyricsSource(
 
         // 1. Priority A: Exact YouTube video ID lookup if available
         if (!query.videoId.isNullOrBlank()) {
-            val videoCandidate = fetchByVideoId(query.videoId, query, targetDurSec)
+            val videoCandidate = fetchByVideoId(query.videoId!!, query, targetDurSec)
             if (videoCandidate != null) {
                 return@withContext videoCandidate
             }

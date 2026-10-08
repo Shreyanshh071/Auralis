@@ -35,7 +35,7 @@ data class PlaylistDownloadState(
 }
 
 /** One awaited item at a time. Existing active transfers can be joined by download(). */
-internal suspend fun runPlaylistDownload(
+suspend fun runPlaylistDownload(
     tracks: List<Track>,
     isDownloaded: (String) -> Boolean,
     download: suspend (Track) -> TrackDownloadResult,

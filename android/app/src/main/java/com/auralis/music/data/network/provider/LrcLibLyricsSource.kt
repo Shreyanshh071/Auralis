@@ -170,8 +170,8 @@ class LrcLibLyricsSource(
                 if (confidence < 45) continue
 
                 // Calculate duration accuracy bonus (closer duration = higher score)
-                val durDiff = if (query.durationSec != null && query.durationSec > 0 && candDuration > 0) {
-                    kotlin.math.abs(query.durationSec - candDuration)
+                val durDiff = if (query.durationSec != null && query.durationSec!! > 0 && candDuration > 0) {
+                    kotlin.math.abs(query.durationSec!! - candDuration)
                 } else 0L
 
                 val durationBonus = when {
