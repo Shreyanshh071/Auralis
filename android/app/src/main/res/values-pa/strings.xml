@@ -73,6 +73,8 @@
     <string name="create_a_station_based_on_this_item">ਇਸ ਦੇ ਆਧਾਰ \'ਤੇ ਸਟੇਸ਼ਨ ਬਣਾਓ</string>
     <string name="remove_from_queue">ਕਤਾਰ ਤੋਂ ਹਟਾਓ</string>
     <string name="take_this_song_out_of_up_next">ਇਹ ਗੀਤ \'ਅੱਗੇ ਵੱਜੇਗਾ\' ਤੋਂ ਹਟਾਓ</string>
+    <string name="remove_from_playlist">ਪਲੇਲਿਸਟ ਤੋਂ ਹਟਾਓ</string>
+    <string name="take_this_song_out_of_this_playlist">ਇਸ ਗੀਤ ਨੂੰ ਇਸ ਪਲੇਲਿਸਟ ਵਿੱਚੋਂ ਹਟਾਓ</string>
     <string name="remove_from_library">ਲਾਇਬ੍ਰੇਰੀ ਤੋਂ ਹਟਾਓ</string>
     <string name="add_to_library">ਲਾਇਬ੍ਰੇਰੀ ਵਿੱਚ ਜੋੜੋ</string>
     <string name="remove_from_your_library">ਆਪਣੀ ਲਾਇਬ੍ਰੇਰੀ ਤੋਂ ਹਟਾਓ</string>
@@ -835,7 +837,6 @@
     <string name="opt_rich_sync_word_timed_lyrics">ਰਿਚ-ਸਿੰਕ ਸ਼ਬਦ-ਦਰ-ਸ਼ਬਦ ਬੋਲ</string>
     <string name="opt_netease_cloud_music_lyrics">NetEase Cloud Music ਬੋਲ</string>
     <string name="opt_indian_catalogue_lyrics">ਭਾਰਤੀ ਸੰਗ੍ਰਹਿ ਦੇ ਬੋਲ</string>
-    <string name="opt_simpmusic_lyrics_database">SimpMusic ਬੋਲ ਡਾਟਾਬੇਸ</string>
     <string name="opt_lyrics_shown_in_youtube_music_unsynced">YouTube Music ਵਿੱਚ ਦਿਖਣ ਵਾਲੇ ਬੋਲ (ਬਿਨਾਂ ਸਿੰਕ)</string>
     <string name="opt_youtube_captions">YouTube ਕੈਪਸ਼ਨ</string>
     <string name="opt_timed_captions_from_the_music_video">ਸੰਗੀਤ ਵੀਡੀਓ ਦੇ ਸਮੇਂ ਵਾਲੇ ਕੈਪਸ਼ਨ</string>

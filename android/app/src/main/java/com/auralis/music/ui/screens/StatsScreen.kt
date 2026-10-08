@@ -89,6 +89,19 @@ import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.glass.LocalLiquidGlass
+import com.auralis.music.ui.glass.LiquidGlassContext
+import com.auralis.music.ui.glass.liquidGlass
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.auralis.music.ui.components.rememberPageHeaderGlass
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.layout.RowScope
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
@@ -98,6 +111,74 @@ import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.StatsViewModel
 import java.util.Locale
 import com.auralis.music.ui.components.bottomChromePadding
+
+@Composable
+private fun StatsFilterPill(
+    selected: Boolean,
+    glass: LiquidGlassContext?,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    content: @Composable RowScope.() -> Unit
+) {
+    val containerColor = if (selected) accentColor else MaterialTheme.colorScheme.surfaceContainerHigh
+    val contentColor = if (glass != null) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    }
+
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val reducedMotion = LocalReducedMotion.current
+    val pressFill = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = if (reducedMotion) androidx.compose.animation.core.snap()
+        else androidx.compose.animation.core.tween(
+            durationMillis = if (pressed) 450 else 220,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+        label = "statsPillPressFill"
+    )
+
+    val pillModifier = if (glass != null) {
+        val glassModifier = if (selected) {
+            Modifier.liquidGlass(glass, CircleShape, tint = accentColor.copy(alpha = 0.24f))
+        } else {
+            Modifier.liquidGlass(glass, CircleShape)
+        }
+        glassModifier.drawWithContent {
+            drawContent()
+            if (pressFill.value > 0f) drawOutline(
+                CircleShape.createOutline(size, layoutDirection, this),
+                contentColor.copy(alpha = 0.12f * pressFill.value)
+            )
+        }
+    } else Modifier.clip(CircleShape)
+
+    Surface(
+        modifier = modifier
+            .then(pillModifier)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = if (glass != null) null else LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick
+            ),
+        shape = CircleShape,
+        color = if (glass != null) Color.Transparent else containerColor,
+        border = if (glass != null || selected) null else androidx.compose.foundation.BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            content = content
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -152,6 +233,13 @@ fun StatsScreen(
     val cardBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.35f else 0.45f)
     val textPrimary = MaterialTheme.dynamicOnSurface
     val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val contentBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit = {
+        drawRect(themeBackground)
+        drawContent()
+    }
+    val contentBackdrop = rememberLayerBackdrop(onDraw = contentBackdropDraw)
+    val statsGlass = rememberPageHeaderGlass(contentBackdrop)
 
     val dateChips = remember(selectedOption, firstEventTs) {
         viewModel.generateDateChips(firstEventTs)
@@ -238,39 +326,32 @@ fun StatsScreen(
             ) {
                 // Dropdown Chip
                 Box {
-                    Surface(
-                        onClick = { showOptionDropdown = true },
-                        shape = CircleShape,
-                        color = surfaceHighColor,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
-                        modifier = Modifier.tactileBounce(0.92f)
+                    StatsFilterPill(
+                        selected = false,
+                        glass = statsGlass,
+                        accentColor = themePrimary,
+                        onClick = { showOptionDropdown = true }
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            val optionLabel = when (selectedOption) {
-                                OptionStats.CONTINUOUS -> str(R.string.continuous)
-                                OptionStats.WEEKS -> str(R.string.weeks)
-                                OptionStats.MONTHS -> str(R.string.months)
-                                OptionStats.YEARS -> str(R.string.years)
-                            }
-                            Text(
-                                text = optionLabel,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.5.sp
-                                ),
-                                color = textPrimary
-                            )
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = null,
-                                tint = textPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        val optionLabel = when (selectedOption) {
+                            OptionStats.CONTINUOUS -> str(R.string.continuous)
+                            OptionStats.WEEKS -> str(R.string.weeks)
+                            OptionStats.MONTHS -> str(R.string.months)
+                            OptionStats.YEARS -> str(R.string.years)
                         }
+                        Text(
+                            text = optionLabel,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.5.sp
+                            ),
+                            color = textPrimary
+                        )
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = textPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
 
                     DropdownMenu(
@@ -309,23 +390,11 @@ fun StatsScreen(
                 ) {
                     items(dateChips, key = { "${selectedOption.name}_${it.first}" }) { (idx, label) ->
                         val isSelected = idx == selectedChipIndex
-                        val pillBg = if (isSelected) {
-                            themePrimary
-                        } else {
-                            surfaceHighColor
-                        }
-                        val pillTextColor = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            textSecondary
-                        }
-
-                        Surface(
-                            onClick = { viewModel.selectChip(idx) },
-                            shape = CircleShape,
-                            color = pillBg,
-                            border = if (!isSelected) androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor) else null,
-                            modifier = Modifier.tactileBounce(0.92f)
+                        StatsFilterPill(
+                            selected = isSelected,
+                            glass = statsGlass,
+                            accentColor = themePrimary,
+                            onClick = { viewModel.selectChip(idx) }
                         ) {
                             Text(
                                 text = label,
@@ -333,8 +402,7 @@ fun StatsScreen(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 13.5.sp
                                 ),
-                                color = pillTextColor,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)
+                                color = if (statsGlass != null) textPrimary else (if (isSelected) MaterialTheme.colorScheme.onPrimary else textSecondary)
                             )
                         }
                     }
@@ -342,7 +410,12 @@ fun StatsScreen(
             }
 
             // Main Stats Content
-            com.auralis.music.ui.components.AuralisRefreshBox(refresh = { viewModel.refresh() }) {
+            com.auralis.music.ui.components.AuralisRefreshBox(
+                refresh = { viewModel.refresh() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (statsGlass != null) Modifier.layerBackdrop(contentBackdrop) else Modifier)
+            ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 12.dp),
@@ -921,6 +994,11 @@ fun StatsScreen(
                 .navigationBarsPadding()
                 .padding(end = 20.dp, bottom = if (hasActiveMiniPlayer) 150.dp else 90.dp)
         ) {
+            val shuffleModifier = if (statsGlass != null) {
+                Modifier.liquidGlass(statsGlass, CircleShape, tint = themePrimary.copy(alpha = 0.26f))
+            } else {
+                Modifier.clip(CircleShape)
+            }
             Surface(
                 onClick = {
                     val shuffled = topSongs.map { it.track }.shuffled()
@@ -929,9 +1007,12 @@ fun StatsScreen(
                     }
                 },
                 shape = CircleShape,
-                color = themePrimary,
-                shadowElevation = 8.dp,
-                modifier = Modifier.tactileBounce(0.92f)
+                color = if (statsGlass != null) Color.Transparent else themePrimary,
+                border = null,
+                shadowElevation = if (statsGlass != null) 0.dp else 6.dp,
+                modifier = Modifier
+                    .then(shuffleModifier)
+                    .tactileBounce(0.92f)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
@@ -941,16 +1022,16 @@ fun StatsScreen(
                     Icon(
                         imageVector = Icons.Rounded.Shuffle,
                         contentDescription = str(R.string.shuffle),
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = if (statsGlass != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
                         text = str(R.string.shuffle),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.5.sp
+                            fontSize = 14.sp
                         ),
-                        color = MaterialTheme.colorScheme.onPrimary
+                        color = if (statsGlass != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }

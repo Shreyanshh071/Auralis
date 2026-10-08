@@ -148,8 +148,6 @@ object UiLabels {
         "NetEase Cloud Music lyrics" to R.string.opt_netease_cloud_music_lyrics,
         "JioSaavn" to R.string.opt_jiosaavn,
         "Indian catalogue lyrics" to R.string.opt_indian_catalogue_lyrics,
-        "SimpMusic" to R.string.opt_simpmusic,
-        "SimpMusic lyrics database" to R.string.opt_simpmusic_lyrics_database,
         "YouTube Music" to R.string.opt_youtube_music,
         "Lyrics shown in YouTube Music (unsynced)" to R.string.opt_lyrics_shown_in_youtube_music_unsynced,
         "YouTube captions" to R.string.opt_youtube_captions,

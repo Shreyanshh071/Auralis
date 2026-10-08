@@ -15,7 +15,7 @@ enum class LyricsProvider {
     YOUTUBE_CAPTIONS,
     LOCAL,
     YOULYPLUS,
-    SIMPMUSIC
+    QQMUSIC
 }
 
 /**

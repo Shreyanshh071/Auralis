@@ -177,4 +177,122 @@ class WordSyncParsersTest {
         assertEquals(12500L, line1.words!![0].time)
         assertEquals(500L, line1.words!![0].duration)
     }
+
+    @Test
+    fun testKrcParser() {
+        val krcContent = """
+            [ti:Creep]
+            [ar:Radiohead]
+            [offset:0]
+            [16746,1144]<0,216,0>When <216,256,0>you <472,216,0>were <688,177,0>here <865,279,0>before
+            [20706,1976]<0,233,0>Couldn't <233,239,0>look <472,280,0>you <752,256,0>in <1008,352,0>the <1360,616,0>eye
+        """.trimIndent()
+
+        val parsed = com.auralis.music.data.parser.KrcParser.parse(
+            krcContent = krcContent,
+            provider = LyricsProvider.KUGOU,
+            trackName = "Creep",
+            artistName = "Radiohead"
+        )
+
+        assertNotNull(parsed)
+        assertEquals(SyncType.RICHSYNC, parsed!!.syncType)
+        assertEquals(2, parsed.lines.size)
+
+        val line1 = parsed.lines[0]
+        assertEquals(16746L, line1.time)
+        assertEquals("When you were here before", line1.text)
+        assertEquals(5, line1.words!!.size)
+        assertEquals("When ", line1.words!![0].word)
+        assertEquals(16746L, line1.words!![0].time)
+        assertEquals(216L, line1.words!![0].duration)
+        assertEquals("you ", line1.words!![1].word)
+        assertEquals(16746L + 216L, line1.words!![1].time)
+    }
+
+    @Test
+    fun testQrcParser() {
+        val qrcXml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <QrcInfos>
+            <LyricInfo>
+            <Lyric_1 LyricType="1" LyricContent="[ti:Creep]
+            [ar:Radiohead]
+            [20240,1479]When (20240,170)you (20410,160)were (20570,229)here (20799,190)before(20989,730)
+            [25049,1820]Couldn't (25049,210)look (25259,130)you (25389,370)in (25759,190)the (25949,320)eye(26269,600)
+            "/>
+            </LyricInfo>
+            </QrcInfos>
+        """.trimIndent()
+
+        val parsed = com.auralis.music.data.parser.QrcParser.parse(
+            qrcContent = qrcXml,
+            provider = LyricsProvider.QQMUSIC,
+            trackName = "Creep",
+            artistName = "Radiohead"
+        )
+
+        assertNotNull(parsed)
+        assertEquals(SyncType.RICHSYNC, parsed!!.syncType)
+        assertEquals(2, parsed.lines.size)
+
+        val line1 = parsed.lines[0]
+        assertEquals(20240L, line1.time)
+        assertEquals("When you were here before", line1.text)
+        assertEquals(5, line1.words!!.size)
+        assertEquals("When ", line1.words!![0].word)
+        assertEquals(20240L, line1.words!![0].time)
+        assertEquals(170L, line1.words!![0].duration)
+    }
+
+    @Test
+    fun testMusixmatchRichsyncPacingAndTrailingDurationCap() {
+        // Real-world sample with a 4-second instrumental break at the end and a 50ms quick-tap word
+        val jsonPayload = """
+            [
+              {
+                "ts": 9.61,
+                "te": 19.02,
+                "x": "Mujhko itna bataaye koyi",
+                "l": [
+                  { "c": "Mujhko", "o": 0.0 },
+                  { "c": " ", "o": 1.24 },
+                  { "c": "itna", "o": 3.54 },
+                  { "c": " ", "o": 3.59 },
+                  { "c": "bataaye", "o": 4.2 },
+                  { "c": " ", "o": 5.28 },
+                  { "c": "koyi", "o": 5.42 }
+                ]
+              }
+            ]
+        """.trimIndent()
+
+        val parsed = MusixmatchRichsyncParser.parse(
+            richsyncBody = jsonPayload,
+            provider = LyricsProvider.MUSIXMATCH,
+            trackName = "Kesariya",
+            artistName = "Pritam"
+        )
+
+        assertNotNull(parsed)
+        val line = parsed!!.lines[0]
+        val words = line.words!!
+        assertEquals(4, words.size)
+
+        // "itna" had a 50ms space release (3.59 - 3.54), but next word "bataaye" starts at 4.20.
+        // It should be normalized to at least 180ms to prevent fast-pacing glitch.
+        assertEquals("itna ", words[1].word)
+        assertTrue("Short word duration must be normalized", words[1].duration!! >= 180L)
+
+        // Final token "koyi" starts at 9.61 + 5.42 = 15.03s, lineEnd is 19.02s (3.99s later).
+        // Must be capped so it doesn't slowly highlight across the 4-second instrumental rest.
+        val lastWord = words.last()
+        assertEquals("koyi", lastWord.word)
+        assertTrue("Last word duration must be capped under 1300ms", lastWord.duration!! <= 1200L)
+
+        // Alignment engine advances Musixmatch by 150ms to eliminate curator tap latency
+        val aligned = com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(parsed, 200_000L)
+        assertEquals(9610L - 150L, aligned.lines[0].time)
+        assertEquals(-150L, aligned.appliedOffsetMs)
+    }
 }

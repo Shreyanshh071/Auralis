@@ -13,7 +13,7 @@ import com.auralis.music.data.network.provider.LyricsSource
 import com.auralis.music.data.network.provider.MusixmatchLyricsSource
 import com.auralis.music.data.network.provider.NetEaseLyricsSource
 import com.auralis.music.data.network.provider.PaxsenixLyricsSource
-import com.auralis.music.data.network.provider.SimpMusicLyricsSource
+import com.auralis.music.data.network.provider.QQMusicLyricsSource
 import com.auralis.music.data.network.provider.UnisonLyricsSource
 import com.auralis.music.data.network.provider.YouLyPlusLyricsSource
 import com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource
@@ -40,14 +40,14 @@ class LyricsClient(
     private val jioSaavnSource: JioSaavnLyricsSource = JioSaavnLyricsSource(),
     private val netEaseSource: NetEaseLyricsSource = NetEaseLyricsSource(),
     private val kuGouSource: KuGouLyricsSource = KuGouLyricsSource(),
+    private val qqMusicSource: QQMusicLyricsSource = QQMusicLyricsSource(),
     // Word sync for many Indian songs Apple Music only syncs by line (see MusixmatchLyricsSource
     // for why it uses the Android app id).
     private val musixmatchSource: MusixmatchLyricsSource = MusixmatchLyricsSource(),
     private val geniusSource: GeniusLyricsSource = GeniusLyricsSource(),
     private val ytMusicSource: YouTubeInnerTubeLyricsSource = YouTubeInnerTubeLyricsSource(),
     private val youLyPlusSource: YouLyPlusLyricsSource = YouLyPlusLyricsSource(),
-    private val captionsSource: YouTubeCaptionsLyricsSource = YouTubeCaptionsLyricsSource(),
-    private val simpMusicSource: SimpMusicLyricsSource = SimpMusicLyricsSource()
+    private val captionsSource: YouTubeCaptionsLyricsSource = YouTubeCaptionsLyricsSource()
 ) {
     companion object {
         private const val TAG = "LyricsCascade"
@@ -74,12 +74,12 @@ class LyricsClient(
             LyricsProvider.AMLL,
             LyricsProvider.PAXSENIX,
             LyricsProvider.YOULYPLUS,
+            LyricsProvider.QQMUSIC,
+            LyricsProvider.KUGOU,
             LyricsProvider.UNISON,
             LyricsProvider.NETEASE,
-            LyricsProvider.SIMPMUSIC,
             LyricsProvider.MUSIXMATCH,
             LyricsProvider.LRCLIB,
-            LyricsProvider.KUGOU,
             LyricsProvider.JIOSAAVN,
             LyricsProvider.GENIUS,
             LyricsProvider.YOUTUBE
@@ -169,9 +169,15 @@ class LyricsClient(
             maxGapMs: Long,
             betterLyricsOrAmllActive: Boolean,
             hasSpeakers: Boolean = false,
-            speakerSourcePending: Boolean = false
+            speakerSourcePending: Boolean = false,
+            otherWordProviderActive: Boolean = false,
+            youLyPlusActive: Boolean = false
         ): Long {
             val base = when {
+                // Musixmatch RichSync is the final word-sync fallback. Let the other
+                // word sources answer before settling on it, even for an exact video match.
+                provider == LyricsProvider.MUSIXMATCH && otherWordProviderActive ->
+                    raceStartMs + (if (youLyPlusActive) YouLyPlusLyricsSource.RACE_BUDGET_MS else PROVIDER_TIMEOUT_MS)
                 // When an exact-video word candidate arrives, settle immediately without waiting for studio sources
                 isExactVideoMatch -> nowMs
                 // Candidate has a massive internal gap; keep race open for complete providers
@@ -193,10 +199,6 @@ class LyricsClient(
         /** Score at which a word-synced candidate is good enough to end the race. */
         internal const val INSTANT_WIN_SCORE = 145.0
 
-        /**
-         * Preference hierarchy among word-synced providers:
-         * BetterLyrics (Apple Music studio TTML) > NetEase (AMLL TTML / YRC) > Musixmatch (RichSync).
-         */
         /**
          * True when the playing track and a lyrics result are different versions of the song:
          * one is a remix / live / slowed / acoustic take (a timing-altering tag) and the other
@@ -225,6 +227,7 @@ class LyricsClient(
                 LyricsProvider.PAXSENIX -> com.auralis.music.domain.model.LyricsProviderId.PAXSENIX
                 LyricsProvider.LRCLIB -> com.auralis.music.domain.model.LyricsProviderId.LRCLIB
                 LyricsProvider.KUGOU -> com.auralis.music.domain.model.LyricsProviderId.KUGOU
+                LyricsProvider.QQMUSIC -> com.auralis.music.domain.model.LyricsProviderId.QQMUSIC
                 LyricsProvider.JIOSAAVN -> com.auralis.music.domain.model.LyricsProviderId.JIOSAAVN
                 LyricsProvider.NETEASE -> com.auralis.music.domain.model.LyricsProviderId.NETEASE
                 LyricsProvider.GENIUS -> com.auralis.music.domain.model.LyricsProviderId.GENIUS
@@ -232,7 +235,6 @@ class LyricsClient(
                 LyricsProvider.YOUTUBE -> com.auralis.music.domain.model.LyricsProviderId.YOUTUBE_MUSIC
                 LyricsProvider.YOUTUBE_CAPTIONS -> com.auralis.music.domain.model.LyricsProviderId.YOUTUBE_CAPTIONS
                 LyricsProvider.YOULYPLUS -> com.auralis.music.domain.model.LyricsProviderId.LYRICS_PLUS
-                LyricsProvider.SIMPMUSIC -> com.auralis.music.domain.model.LyricsProviderId.SIMPMUSIC
                 LyricsProvider.LOCAL -> null
             }
 
@@ -241,9 +243,10 @@ class LyricsClient(
             LyricsProvider.AMLL -> 5
             LyricsProvider.PAXSENIX -> 4
             LyricsProvider.YOULYPLUS -> 4
+            LyricsProvider.QQMUSIC -> 3
+            LyricsProvider.KUGOU -> 3
             LyricsProvider.UNISON -> 3
             LyricsProvider.NETEASE -> 2
-            LyricsProvider.SIMPMUSIC -> 2
             LyricsProvider.MUSIXMATCH -> 1
             else -> 0
         }
@@ -277,8 +280,7 @@ class LyricsClient(
          *   aligned one has line-level sync).
          * - Between two aligned candidates (or between two candidates with identical alignment status),
          *   genuine word timing outranks line timing outranks nothing.
-         * - Between two aligned word-synced candidates, provider hierarchy applies:
-         *   BetterLyrics > NetEase > Musixmatch RichSync.
+         * - Between two aligned word-synced candidates, Musixmatch RichSync is last.
          */
         internal fun outranks(
             tier: Int,
@@ -303,6 +305,9 @@ class LyricsClient(
                 isAligned && !bestIsAligned -> true
                 !isAligned && bestIsAligned -> false
                 !isAligned && !bestIsAligned -> false
+                tier == TIER_WORD && bestTier == TIER_WORD && provider != bestProvider &&
+                    (provider == LyricsProvider.MUSIXMATCH || bestProvider == LyricsProvider.MUSIXMATCH) ->
+                    bestProvider == LyricsProvider.MUSIXMATCH
                 // Completeness priority: candidate with significantly smaller void outranks candidate with missing void (>= 18s gap difference)
                 (bestMaxGapMs - maxGapMs) >= 18_000L && (tier >= bestTier || score >= bestScore - 15.0) -> true
                 (maxGapMs - bestMaxGapMs) >= 18_000L && (bestTier >= tier || bestScore >= score - 15.0) -> false
@@ -573,11 +578,10 @@ class LyricsClient(
                     score += if (cand.isExactVideoMatch) 45.0 else 25.0
                 }
                 LyricsProvider.NETEASE -> if (tier == TIER_WORD) score += 20.0 else if (firstLineTime > 350L) score += 6.0
+                LyricsProvider.QQMUSIC -> if (tier == TIER_WORD) score += 25.0 else if (firstLineTime > 350L) score += 6.0
+                LyricsProvider.KUGOU -> if (tier == TIER_WORD) score += 25.0 else if (firstLineTime > 350L) score += 6.0
                 LyricsProvider.MUSIXMATCH -> if (tier == TIER_WORD) score += 10.0 else if (firstLineTime > 350L) score += 8.0
                 LyricsProvider.LRCLIB -> if (firstLineTime > 350L) score += 10.0
-                // Community entries keyed by the playing video: below Apple Music TTML, level with lrclib.
-                LyricsProvider.SIMPMUSIC -> if (tier == TIER_WORD) score += 22.0 else if (firstLineTime > 350L) score += 10.0
-                LyricsProvider.KUGOU -> if (firstLineTime > 350L) score += 6.0
                 LyricsProvider.JIOSAAVN -> if (firstLineTime > 350L) score += 4.0
                 else -> {}
             }
@@ -667,10 +671,10 @@ class LyricsClient(
             unisonSource,
             paxsenixSource,
             youLyPlusSource,
-            simpMusicSource,
+            qqMusicSource,
+            kuGouSource,
             musixmatchSource,
             lrcLibSource,
-            kuGouSource,
             netEaseSource,
             jioSaavnSource
         ).filter { isProviderEnabled(it.provider) }
@@ -737,14 +741,17 @@ class LyricsClient(
                 val paxsenixActive = providerJobMap[LyricsProvider.PAXSENIX]?.isActive == true
                 val netEaseActive = providerJobMap[LyricsProvider.NETEASE]?.isActive == true
                 val youLyPlusActive = providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true
-                val simpMusicActive = providerJobMap[LyricsProvider.SIMPMUSIC]?.isActive == true
+                val qqMusicActive = providerJobMap[LyricsProvider.QQMUSIC]?.isActive == true
+                val kuGouActive = providerJobMap[LyricsProvider.KUGOU]?.isActive == true
                 val musixmatchActive = providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
-                val anyWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || simpMusicActive || musixmatchActive
+                val otherWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || qqMusicActive || kuGouActive
+                val anyWordProviderActive = otherWordProviderActive || musixmatchActive
 
                 val candidate = if (bestCandidate != null) {
                     if (bestTier == TIER_WORD) {
                         val bestHasGap = maxInternalGapMs(bestCandidate.lyricsData.lines) > 45_000L
-                        val canBeBeaten = bestHasGap || ((bestCandidate.provider != LyricsProvider.BETTER_LYRICS && bestCandidate.provider != LyricsProvider.AMLL && !bestCandidate.isExactVideoMatch) &&
+                        val canBeBeaten = bestHasGap || (bestCandidate.provider == LyricsProvider.MUSIXMATCH && otherWordProviderActive) ||
+                            ((bestCandidate.provider != LyricsProvider.BETTER_LYRICS && bestCandidate.provider != LyricsProvider.AMLL && !bestCandidate.isExactVideoMatch) &&
                             (betterLyricsActive || amllActive || (bestCandidate.provider != LyricsProvider.PAXSENIX && paxsenixActive))) ||
                             // Bounded speaker-metadata enrichment window (see wordSettleDeadline)
                             (!bestCandidate.isExactVideoMatch && !hasSpeakerMetadata(bestCandidate.lyricsData) &&
@@ -875,8 +882,11 @@ class LyricsClient(
                         bestScore = score
                         bestMasterMatch = masterMatch
                         bestCandidate = correctedCand
-                        // Show it now; the race may still wait for a better tier (word sync, speakers).
-                        onInterim?.invoke(correctedCand.lyricsData)
+                        // Keep a provisional Musixmatch result off screen while other
+                        // word sources are still answering; it is the final fallback.
+                        if (correctedCand.provider != LyricsProvider.MUSIXMATCH || !otherWordProviderActive) {
+                            onInterim?.invoke(correctedCand.lyricsData)
+                        }
                         if (tier == TIER_LINE) {
                             val wordProviderActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true ||
                                 providerJobMap[LyricsProvider.AMLL]?.isActive == true ||
@@ -884,14 +894,20 @@ class LyricsClient(
                                 providerJobMap[LyricsProvider.PAXSENIX]?.isActive == true ||
                                 providerJobMap[LyricsProvider.NETEASE]?.isActive == true ||
                                 providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true ||
-                                providerJobMap[LyricsProvider.SIMPMUSIC]?.isActive == true
+                                providerJobMap[LyricsProvider.QQMUSIC]?.isActive == true ||
+                                providerJobMap[LyricsProvider.KUGOU]?.isActive == true ||
+                                providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
                             if (wordProviderActive) {
                                 // Give actively running word providers sufficient time to complete genuine
                                 // word sync. YouLy+ alone needs longer on a cold fetch (~9-13s vs its
                                 // typical <1s): the old flat 5.5s cut it off before it could answer,
                                 // settling for line sync moments before word sync would have arrived.
                                 val youLyPlusStillActive = providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true
-                                graceDeadlineMs = t0 + (if (youLyPlusStillActive) YouLyPlusLyricsSource.RACE_BUDGET_MS else ACTIVE_WORD_PROVIDER_TIMEOUT_MS)
+                                graceDeadlineMs = t0 + when {
+                                    youLyPlusStillActive -> YouLyPlusLyricsSource.RACE_BUDGET_MS
+                                    musixmatchActive -> PROVIDER_TIMEOUT_MS
+                                    else -> ACTIVE_WORD_PROVIDER_TIMEOUT_MS
+                                }
                             } else {
                                 // No word provider running; settle immediately
                                 graceDeadlineMs = System.currentTimeMillis()
@@ -907,7 +923,9 @@ class LyricsClient(
                                 betterLyricsOrAmllActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true ||
                                     providerJobMap[LyricsProvider.AMLL]?.isActive == true,
                                 hasSpeakers = candHasSpeakers,
-                                speakerSourcePending = speakerSourcePending(correctedCand.provider)
+                                speakerSourcePending = speakerSourcePending(correctedCand.provider),
+                                otherWordProviderActive = otherWordProviderActive,
+                                youLyPlusActive = youLyPlusActive
                             )
                         }
                     }
@@ -1165,10 +1183,10 @@ class LyricsClient(
             LyricsProvider.UNISON -> unisonSource
             LyricsProvider.PAXSENIX -> paxsenixSource
             LyricsProvider.YOULYPLUS -> youLyPlusSource
-            LyricsProvider.SIMPMUSIC -> simpMusicSource
             LyricsProvider.MUSIXMATCH -> musixmatchSource
             LyricsProvider.LRCLIB -> lrcLibSource
             LyricsProvider.KUGOU -> kuGouSource
+            LyricsProvider.QQMUSIC -> qqMusicSource
             LyricsProvider.NETEASE -> netEaseSource
             LyricsProvider.JIOSAAVN -> jioSaavnSource
             LyricsProvider.GENIUS -> geniusSource

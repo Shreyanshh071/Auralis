@@ -145,9 +145,24 @@ fun MetroLyricsLine(
 
     val effectiveWords: List<MetroWordTimestamp> = remember(words, mainText, line.time) {
         if (!words.isNullOrEmpty()) {
+            val avgDurSec = words.mapNotNull { it.duration }.takeIf { it.isNotEmpty() }?.average()?.div(1000.0) ?: 0.35
             words.mapIndexed { idx, w ->
                 val startSec = w.time / 1000.0
-                val durSec = (w.duration ?: 200L) / 1000.0
+                val rawDur = (w.duration ?: 200L) / 1000.0
+                // For the last word of a line: if duration was stretched across an inter-line rest,
+                // cap it to a natural singing duration (max 1.2s or 1.5x average word duration)
+                // so it completes when singing stops and doesn't crawl during instrumental breaks.
+                val durSec = if (idx == words.size - 1 && rawDur > 1.2) {
+                    minOf(rawDur, maxOf(avgDurSec * 1.5, 0.6).coerceAtMost(1.2))
+                } else if (rawDur < 0.18 && idx < words.size - 1) {
+                    // For short words (< 180ms): if there is room before the next word,
+                    // ensure a smooth minimum duration so it doesn't flash by in 50ms.
+                    val nextStartSec = words[idx + 1].time / 1000.0
+                    val gapSec = (nextStartSec - startSec).coerceAtLeast(0.06)
+                    rawDur.coerceAtLeast(minOf(0.18, gapSec))
+                } else {
+                    rawDur
+                }
                 MetroWordTimestamp(
                     text = w.word,
                     startTime = startSec,
@@ -246,8 +261,8 @@ private fun MetroWordLevelCanvas(
             while (isActive) {
                 withFrameMillis {
                     val now = System.currentTimeMillis()
-                    // Clamp sub-frame carry to 100ms so interpolation never runs away from audio
-                    val elapsed = (now - lastAnchorTime).coerceIn(0L, 100L)
+                    // Clamp sub-frame carry to 500ms so interpolation never runs away from audio
+                    val elapsed = (now - lastAnchorTime).coerceIn(0L, 500L)
                     smoothPosition = lastAnchorPos + elapsed
                 }
             }
@@ -360,7 +375,7 @@ private fun MetroWordLevelCanvas(
             } else {
                 if (drawAsShapedRun) {
                     // Drawing isolated characters detaches matras and conjuncts from their base.
-                    // Repaint word regions from the same fully shaped line instead.
+                    // Repaint fully shaped line using smooth horizontal karaoke sweep clipping.
                     drawText(layoutResult, color = lineColor.copy(alpha = focusedAlpha))
                     val wordIdxMap = charToWordData.first
                     words.forEachIndexed { wordIndex, word ->
@@ -368,21 +383,30 @@ private fun MetroWordLevelCanvas(
                         val durationMs = ((word.endTime - word.startTime) * 1000).toLong().coerceAtLeast(1L)
                         val progress = ((smoothPosition - startMs).toFloat() / durationMs).coerceIn(0f, 1f)
                         if (progress <= 0f) return@forEachIndexed
-                        var left = Float.MAX_VALUE
-                        var right = Float.MIN_VALUE
-                        var top = Float.MAX_VALUE
-                        var bottom = Float.MIN_VALUE
+
+                        val lineGroups = mutableMapOf<Int, MutableList<Int>>()
                         for (i in 0 until clusterCount) {
                             if (wordIdxMap[i] != wordIndex) continue
-                            val bounds = layoutResult.getBoundingBox(clusterCharOffsets[i])
-                            left = minOf(left, bounds.left)
-                            right = maxOf(right, bounds.right)
-                            top = minOf(top, bounds.top)
-                            bottom = maxOf(bottom, bounds.bottom)
+                            val lineIdx = layoutResult.getLineForOffset(clusterCharOffsets[i])
+                            lineGroups.getOrPut(lineIdx) { mutableListOf() }.add(i)
                         }
-                        if (left < right && top < bottom) {
-                            clipRect(left = left, top = top, right = right, bottom = bottom) {
-                                drawText(layoutResult, color = accentColor.copy(alpha = focusedAlpha + (1f - focusedAlpha) * progress))
+                        for ((lineIdx, indices) in lineGroups) {
+                            val lineTop = layoutResult.getLineTop(lineIdx)
+                            val lineBottom = layoutResult.getLineBottom(lineIdx)
+                            var left = Float.MAX_VALUE
+                            var right = Float.MIN_VALUE
+                            for (i in indices) {
+                                val bounds = layoutResult.getBoundingBox(clusterCharOffsets[i])
+                                left = minOf(left, bounds.left)
+                                right = maxOf(right, bounds.right)
+                            }
+                            if (left < right) {
+                                val sweepRight = if (progress >= 1f) right else left + (right - left) * progress
+                                if (sweepRight > left) {
+                                    clipRect(left = left, top = lineTop, right = sweepRight, bottom = lineBottom) {
+                                        drawText(layoutResult, color = accentColor)
+                                    }
+                                }
                             }
                         }
                     }

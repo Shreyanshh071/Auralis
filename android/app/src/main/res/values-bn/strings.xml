@@ -73,6 +73,8 @@
     <string name="create_a_station_based_on_this_item">এর ভিত্তিতে একটি স্টেশন তৈরি করুন</string>
     <string name="remove_from_queue">সারি থেকে সরান</string>
     <string name="take_this_song_out_of_up_next">এই গানটি \'পরবর্তী\' থেকে সরান</string>
+    <string name="remove_from_playlist">প্লেলিস্ট থেকে সরান</string>
+    <string name="take_this_song_out_of_this_playlist">এই গানটি এই প্লেলিস্ট থেকে সরান</string>
     <string name="remove_from_library">লাইব্রেরি থেকে সরান</string>
     <string name="add_to_library">লাইব্রেরিতে যোগ করুন</string>
     <string name="remove_from_your_library">আপনার লাইব্রেরি থেকে সরান</string>
@@ -835,7 +837,6 @@
     <string name="opt_rich_sync_word_timed_lyrics">রিচ-সিঙ্ক শব্দে শব্দে লিরিক্স</string>
     <string name="opt_netease_cloud_music_lyrics">NetEase Cloud Music লিরিক্স</string>
     <string name="opt_indian_catalogue_lyrics">ভারতীয় সংগ্রহের লিরিক্স</string>
-    <string name="opt_simpmusic_lyrics_database">SimpMusic লিরিক্স ডেটাবেস</string>
     <string name="opt_lyrics_shown_in_youtube_music_unsynced">YouTube Music-এ দেখানো লিরিক্স (সিঙ্ক ছাড়া)</string>
     <string name="opt_youtube_captions">YouTube ক্যাপশন</string>
     <string name="opt_timed_captions_from_the_music_video">মিউজিক ভিডিওর সময়যুক্ত ক্যাপশন</string>

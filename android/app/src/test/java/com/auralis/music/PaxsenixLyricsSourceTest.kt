@@ -749,7 +749,6 @@ class PaxsenixLyricsSourceTest {
             musixmatchSource = MusixmatchLyricsSource(client = dummyClient),
             amllSource = AmllLyricsSource(client = dummyClient),
             youLyPlusSource = com.auralis.music.data.network.provider.YouLyPlusLyricsSource(client = dummyClient),
-            simpMusicSource = com.auralis.music.data.network.provider.SimpMusicLyricsSource(client = dummyClient),
             captionsSource = com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource(client = dummyClient)
         )
 

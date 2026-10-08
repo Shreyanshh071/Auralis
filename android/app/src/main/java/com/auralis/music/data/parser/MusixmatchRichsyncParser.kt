@@ -100,13 +100,41 @@ object MusixmatchRichsyncParser {
                             lArray.optJSONObject(j + 1)?.optDouble("o", offsetSec) ?: offsetSec
                         } else null
 
-                        val wordDurMs: Long? = when {
+                        val rawWordDurMs: Long? = when {
                             nextOffsetSec != null && nextOffsetSec > offsetSec ->
                                 ((nextOffsetSec - offsetSec) * 1000.0).toLong()
                             // Final token of the line: ends at the stated line end,
                             // or nowhere at all if the line never stated one.
-                            lineEndMs != null && lineEndMs > tokenStartMs -> lineEndMs - tokenStartMs
+                            lineEndMs != null && lineEndMs > tokenStartMs -> {
+                                val rawEndDur = lineEndMs - tokenStartMs
+                                if (rawEndDur > 1500L) {
+                                    val avgDur = if (words.isNotEmpty()) words.mapNotNull { it.duration }.average() else 400.0
+                                    minOf(rawEndDur, maxOf((avgDur * 1.5).toLong(), 600L).coerceAtMost(1200L))
+                                } else {
+                                    rawEndDur
+                                }
+                            }
                             else -> null
+                        }
+
+                        // Short-duration normalization: if a curator rapidly tapped & released a space token
+                        // resulting in an unnaturally short duration (< 180ms), expand it up to 180ms
+                        // provided it does not bleed into the next non-blank word token.
+                        val wordDurMs = if (rawWordDurMs != null && rawWordDurMs < 180L) {
+                            var nextNonBlankOffsetSec: Double? = null
+                            for (k in j + 1 until lArray.length()) {
+                                val nextTok = lArray.optJSONObject(k) ?: continue
+                                if (nextTok.optString("c", "").isNotBlank()) {
+                                    nextNonBlankOffsetSec = nextTok.optDouble("o", offsetSec)
+                                    break
+                                }
+                            }
+                            val availableMs = if (nextNonBlankOffsetSec != null && nextNonBlankOffsetSec > offsetSec) {
+                                ((nextNonBlankOffsetSec - offsetSec) * 1000.0).toLong().coerceAtLeast(60L)
+                            } else 1000L
+                            rawWordDurMs.coerceAtLeast(minOf(180L, availableMs))
+                        } else {
+                            rawWordDurMs
                         }
 
                         words.add(

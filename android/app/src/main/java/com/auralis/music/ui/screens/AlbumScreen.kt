@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -28,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -48,10 +50,13 @@ import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
 import com.auralis.music.ui.components.getHighResArtworkUrl
+import com.auralis.music.ui.glass.LocalLiquidGlass
+import com.auralis.music.ui.components.specularHighlight
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.components.bottomChromePadding
+import androidx.compose.ui.graphics.luminance
 
 private val LIME_ACCENT: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -110,6 +115,41 @@ fun AlbumScreen(
         else -> ""
     }
 
+    val isLiquidGlass = LocalLiquidGlass.current != null
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val glassSpecularRim = remember(isDark) {
+        Brush.verticalGradient(
+            if (isDark) listOf(
+                Color.White.copy(alpha = 0.45f),
+                Color.White.copy(alpha = 0.15f),
+                Color.White.copy(alpha = 0.05f)
+            ) else listOf(
+                Color.White.copy(alpha = 0.95f),
+                Color.White.copy(alpha = 0.50f),
+                Color.Black.copy(alpha = 0.08f)
+            )
+        )
+    }
+    val glassActiveRim = remember(themePrimary) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.80f),
+                themePrimary.copy(alpha = 0.40f),
+                Color.White.copy(alpha = 0.20f)
+            )
+        )
+    }
+    val glassPillBg = if (isDark) Color(0xFF1E1E22).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
+    val glassActiveBg = remember(themePrimary) {
+        Brush.verticalGradient(
+            listOf(
+                themePrimary.copy(alpha = 0.95f),
+                themePrimary.copy(alpha = 0.72f)
+            )
+        )
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -128,21 +168,43 @@ fun AlbumScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier
-                            .size(42.dp)
+                    val topButtonBaseModifier = if (isLiquidGlass) {
+                        Modifier
+                            .size(40.dp)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = CircleShape,
+                                ambientColor = Color.Black.copy(alpha = 0.45f),
+                                spotColor = Color.Black.copy(alpha = 0.35f)
+                            )
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.40f))
+                            .background(glassPillBg)
+                            .border(
+                                width = 1.dp,
+                                brush = glassSpecularRim,
+                                shape = CircleShape
+                            )
+                            .specularHighlight(CircleShape, highlightAlpha = 0.30f)
+                    } else {
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                    }
+
+                    Box(
+                        modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { onBack() },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = str(R.string.back),
-                            tint = Color.White
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -150,8 +212,8 @@ fun AlbumScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = {
+                        Box(
+                            modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) {
                                 val shareText = str(R.string.listen_to_x_by_x_on_auralis_music_downlo, album.title, album.author ?: "Various Artists")
                                 val sendIntent = Intent().apply {
                                     action = Intent.ACTION_SEND
@@ -160,29 +222,25 @@ fun AlbumScreen(
                                 }
                                 context.startActivity(Intent.createChooser(sendIntent, str(R.string.share_album)))
                             },
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.40f))
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = str(R.string.share),
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
-                        IconButton(
-                            onClick = { showAlbumOptionsMenu = true },
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.40f))
+                        Box(
+                            modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { showAlbumOptionsMenu = true },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = str(R.string.album_options),
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -273,69 +331,152 @@ fun AlbumScreen(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Action Buttons: Play All & Shuffle
+                    val buttonShape = RoundedCornerShape(24.dp)
+                    val playAction = {
+                        if (tracks.isNotEmpty()) {
+                            onTrackClick(tracks.first(), tracks)
+                        }
+                    }
+                    val shuffleAction = {
+                        if (tracks.isNotEmpty()) {
+                            val shuffled = tracks.shuffled()
+                            onTrackClick(shuffled.first(), shuffled)
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
-                            onClick = {
-                                if (tracks.isNotEmpty()) {
-                                    onTrackClick(tracks.first(), tracks)
+                        if (isLiquidGlass) {
+                            // Liquid Glass: Play All (Vibrant glass active capsule)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .shadow(
+                                        elevation = 8.dp,
+                                        shape = buttonShape,
+                                        ambientColor = themePrimary.copy(alpha = 0.45f),
+                                        spotColor = Color.Black.copy(alpha = 0.30f)
+                                    )
+                                    .clip(buttonShape)
+                                    .background(glassActiveBg)
+                                    .border(width = 1.2.dp, brush = glassActiveRim, shape = buttonShape)
+                                    .specularHighlight(buttonShape, highlightAlpha = 0.38f)
+                                    .tactileBounce(scaleDown = 0.94f) { playAction() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = str(R.string.play),
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = str(R.string.play),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
                                 }
-                            },
-                            enabled = tracks.isNotEmpty(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .tactileBounce(scaleDown = 0.94f),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = LIME_ACCENT,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = str(R.string.play),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = str(R.string.play),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                        }
+                            }
 
-                        OutlinedButton(
-                            onClick = {
-                                if (tracks.isNotEmpty()) {
-                                    val shuffled = tracks.shuffled()
-                                    onTrackClick(shuffled.first(), shuffled)
+                            // Liquid Glass: Shuffle (Frosted glass specular capsule)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .shadow(
+                                        elevation = 6.dp,
+                                        shape = buttonShape,
+                                        ambientColor = Color.Black.copy(alpha = 0.35f),
+                                        spotColor = Color.Black.copy(alpha = 0.25f)
+                                    )
+                                    .clip(buttonShape)
+                                    .background(glassPillBg)
+                                    .border(width = 1.dp, brush = glassSpecularRim, shape = buttonShape)
+                                    .specularHighlight(buttonShape, highlightAlpha = 0.25f)
+                                    .tactileBounce(scaleDown = 0.94f) { shuffleAction() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Shuffle,
+                                        contentDescription = str(R.string.shuffle),
+                                        tint = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = str(R.string.shuffle),
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 15.sp,
+                                        color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
+                                    )
                                 }
-                            },
-                            enabled = tracks.isNotEmpty(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .tactileBounce(scaleDown = 0.94f),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onBackground
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = str(R.string.shuffle),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = str(R.string.shuffle),
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp
-                            )
+                            }
+                        } else {
+                            // Standard Fallback Buttons
+                            Button(
+                                onClick = playAction,
+                                enabled = tracks.isNotEmpty(),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .tactileBounce(scaleDown = 0.94f),
+                                shape = buttonShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = LIME_ACCENT,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = str(R.string.play),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = str(R.string.play),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = shuffleAction,
+                                enabled = tracks.isNotEmpty(),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .tactileBounce(scaleDown = 0.94f),
+                                shape = buttonShape,
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.onBackground
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shuffle,
+                                    contentDescription = str(R.string.shuffle),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = str(R.string.shuffle),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -382,7 +523,7 @@ fun AlbumScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .contextMenuAnchor()
+                                .contextMenuAnchor { onTrackClick(track, tracks) }
                                 .combinedClickable(
                                     onClick = { onTrackClick(track, tracks) },
                                     onLongClick = { selectedTrackForMenu = track }

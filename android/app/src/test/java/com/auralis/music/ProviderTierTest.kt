@@ -147,6 +147,42 @@ class ProviderTierTest {
     }
 
     @Test
+    fun `Musixmatch word sync is last among word sources but ahead of line sync`() {
+        assertTrue(LyricsClient.outranks(
+            tier = LyricsClient.TIER_WORD, score = 60.0,
+            bestTier = LyricsClient.TIER_WORD, bestScore = 190.0,
+            provider = LyricsProvider.NETEASE, bestProvider = LyricsProvider.MUSIXMATCH,
+            bestIsExactVideoMatch = true, bestHasSpeakers = true
+        ))
+        assertFalse(LyricsClient.outranks(
+            tier = LyricsClient.TIER_WORD, score = 190.0,
+            bestTier = LyricsClient.TIER_WORD, bestScore = 60.0,
+            provider = LyricsProvider.MUSIXMATCH, bestProvider = LyricsProvider.NETEASE,
+            isExactVideoMatch = true, hasSpeakers = true
+        ))
+        assertTrue(LyricsClient.outranks(
+            tier = LyricsClient.TIER_WORD, score = 60.0,
+            bestTier = LyricsClient.TIER_LINE, bestScore = 190.0,
+            provider = LyricsProvider.MUSIXMATCH, bestProvider = LyricsProvider.LRCLIB
+        ))
+    }
+
+    @Test
+    fun `Musixmatch does not settle before other word providers`() {
+        val deadline = LyricsClient.wordSettleDeadline(
+            currentDeadlineMs = Long.MAX_VALUE,
+            raceStartMs = 1_000L,
+            nowMs = 1_500L,
+            provider = LyricsProvider.MUSIXMATCH,
+            isExactVideoMatch = true,
+            maxGapMs = 0L,
+            betterLyricsOrAmllActive = false,
+            otherWordProviderActive = true
+        )
+        assertEquals(7_500L, deadline)
+    }
+
+    @Test
     fun `score still decides inside a tier`() {
         assertTrue(
             LyricsClient.outranks(

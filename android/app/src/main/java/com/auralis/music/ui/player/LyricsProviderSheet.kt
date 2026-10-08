@@ -57,6 +57,7 @@ internal fun LyricsProvider.label(): String = when (this) {
     LyricsProvider.PAXSENIX -> "PaxSenix"
     LyricsProvider.LRCLIB -> "LRCLIB"
     LyricsProvider.KUGOU -> "KuGou"
+    LyricsProvider.QQMUSIC -> "QQ Music"
     LyricsProvider.JIOSAAVN -> "JioSaavn"
     LyricsProvider.NETEASE -> "NetEase"
     LyricsProvider.GENIUS -> "Genius"
@@ -65,7 +66,6 @@ internal fun LyricsProvider.label(): String = when (this) {
     LyricsProvider.YOUTUBE_CAPTIONS -> "YouTube captions"
     LyricsProvider.LOCAL -> "Local"
     LyricsProvider.YOULYPLUS -> "YouLy+"
-    LyricsProvider.SIMPMUSIC -> "SimpMusic"
 }
 
 @Composable

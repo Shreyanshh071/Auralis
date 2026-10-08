@@ -749,12 +749,11 @@ fun AuralisApp(
     // Overlays drawn over the pages (Stats, Profile/Settings, History, Listen Together) get their
     // own recordings, layered on top: otherwise the glass kept showing the page underneath them.
     // A closed overlay's recording detaches and draws nothing.
-    val statsGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     val profileGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     val historyGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     val togetherGlassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     val combinedGlassBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(
-        glassBackdrop, statsGlassBackdrop, profileGlassBackdrop, historyGlassBackdrop, togetherGlassBackdrop
+        glassBackdrop, profileGlassBackdrop, historyGlassBackdrop, togetherGlassBackdrop
     )
     val dockMinimize = remember { com.auralis.music.ui.glass.DockMinimizeState() }
     val glassIsDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
@@ -1737,7 +1736,7 @@ fun AuralisApp(
             visible = isStatsOpen,
             enter = auralisHeaderPageEnter(),
             exit = auralisHeaderPageExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(statsGlassBackdrop) else Modifier)
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f)
         ) {
             CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
                 val statsVM = obtainStatsViewModel()
@@ -1853,8 +1852,8 @@ fun AuralisApp(
                 val travelDistance = (fullHeightPx - collapsedBoundPx).coerceAtLeast(0f)
 
                 val sensitivityRatio = (appearanceSettings.miniPlayerSwipeSensitivity / 100f).coerceIn(0.10f, 1.0f)
-                val dismissThresholdPx = with(density) { (90.dp * (1.15f - sensitivityRatio * 0.40f)).toPx() }
-                val dismissVelocityThreshold = 1800f * (1.15f - sensitivityRatio * 0.40f)
+                val dismissThresholdPx = with(density) { (38.dp * (1.25f - sensitivityRatio * 0.50f)).toPx() }
+                val dismissVelocityThreshold = 450f * (1.25f - sensitivityRatio * 0.50f)
 
                 // 1. Full Player Sheet (Only active and taking touches when expanding/open)
                 if (isPlayerSheetActive) {
@@ -2170,7 +2169,7 @@ fun AuralisApp(
                             .graphicsLayer {
                                 val p = playerSheetProgress.value
                                 val dismissY = dismissOffsetY.value
-                                val progressFrac = (dismissY / (dismissThresholdPx * 2.2f)).coerceIn(0f, 1f)
+                                val progressFrac = (dismissY / (dismissThresholdPx * 1.6f)).coerceIn(0f, 1f)
                                 // Minimized: centre the pill on the dock row instead of above it.
                                 val dockRowCenter = if (appearanceSettings.slimBottomNavigationBar) 3.dp + 23.dp else 6.dp + 28.dp
                                 val tuckY = (targetBottomPadding + miniPlayerHeight / 2 - dockRowCenter).toPx() * dockCollapse.value
@@ -2199,7 +2198,11 @@ fun AuralisApp(
                                     isDismissDrag = false
                                     if (dismissY > dismissThresholdPx || rawVelocityY > dismissVelocityThreshold) {
                                         dismissAnimationJob = coroutineScope.launch {
-                                            dismissOffsetY.animateTo(fullHeightPx, tween(180))
+                                            val offscreenTarget = (collapsedBoundPx * 1.5f).coerceAtLeast(with(density) { 180.dp.toPx() })
+                                            dismissOffsetY.animateTo(
+                                                targetValue = offscreenTarget,
+                                                animationSpec = tween(durationMillis = 200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                                            )
                                             // A listener closing the player pauses the song for the whole room
                                             // (when the room lets them pause); anyone pressing play brings it back
                                             // on this phone too.
@@ -2213,7 +2216,13 @@ fun AuralisApp(
                                         }
                                     } else {
                                         dismissAnimationJob = coroutineScope.launch {
-                                            dismissOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                            dismissOffsetY.animateTo(
+                                                targetValue = 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            )
                                         }
                                     }
                                     dismissY = 0f
@@ -2226,6 +2235,7 @@ fun AuralisApp(
                                             keyboardController?.hide()
                                             sheetAnimationJob?.cancel()
                                             dismissAnimationJob?.cancel()
+                                            velocityTracker.resetTracking()
                                             currentProgress = playerSheetProgress.value
                                             isDraggingUp = false
                                             dismissY = dismissOffsetY.value
@@ -2235,19 +2245,29 @@ fun AuralisApp(
                                             change.consume()
                                             velocityTracker.addPointerInputChange(change)
 
-                                            // Once a drag-to-close has started it stays one: moving back up
-                                            // only pulls the mini player back. Previously a tiny upward jitter
-                                            // at release flipped into "expand" mode and left it stuck halfway.
-                                            if (isDismissDrag || (dragAmount > 0 && playerSheetProgress.value <= 0f)) {
+                                            val isSheetCollapsed = currentProgress <= 0.02f && playerSheetProgress.value <= 0.05f && !isNowPlayingOpen
+
+                                            if (isDismissDrag && dismissY <= 0f && dragAmount < 0f) {
+                                                isDismissDrag = false
+                                            }
+
+                                            if (isDismissDrag || (dragAmount > 0f && isSheetCollapsed)) {
                                                 isDismissDrag = true
                                                 isDraggingUp = false
+                                                if (playerSheetProgress.value > 0f) {
+                                                    sheetAnimationJob?.cancel()
+                                                    currentProgress = 0f
+                                                    sheetAnimationJob = coroutineScope.launch {
+                                                        playerSheetProgress.snapTo(0f)
+                                                    }
+                                                }
                                                 dismissY = (dismissY + dragAmount).coerceAtLeast(0f)
                                                 val target = dismissY
                                                 dismissAnimationJob?.cancel()
                                                 dismissAnimationJob = coroutineScope.launch {
                                                     dismissOffsetY.snapTo(target)
                                                 }
-                                            } else if (dragAmount < 0 || playerSheetProgress.value > 0f) {
+                                            } else if (dragAmount < 0f || playerSheetProgress.value > 0f) {
                                                 isDraggingUp = true
                                                 val deltaProgress = -dragAmount / travelDistance
                                                 currentProgress = (currentProgress + deltaProgress).coerceIn(0f, 1f)

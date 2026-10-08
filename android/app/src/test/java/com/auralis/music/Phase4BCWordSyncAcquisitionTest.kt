@@ -281,7 +281,6 @@ class Phase4BCWordSyncAcquisitionTest {
             unisonSource = com.auralis.music.data.network.provider.UnisonLyricsSource(client = emptyClient),
             amllSource = com.auralis.music.data.network.provider.AmllLyricsSource(client = emptyClient),
             youLyPlusSource = com.auralis.music.data.network.provider.YouLyPlusLyricsSource(client = emptyClient),
-            simpMusicSource = com.auralis.music.data.network.provider.SimpMusicLyricsSource(client = emptyClient),
             captionsSource = com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource(client = emptyClient)
         )
 

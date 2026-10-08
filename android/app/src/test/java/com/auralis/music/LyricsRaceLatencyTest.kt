@@ -71,7 +71,6 @@ class LyricsRaceLatencyTest {
         geniusSource = source(mockk(), LyricsProvider.GENIUS, null),
         ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, youTubePlain),
         youLyPlusSource = source(mockk(), LyricsProvider.YOULYPLUS, youLyPlus, blockMs = youLyPlusBlockMs),
-        simpMusicSource = source(mockk(), LyricsProvider.SIMPMUSIC, null),
         captionsSource = mockk<YouTubeCaptionsLyricsSource>().also { coEvery { it.timeFromCaptions(any(), any()) } returns null }
     )
 

@@ -232,7 +232,6 @@ class LyricsSpeakerSelectionTest {
             geniusSource = source(mockk(), LyricsProvider.GENIUS, none),
             ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, none),
             youLyPlusSource = source(mockk(), LyricsProvider.YOULYPLUS, none),
-            simpMusicSource = source(mockk(), LyricsProvider.SIMPMUSIC, none),
             captionsSource = io.mockk.mockk<com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource>().also { io.mockk.coEvery { it.timeFromCaptions(any(), any()) } returns null }
         )
     }
