@@ -73,6 +73,7 @@ fun TrackOptionsMenu(
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onRemoveFromQueue: (() -> Unit)? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
     onStartRadio: (() -> Unit)? = null,
     onPinToSpeedDial: (() -> Unit)? = null,
     isPinned: Boolean = false,
@@ -230,6 +231,13 @@ fun TrackOptionsMenu(
             add(GlassMenuItem(str(R.string.add_to_queue), Icons.AutoMirrored.Filled.QueueMusic) { onAddToQueue() })
             if (onRemoveFromQueue != null) {
                 add(GlassMenuItem(str(R.string.remove_from_queue), Icons.Default.RemoveCircleOutline) { onRemoveFromQueue() })
+            }
+            if (onRemoveFromPlaylist != null) {
+                add(GlassMenuItem(
+                    str(R.string.remove_from_playlist),
+                    Icons.Default.DeleteOutline,
+                    tint = MaterialTheme.colorScheme.error
+                ) { onRemoveFromPlaylist() })
             }
             // Hands over to the regular sheet's playlist picker.
             add(GlassMenuItem(str(R.string.add_to_playlist), Icons.AutoMirrored.Filled.PlaylistAdd, dismisses = false) {
@@ -547,6 +555,28 @@ fun TrackOptionsMenu(
                                 onDismiss()
                             }
                         )
+                    }
+
+                    // ── GROUP 3B: REMOVE FROM PLAYLIST (WHEN IN PLAYLIST CONTEXT) ──
+                    if (onRemoveFromPlaylist != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(actionCardColor)
+                        ) {
+                            TrackOptionRow(
+                                icon = Icons.Default.DeleteOutline,
+                                title = str(R.string.remove_from_playlist),
+                                subtitle = str(R.string.take_this_song_out_of_this_playlist),
+                                iconTint = MaterialTheme.colorScheme.error,
+                                titleColor = MaterialTheme.colorScheme.error,
+                                onClick = {
+                                    onRemoveFromPlaylist()
+                                    onDismiss()
+                                }
+                            )
+                        }
                     }
 
                     // ── GROUP 4: DOWNLOAD ──

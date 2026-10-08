@@ -28,8 +28,7 @@ class LiveProviderVersionProbeTest {
             "JIOSAAVN" to { JioSaavnLyricsSource().search(q) },
             "NETEASE" to { NetEaseLyricsSource().search(q) },
             "KUGOU" to { KuGouLyricsSource().search(q) },
-            "YOULY" to { YouLyPlusLyricsSource().search(q) },
-            "SIMP" to { SimpMusicLyricsSource().search(q) },
+            "YOULY" to { YouLyPlusLyricsSource().search(q) }
         )
         for ((name, fetch) in sources) {
             val t0 = System.currentTimeMillis()

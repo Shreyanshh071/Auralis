@@ -124,7 +124,6 @@ class ForeignLyricAnnotationTest {
             geniusSource = source(mockk(), LyricsProvider.GENIUS, null),
             ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, null),
             youLyPlusSource = source(mockk(), LyricsProvider.YOULYPLUS, null),
-            simpMusicSource = source(mockk(), LyricsProvider.SIMPMUSIC, null),
             captionsSource = io.mockk.mockk<com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource>().also { io.mockk.coEvery { it.timeFromCaptions(any(), any()) } returns null }
         )
         val result = client.getLyrics("AGAR TUM SAATH HO", "Arijit Singh & Alka Yagnik", 342L, "FOA9iyxsW_A", "TAMASHA", null, 342_000L)!!

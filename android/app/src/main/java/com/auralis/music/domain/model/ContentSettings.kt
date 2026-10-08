@@ -18,6 +18,7 @@ enum class ProxyType { HTTP, SOCKS }
 enum class LyricsProviderId(val displayName: String, val description: String) {
     LRCLIB("LRCLIB", "Open, community-synced lyrics database"),
     KUGOU("KuGou", "Large catalogue with word-timed lyrics"),
+    QQMUSIC("QQ Music", "Word-timed syllables and rich lyrics from QQ Music"),
     BETTER_LYRICS("Better Lyrics", "Word-synced lyrics from Apple Music"),
     PAXSENIX("Paxsenix", "Word-synced lyrics from several services"),
     LYRICS_PLUS("LyricsPlus", "YouLy+ backend (Apple, QQ, Deezer)"),
@@ -26,7 +27,6 @@ enum class LyricsProviderId(val displayName: String, val description: String) {
     MUSIXMATCH("Musixmatch", "Rich-sync word-timed lyrics"),
     NETEASE("NetEase", "NetEase Cloud Music lyrics"),
     JIOSAAVN("JioSaavn", "Indian catalogue lyrics"),
-    SIMPMUSIC("SimpMusic", "SimpMusic lyrics database"),
     YOUTUBE_MUSIC("YouTube Music", "Lyrics shown in YouTube Music (unsynced)"),
     YOUTUBE_CAPTIONS("YouTube captions", "Timed captions from the music video"),
     GENIUS("Genius", "Unsynced lyrics fallback")

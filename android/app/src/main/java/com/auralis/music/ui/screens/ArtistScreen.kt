@@ -49,10 +49,14 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
+import com.auralis.music.ui.components.specularHighlight
 import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.glass.LocalLiquidGlass
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.components.bottomChromePadding
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.luminance
 
 private val LIME_ACCENT: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -114,6 +118,42 @@ fun ArtistScreen(
     var isBioExpanded by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedAlbumForMenu by remember { mutableStateOf<Pair<com.auralis.music.domain.model.PlaylistResult, Boolean>?>(null) }
+
+    val isLiquidGlass = LocalLiquidGlass.current != null
+    val themePrimary = MaterialTheme.dynamicPrimary
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+
+    val glassSpecularRim = remember(isDark) {
+        Brush.verticalGradient(
+            if (isDark) listOf(
+                Color.White.copy(alpha = 0.45f),
+                Color.White.copy(alpha = 0.15f),
+                Color.White.copy(alpha = 0.05f)
+            ) else listOf(
+                Color.White.copy(alpha = 0.95f),
+                Color.White.copy(alpha = 0.50f),
+                Color.Black.copy(alpha = 0.08f)
+            )
+        )
+    }
+    val glassActiveRim = remember(themePrimary) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.80f),
+                themePrimary.copy(alpha = 0.40f),
+                Color.White.copy(alpha = 0.20f)
+            )
+        )
+    }
+    val glassPillBg = if (isDark) Color(0xFF1E1E22).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
+    val glassActiveBg = remember(themePrimary) {
+        Brush.verticalGradient(
+            listOf(
+                themePrimary.copy(alpha = 0.95f),
+                themePrimary.copy(alpha = 0.72f)
+            )
+        )
+    }
 
     BackHandler {
         onBack()
@@ -193,47 +233,67 @@ fun ArtistScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = str(R.string.back),
-                                tint = Color.White
+                    val topButtonBaseModifier = if (isLiquidGlass) {
+                        Modifier
+                            .size(40.dp)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = CircleShape,
+                                ambientColor = Color.Black.copy(alpha = 0.45f),
+                                spotColor = Color.Black.copy(alpha = 0.35f)
                             )
-                        }
+                            .clip(CircleShape)
+                            .background(glassPillBg)
+                            .border(
+                                width = 1.dp,
+                                brush = glassSpecularRim,
+                                shape = CircleShape
+                            )
+                            .specularHighlight(CircleShape, highlightAlpha = 0.30f)
+                    } else {
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                    }
 
-                        IconButton(
-                            onClick = {
-                                val sendIntent = android.content.Intent().apply {
-                                    action = android.content.Intent.ACTION_SEND
-                                    putExtra(
-                                        android.content.Intent.EXTRA_TEXT,
-                                        str(R.string.listen_to_x_on_auralis_music_https_music, artistPage.artist.name, artistPage.artist.id)
-                                    )
-                                    type = "text/plain"
-                                }
-                                context.startActivity(android.content.Intent.createChooser(sendIntent, str(R.string.share_artist)))
-                            },
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = str(R.string.share),
-                                tint = Color.White
-                            )
-                        }
+                    Box(
+                        modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { onBack() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = str(R.string.back),
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) {
+                            val sendIntent = android.content.Intent().apply {
+                                action = android.content.Intent.ACTION_SEND
+                                putExtra(
+                                    android.content.Intent.EXTRA_TEXT,
+                                    str(R.string.listen_to_x_on_auralis_music_https_music, artistPage.artist.name, artistPage.artist.id)
+                                )
+                                type = "text/plain"
+                            }
+                            context.startActivity(android.content.Intent.createChooser(sendIntent, str(R.string.share_artist)))
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = str(R.string.share),
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                     }
 
                     // Artist Name Title (Anchored at bottom-left of hero portrait)
@@ -264,53 +324,104 @@ fun ArtistScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Subscribe / Follow Button (Synced with Library)
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
-                            .border(1.dp, if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
-                            .clickable {
-                                onToggleSubscribe(
-                                    com.auralis.music.domain.model.SavedArtist(
-                                        id = artistPage.artist.id,
-                                        name = artistPage.artist.name,
-                                        thumbnail = artistPage.bannerUrl ?: artistPage.artist.thumbnail,
-                                        subscribers = artistPage.subscribers ?: artistPage.artist.subscribers
-                                    )
-                                )
-                            }
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = if (isSubscribed) str(R.string.subscribed) else str(R.string.subscribe),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
+                    val subscribeShape = RoundedCornerShape(24.dp)
+                    val subscribeAction = {
+                        onToggleSubscribe(
+                            com.auralis.music.domain.model.SavedArtist(
+                                id = artistPage.artist.id,
+                                name = artistPage.artist.name,
+                                thumbnail = artistPage.bannerUrl ?: artistPage.artist.thumbnail,
+                                subscribers = artistPage.subscribers ?: artistPage.artist.subscribers
+                            )
                         )
+                    }
+
+                    if (isLiquidGlass) {
+                        Box(
+                            modifier = Modifier
+                                .shadow(elevation = 4.dp, shape = subscribeShape)
+                                .clip(subscribeShape)
+                                .background(if (isSubscribed) themePrimary.copy(alpha = 0.22f) else glassPillBg)
+                                .border(1.dp, if (isSubscribed) glassActiveRim else glassSpecularRim, subscribeShape)
+                                .specularHighlight(subscribeShape, highlightAlpha = if (isSubscribed) 0.30f else 0.22f)
+                                .tactileBounce(scaleDown = 0.94f) { subscribeAction() }
+                                .padding(horizontal = 20.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = if (isSubscribed) str(R.string.subscribed) else str(R.string.subscribe),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSubscribed) themePrimary else Color.White
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .clip(subscribeShape)
+                                .background(if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.dp, if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, subscribeShape)
+                                .clickable { subscribeAction() }
+                                .padding(horizontal = 20.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = if (isSubscribed) str(R.string.subscribed) else str(R.string.subscribe),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // Shuffle / Quick Play Floating Button
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .tactileBounce(scaleDown = 0.90f) {
-                                if (artistPage.topSongs.isNotEmpty()) {
-                                    val shuffled = artistPage.topSongs.shuffled()
-                                    onTrackClick(shuffled.first(), shuffled)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = str(R.string.shuffle),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
+                    // Shuffle / Quick Play Floating Button (Liquid Glass enabled)
+                    val shuffleAction = {
+                        if (artistPage.topSongs.isNotEmpty()) {
+                            val shuffled = artistPage.topSongs.shuffled()
+                            onTrackClick(shuffled.first(), shuffled)
+                        }
+                    }
+
+                    if (isLiquidGlass) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(
+                                    elevation = 10.dp,
+                                    shape = CircleShape,
+                                    ambientColor = themePrimary.copy(alpha = 0.50f),
+                                    spotColor = Color.Black.copy(alpha = 0.35f)
+                                )
+                                .clip(CircleShape)
+                                .background(glassActiveBg)
+                                .border(1.2.dp, glassActiveRim, CircleShape)
+                                .specularHighlight(CircleShape, highlightAlpha = 0.40f)
+                                .tactileBounce(scaleDown = 0.90f) { shuffleAction() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = str(R.string.shuffle),
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .tactileBounce(scaleDown = 0.90f) { shuffleAction() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = str(R.string.shuffle),
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
 
@@ -481,7 +592,7 @@ fun ArtistScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .contextMenuAnchor()
+                                .contextMenuAnchor { onTrackClick(track, artistPage.topSongs) }
                                 .combinedClickable(
                                     onClick = { onTrackClick(track, artistPage.topSongs) },
                                     onLongClick = { selectedTrackForMenu = track }
@@ -569,7 +680,7 @@ fun ArtistScreen(
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
-                                    .contextMenuAnchor()
+                                    .contextMenuAnchor { onAlbumClick(album) }
                                     .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
                                         onClick = { onAlbumClick(album) },
@@ -629,7 +740,7 @@ fun ArtistScreen(
                             Column(
                                 modifier = Modifier
                                     .width(135.dp)
-                                    .contextMenuAnchor()
+                                    .contextMenuAnchor { onAlbumClick(single) }
                                     .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
                                         onClick = { onAlbumClick(single) },

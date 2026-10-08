@@ -124,6 +124,7 @@ internal fun CoverSheetTheme(content: @Composable () -> Unit) {
 class ContextMenuAnchor internal constructor() {
     internal var coordinates: LayoutCoordinates? = null
     internal var hostView: View? = null
+    internal var onClick: (() -> Unit)? = null
     /** Bounds on screen, frozen when the press arms the anchor. */
     var boundsOnScreen by mutableStateOf(Rect.Zero)
         internal set
@@ -166,15 +167,17 @@ internal fun rememberContextMenuAnchor(): ContextMenuAnchor? {
 /**
  * Put on an item whose long-press opens an option menu (before its clickable). In liquid glass
  * mode a long hold records where the item is and snapshots it, so the menu can lift it out of
- * the blurred page. Outside glass mode it does nothing. The press is only watched, never consumed.
+ * the blurred page. [onClick] is the item's normal tap action, reused by the lifted preview.
+ * Outside glass mode it does nothing. The press is only watched, never consumed.
  */
-fun Modifier.contextMenuAnchor(): Modifier = composed {
+fun Modifier.contextMenuAnchor(onClick: (() -> Unit)? = null): Modifier = composed {
     LocalLiquidGlass.current ?: return@composed this
     val view = LocalView.current
     val layer = rememberGraphicsLayer()
     val scope = rememberCoroutineScope()
     val anchor = remember { ContextMenuAnchor() }
     anchor.hostView = view
+    anchor.onClick = onClick
     this
         .onGloballyPositioned { anchor.coordinates = it }
         .drawWithContent {
@@ -342,7 +345,7 @@ fun GlassContextMenu(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { close() }
+                            ) { close(after = { anchor.onClick?.invoke() }) }
                     ) {
                         val shot = anchor.snapshot
                         Canvas(Modifier.fillMaxSize()) {

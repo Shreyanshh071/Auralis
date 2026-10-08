@@ -69,40 +69,6 @@ class NewLyricsSourcesTest {
     }
 
     @Test
-    fun `simpmusic prefers word timing and reads enhanced lrc with a space after each stamp`() {
-        val rich = "[00:16.62]<00:16.62> Và <00:16.64> em <00:16.68> nói\\n[00:20.00]<00:20.00> câu <00:20.50> sau"
-        val body = """
-            {"type":"success","success":true,"data":[
-              {"videoId":"abc","title":"Song","artist":"Artist","duration":200,"vote":3,
-               "syncedLyrics":"[00:16.62]Và em nói\\n[00:20.00]câu sau","plainLyrics":"Và em nói","richSyncLyrics":"$rich"}
-            ]}
-        """.trimIndent()
-        val data = com.auralis.music.data.network.provider.SimpMusicLyricsSource.parse(body, 200L)!!
-        assertEquals(com.auralis.music.domain.model.LyricsProvider.SIMPMUSIC, data.provider)
-        assertEquals("Song", data.trackName)
-        assertEquals(2, data.lines.size)
-        assertEquals(16_620L, data.lines[0].time)
-        assertEquals("Và em nói", data.lines[0].text)
-        assertEquals(listOf(16_620L, 16_640L, 16_680L), data.lines[0].words!!.map { it.time })
-    }
-
-    @Test
-    fun `simpmusic skips downvoted and wrong-length entries and falls back to line sync`() {
-        val body = """
-            {"type":"success","success":true,"data":[
-              {"title":"Bad","duration":200,"vote":-2,"syncedLyrics":"[00:01.00]wrong words"},
-              {"title":"Other cut","duration":260,"vote":5,"syncedLyrics":"[00:02.00]other cut"},
-              {"title":"Good","duration":203,"vote":0,"syncedLyrics":"[00:05.00]right words\\n[00:09.00]second line"}
-            ]}
-        """.trimIndent()
-        val data = com.auralis.music.data.network.provider.SimpMusicLyricsSource.parse(body, 200L)!!
-        assertEquals("Good", data.trackName)
-        assertEquals(SyncType.LINE_SYNC, data.syncType)
-        assertEquals(listOf(5_000L, 9_000L), data.lines.map { it.time })
-        assertNull(com.auralis.music.data.network.provider.SimpMusicLyricsSource.parse("""{"success":false,"data":[]}""", 200L))
-    }
-
-    @Test
     fun `caption cues parse into timed lines and drop direction marks and music notes`() {
         val body = """
             {"events":[

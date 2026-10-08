@@ -73,6 +73,8 @@
     <string name="create_a_station_based_on_this_item">इसके आधार पर एक स्टेशन बनाएँ</string>
     <string name="remove_from_queue">कतार से हटाएँ</string>
     <string name="take_this_song_out_of_up_next">इस गाने को \'आगे बजेगा\' से हटाएँ</string>
+    <string name="remove_from_playlist">प्लेलिस्ट से हटाएँ</string>
+    <string name="take_this_song_out_of_this_playlist">इस गाने को इस प्लेलिस्ट से हटाएँ</string>
     <string name="remove_from_library">लाइब्रेरी से हटाएँ</string>
     <string name="add_to_library">लाइब्रेरी में जोड़ें</string>
     <string name="remove_from_your_library">अपनी लाइब्रेरी से हटाएँ</string>
@@ -835,7 +837,6 @@
     <string name="opt_rich_sync_word_timed_lyrics">रिच-सिंक शब्द-दर-शब्द लिरिक्स</string>
     <string name="opt_netease_cloud_music_lyrics">NetEase Cloud Music लिरिक्स</string>
     <string name="opt_indian_catalogue_lyrics">भारतीय संग्रह के लिरिक्स</string>
-    <string name="opt_simpmusic_lyrics_database">SimpMusic लिरिक्स डेटाबेस</string>
     <string name="opt_lyrics_shown_in_youtube_music_unsynced">YouTube Music में दिखने वाले लिरिक्स (बिना सिंक)</string>
     <string name="opt_youtube_captions">YouTube कैप्शन</string>
     <string name="opt_timed_captions_from_the_music_video">म्यूज़िक वीडियो के समय वाले कैप्शन</string>

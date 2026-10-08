@@ -31,7 +31,7 @@ sealed interface ExploreDetail {
     data class Artist(
         val artistPage: ArtistPage,
         val isLoading: Boolean = false,
-        val stableKey: String = "artist:${artistPage.artist.name.ifBlank { artistPage.artist.id }}"
+        val stableKey: String = "artist:${artistPage.artist.id.ifBlank { artistPage.artist.name }}"
     ) : ExploreDetail {
         override val key: String get() = stableKey
     }

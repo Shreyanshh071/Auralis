@@ -71,6 +71,13 @@ class LyricsSettlingTest {
         assertSame(line, selectSettledLyrics(line, line, otherLine))
     }
 
+    @Test fun `another word source replaces cached Musixmatch word sync`() {
+        val musixmatchWord = word.copy(provider = LyricsProvider.MUSIXMATCH)
+        val netEaseWord = word.copy(provider = LyricsProvider.NETEASE)
+        assertSame(netEaseWord, selectSettledLyrics(musixmatchWord, musixmatchWord, netEaseWord))
+        assertSame(musixmatchWord, selectSettledLyrics(musixmatchWord, musixmatchWord, line))
+    }
+
     @Test fun `plain-only final and cached fallback stay off the lyric screen`() {
         assertNull(selectSettledLyrics(null, null, plain))
         assertNull(selectSettledLyrics(plain, plain, null))

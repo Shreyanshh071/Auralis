@@ -495,6 +495,12 @@ fun LibraryScreen(
                             onAddToQueueTrack(track)
                             selectedTrackForMenu = null
                         },
+                        onRemoveFromPlaylist = if (isCustomPl) {
+                            {
+                                onRemoveFromPlaylist(selectedPl.id, track.id)
+                                selectedTrackForMenu = null
+                            }
+                        } else null,
                         onStartRadio = {
                             onStartRadio(track)
                             selectedTrackForMenu = null
@@ -1426,7 +1432,7 @@ private fun SmartLibraryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .contextMenuAnchor()
+            .contextMenuAnchor(onClick)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -1578,7 +1584,7 @@ private fun UserPlaylistGridCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .contextMenuAnchor()
+            .contextMenuAnchor(onClick)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -1700,7 +1706,7 @@ private fun SmartLibraryListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .contextMenuAnchor()
+            .contextMenuAnchor(onClick)
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
             .combinedClickable(
@@ -1791,7 +1797,7 @@ private fun UserPlaylistListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .contextMenuAnchor()
+            .contextMenuAnchor(onClick)
             .clip(RoundedCornerShape(14.dp))
             .background(CARD_DARK_BG)
             .combinedClickable(
@@ -3774,7 +3780,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (!isCustomSort) Modifier.contextMenuAnchor() else Modifier)
+                .then(if (!isCustomSort) Modifier.contextMenuAnchor { onPlayTrack(track) } else Modifier)
                 .clip(RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = {

@@ -61,6 +61,11 @@ internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, re
     val displayedTier = lyricsTier(displayed)
     val resultTier = lyricsTier(result)
     val winner = when {
+        // A cached Musixmatch word result is a fallback, not a terminal winner.
+        // Let a different word source replace it even though both have the same tier.
+        result != null && resultTier == 3 && result.provider != LyricsProvider.MUSIXMATCH &&
+            ((cachedTier == 3 && cached?.provider == LyricsProvider.MUSIXMATCH) ||
+                (displayedTier == 3 && displayed?.provider == LyricsProvider.MUSIXMATCH)) -> result
         result != null && resultTier > cachedTier && resultTier >= displayedTier -> result
         displayedTier > cachedTier -> displayed
         else -> cached ?: result ?: displayed
@@ -1341,9 +1346,9 @@ class PlayerViewModel(
                     audioLeadingSilenceMs = currentSilence
                 )
             }
-            // A cached RICHSYNC entry is already the best tier available; nothing to
-            // upgrade to, so it settles here.
-            if (cached != null && lyricsTier(cached) == 3) {
+            // Non-Musixmatch word sync can settle from cache. Musixmatch remains
+            // visible while the other word sources get one chance to replace it.
+            if (cached != null && lyricsTier(cached) == 3 && cached.provider != LyricsProvider.MUSIXMATCH) {
                 if (isActive()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
@@ -1381,10 +1386,11 @@ class PlayerViewModel(
                 return@launch
             }
 
-            // Otherwise, show whatever we have (even LINE_SYNC) while background upgrade runs.
+            // Show cached line sync while searching, but hold Musixmatch word sync until
+            // the other word providers have had a chance to answer.
             // A network upgrade is only attempted once per unique (title, artist, duration)
             // track per session, and the result is kept only if it ranks higher.
-            val cachedIsUsable = lyricsTier(cached) >= 2
+            val cachedIsUsable = lyricsTier(cached) >= 2 && cached?.provider != LyricsProvider.MUSIXMATCH
             if (isActive()) {
                 _uiState.update { it.copy(lyrics = cached.takeIf { cachedIsUsable } ?: safeFallback, isLoadingLyrics = !cachedIsUsable) }
                 if (cachedIsUsable) {

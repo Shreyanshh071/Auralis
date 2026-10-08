@@ -559,6 +559,7 @@ class LyricsRepositoryImpl(
         val trackKey =(videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
         android.util.Log.d("AuralisLyrics", "[getLyrics] Request for '$title' by '$artist' (key=$trackKey, forceRefresh=$forceRefresh, album=$album, durMs=$playbackMs)")
+        var cachedMusixmatchWordFallback: LyricsData? = null
 
         // 1. Check in-memory cache
         if (!forceRefresh) {
@@ -592,7 +593,9 @@ class LyricsRepositoryImpl(
                     if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                         if (com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(aligned.lines)) {
                             android.util.Log.d("AuralisLyrics", "[getLyrics] Memory cache HIT (Word sync, provider=${aligned.provider})")
-                            return aligned
+                            if (aligned.provider == com.auralis.music.domain.model.LyricsProvider.MUSIXMATCH) {
+                                cachedMusixmatchWordFallback = aligned
+                            } else return aligned
                         }
                     }
                 } else {
@@ -655,8 +658,12 @@ class LyricsRepositoryImpl(
                                 if (aligned.syncType != SyncType.PLAIN && aligned.lines.isNotEmpty()) {
                                     if (entity.hasWordTiming && com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(aligned.lines)) {
                                         android.util.Log.d("AuralisLyrics", "[getLyrics] Room DB cache HIT (Word sync, provider=${aligned.provider})")
-                                        memoryCache[trackKey] = aligned
-                                        return aligned
+                                        if (aligned.provider == com.auralis.music.domain.model.LyricsProvider.MUSIXMATCH) {
+                                            cachedMusixmatchWordFallback = aligned
+                                        } else {
+                                            memoryCache[trackKey] = aligned
+                                            return aligned
+                                        }
                                     } else {
                                         // Line-sync cached from earlier; hold as fallback and allow cascade to seek a word-sync upgrade
                                         cachedLineSyncFallback = aligned
@@ -697,6 +704,13 @@ class LyricsRepositoryImpl(
                 }
             }
         )
+        // A cached Musixmatch word result remains a fallback, but it must not stop
+        // other word sources from being tried. It still outranks line-only results.
+        if (cachedMusixmatchWordFallback != null &&
+            (networkResult == null || LyricsClient.tierOf(networkResult) < LyricsClient.TIER_WORD)) {
+            memoryCache[trackKey] = cachedMusixmatchWordFallback
+            return cachedMusixmatchWordFallback
+        }
         if (networkResult != null && networkResult.lines.isNotEmpty()) {
             val alignedNetwork = if (playbackMs > 0L) {
                 com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(networkResult, playbackMs, audioLeadingSilenceMs)

@@ -348,7 +348,7 @@ object LyricsAlignmentEngine {
         val isGenuineExactVideo = lyrics.isExactVideoMatch &&
             lyrics.provider == com.auralis.music.domain.model.LyricsProvider.UNISON
         if (masterMatch == MasterMatchStatus.COMPATIBLE_OFFSET && audioLeadingSilenceMs == null &&
-            !isGenuineExactVideo && lyrics.provider != com.auralis.music.domain.model.LyricsProvider.BETTER_LYRICS) {
+            !isGenuineExactVideo && lyrics.provider != com.auralis.music.domain.model.LyricsProvider.BETTER_LYRICS && lyrics.provider != com.auralis.music.domain.model.LyricsProvider.MUSIXMATCH) {
             return lyrics
         }
 
@@ -359,6 +359,16 @@ object LyricsAlignmentEngine {
         // every line late. Keep the provider timing, including when undoing an older cached shift.
         val targetOffsetMs = if (lyrics.provider == com.auralis.music.domain.model.LyricsProvider.BETTER_LYRICS) {
             0L
+        } else if (lyrics.provider == com.auralis.music.domain.model.LyricsProvider.MUSIXMATCH &&
+            lyrics.syncType == com.auralis.music.domain.model.SyncType.RICHSYNC) {
+            // Musixmatch RichSync timestamps are produced by human tap synchronizers,
+            // introducing a natural ~150ms curator auditory reaction latency.
+            // Advance RichSync timing by 150ms so word highlighting starts synchronously
+            // with vocal onset rather than lagging behind the singer.
+            val containerOffset = if (audioLeadingSilenceMs != null && providerLeadingSilence != null) {
+                (audioLeadingSilenceMs - providerLeadingSilence).coerceIn(-2000L, 2000L)
+            } else 0L
+            (containerOffset - 150L).coerceIn(-2000L, 2000L)
         } else if (audioLeadingSilenceMs != null && providerLeadingSilence != null) {
             (audioLeadingSilenceMs - providerLeadingSilence).coerceIn(-2000L, 2000L)
         } else {
