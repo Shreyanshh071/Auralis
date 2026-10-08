@@ -243,7 +243,7 @@ fun SyncedLyricsView(
             }
         }
         else if (!lyrics.plainLyrics.isNullOrBlank()) {
-            lyrics.plainLyrics.lines()
+            lyrics.plainLyrics!!.lines()
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .map { LyricLine(time = 0L, text = com.auralis.music.data.parser.WordTiming.healSplitWordsInText(it)) }
@@ -1932,7 +1932,7 @@ private fun LyricLineRow(
 
         if (!line.translatedText.isNullOrBlank()) {
             val cleanTranslation = remember(line.translatedText) {
-                line.translatedText.replace(Regex("""[\u0300-\u036F\u25CC\u093C\u093D]"""), "").trim()
+                line.translatedText!!.replace(Regex("""[\u0300-\u036F\u25CC\u093C\u093D]"""), "").trim()
             }
             if (cleanTranslation.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))

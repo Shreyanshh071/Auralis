@@ -51,7 +51,7 @@ object LyricsEngine {
 
             val lineEndMs: Long = line.effectiveEndTime
                 ?: if (!line.words.isNullOrEmpty()) {
-                    line.words.last().endTime ?: line.words.last().time
+                    line.words!!.last().endTime ?: line.words!!.last().time
                 } else {
                     // Fallback for line-synced lyrics with no explicit end time:
                     // transition when the next non-simultaneous line begins

@@ -289,7 +289,7 @@ fun AlbumScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .clickable {
-                                    onOpenArtist(Artist(id = "", name = album.author))
+                                    onOpenArtist(Artist(id = "", name = album.author!!))
                                 }
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -302,7 +302,7 @@ fun AlbumScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = album.author,
+                                text = album.author!!,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = LIME_ACCENT

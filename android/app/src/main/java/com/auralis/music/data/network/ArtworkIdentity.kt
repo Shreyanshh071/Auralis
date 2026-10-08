@@ -29,7 +29,7 @@ object ArtworkIdentity {
             kotlin.math.abs(requested.duration - candidate.duration) > 12L) return false
         if (requireAlbum && !requested.album.isNullOrBlank() &&
             (candidate.album.isNullOrBlank() ||
-                normalized(requested.album) != normalized(candidate.album))) return false
+                normalized(requested.album!!) != normalized(candidate.album!!))) return false
         return candidate.thumbnail.isNotBlank()
     }
 }

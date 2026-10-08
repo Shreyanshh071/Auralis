@@ -273,7 +273,7 @@ class HomeViewModel(
                             fun updated(item: SpeedDialItem): SpeedDialItem {
                                 val track = item.track?.id?.let { corrected[it] } ?: return item
                                 return item.copy(image = track.thumbnail,
-                                    track = item.track.copy(album = track.album, thumbnail = track.thumbnail))
+                                    track = item.track!!.copy(album = track.album, thumbnail = track.thumbnail))
                             }
                             inMemoryPinnedItems = inMemoryPinnedItems.map(::updated)
                             HomeRecommendationsCache.savePinnedSpeedDialItems(context, inMemoryPinnedItems)
@@ -495,7 +495,7 @@ class HomeViewModel(
                                     val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
                                         ?: searchHits.artists.firstOrNull()
                                     if (match != null && !match.thumbnail.isNullOrBlank()) {
-                                        artistAvatarCache[art] = Pair(match.id, match.thumbnail)
+                                        artistAvatarCache[art] = Pair(match.id, match.thumbnail!!)
                                     }
                                 } catch (_: Exception) {}
                             }
@@ -1126,7 +1126,7 @@ class HomeViewModel(
                 effectivePinned.any { pin ->
                     pin.type == SpeedDialType.TRACK && (
                         SpeedDialIdHelper.isSameTrack(pin.id, t.id) ||
-                        (pin.track != null && pin.track.id == t.id)
+                        (pin.track != null && pin.track!!.id == t.id)
                     )
                 }
             if (isAlreadyPinned) continue
@@ -1226,7 +1226,7 @@ class HomeViewModel(
             it.type != SpeedDialType.SURPRISE && it.type != SpeedDialType.PLACEHOLDER && !it.isPinned
         }.filterNot { item ->
             pinnedIds.contains(item.id) ||
-            (item.track != null && pinnedIds.contains(item.track.id)) ||
+            (item.track != null && pinnedIds.contains(item.track!!.id)) ||
             pinnedItems.any { pin ->
                 (pin.type == item.type && pin.id == item.id) ||
                 (pin.type == SpeedDialType.TRACK && item.type == SpeedDialType.TRACK && SpeedDialIdHelper.isSameTrack(pin.id, item.id)) ||
@@ -1244,7 +1244,7 @@ class HomeViewModel(
         if (inMemoryPinnedItems.any { item ->
             item.type == SpeedDialType.TRACK && (
                 SpeedDialIdHelper.isSameTrack(item.id, trackId) ||
-                (item.track != null && item.track.id == canonical)
+                (item.track != null && item.track!!.id == canonical)
             )
         }) return true
 
@@ -1266,7 +1266,7 @@ class HomeViewModel(
             inMemoryPinnedItems.filterNot { item ->
                 item.type == SpeedDialType.TRACK && (
                     SpeedDialIdHelper.isSameTrack(item.id, canonicalId) ||
-                    (item.track != null && item.track.id == canonicalId)
+                    (item.track != null && item.track!!.id == canonicalId)
                 )
             }
         } else {
@@ -1282,7 +1282,7 @@ class HomeViewModel(
             listOf(item) + inMemoryPinnedItems.filterNot { item ->
                 item.type == SpeedDialType.TRACK && (
                     SpeedDialIdHelper.isSameTrack(item.id, canonicalId) ||
-                    (item.track != null && item.track.id == canonicalId)
+                    (item.track != null && item.track!!.id == canonicalId)
                 )
             }
         }

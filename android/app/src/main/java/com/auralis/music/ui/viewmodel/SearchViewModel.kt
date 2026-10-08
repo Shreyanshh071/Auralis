@@ -316,7 +316,7 @@ class SearchViewModel(
         val defaultKanyeThumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
         val verifiedBanner = when {
             isKanye -> defaultKanyeThumb
-            artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail.contains("i.ytimg.com") && !artist.thumbnail.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") -> artist.thumbnail
+            artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail!!.contains("i.ytimg.com") && !artist.thumbnail!!.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") -> artist.thumbnail
             else -> null
         }
         val initialPage = ArtistPage(artist = artist.copy(thumbnail = verifiedBanner ?: artist.thumbnail), bannerUrl = verifiedBanner)
@@ -381,7 +381,7 @@ class SearchViewModel(
                 val updatedStack = current.detailStack.map { detail ->
                     if (detail is ExploreDetail.Album && (detail.album.id == album.id || detail.album.title.equals(album.title, ignoreCase = true))) {
                         val firstTrk = finalTracks.firstOrNull()
-                        val enrichedAlbum = if (firstTrk != null && (detail.album.thumbnail.isNullOrBlank() || detail.album.thumbnail.contains("default"))) {
+                        val enrichedAlbum = if (firstTrk != null && (detail.album.thumbnail.isNullOrBlank() || detail.album.thumbnail!!.contains("default"))) {
                             detail.album.copy(
                                 thumbnail = firstTrk.thumbnail.takeIf { it.isNotBlank() } ?: detail.album.thumbnail
                             )

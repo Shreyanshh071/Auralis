@@ -122,7 +122,7 @@ object HomeRecommendationsCache {
         current.removeAll { existing ->
             if (item.type == SpeedDialType.TRACK && existing.type == SpeedDialType.TRACK) {
                 SpeedDialIdHelper.isSameTrack(existing.id, item.id) ||
-                    (item.track != null && existing.track != null && item.track.id == existing.track.id)
+                    (item.track != null && existing.track != null && item.track!!.id == existing.track!!.id)
             } else if (item.type == SpeedDialType.ALBUM && existing.type == SpeedDialType.ALBUM) {
                 val clean1 = existing.id.removePrefix("album-").removePrefix("VL")
                 val clean2 = item.id.removePrefix("album-").removePrefix("VL")
@@ -140,7 +140,7 @@ object HomeRecommendationsCache {
         current.removeAll { existing ->
             if (existing.type == SpeedDialType.TRACK) {
                 SpeedDialIdHelper.isSameTrack(existing.id, itemId) ||
-                    (existing.track != null && SpeedDialIdHelper.matchesTrack(itemId, existing.track.id))
+                    (existing.track != null && SpeedDialIdHelper.matchesTrack(itemId, existing.track!!.id))
             } else if (existing.type == SpeedDialType.ALBUM) {
                 val cleanId = itemId.removePrefix("album-").removePrefix("VL")
                 val existingClean = existing.id.removePrefix("album-").removePrefix("VL")
@@ -157,7 +157,7 @@ object HomeRecommendationsCache {
         return current.any { existing ->
             if (existing.type == SpeedDialType.TRACK) {
                 SpeedDialIdHelper.isSameTrack(existing.id, itemId) ||
-                    (existing.track != null && SpeedDialIdHelper.matchesTrack(itemId, existing.track.id))
+                    (existing.track != null && SpeedDialIdHelper.matchesTrack(itemId, existing.track!!.id))
             } else if (existing.type == SpeedDialType.ALBUM) {
                 val cleanId = itemId.removePrefix("album-").removePrefix("VL")
                 val existingClean = existing.id.removePrefix("album-").removePrefix("VL")

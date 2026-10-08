@@ -185,7 +185,7 @@ object ArtworkPaletteCache {
         getCachedOrFastExtract(context, trackId, track.thumbnail)?.let { return it }
 
         if (track.dominantColor != null && track.dominantColor != 0) {
-            val color = Color(track.dominantColor)
+            val color = Color(track.dominantColor!!)
             val fallback = ArtworkPalette(
                 primary = color,
                 secondary = color,

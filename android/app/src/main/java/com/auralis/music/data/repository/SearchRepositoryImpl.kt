@@ -418,7 +418,7 @@ class SearchRepositoryImpl(
             }
 
             // Ensure primaryArtist has their real verified YouTube photo
-            if (primaryArtist != null && (primaryArtist.thumbnail.isNullOrBlank() || primaryArtist.thumbnail.contains("i.ytimg.com/vi/"))) {
+            if (primaryArtist != null && (primaryArtist.thumbnail.isNullOrBlank() || primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/"))) {
                 val realArtist = officialArtists.find { it.name.equals(primaryArtist.name, ignoreCase = true) }
                     ?: generalResults.artists.find { it.name.equals(primaryArtist.name, ignoreCase = true) }
                     ?: try {
@@ -451,8 +451,8 @@ class SearchRepositoryImpl(
                     // 1. If the track already has verified authentic studio album metadata
                     if (!isRedundant && !track.albumId.isNullOrBlank() && !track.album.isNullOrBlank()) {
                         PlaylistResult(
-                            id = track.albumId,
-                            title = track.album,
+                            id = track.albumId!!,
+                            title = track.album!!,
                             thumbnail = track.thumbnail.ifBlank { null },
                             author = targetArtist
                         )
@@ -489,8 +489,8 @@ class SearchRepositoryImpl(
                                     )
                                 )
                                 PlaylistResult(
-                                    id = detailedTrack.albumId,
-                                    title = detailedTrack.album,
+                                    id = detailedTrack.albumId!!,
+                                    title = detailedTrack.album!!,
                                     thumbnail = track.thumbnail.ifBlank { null },
                                     author = targetArtist
                                 )

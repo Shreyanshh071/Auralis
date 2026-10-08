@@ -103,8 +103,8 @@ object LibraryArtworkClassifier {
                 val reusedCover = track.thumbnail.isNotBlank() && playlist.coverUrl == track.thumbnail &&
                     unrelated.any { it.thumbnail == track.thumbnail }
                 val reusedTitle = !track.album.isNullOrBlank() &&
-                    ArtworkIdentity.normalized(playlist.title) == ArtworkIdentity.normalized(track.album) &&
-                    unrelated.any { ArtworkIdentity.normalized(it.album.orEmpty()) == ArtworkIdentity.normalized(track.album) }
+                    ArtworkIdentity.normalized(playlist.title) == ArtworkIdentity.normalized(track.album!!) &&
+                    unrelated.any { ArtworkIdentity.normalized(it.album.orEmpty()) == ArtworkIdentity.normalized(track.album!!) }
                 reusedCover || reusedTitle
             }) return ArtworkCondition.CLEARLY_MISMATCHED
         if (track.thumbnail.isBlank()) return ArtworkCondition.MISSING

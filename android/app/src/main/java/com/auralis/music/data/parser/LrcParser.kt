@@ -285,7 +285,7 @@ object LrcParser {
                 }
                 currentTokens.addAll(lineWords)
                 if (line.words != null) {
-                    currentWords.addAll(line.words)
+                    currentWords.addAll(line.words!!)
                 } else {
                     currentWordsComplete = false
                 }
@@ -294,7 +294,7 @@ object LrcParser {
                 currentMergedTime = line.time
                 currentTokens.addAll(lineWords)
                 if (line.words != null) {
-                    currentWords.addAll(line.words)
+                    currentWords.addAll(line.words!!)
                 } else {
                     currentWordsComplete = false
                 }
