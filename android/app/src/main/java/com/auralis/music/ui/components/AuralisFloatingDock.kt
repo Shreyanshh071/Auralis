@@ -145,6 +145,9 @@ fun AuralisFloatingDock(
     val dockHeight = if (isSlim) 46.dp else 56.dp
     val buttonSize = if (isSlim) 46.dp else 56.dp
     val pillShape = RoundedCornerShape(30.dp)
+    // Liquid glass only: holding or sliding across the dock (or its button) makes it swell.
+    val dockPress = com.auralis.music.ui.glass.rememberGlassPress()
+    val buttonPress = com.auralis.music.ui.glass.rememberGlassPress()
 
     val surfaceColor = MaterialTheme.dynamicSurface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
@@ -209,7 +212,7 @@ fun AuralisFloatingDock(
                     .height(dockHeight)
                     .then(
                         if (glass != null) {
-                            Modifier.liquidGlass(glass, pillShape).clip(pillShape)
+                            Modifier.liquidGlass(glass, pillShape, press = dockPress).clip(pillShape)
                         } else Modifier
                             .shadow(
                                 elevation = 16.dp,
@@ -305,8 +308,9 @@ fun AuralisFloatingDock(
                     (currentDestination == AppDestination.LIBRARY && !isPlaylistDetailOpen)
             AnimatedVisibility(
                 visible = showRightButton,
-                enter = fadeIn(tween(160)) + expandHorizontally(tween(200)),
-                exit = fadeOut(tween(140)) + shrinkHorizontally(tween(180))
+                // No clip: it would cut off the button while it swells under a press.
+                enter = fadeIn(tween(160)) + expandHorizontally(tween(200), clip = false),
+                exit = fadeOut(tween(140)) + shrinkHorizontally(tween(180), clip = false)
             ) {
                 Row {
                     Spacer(modifier = Modifier.width(8.dp))
@@ -315,7 +319,7 @@ fun AuralisFloatingDock(
                             .size(buttonSize)
                             .then(
                                 if (glass != null) {
-                                    Modifier.liquidGlass(glass, CircleShape).clip(CircleShape)
+                                    Modifier.liquidGlass(glass, CircleShape, press = buttonPress).clip(CircleShape)
                                 } else Modifier
                                     .shadow(
                                         elevation = 16.dp,

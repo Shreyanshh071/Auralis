@@ -1623,12 +1623,11 @@ fun NowPlayingModal(
                                 modifier = Modifier
                                     .fillMaxWidth(0.98f)
                                     .aspectRatio(1f)
+                                    // No shadow here: it is drawn for the whole pager, so it showed
+                                    // as a box behind the cards while they shrink mid-swipe.
                                     .graphicsLayer {
-                                        shadowElevation = 32.dp.toPx()
                                         shape = RoundedCornerShape(28.dp)
                                         clip = true
-                                        ambientShadowColor = animatedPrimaryColor
-                                        spotShadowColor = animatedPrimaryColor
                                     }
                             ) { page ->
                                 val pageTrack = if (queue.isNotEmpty() && page in queue.indices) {
@@ -1725,6 +1724,9 @@ fun NowPlayingModal(
                                 positionState = lyricsPositionState,
                                 offsetMs = uiState.lyricsOffsetMs,
                                 isLoading = uiState.isLoadingLyrics,
+                                trackId = track.id,
+                                isPlaying = uiState.isPlaying,
+                                isBuffering = uiState.isBuffering,
                                 onOpenFullLyrics = { currentTab = NowPlayingTab.LYRICS },
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
@@ -1756,7 +1758,7 @@ fun NowPlayingModal(
 
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            // ── TRI-SEGMENTED CAPSULE PILL (PLAYLIST + DOWNLOAD + LIKE) ──
+                            // ── SEGMENTED CAPSULE PILL (PLAYLIST + DOWNLOAD + LIKE + MORE) ──
                             val downloadedIds by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
                             val isDownloaded = track.id in downloadedIds
                             val activeDownloads by com.auralis.music.data.download.AuralisDownloadManager.activeDownloads.collectAsState()
@@ -1836,11 +1838,11 @@ fun NowPlayingModal(
 
                                 Spacer(modifier = Modifier.width(3.dp))
 
-                                // 3. Right Segment: Like Heart Button (Pill curved on right)
+                                // 3. Like Heart Button
                                 Box(
                                     modifier = Modifier
                                         .size(width = 38.dp, height = 38.dp)
-                                        .clip(RoundedCornerShape(topStart = 5.dp, bottomStart = 5.dp, topEnd = 19.dp, bottomEnd = 19.dp))
+                                        .clip(RoundedCornerShape(5.dp))
                                         .background(Color.White)
                                         .tactileBounce(scaleDown = 0.86f, onClick = onToggleFavorite),
                                     contentAlignment = Alignment.Center
@@ -1857,6 +1859,25 @@ fun NowPlayingModal(
                                             modifier = Modifier.size(19.dp)
                                         )
                                     }
+                                }
+
+                                Spacer(modifier = Modifier.width(3.dp))
+
+                                // 4. Right Segment: More Options (Pill curved on right)
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 38.dp)
+                                        .clip(RoundedCornerShape(topStart = 5.dp, bottomStart = 5.dp, topEnd = 19.dp, bottomEnd = 19.dp))
+                                        .background(Color.White)
+                                        .tactileBounce(scaleDown = 0.86f, onClick = { showTrackOptions = true }),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = str(R.string.more_options),
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(19.dp)
+                                    )
                                 }
                             }
                         }

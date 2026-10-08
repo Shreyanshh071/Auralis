@@ -487,6 +487,9 @@ fun ClassicPlayerView(
                     positionState = inlineLyricsPositionState,
                     offsetMs = uiState.lyricsOffsetMs,
                     isLoading = uiState.isLoadingLyrics,
+                    trackId = uiState.currentTrack?.id,
+                    isPlaying = uiState.isPlaying,
+                    isBuffering = uiState.isBuffering,
                     onOpenFullLyrics = onToggleLyrics,
                     modifier = Modifier.padding(horizontal = 26.dp)
                 )
