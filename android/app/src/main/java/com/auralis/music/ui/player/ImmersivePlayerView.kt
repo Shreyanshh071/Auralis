@@ -1024,7 +1024,7 @@ private sealed interface PreviewSlot {
  * "Lyrics" link when the lyrics have no timing.
  */
 @Composable
-private fun LyricPreviewLine(
+internal fun LyricPreviewLine(
     lyrics: LyricsData?,
     isLoading: Boolean,
     trackId: String?,
