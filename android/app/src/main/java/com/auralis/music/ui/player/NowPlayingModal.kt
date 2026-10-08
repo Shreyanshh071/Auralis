@@ -736,6 +736,17 @@ fun NowPlayingModal(
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showAudioOutputSheet by remember { mutableStateOf(false) }
     var showTrackOptions by remember { mutableStateOf(false) }
+    // Lyrics source picker for the new and old player designs (immersive has its own).
+    var showLyricsProviders by remember { mutableStateOf(false) }
+    var pendingProviderPick by remember { mutableStateOf<com.auralis.music.domain.model.LyricsProvider?>(null) }
+    val shownLyricsProvider = uiState.lyrics?.provider
+    // The sheet closes once the source the user picked is the one on screen.
+    LaunchedEffect(shownLyricsProvider) {
+        if (pendingProviderPick != null && pendingProviderPick == shownLyricsProvider) {
+            pendingProviderPick = null
+            showLyricsProviders = false
+        }
+    }
     var queueOptionsTrack by remember { mutableStateOf<Track?>(null) }
     // The tapped row's queue position: the same song can sit in the queue twice.
     var queueOptionsIndex by remember { mutableIntStateOf(-1) }
@@ -1269,6 +1280,14 @@ fun NowPlayingModal(
                             isBuffering = uiState.isBuffering,
                             audioLeadingSilenceMs = uiState.audioLeadingSilenceMs
                         )
+                        // Where the lyrics came from, with a way to pick another source.
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(start = 24.dp, end = 24.dp, top = 10.dp)
+                        ) {
+                            LyricsSourceCaption(lyrics = uiState.lyrics, onChange = { showLyricsProviders = true })
+                        }
                     }
                 }
 
@@ -2052,7 +2071,10 @@ fun NowPlayingModal(
             modernPlayerContent()
             }
             PlayerDesign.OLD -> {
-            CompositionLocalProvider(LocalClassicLyricsHazeState provides classicLyricsHazeState) {
+            CompositionLocalProvider(
+                LocalClassicLyricsHazeState provides classicLyricsHazeState,
+                LocalLyricsSourcePicker provides { showLyricsProviders = true }
+            ) {
                 ClassicPlayerContainer(
                     track = activeTrack,
                     uiState = uiState,
@@ -2162,6 +2184,25 @@ fun NowPlayingModal(
     }
 
     // Direct Track Options Bottom Sheet
+    if (showLyricsProviders) {
+        val trackId = uiState.currentTrack?.id
+        LyricsProviderSheet(
+            providers = lyricsProviders,
+            currentProvider = shownLyricsProvider?.takeIf { uiState.lyrics?.lines?.isNotEmpty() == true },
+            currentSyncType = uiState.lyrics?.syncType,
+            status = if (lyricsProviderPicks.trackId == trackId) lyricsProviderPicks.status else emptyMap(),
+            syncTypes = if (lyricsProviderPicks.trackId == trackId) lyricsProviderPicks.syncTypes else emptyMap(),
+            onPick = { provider ->
+                pendingProviderPick = provider
+                onPickLyricsProvider(provider)
+            },
+            onDismiss = {
+                pendingProviderPick = null
+                showLyricsProviders = false
+            }
+        )
+    }
+
     if (showTrackOptions) {
         val isPinned = isTrackPinned?.invoke(track.id) == true
         // Inside the player the menu knows whether lyrics are up: the lyrics tab counts too.

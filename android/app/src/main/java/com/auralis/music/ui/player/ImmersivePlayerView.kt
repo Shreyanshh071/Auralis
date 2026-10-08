@@ -1059,7 +1059,17 @@ internal fun LyricPreviewLine(
                     when {
                         line == null || (firstSung >= 0 && index < firstSung) -> PreviewSlot.Intro
                         line.isInstrumental -> PreviewSlot.Break(index)
-                        else -> PreviewSlot.Sung(index, line)
+                        else -> {
+                            val next = lines.getOrNull(index + 1)
+                            when (gapPhaseAfter(line, next, positionState.value + offsetMs)) {
+                                GapPhase.Break -> PreviewSlot.Break(index)
+                                // The break is ending: show the line about to be sung, never the
+                                // one from before the break.
+                                GapPhase.Upcoming -> if (next != null && !next.isInstrumental) PreviewSlot.Sung(index + 1, next)
+                                    else PreviewSlot.Break(index)
+                                GapPhase.None -> PreviewSlot.Sung(index, line)
+                            }
+                        }
                     }
                 }
             }
@@ -1156,6 +1166,41 @@ internal fun LyricPreviewLine(
     }
     }
 }
+
+private enum class GapPhase { None, Break, Upcoming }
+
+/**
+ * Where [positionMs] sits relative to a long gap after [line]: a guitar solo or outro the lyrics
+ * don't mark as instrumental (the next line, or the song's end when [next] is null, is far off).
+ * [GapPhase.Break] once the line has been sung; [GapPhase.Upcoming] in the last moment before
+ * [next] starts, when the preview shows [next] early. Without this the preview kept the last
+ * sung line through the whole break.
+ */
+private fun gapPhaseAfter(line: LyricLine, next: LyricLine?, positionMs: Long): GapPhase {
+    val sungUntil = lineEndMs(line)
+    val nextStart = next?.time ?: Long.MAX_VALUE
+    if (nextStart - sungUntil < MIN_BREAK_MS) return GapPhase.None
+    return when {
+        // Hold the line a moment after it ends.
+        positionMs < sungUntil + BREAK_ENTER_DELAY_MS -> GapPhase.None
+        nextStart - positionMs > BREAK_EXIT_LEAD_MS -> GapPhase.Break
+        else -> GapPhase.Upcoming
+    }
+}
+
+/** When [line] stops being sung: its stated end, its last word's end, or an estimate from its length. */
+private fun lineEndMs(line: LyricLine): Long {
+    line.endTime?.takeIf { it > line.time }?.let { return it }
+    val words = line.words.orEmpty()
+    words.mapNotNull { it.endTime }.maxOrNull()?.takeIf { it > line.time }?.let { return it }
+    words.lastOrNull()?.let { return it.time + 900L }
+    val wordCount = line.text.split(' ').count { it.isNotBlank() }.coerceAtLeast(1)
+    return line.time + (1_200L + wordCount * 450L).coerceIn(2_500L, 9_000L)
+}
+
+private const val MIN_BREAK_MS = 6_000L
+private const val BREAK_ENTER_DELAY_MS = 1_000L
+private const val BREAK_EXIT_LEAD_MS = 1_500L
 
 private fun fillerLine(arrayRes: Int): String =
     runCatching {
@@ -1335,7 +1380,7 @@ private fun MetroPreviewWordMorph(
 
 /** "Lyrics by <provider>  Change" — shown in the lyric line's place while the lyrics are up. */
 @Composable
-private fun LyricsSourceCaption(lyrics: LyricsData?, onChange: () -> Unit) {
+internal fun LyricsSourceCaption(lyrics: LyricsData?, onChange: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (lyrics != null) {
             Text(

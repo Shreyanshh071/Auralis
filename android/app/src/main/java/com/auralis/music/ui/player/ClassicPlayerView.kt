@@ -894,6 +894,9 @@ fun InPlayerVolumeSlider(
  * Playback Controls used in Queue and Lyrics panels:
  * Exact pixel-match to Main Player's sizing, icons, paddings, and touch targets.
  */
+/** Opens the lyrics source picker from the old player's lyrics panel; null hides its caption. */
+internal val LocalLyricsSourcePicker = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @Composable
 fun ClassicCompactPlaybackControls(
     track: Track,
@@ -912,12 +915,20 @@ fun ClassicCompactPlaybackControls(
     onToggleRepeat: (() -> Unit)? = null,
     controlsAlpha: Float = 1f,
     showTransportPills: Boolean = false,
-    onTimelinePositioned: ((Int) -> Unit)? = null
+    onTimelinePositioned: ((Int) -> Unit)? = null,
+    /** Shown just above the timeline (the lyrics panel puts its "Lyrics by" caption here). */
+    caption: (@Composable () -> Unit)? = null
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        if (caption != null) {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(start = 30.dp, end = 30.dp, bottom = 10.dp),
+                contentAlignment = Alignment.CenterStart
+            ) { caption() }
+        }
         // 1. Timeline Scrubber Slider - Exact match to main player (padding horizontal = 26.dp)
         ClassicTimelineSlider(
             positionState = seekBarPositionState,
@@ -2273,6 +2284,9 @@ private fun ClassicLyricsContent(
                         .padding(top = 16.dp)
                 ) {
                     ClassicCompactPlaybackControls(
+                        caption = LocalLyricsSourcePicker.current?.let { change ->
+                            { LyricsSourceCaption(lyrics = uiState.lyrics, onChange = change) }
+                        },
                         track = track,
                         uiState = uiState,
                         seekBarPositionState = seekBarPositionState,

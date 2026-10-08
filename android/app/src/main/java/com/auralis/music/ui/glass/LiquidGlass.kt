@@ -120,18 +120,19 @@ fun Modifier.liquidGlass(
     // the shape, but on this Compose version that clip doesn't hold, and the glass filled its
     // square bounding box (a dark square behind every circle and pill end). An outer clip
     // contains everything the glass draws, whatever part of it spills.
-    val pressBumpPx = with(density) { 2.dp.toPx() }
     return this.then(if (pressLayer == null) Modifier.clip(shape) else Modifier).drawBackdrop(
         backdrop = glass.backdrop,
         shape = { shape },
         layerBlock = pressLayer,
+        // The effects never read the press: changing blur/lens strength while held rebuilt the
+        // RenderEffect every frame, and the first rebuild on touch-down froze the screen ~190ms
+        // (measured on device), so the swell started late. The press only scales and glows.
         effects = {
-            val pressed = press?.progress ?: 0f
             vibrancy()
-            blur(blurPx + pressBumpPx * pressed)
+            blur(blurPx)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 lens(
-                    refractionHeight = lensHeightPx + pressBumpPx * pressed,
+                    refractionHeight = lensHeightPx,
                     refractionAmount = lensAmountPx,
                     depthEffect = true,
                     chromaticAberration = true
@@ -175,7 +176,14 @@ fun Modifier.liquidGlass(
 @Stable
 class GlassPress internal constructor(private val scope: CoroutineScope) {
     private val animation = Animatable(0f, 0.001f)
-    private val pressSpec = spring(dampingRatio = 0.5f, stiffness = 300f, visibilityThreshold = 0.001f)
+
+    /**
+     * Spring stiffness. Small circles need a stiffer spring than the wide dock: the same early
+     * fraction of the swell is only a pixel or two on a 56dp circle, so with the dock's soft
+     * spring the circle looked like it started swelling late.
+     */
+    var stiffness: Float = 300f
+    private val pressSpec get() = spring(dampingRatio = 0.5f, stiffness = stiffness, visibilityThreshold = 0.001f)
 
     /** 0 at rest, 1 fully pressed. Read it in draw or layer blocks only. */
     val progress: Float get() = animation.value
