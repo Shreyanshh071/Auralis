@@ -21,6 +21,9 @@ class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.auralis.music.ui.i18n.AppLanguage.init(this)
+        // Shared network code asks these for hl/gl; same calls ContentLocale made when it lived here.
+        com.auralis.music.data.network.ContentLocale.settings = { com.auralis.music.data.datastore.ContentSettingsStore.value }
+        com.auralis.music.data.network.ContentLocale.appLanguageTag = { com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank() }
         // First: network code reads hl/gl, result filters and the proxy from here on every request.
         com.auralis.music.data.datastore.ContentSettingsStore.init(this)
         com.auralis.music.data.network.ContentProxy.install()
