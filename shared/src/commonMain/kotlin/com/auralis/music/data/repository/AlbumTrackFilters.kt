@@ -17,7 +17,7 @@ private fun baseSongKey(title: String): String =
  * Now (Remix By Dj Khushi)", ...) after the four film songs. A remix whose original isn't on the
  * album (a remix single, a remix-only release) is kept, since then it *is* the album's song.
  */
-internal fun withoutRemixesOfAlbumSongs(tracks: List<Track>): List<Track> {
+fun withoutRemixesOfAlbumSongs(tracks: List<Track>): List<Track> {
     val originals = tracks.filterNot { REMIX_TAG.containsMatchIn(it.title) }
         .map { baseSongKey(it.title) }
         .filter { it.isNotBlank() }

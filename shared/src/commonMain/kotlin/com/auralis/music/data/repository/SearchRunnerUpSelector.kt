@@ -6,7 +6,7 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.search.SearchQueryMatcher
 
 /** A same-name release is a song match when its title track accounts for its listens. */
-internal fun isTitleTrackRelease(
+fun isTitleTrackRelease(
     album: PlaylistResult,
     songs: List<Track>,
     albumPlays: Long,
@@ -24,7 +24,7 @@ internal fun isTitleTrackRelease(
 }
 
 /** Compare a different exact-title song with a genuinely separate album. */
-internal fun selectAlsoMatchingResult(
+fun selectAlsoMatchingResult(
     query: String,
     topResult: SearchTopResult?,
     matchedSongs: List<Track>,
