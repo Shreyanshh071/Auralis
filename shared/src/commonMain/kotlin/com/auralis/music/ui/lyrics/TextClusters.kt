@@ -22,7 +22,7 @@ private val VIRAMAS = setOf(
 )
 
 /** Indic letters must be shaped with their surrounding text, not drawn as isolated glyphs. */
-internal fun String.requiresWholeRunShaping(): Boolean = any { char ->
+fun String.requiresWholeRunShaping(): Boolean = any { char ->
     when (Character.UnicodeScript.of(char.code)) {
         Character.UnicodeScript.DEVANAGARI,
         Character.UnicodeScript.BENGALI,
@@ -49,7 +49,7 @@ internal fun String.requiresWholeRunShaping(): Boolean = any { char ->
  * "इश्क" rendered as "इश्" with a bare virama and a stray "क" placed inside a conjunct that no
  * longer existed. So a cluster ending in a virama is kept together with the one after it.
  */
-internal fun String.toShapingClusters(): List<String> {
+fun String.toShapingClusters(): List<String> {
     if (isEmpty()) return emptyList()
     val clusters = mutableListOf<String>()
     val it = BreakIterator.getCharacterInstance()
