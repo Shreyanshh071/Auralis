@@ -225,11 +225,11 @@ if (Test-Tool 'java') {
 $sdkOk = $false
 $sdkCandidates = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android\Sdk'))
 
-# android\local.properties is how Gradle is normally told where the SDK lives, and
+# local.properties is how Gradle is normally told where the SDK lives, and
 # it takes precedence over the environment. detect-android-toolchain.ps1 -Apply
 # writes it, so honour it here rather than reporting a missing SDK that Gradle
 # would in fact have found.
-$localProps = Join-Path $repoRoot 'android\local.properties'
+$localProps = Join-Path $repoRoot 'local.properties'
 if (Test-Path -Path $localProps) {
     $sdkLine = Select-String -Path $localProps -Pattern 'sdk.dir' -ErrorAction SilentlyContinue |
         Select-Object -First 1
@@ -457,11 +457,11 @@ if ($webCode -eq 0) {
 Write-Section 'Android debug build - gradlew assembleDebug'
 
 if ($javaOk -and $sdkOk -and $webCode -eq 0) {
-    $androidDir = Join-Path $repoRoot 'android'
-    $gradlew = Join-Path $androidDir 'gradlew.bat'
+    # The Gradle build lives at the repo root; the Android app is the :app module.
+    $gradlew = Join-Path $repoRoot 'gradlew.bat'
 
     if (Test-Path -Path $gradlew) {
-        Invoke-Step 'gradlew assembleDebug' $gradlew @('assembleDebug', '--no-daemon') $androidDir
+        Invoke-Step 'gradlew assembleDebug' $gradlew @(':app:assembleDebug', '--no-daemon') $repoRoot
 
         $apk = Join-Path $repoRoot 'android\app\build\outputs\apk\debug\app-debug.apk'
         if (Test-Path -Path $apk) {

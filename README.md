@@ -233,7 +233,10 @@ Auralis/
 │   │   │   │   └── MainActivity.kt     # Main Android Entry Point
 │   │   │   └── res/                    # Drawables, icons, layout values
 │   │   └── build.gradle.kts
-│   └── build.gradle.kts
+│   └── zemer-cipher/                   # Vendored YouTube cipher / PO token module
+├── gradle/                             # Wrapper & version catalog (libs.versions.toml)
+├── build.gradle.kts                    # Root Gradle build (run ./gradlew from the repo root)
+├── settings.gradle.kts
 ├── .github/
 │   └── FUNDING.yml                     # Sponsor Configuration
 └── README.md

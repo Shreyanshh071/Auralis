@@ -27,5 +27,9 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Auralis"
+// The Gradle build lives at the repo root so the Android, Windows (and later Mac) apps and the
+// shared code can sit side by side. Modules keep their old paths for now.
 include(":app")
+project(":app").projectDir = file("android/app")
 include(":zemer-cipher")
+project(":zemer-cipher").projectDir = file("android/zemer-cipher")
