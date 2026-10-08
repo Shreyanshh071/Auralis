@@ -206,6 +206,7 @@ dependencies {
 
     // YouTube signature/n deciphering and PO tokens for signed-in (age-restricted) downloads.
     // Vendored module, see zemer-cipher/NOTICE.md. It logs through Timber.
+    implementation(project(":shared"))
     implementation(project(":zemer-cipher"))
     implementation("com.jakewharton.timber:timber:5.0.1")
 

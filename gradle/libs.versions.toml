@@ -4,6 +4,11 @@ kotlin = "2.0.21"
 ksp = "2.0.21-1.0.27"
 googleServices = "4.4.4"
 
+# Shared (multiplatform) module
+composeMultiplatform = "1.7.3"
+androidxCollection = "1.4.5"
+orgJson = "20240303"
+
 # AndroidX Core & Lifecycle
 coreKtx = "1.15.0"
 lifecycleRuntimeKtx = "2.8.7"
@@ -107,6 +112,11 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 google-id = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleId" }
 
+# Shared (multiplatform) module
+compose-runtime = { group = "org.jetbrains.compose.runtime", name = "runtime", version.ref = "composeMultiplatform" }
+androidx-collection = { group = "androidx.collection", name = "collection", version.ref = "androidxCollection" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
@@ -115,6 +125,7 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 
 [plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
