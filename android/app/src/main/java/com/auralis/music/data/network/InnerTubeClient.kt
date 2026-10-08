@@ -157,7 +157,7 @@ open class InnerTubeClient(
                     ?.optJSONObject("musicResponsiveHeaderRenderer")
             val title = renderer?.optJSONObject("title")?.optJSONArray("runs")
                 ?.optJSONObject(0)?.optString("text").orEmpty()
-            val art = YouTubePlaylistImporter.extractPlaylistThumbnail(json)
+            val art = PlaylistThumbnails.extractPlaylistThumbnail(json)
             if (title.isBlank() || art.isNullOrBlank()) return@withContext null
             PlaylistResult(id = browseId, title = title, thumbnail = art)
         } catch (_: Exception) { null }
@@ -488,7 +488,7 @@ open class InnerTubeClient(
 
         val isSpotifyId = videoId.startsWith("sp_") || videoId.startsWith("spotify:")
         val effectiveVideoId = if (isSpotifyId) {
-            AudioStreamResolver.getMatchedVideoId(videoId) ?: ""
+            RecordingMatches.getMatchedVideoId(videoId) ?: ""
         } else videoId
 
         val hasValidYouTubeId = effectiveVideoId.isNotBlank() && !effectiveVideoId.startsWith("sp_") && !effectiveVideoId.startsWith("spotify:")
