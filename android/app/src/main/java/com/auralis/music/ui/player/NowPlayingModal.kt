@@ -315,7 +315,7 @@ private fun NowPlayingDynamicBackground(
                         if (cached != null && !cached.isPlaceholder) {
                             cached
                         } else if (trk.dominantColor != null && trk.dominantColor != 0) {
-                            val c = Color(trk.dominantColor)
+                            val c = Color(trk.dominantColor!!)
                             com.auralis.music.ui.theme.ArtworkPalette(
                                 primary = c,
                                 secondary = c,

@@ -196,8 +196,8 @@ class AmllLyricsSource(
         // Outros (fades, guitar solos) frequently mean effectiveDurMs is 5-30s shorter than audio duration.
         // Therefore, only reject if vocal timestamps overrun the audio stream (+ tolerance).
         if (targetDurationMs != null && targetDurationMs > 0L) {
-            if (parsed.durationMs != null && parsed.durationMs > 0L) {
-                val deltaMs = abs(targetDurationMs - parsed.durationMs)
+            if (parsed.durationMs != null && parsed.durationMs!! > 0L) {
+                val deltaMs = abs(targetDurationMs - parsed.durationMs!!)
                 if (deltaMs > 5000L) {
                     Log.w(TAG, "[Master Mismatch] Rejecting AMLL candidate '$candTitle' ($folder/$id) due to duration delta ${deltaMs}ms > 5s")
                     return null

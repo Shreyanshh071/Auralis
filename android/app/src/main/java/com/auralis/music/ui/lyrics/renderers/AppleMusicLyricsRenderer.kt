@@ -95,8 +95,8 @@ fun AppleMusicLyricsLine(
                 if (hasWordTimings) {
                     words!!.mapIndexed { _, word ->
                         val wordStart = (word.time - line.time).coerceAtLeast(0L)
-                        val wordEnd = if (word.duration != null && word.duration > 0L) {
-                            (word.time + word.duration - line.time).coerceAtLeast(wordStart + 50L)
+                        val wordEnd = if (word.duration != null && word.duration!! > 0L) {
+                            (word.time + word.duration!! - line.time).coerceAtLeast(wordStart + 50L)
                         } else {
                             (wordStart + 300L).coerceAtLeast(wordStart + 50L)
                         }

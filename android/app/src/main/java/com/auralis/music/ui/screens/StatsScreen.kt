@@ -477,7 +477,7 @@ fun StatsScreen(
                                                     .background(surfaceHighestColor),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                if (!artist.thumbnailUrl.isNullOrBlank() && !artist.thumbnailUrl.contains("i.ytimg.com/vi/")) {
+                                                if (!artist.thumbnailUrl.isNullOrBlank() && !artist.thumbnailUrl!!.contains("i.ytimg.com/vi/")) {
                                                     AsyncImage(
                                                         model = ImageRequest.Builder(context)
                                                             .data(artist.thumbnailUrl)
@@ -904,7 +904,7 @@ fun StatsScreen(
                                         .background(surfaceHighestColor),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (!artistStat.thumbnailUrl.isNullOrBlank() && !artistStat.thumbnailUrl.contains("i.ytimg.com/vi/")) {
+                                    if (!artistStat.thumbnailUrl.isNullOrBlank() && !artistStat.thumbnailUrl!!.contains("i.ytimg.com/vi/")) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
                                                 .data(artistStat.thumbnailUrl)

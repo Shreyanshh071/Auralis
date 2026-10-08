@@ -57,7 +57,7 @@ fun KineticLyricsView(
     val effectiveLines = remember(lyrics) {
         if (lyrics.lines.isNotEmpty()) lyrics.lines
         else if (!lyrics.plainLyrics.isNullOrBlank()) {
-            lyrics.plainLyrics.lines()
+            lyrics.plainLyrics!!.lines()
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .map { LyricLine(time = 0L, text = it) }
@@ -296,7 +296,7 @@ fun KineticLyricsView(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = horizontalArrangement
                                 ) {
-                                    line.words.forEach { word ->
+                                    line.words!!.forEach { word ->
                                         val progress = LyricsEngine.calculateWordProgress(word, currentPositionMs, offsetMs)
                                         val isWordActive = progress > 0f && progress < 1f
                                         val isWordFinished = progress >= 1f
@@ -369,7 +369,7 @@ fun KineticLyricsView(
                             if (!line.translatedText.isNullOrBlank()) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = line.translatedText,
+                                    text = line.translatedText!!,
                                     fontSize = 12.sp,
                                     fontStyle = FontStyle.Italic,
                                     fontWeight = FontWeight.Normal,

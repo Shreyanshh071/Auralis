@@ -825,7 +825,7 @@ private fun SearchResultsView(
     }
     val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
         (results.primaryArtist != null && query.isNotBlank() &&
-            com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist.name, query))
+            com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist!!.name, query))
     val rankedMatches = results.remainingRankedMatches(if (isArtistSearch) null else primaryAlbum?.id)
 
     LazyColumn(
@@ -855,7 +855,7 @@ private fun SearchResultsView(
             }
             item(key = topResultKey) {
                 SearchHeroCard(
-                    result = results.topResult,
+                    result = results.topResult!!,
                     albumPlays = (results.topResult as? SearchTopResult.AlbumResult)?.album?.id
                         ?.let { results.albumPlayCounts[it] } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
@@ -938,7 +938,7 @@ private fun SearchResultsView(
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail.contains("i.ytimg.com/vi/")) {
+                                if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/")) {
                                     ArtworkCard(
                                         sizeToConstraints = true,
                                         url = primaryArtist.thumbnail,
@@ -1055,7 +1055,7 @@ private fun SearchResultsView(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail.contains("i.ytimg.com/vi/")) {
+                            if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/")) {
                                 ArtworkCard(
                                     sizeToConstraints = true,
                                     url = primaryArtist.thumbnail,

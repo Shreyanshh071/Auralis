@@ -1267,7 +1267,7 @@ internal fun getDistinctArtworkTracks(tracks: List<Track>): List<Track> {
         val cleanThumb = track.thumbnail.substringBefore("=").substringBefore("?").trim()
         val albumKey = when {
             !track.albumId.isNullOrBlank() -> "albumId:${track.albumId}"
-            !track.album.isNullOrBlank() && !track.album.equals("Single", ignoreCase = true) -> "album:${track.album.trim().lowercase()}"
+            !track.album.isNullOrBlank() && !track.album.equals("Single", ignoreCase = true) -> "album:${track.album!!.trim().lowercase()}"
             else -> null
         }
         val thumbKey = if (cleanThumb.isNotBlank()) "thumb:$cleanThumb" else null
@@ -2462,7 +2462,7 @@ private fun PlaylistDetailView(
                         if (!playlist.description.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = playlist.description,
+                                text = playlist.description!!,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp,
