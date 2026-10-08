@@ -1,6 +1,5 @@
 package com.auralis.music.data.network
 
-import com.auralis.music.data.datastore.ContentSettingsStore
 import com.auralis.music.domain.model.ContentSettings
 import java.util.Locale
 
@@ -12,12 +11,18 @@ import java.util.Locale
  * library sync) deliberately keep "en"/"US" and don't use this.
  */
 object ContentLocale {
+    /** Settings → Content as the app currently holds it. Each app points this at its settings store at startup. */
+    @Volatile var settings: () -> ContentSettings = { ContentSettings() }
+
+    /** The app's own language tag, or "" when it follows the system. Each app sets this at startup. */
+    @Volatile var appLanguageTag: () -> String = { "" }
+
     fun hl(): String {
-        val chosen = ContentSettingsStore.value.contentLanguage
+        val chosen = settings().contentLanguage
         if (chosen != ContentSettings.SYSTEM) return chosen
         // "System default" follows the app language first (as Metrolist does): pick Hindi as the
         // app language and YouTube answers in Hindi too, names included.
-        val appTag = com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank()
+        val appTag = appLanguageTag()
         if (appTag.isNotBlank()) {
             val app = Locale.forLanguageTag(appTag)
             if (app.toLanguageTag() in YouTubeLocales.languageCodes) return app.toLanguageTag()
@@ -35,20 +40,21 @@ object ContentLocale {
     }
 
     fun gl(): String {
-        val chosen = ContentSettingsStore.value.contentCountry
+        val chosen = settings().contentCountry
         if (chosen != ContentSettings.SYSTEM) return chosen
         // Same order as ViviMusic/Metrolist: the app language's region (e.g. pt-BR → BR), then
         // the phone's. The phone's region comes from the system configuration: with a per-app
         // language like plain "hi", Locale.getDefault() has no country, which used to fall to US.
-        val appTag = com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank()
+        val appTag = appLanguageTag()
         val appCountry = if (appTag.isBlank()) "" else Locale.forLanguageTag(appTag).country
         if (appCountry in YouTubeLocales.countryCodes) return appCountry
-        val system = android.content.res.Resources.getSystem().configuration.locales
-        for (i in 0 until system.size()) {
-            val country = system[i].country
+        for (country in systemLocaleCountries()) {
             if (country in YouTubeLocales.countryCodes) return country
         }
         val device = Locale.getDefault().country
         return if (device in YouTubeLocales.countryCodes) device else "US"
     }
 }
+
+/** The system's locale regions in preference order (not the app's own language). */
+internal expect fun systemLocaleCountries(): List<String>
