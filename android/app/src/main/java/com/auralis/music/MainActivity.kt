@@ -141,7 +141,7 @@ class MainActivity : ComponentActivity() {
         val historyRepository = HistoryRepositoryImpl(trackDao, historyDao, playCountDao, db.playbackEventDao())
         val statsRepository = com.auralis.music.data.repository.StatsRepositoryImpl(trackDao, db.playbackEventDao(), historyDao, playCountDao)
         val settingsRepository = SettingsRepositoryImpl(settingsDataStore)
-        val searchRepository = SearchRepositoryImpl(innerTubeClient, suggestionsClient, searchHistoryDao)
+        val searchRepository = SearchRepositoryImpl(innerTubeClient, suggestionsClient, com.auralis.music.data.repository.RoomSearchHistoryStore(searchHistoryDao))
         val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
 
         Log.d("AuralisPlayback", "[MainActivity] onCreate - connected to AuralisAudioPlayer (track=${audioPlayer.currentTrack.value?.title}, isPlaying=${audioPlayer.isPlaying.value})")

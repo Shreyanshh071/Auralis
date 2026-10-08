@@ -59,7 +59,7 @@ class SearchMixedRankingTest {
     fun searchKeepsMorePopularSameNameAlbumInTopResultAndMixedList() = runBlocking {
         val client = mockk<InnerTubeClient>()
         val suggestions = mockk<SearchSuggestionsClient>()
-        val repository = SearchRepositoryImpl(client, suggestions, mockk<SearchHistoryDao>())
+        val repository = SearchRepositoryImpl(client, suggestions, com.auralis.music.data.repository.RoomSearchHistoryStore(mockk<SearchHistoryDao>()))
         val wageSong = Track(id = "wage-song", title = "Manic", artist = "Wage War", views = "11M plays")
         val wageAlbum = PlaylistResult(id = "MPREwage", title = "Manic", author = "Wage War")
         val halseyAlbum = PlaylistResult(id = "MPREhalsey", title = "Manic", author = "Halsey")

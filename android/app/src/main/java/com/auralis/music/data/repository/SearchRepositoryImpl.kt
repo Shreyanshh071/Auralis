@@ -1,7 +1,5 @@
 package com.auralis.music.data.repository
 
-import com.auralis.music.data.local.dao.SearchHistoryDao
-import com.auralis.music.data.local.entity.SearchHistoryEntity
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.SearchSuggestionsClient
 import com.auralis.music.data.remote.InvidiousApi
@@ -32,7 +30,7 @@ import java.net.URLEncoder
 class SearchRepositoryImpl(
     private val innerTubeClient: InnerTubeClient,
     private val suggestionsClient: SearchSuggestionsClient,
-    private val searchHistoryDao: SearchHistoryDao
+    private val searchHistory: SearchHistoryStore
 ) : SearchRepository {
 
     override suspend fun search(query: String): SearchResults = withContext(Dispatchers.IO) {
@@ -817,26 +815,21 @@ class SearchRepositoryImpl(
     }
 
     override fun getRecentSearchQueries(): Flow<List<String>> {
-        return searchHistoryDao.getRecentQueriesFlow()
+        return searchHistory.recentQueries()
     }
 
     override suspend fun recordSearchQuery(query: String) = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isNotBlank()) {
-            searchHistoryDao.insertSearchQuery(
-                SearchHistoryEntity(
-                    query = trimmed,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
+            searchHistory.add(trimmed, System.currentTimeMillis())
         }
     }
 
     override suspend fun removeSearchQuery(query: String) = withContext(Dispatchers.IO) {
-        searchHistoryDao.deleteSearchQuery(query)
+        searchHistory.remove(query)
     }
 
     override suspend fun clearSearchHistory() = withContext(Dispatchers.IO) {
-        searchHistoryDao.clearSearchHistory()
+        searchHistory.clear()
     }
 }
