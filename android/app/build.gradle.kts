@@ -10,12 +10,12 @@ import java.util.Properties
 
 val envProperties = Properties().apply {
     // 1. Check workspace root .env
-    val rootEnv = rootProject.file("../.env")
+    val rootEnv = rootProject.file(".env")
     if (rootEnv.exists()) {
         rootEnv.inputStream().use { load(it) }
     }
     // 2. Check android folder .env
-    val androidEnv = rootProject.file(".env")
+    val androidEnv = rootProject.file("android/.env")
     if (androidEnv.exists()) {
         androidEnv.inputStream().use { load(it) }
     }
