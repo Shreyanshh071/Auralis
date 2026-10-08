@@ -54,6 +54,7 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
+import com.auralis.music.ui.glass.liquidGlass
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.components.MiniPlayer
 import com.auralis.music.ui.components.getHighResArtworkUrl
@@ -601,8 +602,9 @@ fun AuralisApp(
 
 
     androidx.activity.compose.BackHandler(
-        enabled = isHomeMenuOpen ||
-                (currentDestination == AppDestination.EXPLORE && (searchUiState.detailStack.isNotEmpty() || searchUiState.selectedArtistPage != null || searchUiState.selectedAlbum != null)) ||
+        // The home ••• menu handles its own back press (see the overlay), so opening it never
+        // makes this root scope re-read state and recompose the whole app.
+        enabled = (currentDestination == AppDestination.EXPLORE && (searchUiState.detailStack.isNotEmpty() || searchUiState.selectedArtistPage != null || searchUiState.selectedAlbum != null)) ||
                 isPlayerSheetActive ||
                 isHistoryOpen ||
                 isStatsOpen ||
@@ -610,8 +612,7 @@ fun AuralisApp(
                 isListenTogetherOpen ||
                 currentDestination != AppDestination.HOME
     ) {
-        if (isHomeMenuOpen) isHomeMenuOpen = false
-        else if (isPlayerSheetActive) collapsePlayer()
+        if (isPlayerSheetActive) collapsePlayer()
         else if (isStatsOpen) isStatsOpen = false
         else if (isHistoryOpen) isHistoryOpen = false
         else if (isProfileOpen) isProfileOpen = false
@@ -2421,11 +2422,14 @@ fun AuralisApp(
         }
 
         // Floating Home More Options Popup Overlay with full-screen dark dimmed scrim backdrop (overlaps everything)
-        AnimatedVisibility(
-            visible = isHomeMenuOpen && !isNowPlayingOpen && currentDestination == AppDestination.HOME,
-            enter = fadeIn(tween(180)),
-            exit = fadeOut(tween(140))
+        // The open state is read inside DeferredVisibility, not here: reading it in this root
+        // scope recomposed the entire app on every tap of •••, which is what delayed the menu.
+        DeferredVisibility(
+            visible = { isHomeMenuOpen && !isNowPlayingOpen && currentDestination == AppDestination.HOME },
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(160))
         ) {
+            androidx.activity.compose.BackHandler { isHomeMenuOpen = false }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2443,10 +2447,25 @@ fun AuralisApp(
                 contentAlignment = Alignment.BottomEnd
             ) {
                 val menuShape = RoundedCornerShape(24.dp)
+                val homeMenuGlass = com.auralis.music.ui.glass.LocalLiquidGlass.current
                 val artwork = playerUiState.currentTrack?.thumbnail
 
                 Box(
                     modifier = Modifier
+                        // Pops from the ••• button on its own spring rather than riding the
+                        // scrim's fade, so it shows the moment the button is tapped.
+                        .animateEnterExit(
+                            enter = scaleIn(
+                                spring(dampingRatio = 0.78f, stiffness = 700f),
+                                initialScale = 0.86f,
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)
+                            ) + fadeIn(tween(90)),
+                            exit = scaleOut(
+                                tween(150),
+                                targetScale = 0.9f,
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)
+                            ) + fadeOut(tween(120))
+                        )
                         .width(235.dp)
                         .shadow(
                             elevation = 16.dp,
@@ -2455,14 +2474,12 @@ fun AuralisApp(
                             spotColor = Color.Black.copy(alpha = 0.50f)
                         )
                         .clip(menuShape)
-                        .hazeEffect(
-                            state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = MaterialTheme.colorScheme.surface,
-                                tint = HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
-                                blurRadius = 28.dp,
-                                noiseFactor = 0.03f
-                            )
+                        // No Haze blur here: measured on device, starting it cost 27-29ms of GPU per
+                        // frame for the menu's first ~100ms, so it popped in late and choppy. Liquid
+                        // glass reuses the page backdrop the dock already draws; otherwise a solid fill.
+                        .then(
+                            if (homeMenuGlass != null) Modifier.liquidGlass(homeMenuGlass, menuShape)
+                            else Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
                         )
                         .border(
                             width = 1.dp,
@@ -2933,4 +2950,18 @@ private fun MiniPlayerHost(
             animatedVisibilityScope = null
         )
     }
+}
+
+/**
+ * AnimatedVisibility whose [visible] is read in its own scope, so toggling it recomposes only
+ * this overlay and not the (very large) caller.
+ */
+@Composable
+private fun DeferredVisibility(
+    visible: () -> Boolean,
+    enter: EnterTransition,
+    exit: ExitTransition,
+    content: @Composable AnimatedVisibilityScope.() -> Unit
+) {
+    AnimatedVisibility(visible = visible(), enter = enter, exit = exit, content = content)
 }

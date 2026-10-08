@@ -85,6 +85,10 @@ class LibraryRepositoryImpl(
             trackDao.updateVerifiedRelease(track.id, existing.album, existing.thumbnail,
                 track.album, track.thumbnail)
         }
+        // Re-liking an already liked song (cloud sync and imports re-apply every like) keeps
+        // when it was first liked. Restamping moved each synced song to the top of Liked, one
+        // write at a time, so the Liked cover collage kept reshuffling while Library opened.
+        if (isFavorite && existing?.isFavorite == true && existing.favoriteAddedAt != null) return
         trackDao.setFavorite(track.id, isFavorite, if (isFavorite) System.currentTimeMillis() else null)
     }
 

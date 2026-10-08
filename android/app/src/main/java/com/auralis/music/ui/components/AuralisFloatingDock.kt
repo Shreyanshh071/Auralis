@@ -11,6 +11,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -55,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.lerp
@@ -67,8 +69,6 @@ import coil.request.ImageRequest
 import com.auralis.music.ui.AppDestination
 
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.hazeEffect
 
 val MoodGenreNavIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -147,10 +147,12 @@ fun AuralisFloatingDock(
     val pillShape = RoundedCornerShape(30.dp)
     // Liquid glass only: holding or sliding across the dock (or its button) makes it swell.
     val dockPress = com.auralis.music.ui.glass.rememberGlassPress()
-    val buttonPress = com.auralis.music.ui.glass.rememberGlassPress()
+    var dockPillWidthPx by remember { mutableIntStateOf(0) }
+    // Minimized, the capsule is a circle: it gets the circles' quicker, bigger swell.
+    dockPress.stiffness = if (minimized) CIRCLE_PRESS_STIFFNESS else DOCK_PRESS_STIFFNESS
+    val buttonPress = com.auralis.music.ui.glass.rememberGlassPress().apply { stiffness = CIRCLE_PRESS_STIFFNESS }
 
     val surfaceColor = MaterialTheme.dynamicSurface
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val backgroundColor = MaterialTheme.dynamicBackground
     val primaryColor = MaterialTheme.dynamicPrimary
     val isDark = surfaceColor.luminance() < 0.5f
@@ -158,37 +160,20 @@ fun AuralisFloatingDock(
     val contentColor = if (isDark) Color.White else MaterialTheme.dynamicOnSurface
     val secondaryContentColor = if (isDark) Color.White.copy(alpha = 0.65f) else MaterialTheme.dynamicOnSurface.copy(alpha = 0.60f)
 
-    val dockBorderBrush = if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.28f),
-                Color.White.copy(alpha = 0.10f),
-                Color.White.copy(alpha = 0.04f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.Black.copy(alpha = 0.14f),
-                Color.Black.copy(alpha = 0.07f),
-                Color.Black.copy(alpha = 0.02f)
-            )
-        )
-    }
-
-    val fallbackGradient = if (isDark) {
-        listOf(
-            Color.White.copy(alpha = 0.16f),
-            surfaceVariant.copy(alpha = 0.35f),
-            surfaceColor.copy(alpha = 0.45f)
-        )
-    } else {
-        listOf(
-            Color.White.copy(alpha = 0.55f),
-            surfaceVariant.copy(alpha = 0.40f),
-            surfaceColor.copy(alpha = 0.50f)
-        )
-    }
+    // Liquid glass off: a solid pill, lifted a touch off the page. With the dynamic theme on,
+    // the whole pill (not just the selected tab) takes the playing song's colour; off, it stays
+    // the theme's neutral surface.
+    val neutralDockColor = androidx.compose.ui.graphics.lerp(
+        surfaceColor.copy(alpha = 1f),
+        if (isDark) Color.White else Color.Black,
+        if (isDark) 0.08f else 0.04f
+    )
+    // The song's own Material scheme (TonalSpot from the cover), as Echo Music colours its bar:
+    // the raised surface tone keeps the cover's hue at a deep, readable tone. Blending the
+    // pastel accent into grey (the previous approach) lightened the pill and looked washed out.
+    val targetDockColor = if (appearance.dynamicTheme) MaterialTheme.colorScheme.surfaceContainerHigh else neutralDockColor
+    val solidDockBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+    val solidDockColor by animateColorAsState(targetDockColor, tween(450), label = "dockColor")
 
     val shadowAmbient = Color.Black.copy(alpha = if (isDark) 0.40f else 0.08f)
     val shadowSpot = Color.Black.copy(alpha = if (isDark) 0.50f else 0.14f)
@@ -210,9 +195,13 @@ fun AuralisFloatingDock(
                     // No animateContentSize here: the tabs inside already animate their own
                     // widths, and a second size animation chasing them made the capsule settle late.
                     .height(dockHeight)
+                    .onSizeChanged { dockPillWidthPx = it.width }
                     .then(
                         if (glass != null) {
-                            Modifier.liquidGlass(glass, pillShape, press = dockPress).clip(pillShape)
+                            Modifier.liquidGlass(
+                                glass, pillShape, press = dockPress,
+                                pressedScale = if (minimized) CIRCLE_PRESSED_SCALE else DOCK_PRESSED_SCALE
+                            ).clip(pillShape)
                         } else Modifier
                             .shadow(
                                 elevation = 16.dp,
@@ -223,32 +212,20 @@ fun AuralisFloatingDock(
                             .clip(pillShape)
                     )
                     .then(
-                        if (glass != null) {
-                            Modifier
-                        } else if (hazeState != null) {
-                            Modifier.hazeEffect(
-                                state = hazeState,
-                                style = HazeStyle(
-                                    backgroundColor = Color.Transparent,
-                                    tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.40f else 0.50f)),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.02f
-                                )
-                            )
-                        } else {
-                            Modifier.background(Brush.verticalGradient(fallbackGradient))
-                        }
+                        if (glass != null) Modifier else Modifier.background(solidDockColor)
                     )
                     .then(
                         if (glass != null) Modifier
-                        else Modifier.border(width = 1.dp, brush = dockBorderBrush, shape = pillShape)
+                        else Modifier.border(width = 1.dp, color = solidDockBorder, shape = pillShape)
                     )
                     .then(
                         // Minimized, the capsule is a single tab: tapping it (or the tab itself)
                         // brings the full dock back so another tab can be picked.
-                        if (minimized) Modifier.clickable(
+                        // A hold only swells the glass; only a tap expands the dock.
+                        if (minimized) Modifier.combinedClickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
+                            onLongClick = {},
                             onClick = onExpandRequest
                         ) else Modifier
                     )
@@ -266,6 +243,7 @@ fun AuralisFloatingDock(
                         icon = Icons.Outlined.Explore,
                         isSelected = currentDestination == AppDestination.HOME,
                         collapseProgress = collapseProgress,
+                        isMinimized = minimized,
                         isDark = isDark,
                         contentColor = contentColor,
                         secondaryContentColor = secondaryContentColor,
@@ -280,6 +258,7 @@ fun AuralisFloatingDock(
                         icon = Icons.Default.Search,
                         isSelected = currentDestination == AppDestination.EXPLORE,
                         collapseProgress = collapseProgress,
+                        isMinimized = minimized,
                         isDark = isDark,
                         contentColor = contentColor,
                         secondaryContentColor = secondaryContentColor,
@@ -294,6 +273,7 @@ fun AuralisFloatingDock(
                         icon = Icons.Default.GridView,
                         isSelected = currentDestination == AppDestination.LIBRARY,
                         collapseProgress = collapseProgress,
+                        isMinimized = minimized,
                         isDark = isDark,
                         contentColor = contentColor,
                         secondaryContentColor = secondaryContentColor,
@@ -312,14 +292,23 @@ fun AuralisFloatingDock(
                 enter = fadeIn(tween(160)) + expandHorizontally(tween(200), clip = false),
                 exit = fadeOut(tween(140)) + shrinkHorizontally(tween(180), clip = false)
             ) {
-                Row {
+                Row(
+                    modifier = Modifier.graphicsLayer {
+                        // The held capsule swells from its centre; its right edge moves out by half
+                        // the growth. Slide the button along so the gap stays and they never touch.
+                        if (glass != null) {
+                            val growth = dockPillWidthPx * (DOCK_PRESSED_SCALE - 1f) * dockPress.progress
+                            translationX = growth / 2f * (1f - collapseProgress().coerceIn(0f, 1f))
+                        }
+                    }
+                ) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
                             .size(buttonSize)
                             .then(
                                 if (glass != null) {
-                                    Modifier.liquidGlass(glass, CircleShape, press = buttonPress).clip(CircleShape)
+                                    Modifier.liquidGlass(glass, CircleShape, press = buttonPress, pressedScale = CIRCLE_PRESSED_SCALE).clip(CircleShape)
                                 } else Modifier
                                     .shadow(
                                         elevation = 16.dp,
@@ -330,29 +319,17 @@ fun AuralisFloatingDock(
                                     .clip(CircleShape)
                             )
                             .then(
-                                if (glass != null) {
-                                    Modifier
-                                } else if (hazeState != null) {
-                                    Modifier.hazeEffect(
-                                        state = hazeState,
-                                        style = HazeStyle(
-                                            backgroundColor = Color.Transparent,
-                                            tint = dev.chrisbanes.haze.HazeTint(surfaceColor.copy(alpha = if (isDark) 0.40f else 0.50f)),
-                                            blurRadius = 24.dp,
-                                            noiseFactor = 0.02f
-                                        )
-                                    )
-                                } else {
-                                    Modifier.background(Brush.verticalGradient(fallbackGradient))
-                                }
+                                if (glass != null) Modifier else Modifier.background(solidDockColor)
                             )
                             .then(
                                 if (glass != null) Modifier
-                                else Modifier.border(width = 1.dp, brush = dockBorderBrush, shape = CircleShape)
+                                else Modifier.border(width = 1.dp, color = solidDockBorder, shape = CircleShape)
                             )
-                            .clickable(
+                            // A hold only swells the glass; only a tap opens the menu (or new playlist).
+                            .combinedClickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = if (glass != null) null else ripple(color = if (isDark) Color.White else primaryColor),
+                                onLongClick = {},
                                 onClick = {
                                     if (currentDestination == AppDestination.HOME) onToggleHomeMenu()
                                     else if (currentDestination == AppDestination.LIBRARY) onCreatePlaylist()
@@ -388,6 +365,7 @@ private fun DockTabItem(
     icon: ImageVector,
     isSelected: Boolean,
     collapseProgress: () -> Float,
+    isMinimized: Boolean,
     isDark: Boolean,
     contentColor: Color,
     secondaryContentColor: Color,
@@ -469,9 +447,11 @@ private fun DockTabItem(
                     )
                 }
             }
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
+                // Minimized, this tab is the dock circle: a hold only swells it.
+                onLongClick = if (isMinimized) ({}) else null,
                 onClick = onClick
             )
             .layout { measurable, constraints ->
@@ -563,3 +543,16 @@ private fun DockRowLayout(
         }
     }
 }
+
+/** How much the liquid glass dock swells while held. */
+private const val DOCK_PRESSED_SCALE = 1.12f
+private const val DOCK_PRESS_STIFFNESS = 300f
+
+/**
+ * The round glass buttons (•••, and the dock when minimized to a circle) swell more and faster.
+ * A thumb covers most of a 56dp circle, so a small swell happens out of sight under it and the
+ * press felt late on the phone even though a screen recording showed it instant. 1.3x grows
+ * ~8dp past each side, enough to show around the thumb without touching the tucked mini player.
+ */
+private const val CIRCLE_PRESSED_SCALE = 1.3f
+private const val CIRCLE_PRESS_STIFFNESS = 750f

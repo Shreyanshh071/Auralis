@@ -4,6 +4,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.filled.LockOpen
 import com.auralis.music.ui.components.contextMenuAnchor
+import com.auralis.music.ui.components.tapMenuAnchor
+import com.auralis.music.ui.components.captureForTap
+import com.auralis.music.ui.components.GlassContextMenu
+import com.auralis.music.ui.components.GlassMenuItem
 import com.auralis.music.ui.components.AuralisRefreshBox
 import com.auralis.music.ui.i18n.str
 
@@ -150,6 +154,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -2179,8 +2186,10 @@ private fun PlaylistDetailView(
     }
 
     // Liquid glass: the cover fills the top of the page edge to edge and fades into it, with
-    // the back / search buttons floating over it. Searching falls back to the plain header.
-    val heroMode = com.auralis.music.ui.glass.LocalLiquidGlass.current != null && !isSearchActive
+    // the back / search buttons floating over it. Searching collapses the header and puts the
+    // buttons and search field in a plain bar.
+    val glassHero = com.auralis.music.ui.glass.LocalLiquidGlass.current != null
+    val heroMode = glassHero && !isSearchActive
     // The hero cover is recorded on its own, so the buttons over and under it can render it as
     // liquid glass (the page's own backdrop can't be used here: these buttons are part of it).
     val heroBackdrop = rememberLayerBackdrop()
@@ -2189,11 +2198,18 @@ private fun PlaylistDetailView(
         Modifier.liquidGlass(heroGlass, CircleShape)
     } else Modifier
 
+    // Liquid glass: the bar always floats in the same place, so opening search never moves the
+    // buttons. It fades in a solid page-coloured backing while searching, and the list makes room
+    // under it with a gap that grows as the header folds away.
+    val searchBarBacking by animateFloatAsState(if (glassHero && isSearchActive) 1f else 0f, tween(260), label = "searchBarBacking")
+    val searchBarGap by animateDpAsState(if (glassHero && isSearchActive) 58.dp else 0.dp, tween(340, easing = FastOutSlowInEasing), label = "searchBarGap")
+    val pageColor = MaterialTheme.dynamicBackground
     val topBar: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 8.dp, top = if (heroMode) 6.dp else 2.dp, bottom = 4.dp),
+                .drawBehind { if (searchBarBacking > 0f) drawRect(pageColor.copy(alpha = searchBarBacking)) }
+                .padding(start = 8.dp, end = 8.dp, top = if (glassHero) 6.dp else 2.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -2208,8 +2224,26 @@ private fun PlaylistDetailView(
                     modifier = Modifier.size(24.dp)
                 )
             }
+            // The search field grows out of the search button.
+            AnimatedVisibility(
+                visible = isSearchActive,
+                enter = fadeIn(tween(180, delayMillis = 60)) +
+                    expandHorizontally(tween(320, easing = FastOutSlowInEasing), expandFrom = Alignment.End),
+                exit = fadeOut(tween(120)) +
+                    shrinkHorizontally(tween(260, easing = FastOutSlowInEasing), shrinkTowards = Alignment.End),
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+            ) {
+                PlaylistSearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    resultCount = if (searchQuery.isBlank()) null else displayedItems.size
+                )
+            }
             IconButton(
-                onClick = { isSearchActive = !isSearchActive },
+                onClick = {
+                    isSearchActive = !isSearchActive
+                    if (!isSearchActive) searchQuery = ""
+                },
                 modifier = Modifier.tactileBounce(scaleDown = 0.88f).then(topBarButton)
             ) {
                 Icon(
@@ -2231,73 +2265,11 @@ private fun PlaylistDetailView(
         // ================================================================
         // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
         // ================================================================
-        if (!heroMode) topBar()
+        if (!glassHero) topBar()
 
-        if (isSearchActive) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(CARD_DARK_BG)
-                    .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Box(
-                        modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = str(R.string.search_in_playlist),
-                                style = TextStyle(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Normal
-                                )
-                            )
-                        }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            textStyle = TextStyle(
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Normal
-                            ),
-                            cursorBrush = SolidColor(LIME_TEXT),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { searchQuery = "" },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = str(R.string.clear),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
+        // Opening search brings the list to the top, where the collapsed header was.
+        LaunchedEffect(isSearchActive) {
+            if (isSearchActive) playlistListState.animateScrollToItem(0)
         }
 
         // ================================================================
@@ -2311,6 +2283,9 @@ private fun PlaylistDetailView(
                     .onGloballyPositioned { listTopInRoot = it.positionInRoot().y },
                 contentPadding = bottomChromePadding()
             ) {
+                if (glassHero) {
+                    item(key = "search_bar_gap", contentType = "gap") { Spacer(Modifier.height(searchBarGap)) }
+                }
                 // Header Content
                 item(key = "playlist_header", contentType = "header") {
                     Column(
@@ -2319,11 +2294,39 @@ private fun PlaylistDetailView(
                             .padding(horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        // Searching folds the cover, title and buttons away so results sit right under
+                        // the search bar; closing search unfolds them again.
+                        AnimatedVisibility(
+                            visible = !isSearchActive,
+                            enter = expandVertically(tween(380, easing = FastOutSlowInEasing), expandFrom = Alignment.Top) +
+                                fadeIn(tween(260, delayMillis = 80)),
+                            exit = shrinkVertically(tween(340, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Top) +
+                                fadeOut(tween(180)) +
+                                scaleOut(tween(340, easing = FastOutSlowInEasing), targetScale = 0.92f,
+                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)),
+                            // Spans the full screen width: the animation clips to its own bounds, and
+                            // inside the page's 24dp padding it cut the edge-to-edge cover short,
+                            // leaving a dark bar down each side.
+                            modifier = Modifier.layout { measurable, constraints ->
+                                val side = 24.dp.roundToPx()
+                                val placeable = measurable.measure(
+                                    constraints.copy(
+                                        minWidth = constraints.minWidth + side * 2,
+                                        maxWidth = constraints.maxWidth + side * 2
+                                    )
+                                )
+                                layout(constraints.maxWidth, placeable.height) { placeable.place(-side, 0) }
+                            }
+                        ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                         // Centered Hero Cover (210dp x 210dp) with Custom Cover or 4-Quadrant Collage.
                         // Liquid glass: full-bleed square cover fading into the page instead.
                         val heroOverlapPx = with(LocalDensity.current) { 72.dp.roundToPx() }
                         Box(
-                            modifier = if (heroMode) {
+                            modifier = if (glassHero) {
                                 Modifier
                                     .layout { measurable, constraints ->
                                         val sidePad = 24.dp.roundToPx()
@@ -2341,9 +2344,9 @@ private fun PlaylistDetailView(
                                 .clip(RoundedCornerShape(18.dp))
                                 .background(CARD_DARK_BG)
                         ) {
-                            PlaylistCoverArt(playlist, savedAlbums, cornerRadius = if (heroMode) 0.dp else 18.dp)
+                            PlaylistCoverArt(playlist, savedAlbums, cornerRadius = if (glassHero) 0.dp else 18.dp)
 
-                            if (heroMode) {
+                            if (glassHero) {
                                 val pageBackground = MaterialTheme.dynamicBackground
                                 Box(
                                     modifier = Modifier
@@ -2365,8 +2368,8 @@ private fun PlaylistDetailView(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
                                         .padding(
-                                            end = if (heroMode) 20.dp else 8.dp,
-                                            bottom = if (heroMode) 84.dp else 8.dp,
+                                            end = if (glassHero) 20.dp else 8.dp,
+                                            bottom = if (glassHero) 84.dp else 8.dp,
                                             start = 8.dp, top = 8.dp
                                         )
                                         .size(32.dp)
@@ -2389,7 +2392,7 @@ private fun PlaylistDetailView(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(if (heroMode) 0.dp else 16.dp))
+                        Spacer(modifier = Modifier.height(if (glassHero) 0.dp else 16.dp))
 
                         // Playlist Title
                         Text(
@@ -2553,6 +2556,8 @@ private fun PlaylistDetailView(
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
+                        }
+                        }
 
                         // ========================================================
                         // Sort Order Dropdown Menu
@@ -2566,10 +2571,18 @@ private fun PlaylistDetailView(
                         ) {
                             // Sort Order Dropdown
                             Box {
+                                // Liquid glass: the same glass popup as long-pressing a song or playlist.
+                                val sortGlass = com.auralis.music.ui.glass.LocalLiquidGlass.current
+                                val sortAnchor = remember { com.auralis.music.ui.components.ContextMenuAnchor() }
+                                val sortScope = rememberCoroutineScope()
                                 Row(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
-                                        .clickable { showSortMenu = true }
+                                        .then(if (sortGlass != null) Modifier.tapMenuAnchor(sortAnchor) else Modifier)
+                                        .clickable {
+                                            if (sortGlass != null) sortAnchor.captureForTap(sortScope)
+                                            showSortMenu = true
+                                        }
                                         .padding(horizontal = 4.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -2589,7 +2602,22 @@ private fun PlaylistDetailView(
                                     )
                                 }
 
-                                DropdownMenu(
+                                if (sortGlass != null) {
+                                    if (showSortMenu) {
+                                        val tick = MaterialTheme.colorScheme.primary
+                                        GlassContextMenu(
+                                            anchor = sortAnchor,
+                                            items = PlaylistSortOption.values().map { option ->
+                                                GlassMenuItem(
+                                                    label = com.auralis.music.ui.i18n.UiLabels.of(option.label),
+                                                    icon = if (sortOption == option) Icons.Default.Check else null,
+                                                    tint = if (sortOption == option) tick else null
+                                                ) { sortOption = option }
+                                            },
+                                            onDismiss = { showSortMenu = false }
+                                        )
+                                    }
+                                } else DropdownMenu(
                                     expanded = showSortMenu,
                                     onDismissRequest = { showSortMenu = false },
                                     modifier = Modifier
@@ -2816,7 +2844,7 @@ private fun PlaylistDetailView(
         }
     }
     // Floats over the hero cover in liquid glass mode.
-    if (heroMode) topBar()
+    if (glassHero) topBar()
     }
 
     if (showOptionsMenu) {
@@ -3988,5 +4016,104 @@ private fun YouTubeMusicMark(modifier: Modifier = Modifier) {
             close()
         }
         drawPath(path, Color.White)
+    }
+}
+
+/**
+ * The playlist's search pill: grows out of the search button, focuses itself so the keyboard
+ * opens, lights its rim in the accent colour while focused, and shows how many songs match.
+ */
+@Composable
+private fun PlaylistSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    resultCount: Int?,
+    modifier: Modifier = Modifier
+) {
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    val onBg = MaterialTheme.colorScheme.onBackground
+    val accent = MaterialTheme.colorScheme.primary
+    val rim by animateColorAsState(if (focused) accent.copy(alpha = 0.75f) else onBg.copy(alpha = 0.10f), tween(200), label = "searchRim")
+    val shape = RoundedCornerShape(50)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(shape)
+            .background(onBg.copy(alpha = 0.08f))
+            .border(1.dp, rim, shape)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                runCatching { focusRequester.requestFocus() }
+            }
+            .padding(start = 14.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = if (focused) accent else onBg.copy(alpha = 0.55f),
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (query.isEmpty()) {
+                Text(
+                    text = str(R.string.search_in_playlist),
+                    color = onBg.copy(alpha = 0.45f),
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                textStyle = TextStyle(color = onBg, fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                cursorBrush = SolidColor(accent),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { focused = it.isFocused }
+            )
+        }
+        AnimatedVisibility(
+            visible = resultCount != null,
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(120))
+        ) {
+            Text(
+                text = (resultCount ?: 0).toString(),
+                color = onBg.copy(alpha = 0.5f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 6.dp)
+            )
+        }
+        AnimatedVisibility(
+            visible = query.isNotEmpty(),
+            enter = fadeIn(tween(140)) + scaleIn(tween(180), initialScale = 0.6f),
+            exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.6f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(onBg.copy(alpha = 0.14f))
+                    .clickable { onQueryChange("") },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = str(R.string.clear),
+                    tint = onBg.copy(alpha = 0.85f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
     }
 }

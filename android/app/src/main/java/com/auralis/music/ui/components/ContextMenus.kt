@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -50,6 +52,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -131,6 +135,7 @@ class ContextMenuAnchor internal constructor() {
     var snapshot by mutableStateOf<ImageBitmap?>(null)
         internal set
     internal var capturing by mutableStateOf(false)
+    internal var tapLayer: androidx.compose.ui.graphics.layer.GraphicsLayer? = null
 }
 
 /**
@@ -156,6 +161,8 @@ internal object ContextMenuAnchors {
 }
 
 private const val ANCHOR_TTL_MS = 600L
+/** Longest the long-press menu waits for its window to settle before it animates in anyway. */
+private const val OPEN_SETTLE_TIMEOUT_MS = 250L
 
 /** Claims the anchor of the long-press that opened this menu, in liquid glass mode only. */
 @Composable
@@ -216,10 +223,47 @@ fun Modifier.contextMenuAnchor(onClick: (() -> Unit)? = null): Modifier = compos
         }
 }
 
+/**
+ * Put on a control whose tap (not long-press) opens a [GlassContextMenu], such as a sort
+ * button. Records where it is; call [ContextMenuAnchor.captureForTap] in its click handler.
+ */
+fun Modifier.tapMenuAnchor(anchor: ContextMenuAnchor): Modifier = composed {
+    val view = LocalView.current
+    val layer = rememberGraphicsLayer()
+    anchor.hostView = view
+    anchor.tapLayer = layer
+    this
+        .onGloballyPositioned { anchor.coordinates = it }
+        .drawWithContent {
+            if (anchor.capturing) {
+                layer.record { this@drawWithContent.drawContent() }
+                drawLayer(layer)
+            } else drawContent()
+        }
+}
+
+/** Freezes the tapped control's bounds now and snapshots it over the next frames. */
+fun ContextMenuAnchor.captureForTap(scope: kotlinx.coroutines.CoroutineScope) {
+    val coords = coordinates?.takeIf { it.isAttached } ?: return
+    val view = hostView ?: return
+    val origin = IntArray(2).also { view.getLocationOnScreen(it) }
+    boundsOnScreen = coords.boundsInWindow().translate(Offset(origin[0].toFloat(), origin[1].toFloat()))
+    snapshot = null
+    val layer = tapLayer ?: return
+    scope.launch {
+        capturing = true
+        withFrameNanos { }
+        withFrameNanos { }
+        snapshot = runCatching { layer.toImageBitmap() }.getOrNull()
+        capturing = false
+    }
+}
+
 /** One row of the glass menu. [dismisses] = false when the row opens something else instead. */
 data class GlassMenuItem(
     val label: String,
-    val icon: ImageVector,
+    /** Null leaves the row's icon slot empty (e.g. the unticked options of a picker). */
+    val icon: ImageVector?,
     val tint: Color? = null,
     val enabled: Boolean = true,
     val dismisses: Boolean = true,
@@ -245,18 +289,38 @@ fun GlassContextMenu(
     var closing by remember { mutableStateOf(false) }
     val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
+    // Where the dialog's full-screen root sits on screen, and its size. The dialog window's first
+    // layout is at the default dialog size, before it stretches to full screen; animating then
+    // placed the menu against the wrong window, so it flashed elsewhere and jumped into place.
+    var rootOnScreen by remember { mutableStateOf<Offset?>(null) }
+    var rootSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+
     fun close(after: () -> Unit = {}) {
         if (closing) return
         closing = true
         scope.launch {
-            progress.animateTo(0f, tween(170))
+            progress.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
             after()
             onDismiss()
         }
     }
 
     LaunchedEffect(Unit) {
-        progress.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow))
+        // Start only once the window has settled at full size (same place two frames running)
+        // and the held item's snapshot exists, so the first animated frame is already in place.
+        // Capped, so a slow device still opens the menu.
+        val deadline = SystemClock.uptimeMillis() + OPEN_SETTLE_TIMEOUT_MS
+        var last: Offset? = null
+        while (SystemClock.uptimeMillis() < deadline) {
+            withFrameNanos { }
+            val now = rootOnScreen
+            val fullSize = rootSize.height >= pageView.height - 1 && rootSize.width >= pageView.width - 1
+            if (now != null && now == last && fullSize && anchor.snapshot != null) break
+            last = now
+        }
+        if (!closing) {
+            progress.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow))
+        }
     }
 
     // Blur the page itself (the activity window) behind the menu's window.
@@ -299,7 +363,6 @@ fun GlassContextMenu(
             onDispose { }
         }
 
-        var rootOnScreen by remember { mutableStateOf<Offset?>(null) }
         // Where the menu grows from: the side touching the lifted item. Set during layout.
         var menuOrigin by remember { mutableStateOf(TransformOrigin(0f, 0f)) }
         // Animation is read only in layer/draw lambdas, so opening never recomposes the menu.
@@ -312,6 +375,7 @@ fun GlassContextMenu(
                 .onGloballyPositioned { coords ->
                     val origin = IntArray(2).also { dialogView.getLocationOnScreen(it) }
                     rootOnScreen = coords.positionInWindow() + Offset(origin[0].toFloat(), origin[1].toFloat())
+                    rootSize = coords.size
                 }
                 .drawBehind { drawRect(Color.Black.copy(alpha = scrimAlpha * p().coerceIn(0f, 1f))) }
                 .clickable(
@@ -325,6 +389,8 @@ fun GlassContextMenu(
             val gapPx = with(density) { 10.dp.toPx() }
             val cardPadPx = with(density) { 6.dp.toPx() }
             val menuShape = RoundedCornerShape(22.dp)
+            val liftedCardShape = RoundedCornerShape(22.dp)
+            val snapshotCornerPx = with(density) { 16.dp.toPx() }
 
             Layout(
                 modifier = Modifier.fillMaxSize(),
@@ -337,10 +403,21 @@ fun GlassContextMenu(
                                 scaleX = lift
                                 scaleY = lift
                             }
-                            .clip(RoundedCornerShape(18.dp))
+                            .clip(liftedCardShape)
                             .drawBehind {
                                 val a = p().coerceIn(0f, 1f)
                                 drawRect(if (isDark) Color(0xFF1C1C1E).copy(alpha = 0.55f * a) else Color.White.copy(alpha = 0.6f * a))
+                            }
+                            // A thin rim, faded in with the lift, so the card reads as one rounded piece.
+                            .drawWithContent {
+                                drawContent()
+                                val a = p().coerceIn(0f, 1f)
+                                val rim = liftedCardShape.createOutline(size, layoutDirection, this)
+                                drawOutline(
+                                    rim,
+                                    (if (isDark) Color.White else Color.Black).copy(alpha = 0.10f * a),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                )
                             }
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
@@ -350,6 +427,20 @@ fun GlassContextMenu(
                         val shot = anchor.snapshot
                         Canvas(Modifier.fillMaxSize()) {
                             if (shot != null) {
+                                // The snapshot is the item's raw rectangle (square corners, any
+                                // backing it draws); round it to match the card around it.
+                                val inner = androidx.compose.ui.graphics.Path().apply {
+                                    addRoundRect(
+                                        androidx.compose.ui.geometry.RoundRect(
+                                            left = cardPadPx,
+                                            top = cardPadPx,
+                                            right = cardPadPx + itemRect.width,
+                                            bottom = cardPadPx + itemRect.height,
+                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(snapshotCornerPx, snapshotCornerPx)
+                                        )
+                                    )
+                                }
+                                clipPath(inner) {
                                 drawImage(
                                     image = shot,
                                     dstOffset = androidx.compose.ui.unit.IntOffset(cardPadPx.roundToInt(), cardPadPx.roundToInt()),
@@ -358,6 +449,7 @@ fun GlassContextMenu(
                                         itemRect.height.roundToInt().coerceAtLeast(1)
                                     )
                                 )
+                                }
                             }
                         }
                     }
@@ -411,12 +503,17 @@ fun GlassContextMenu(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = null,
-                                    tint = item.tint ?: textColor,
-                                    modifier = Modifier.padding(start = 12.dp).size(20.dp)
-                                )
+                                val icon = item.icon
+                                if (icon != null) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = item.tint ?: textColor,
+                                        modifier = Modifier.padding(start = 12.dp).size(20.dp)
+                                    )
+                                } else {
+                                    Spacer(Modifier.padding(start = 12.dp).size(20.dp))
+                                }
                             }
                         }
                     }
