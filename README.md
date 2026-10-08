@@ -207,33 +207,34 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
 ```
 Auralis/
 ├── android/
-│   ├── app/
-│   │   ├── src/main/
-│   │   │   ├── java/com/auralis/music/
-│   │   │   │   ├── data/
-│   │   │   │   │   ├── datastore/      # Preferences & Settings DataStore
-│   │   │   │   │   ├── download/       # Offline Audio Download Manager
-│   │   │   │   │   ├── local/          # Room DB, DAOs, Entities
-│   │   │   │   │   ├── network/        # InnerTubeClient, LyricsClient, Spotify/YT Importers
-│   │   │   │   │   ├── parser/         # LRC & TTML timestamp parsers, LyricsMatcher
-│   │   │   │   │   ├── repository/     # Repository implementations
-│   │   │   │   │   ├── service/        # AuralisAudioPlayer, YouTubeAudioEngine
-│   │   │   │   │   └── sync/           # ListenTogetherManager & Math Engine
-│   │   │   │   ├── domain/             # Domain Models, Auth & Interfaces
-│   │   │   │   ├── service/            # AuralisMediaService (Media3 Session & Deck)
-│   │   │   │   ├── ui/                 # Jetpack Compose UI
-│   │   │   │   │   ├── components/     # Reusable UI Cards, Modals, Pills
-│   │   │   │   │   ├── home/           # HomeScreen, SpeedDial & Sections
-│   │   │   │   │   ├── explore/        # Search & Explore screens
-│   │   │   │   │   ├── library/        # Playlists, Downloads & History
-│   │   │   │   │   ├── lyrics/         # Synced Lyrics & Lyric Card Creator
-│   │   │   │   │   ├── player/         # MiniPlayer & NowPlaying Fullscreen Modal
-│   │   │   │   │   ├── screens/        # ArtistScreen, Settings & Sub-views
-│   │   │   │   │   └── viewmodel/      # Architecture ViewModels
-│   │   │   │   └── MainActivity.kt     # Main Android Entry Point
-│   │   │   └── res/                    # Drawables, icons, layout values
-│   │   └── build.gradle.kts
-│   └── zemer-cipher/                   # Vendored YouTube cipher / PO token module
+│   └── app/
+│       ├── src/main/
+│       │   ├── java/com/auralis/music/
+│       │   │   ├── data/
+│       │   │   │   ├── datastore/      # Preferences & Settings DataStore
+│       │   │   │   ├── download/       # Offline Audio Download Manager
+│       │   │   │   ├── local/          # Room DB, DAOs, Entities
+│       │   │   │   ├── network/        # InnerTubeClient, LyricsClient, Spotify/YT Importers
+│       │   │   │   ├── parser/         # LRC & TTML timestamp parsers, LyricsMatcher
+│       │   │   │   ├── repository/     # Repository implementations
+│       │   │   │   ├── service/        # AuralisAudioPlayer, YouTubeAudioEngine
+│       │   │   │   └── sync/           # ListenTogetherManager & Math Engine
+│       │   │   ├── domain/             # Domain Models, Auth & Interfaces
+│       │   │   ├── service/            # AuralisMediaService (Media3 Session & Deck)
+│       │   │   ├── ui/                 # Jetpack Compose UI
+│       │   │   │   ├── components/     # Reusable UI Cards, Modals, Pills
+│       │   │   │   ├── home/           # HomeScreen, SpeedDial & Sections
+│       │   │   │   ├── explore/        # Search & Explore screens
+│       │   │   │   ├── library/        # Playlists, Downloads & History
+│       │   │   │   ├── lyrics/         # Synced Lyrics & Lyric Card Creator
+│       │   │   │   ├── player/         # MiniPlayer & NowPlaying Fullscreen Modal
+│       │   │   │   ├── screens/        # ArtistScreen, Settings & Sub-views
+│       │   │   │   └── viewmodel/      # Architecture ViewModels
+│       │   │   └── MainActivity.kt     # Main Android Entry Point
+│       │   └── res/                    # Drawables, icons, layout values
+│       └── build.gradle.kts
+├── shared/                             # Kotlin Multiplatform code shared with the Windows app
+├── zemer-cipher/                       # Vendored YouTube cipher / PO token module
 ├── gradle/                             # Wrapper & version catalog (libs.versions.toml)
 ├── build.gradle.kts                    # Root Gradle build (run ./gradlew from the repo root)
 ├── settings.gradle.kts

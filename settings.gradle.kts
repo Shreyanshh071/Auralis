@@ -32,5 +32,5 @@ rootProject.name = "Auralis"
 include(":app")
 project(":app").projectDir = file("android/app")
 include(":zemer-cipher")
-project(":zemer-cipher").projectDir = file("android/zemer-cipher")
+project(":zemer-cipher").projectDir = file("zemer-cipher")
 include(":shared")
