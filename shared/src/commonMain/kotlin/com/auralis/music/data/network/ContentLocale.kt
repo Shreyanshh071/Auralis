@@ -11,14 +11,11 @@ import java.util.Locale
  * library sync) deliberately keep "en"/"US" and don't use this.
  */
 object ContentLocale {
-    /** Settings → Content as the app currently holds it. Each app points this at its settings store at startup. */
-    @Volatile var settings: () -> ContentSettings = { ContentSettings() }
-
     /** The app's own language tag, or "" when it follows the system. Each app sets this at startup. */
     @Volatile var appLanguageTag: () -> String = { "" }
 
     fun hl(): String {
-        val chosen = settings().contentLanguage
+        val chosen = ContentSettingsSource.current().contentLanguage
         if (chosen != ContentSettings.SYSTEM) return chosen
         // "System default" follows the app language first (as Metrolist does): pick Hindi as the
         // app language and YouTube answers in Hindi too, names included.
@@ -40,7 +37,7 @@ object ContentLocale {
     }
 
     fun gl(): String {
-        val chosen = settings().contentCountry
+        val chosen = ContentSettingsSource.current().contentCountry
         if (chosen != ContentSettings.SYSTEM) return chosen
         // Same order as ViviMusic/Metrolist: the app language's region (e.g. pt-BR → BR), then
         // the phone's. The phone's region comes from the system configuration: with a per-app

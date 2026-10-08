@@ -1,6 +1,5 @@
 package com.auralis.music.data.network
 
-import com.auralis.music.data.datastore.ContentSettingsStore
 import com.auralis.music.domain.model.ContentSettings
 import com.auralis.music.domain.model.ProxyType
 import okhttp3.Credentials
@@ -19,7 +18,7 @@ import java.net.URI
  * Auralis builds about twenty separate OkHttp clients, and ExoPlayer and NewPipe open their own
  * connections, so the proxy is installed process-wide rather than per client: every OkHttp
  * client without an explicit proxy asks [ProxySelector.getDefault] for each new connection, and
- * HttpURLConnection does the same. Read live from [ContentSettingsStore], so toggling applies to
+ * HttpURLConnection does the same. Read live from [ContentSettingsSource], so toggling applies to
  * the next connection (pooled connections finish on their old route).
  *
  * Passwords: SOCKS and HttpURLConnection consult [Authenticator]; OkHttp does not for HTTP
@@ -34,7 +33,7 @@ object ContentProxy {
         installed = true
         ProxySelector.setDefault(object : ProxySelector() {
             override fun select(uri: URI?): List<Proxy> =
-                configuredProxy(ContentSettingsStore.value)?.let { listOf(it) }
+                configuredProxy(ContentSettingsSource.current())?.let { listOf(it) }
                     ?: systemSelector?.select(uri)
                     ?: listOf(Proxy.NO_PROXY)
 
@@ -44,7 +43,7 @@ object ContentProxy {
         })
         Authenticator.setDefault(object : Authenticator() {
             override fun getPasswordAuthentication(): PasswordAuthentication? {
-                val s = ContentSettingsStore.value
+                val s = ContentSettingsSource.current()
                 val proxy = configuredProxy(s) ?: return null
                 if (!s.hasProxyAuth) return null
                 val host = (proxy.address() as? InetSocketAddress)?.hostString
@@ -57,7 +56,7 @@ object ContentProxy {
 
     /** Answers an HTTP proxy's 407 with the saved credentials (once; a second 407 means they're wrong). */
     val authenticator = okhttp3.Authenticator { _, response ->
-        val s = ContentSettingsStore.value
+        val s = ContentSettingsSource.current()
         when {
             !s.proxyEnabled || s.proxyType != ProxyType.HTTP || !s.hasProxyAuth -> null
             response.request.header("Proxy-Authorization") != null -> null
