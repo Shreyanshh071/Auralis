@@ -6,7 +6,7 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.search.SearchQueryMatcher
 
 /** Rank songs and albums together. Popularity compares only results with similar query relevance. */
-internal fun rankMixedSearchResults(
+fun rankMixedSearchResults(
     query: String,
     songs: List<Track>,
     albums: List<PlaylistResult>,
