@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launch_background">#FF141311</color>
+    <color name="launch_foreground">#FFF8F7FA</color>
+    <bool name="launch_light_system_bars">false</bool>
+</resources>
