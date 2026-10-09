@@ -1192,7 +1192,10 @@ fun NowPlayingModal(
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            text = str(R.string.queue_x, uiState.queue.size),
+                            text = if (
+                                androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp /
+                                androidx.compose.ui.platform.LocalDensity.current.fontScale < 400f
+                            ) str(R.string.queue) else str(R.string.queue_x, uiState.queue.size),
                             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                             fontSize = 13.sp,
                             color = contentColor
