@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/launch_mark">
+    <target android:name="top" android:animation="@animator/launch_stroke_grow" />
+    <target android:name="left" android:animation="@animator/launch_stroke_grow" />
+    <target android:name="right" android:animation="@animator/launch_stroke_grow" />
+</animated-vector>

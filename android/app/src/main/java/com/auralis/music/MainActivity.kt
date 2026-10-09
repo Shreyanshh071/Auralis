@@ -56,6 +56,13 @@ import com.auralis.music.ui.viewmodel.SearchViewModel
 @UnstableApi
 class MainActivity : ComponentActivity() {
 
+    private val launchTouchGate = com.auralis.music.ui.components.LaunchTouchGate()
+
+    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (launchTouchGate.shouldConsume(event.actionMasked)) return true
+        return super.dispatchTouchEvent(event)
+    }
+
     private var liveNavDestination = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     private fun extractNavDestination(intent: android.content.Intent?): String? {
@@ -92,7 +99,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         com.auralis.music.ui.i18n.AppLanguage.attach(this)
         super.onCreate(savedInstanceState)
-        holdSplashUntilHomeArtworkIsReady()
+        // A recreated activity (display/text-size change) has no new system splash
+        // exit callback. Keep its restored screen instead of adding a stuck overlay.
+        if (savedInstanceState == null) holdSplashUntilHomeArtworkIsReady()
+        else launchTouchGate.splashRemoved()
         DiscordSocialSdkInit.setEngineActivity(this)
         liveNavDestination.value = extractNavDestination(intent)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -409,8 +419,8 @@ class MainActivity : ComponentActivity() {
      * - Speed dial covers (first page) are decoded into memory while the launch screen is still up,
      *   using the same URL and size the tiles request, so Home's first frame is already complete.
      * - The first frame waits for that, never longer than [SPLASH_HOLD_MAX_MS].
-     * - Android 12+: the launch icon grows slightly and fades as the launch screen dissolves into
-     *   Home, where the sections then unfold (UnfoldIn).
+     * - The system splash shows three dots. A native vector grows their paths in one
+     *   fixed-size view, then dissolves directly into the prepared first frame.
      */
     private fun holdSplashUntilHomeArtworkIsReady() {
         val startMs = android.os.SystemClock.uptimeMillis()
@@ -439,10 +449,23 @@ class MainActivity : ComponentActivity() {
         }
 
         val content = findViewById<android.view.View>(android.R.id.content)
+        val decor = window.decorView as android.view.ViewGroup
+        // Keep one fixed icon size across the system/app splash handoff. Android's
+        // starting-window icon surface can otherwise resize when handed to the activity.
+        val launchLogo = com.auralis.music.ui.components.LaunchLogoView(this) {
+            launchTouchGate.splashRemoved()
+        }
+        decor.addView(launchLogo, android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        ))
         content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 val go = artworkReady.get() || android.os.SystemClock.uptimeMillis() - startMs > SPLASH_HOLD_MAX_MS
-                if (go) content.viewTreeObserver.removeOnPreDrawListener(this)
+                if (go) {
+                    content.viewTreeObserver.removeOnPreDrawListener(this)
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) launchLogo.post { launchLogo.reveal() }
+                }
                 return go
             }
         })
@@ -451,17 +474,20 @@ class MainActivity : ComponentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashView ->
-                val ease = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
-                splashView.iconView?.animate()
-                    ?.scaleX(1.18f)?.scaleY(1.18f)?.alpha(0f)
-                    ?.setDuration(360L)?.setInterpolator(ease)?.start()
-                splashView.animate()
-                    .alpha(0f)
-                    .setStartDelay(40L)
-                    .setDuration(380L)
-                    .setInterpolator(ease)
-                    .withEndAction { splashView.remove() }
-                    .start()
+                // Submit an opaque app splash frame before removing the system
+                // cover, so the handoff cannot briefly expose the content below.
+                if (launchLogo.isHardwareAccelerated) {
+                    launchLogo.viewTreeObserver.registerFrameCommitCallback {
+                        splashView.remove()
+                        launchLogo.reveal()
+                    }
+                    launchLogo.invalidate()
+                } else {
+                    launchLogo.postOnAnimation {
+                        splashView.remove()
+                        launchLogo.reveal()
+                    }
+                }
             }
         }
     }

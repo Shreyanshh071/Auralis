@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Window backgrounds must report no padding to the decor. The icon's inset is only visual. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:paddingLeft="0dp" android:paddingTop="0dp"
+    android:paddingRight="0dp" android:paddingBottom="0dp">
+    <item android:drawable="@color/launch_background" />
+    <item android:width="288dp" android:height="288dp" android:gravity="center"
+        android:drawable="@drawable/launch_mark" />
+</layer-list>

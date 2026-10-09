@@ -5,5 +5,7 @@
     <color name="colorAccent">#7D5260</color>
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
-    <color name="launch_background">#FF141311</color>
+    <color name="launch_background">#FFF8F7FA</color>
+    <color name="launch_foreground">#FF141311</color>
+    <bool name="launch_light_system_bars">true</bool>
 </resources>

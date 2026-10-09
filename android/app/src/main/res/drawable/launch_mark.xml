@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Circular centerlines fitted to the original mark; the same paths draw throughout launch. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp" android:height="288dp"
+    android:viewportWidth="288" android:viewportHeight="288">
+    <group android:translateX="44" android:translateY="44"
+        android:scaleX="1.5625" android:scaleY="1.5625">
+        <path android:fillColor="@color/launch_foreground"
+            android:pathData="M66.75,27.75 a6.8,6.8 0,1 0,0 13.6 a6.8,6.8 0,1 0,0 -13.6 M31.77,85.48 a6.8,6.8 0,1 0,0 13.6 a6.8,6.8 0,1 0,0 -13.6 M95.26,85.45 a6.8,6.8 0,1 0,0 13.6 a6.8,6.8 0,1 0,0 -13.6" />
+        <path android:name="top" android:pathData="M66.75,34.55 L88.971,68.778 A24.3,24.3 0,1 1 84.99,114.273"
+            android:strokeColor="@color/launch_foreground" android:strokeWidth="8.7"
+            android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:fillColor="@android:color/transparent" android:trimPathEnd="0" />
+        <path android:name="left" android:pathData="M31.77,92.28 L53.622,54.999 A24.3,24.3 0,1 1 90.222,28.261"
+            android:strokeColor="@color/launch_foreground" android:strokeWidth="8.7"
+            android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:fillColor="@android:color/transparent" android:trimPathEnd="0" />
+        <path android:name="right" android:pathData="M95.26,92.25 L56.07,92.28 A24.3,24.3 0,1 1 20.738,70.629"
+            android:strokeColor="@color/launch_foreground" android:strokeWidth="8.7"
+            android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:fillColor="@android:color/transparent" android:trimPathEnd="0" />
+    </group>
+</vector>
