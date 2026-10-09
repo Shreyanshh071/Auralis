@@ -187,6 +187,20 @@ class ListenTogetherViewModel(
         com.auralis.music.ui.components.AppPillManager.showPill(message, durationMs = 3_500L)
     }
 
+    private val pendingActivities = mutableListOf<com.auralis.music.data.sync.RoomActivity>()
+    private var applyingGuestCommand = false
+    private val pendingGuestActions = mutableListOf<com.auralis.music.data.sync.PendingRoomAction>()
+
+    private fun announceRoomActivity(message: String, actorId: String = _uiState.value.currentUserId) {
+        val state = _uiState.value
+        if (!state.isHost || state.activeRoom == null) return
+        val activity = com.auralis.music.data.sync.RoomActivity(java.util.UUID.randomUUID().toString(), message, actorId)
+        if (activity.shouldNotify(state.currentUserId)) showPill(message)
+        pendingActivities += activity
+        // Send the notice in the same snapshot as the resulting playback, without a transaction.
+        hostPlayer?.let { broadcastFromPlayer(it) }
+    }
+
     fun dismissPill() {
         pillDismissJob?.cancel()
         _uiState.update { it.copy(pillNotification = null) }
@@ -376,44 +390,83 @@ class ListenTogetherViewModel(
 
     private fun processGuestCommands(roster: List<RoomMember>) {
         if (!_uiState.value.isHost) return
-        for ((member, command) in guestCommands.newCommands(roster) { roomRules().allows(it) }) {
-            val requestedTrack = command.track
-            if (command.type == GuestCommand.PLAY_TRACK && requestedTrack != null && roomRules().approvalApplies) {
-                addSongRequest(HostSongRequest(id = "play_${member.id}_${command.seq}", memberName = member.name, track = requestedTrack, playNow = true))
-                continue
-            }
-            if ((command.type == GuestCommand.NEXT || command.type == GuestCommand.PREVIOUS) && roomRules().approvalApplies) {
-                val step = if (command.type == GuestCommand.NEXT) 1 else -1
+        applyingGuestCommand = true
+        try {
+            for ((member, command) in guestCommands.newCommands(roster) { roomRules().allows(it) }) {
+                if (command.editsQueue) {
+                    val player = hostPlayer ?: continue
+                    val queueState = player.queueState.value
+                    val queue = queueState.queue
+                    val currentIndex = com.auralis.music.data.sync.ListenTogetherSyncMath.resolveQueueIndex(
+                        queue, queueState.currentIndex, player.currentTrack.value?.id.orEmpty())
+                    val offset = command.queueEditOffset(queue, currentIndex)
+                    if (offset == null) {
+                        announceRoomActivity(str(R.string.room_queue_edit_stale, member.name), member.id)
+                        continue
+                    }
+                    val fromIndex = command.fromIndex + offset
+                    val title = queue[fromIndex].title
+                    if (command.type == GuestCommand.MOVE_QUEUE_ITEM) {
+                        player.moveQueueItem(fromIndex, command.toIndex + offset)
+                        announceRoomActivity(str(R.string.room_queue_song_moved, member.name, title), member.id)
+                    } else {
+                        player.removeQueueItem(fromIndex)
+                        announceRoomActivity(str(R.string.room_queue_song_removed, member.name, title), member.id)
+                    }
+                    // bindHostPlayer observes queueState and broadcasts the result to every listener.
+                    continue
+                }
+                val requestedTrack = command.track
+                if (command.type == GuestCommand.PLAY_TRACK && requestedTrack != null && roomRules().approvalApplies) {
+                    addSongRequest(HostSongRequest(id = "play_${member.id}_${command.seq}", memberName = member.name, track = requestedTrack, playNow = true))
+                    continue
+                }
+                if ((command.type == GuestCommand.NEXT || command.type == GuestCommand.PREVIOUS) && roomRules().approvalApplies) {
+                    val step = if (command.type == GuestCommand.NEXT) 1 else -1
+                    val queue = hostPlayer?.queueState?.value
+                    val landsOn = queue?.queue?.getOrNull(queue.currentIndex + step)
+                        ?: Track(id = "", title = if (step > 0) "The next song" else "The previous song")
+                    addSongRequest(HostSongRequest(id = "skip_${member.id}_${command.seq}", memberName = member.name, track = landsOn, playNow = true, skip = step))
+                    continue
+                }
+                // The new song starts for everyone by itself once loaded; a "play" now would start it early.
+                if (command.type == GuestCommand.PLAY && heldTrackId != null) continue
+                if ((command.type == GuestCommand.PLAY || command.type == GuestCommand.TOGGLE) && reopenClosedSessionIfNeeded()) {
+                    announceRoomActivity(str(R.string.x_pressed_play, member.name), member.id)
+                    continue
+                }
+                if (command.changesSong && trackChangeLockRemainingMs() > 0L) {
+                    Log.d("ListenTogether", "[Host] Ignored ${member.name}'s ${command.type}: the song changed under 3s ago")
+                    continue
+                }
+                val what = when (command.type) {
+                    GuestCommand.TOGGLE -> "played/paused"
+                    GuestCommand.PLAY -> str(R.string.pressed_play)
+                    GuestCommand.PAUSE -> "paused"
+                    GuestCommand.NEXT -> str(R.string.skipped_to_the_next_song)
+                    GuestCommand.PREVIOUS -> str(R.string.went_back_a_song)
+                    GuestCommand.SEEK -> str(R.string.moved_the_song_position)
+                    GuestCommand.PLAY_TRACK -> command.track?.let { "played \u201c${it.title}\u201d" } ?: continue
+                    else -> continue
+                }
+                Log.d("ListenTogether", "[Host] ${member.name} requested ${command.type} (seq=${command.seq})")
                 val queue = hostPlayer?.queueState?.value
-                val landsOn = queue?.queue?.getOrNull(queue.currentIndex + step)
-                    ?: Track(id = "", title = if (step > 0) "The next song" else "The previous song")
-                addSongRequest(HostSongRequest(id = "skip_${member.id}_${command.seq}", memberName = member.name, track = landsOn, playNow = true, skip = step))
-                continue
+                val expectedTrackId = when (command.type) {
+                    GuestCommand.PLAY_TRACK -> command.track?.id
+                    GuestCommand.PLAY, GuestCommand.TOGGLE -> hostPlayer?.currentTrack?.value?.id
+                    GuestCommand.NEXT -> queue?.queue?.getOrNull(queue.currentIndex + 1)?.id
+                    GuestCommand.PREVIOUS -> queue?.queue?.getOrNull(queue.currentIndex - 1)?.id
+                    else -> null
+                }
+                val action = com.auralis.music.data.sync.PendingRoomAction(command, member.id, "${member.name} $what", expectedTrackId, System.currentTimeMillis() + 15_000L)
+                pendingGuestActions += action
+                onHostGuestCommand?.invoke(command)
+                // An already paused/playing song doesn't emit an engine action.
+                if (command.type in listOf(GuestCommand.PLAY, GuestCommand.PAUSE, GuestCommand.TOGGLE) && pendingGuestActions.remove(action)) {
+                    announceRoomActivity(action.message, action.actorId)
+                }
             }
-            // The new song starts for everyone by itself once loaded; a "play" now would start it early.
-            if (command.type == GuestCommand.PLAY && heldTrackId != null) continue
-            if ((command.type == GuestCommand.PLAY || command.type == GuestCommand.TOGGLE) && reopenClosedSessionIfNeeded()) {
-                showPill(str(R.string.x_pressed_play, member.name))
-                continue
-            }
-            if (command.changesSong && trackChangeLockRemainingMs() > 0L) {
-                Log.d("ListenTogether", "[Host] Ignored ${member.name}'s ${command.type}: the song changed under 3s ago")
-                continue
-            }
-            val what = when (command.type) {
-                GuestCommand.TOGGLE -> "played/paused"
-                GuestCommand.PLAY -> str(R.string.pressed_play)
-                GuestCommand.PAUSE -> "paused"
-                GuestCommand.NEXT -> str(R.string.skipped_to_the_next_song)
-                GuestCommand.PREVIOUS -> str(R.string.went_back_a_song)
-                GuestCommand.SEEK -> str(R.string.moved_the_song_position)
-                GuestCommand.PLAY_TRACK -> command.track?.let { "played \u201c${it.title}\u201d" } ?: continue
-                else -> continue
-            }
-            Log.d("ListenTogether", "[Host] ${member.name} requested ${command.type} (seq=${command.seq})")
-            onHostGuestCommand?.invoke(command)
-            showPill("${member.name} $what")
-        }
+        } finally { applyingGuestCommand = false }
     }
 
     private fun handleGuestSongs(recommendations: List<RoomRecommendation>) {
@@ -432,7 +485,7 @@ class ListenTogetherViewModel(
                     handledRecommendationIds += rec.id
                     viewModelScope.launch { manager.updateRecommendationStatus(roomCode, rec.id, "accepted") }
                     onHostAddToQueue?.invoke(rec.track)
-                    showPill(str(R.string.x_added_x, rec.recommendedByName, rec.track.title))
+                    announceRoomActivity(str(R.string.x_added_x, rec.recommendedByName, rec.track.title), rec.recommendedByUid)
                 }
                 // Waits in the host's "Song requests" list; the host hears about it once.
                 com.auralis.music.data.sync.GuestSongDecision.WAIT_FOR_HOST -> {
@@ -466,20 +519,20 @@ class ListenTogetherViewModel(
             when {
                 target != null && player?.currentTrack?.value?.id == target.id -> {
                     player.seekTo(0L)
-                    showPill(str(R.string.restarted_x_for_x, target.title, request.memberName))
+                    announceRoomActivity(str(R.string.restarted_x_for_x, target.title, request.memberName))
                 }
                 target != null -> {
                     onHostPlayTrack?.invoke(target)
-                    showPill(str(R.string.playing_x_for_x, target.title, request.memberName))
+                    announceRoomActivity(str(R.string.playing_x_for_x, target.title, request.memberName))
                 }
                 else -> {
                     onHostGuestCommand?.invoke(GuestCommand(if (request.skip > 0) GuestCommand.NEXT else GuestCommand.PREVIOUS))
-                    showPill(if (request.skip > 0) str(R.string.skipped_for_x, request.memberName) else str(R.string.went_back_a_song_for_x, request.memberName))
+                    announceRoomActivity(if (request.skip > 0) str(R.string.skipped_for_x, request.memberName) else str(R.string.went_back_a_song_for_x, request.memberName))
                 }
             }
         } else if (request.playNow) {
             onHostPlayTrack?.invoke(request.track)
-            showPill(str(R.string.playing_x_u2019s_pick_u201c_x_u201d, request.memberName, request.track.title))
+            announceRoomActivity(str(R.string.playing_x_u2019s_pick_u201c_x_u201d, request.memberName, request.track.title))
         } else {
             request.recommendation?.let { addRecommendationToQueue(it) }
         }
@@ -781,6 +834,33 @@ class ListenTogetherViewModel(
         }
     }
 
+    /** Queue edits use the add-songs switch; approval alone doesn't grant destructive edits. */
+    fun requestQueueEdit(fromIndex: Int, toIndex: Int? = null) {
+        val state = _uiState.value
+        val room = state.activeRoom ?: return
+        if (state.isHost) return
+        if (!room.settings.guestsCanAddSongs) {
+            showPill(str(R.string.room_queue_edit_blocked))
+            return
+        }
+        val command = GuestCommand(
+            type = if (toIndex == null) GuestCommand.REMOVE_QUEUE_ITEM else GuestCommand.MOVE_QUEUE_ITEM,
+            seq = System.currentTimeMillis(),
+            fromIndex = fromIndex,
+            toIndex = toIndex ?: -1,
+            queueIds = room.queue.map { it.id }
+        )
+        if (!command.isValidQueueEdit(room.queue)) return
+        viewModelScope.launch {
+            try {
+                manager.sendGuestCommand(room.code, command)
+            } catch (e: Exception) {
+                Log.e("ListenTogether", "Couldn't send queue edit to the host", e)
+                showPill(str(R.string.couldn_t_reach_the_host_u2014_try_again))
+            }
+        }
+    }
+
     /** A guest picked a song (queue, search, library...): the host plays it for everyone. */
     fun requestPlayTrack(track: Track) {
         val state = _uiState.value
@@ -789,10 +869,9 @@ class ListenTogetherViewModel(
         viewModelScope.launch {
             try {
                 manager.sendGuestCommand(room.code, GuestCommand(GuestCommand.PLAY_TRACK, 0L, System.currentTimeMillis(), track))
-                showPill(
-                    if (room.settings.approvalApplies) str(R.string.asked_the_host_to_play_u201c_x_u201d, track.title)
-                    else str(R.string.playing_u201c_x_u201d_for_everyone, track.title)
-                )
+                if (room.settings.approvalApplies) {
+                    showPill(str(R.string.asked_the_host_to_play_u201c_x_u201d, track.title))
+                }
             } catch (e: Exception) {
                 Log.e("ListenTogether", "Failed asking host to play ${track.title}: ${e.message}", e)
                 showPill(str(R.string.couldn_t_reach_the_host_u2014_try_again))
@@ -1018,10 +1097,12 @@ class ListenTogetherViewModel(
         val roomCode = _uiState.value.activeRoom?.code ?: return
         if (!_uiState.value.isHost) return
         val seekVersion = if (isSeek) ++hostSeekVersion else null
+        val activities = pendingActivities.toList()
+        pendingActivities.clear()
 
         viewModelScope.launch {
             try {
-                manager.updateHostPlayback(roomCode, currentTrack, isPlaying, playbackPositionMs, queue, queueIndex, seekVersion)
+                manager.updateHostPlayback(roomCode, currentTrack, isPlaying, playbackPositionMs, queue, queueIndex, seekVersion, activities = activities)
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Broadcast Host Error]: ${e.message}", e)
             }
@@ -1082,6 +1163,27 @@ class ListenTogetherViewModel(
      */
     fun bindHostPlayer(player: AuralisAudioPlayer) {
         hostPlayer = player
+        player.roomActionObserver = { command ->
+            val state = _uiState.value
+            if (state.isHost && state.activeRoom != null) {
+                pendingGuestActions.removeAll { it.expiresAt < System.currentTimeMillis() }
+                val guestAction = pendingGuestActions.firstOrNull { it.matches(command) }
+                if (guestAction != null) {
+                    pendingGuestActions.remove(guestAction)
+                    announceRoomActivity(guestAction.message, guestAction.actorId)
+                } else if (!applyingGuestCommand) {
+                    val name = getEffectiveDisplayName()
+                    val message = when (command.type) {
+                        GuestCommand.PLAY -> "$name pressed play"
+                        GuestCommand.PAUSE -> "$name paused"
+                        GuestCommand.PLAY_TRACK -> "$name played “${command.track?.title}”"
+                        GuestCommand.SEEK -> "$name moved the song position"
+                        else -> null
+                    }
+                    if (message != null) announceRoomActivity(message)
+                }
+            }
+        }
         hostPlayerJob?.cancel()
         hostPlayerJob = viewModelScope.launch {
             uiState
@@ -1159,6 +1261,8 @@ class ListenTogetherViewModel(
         val isHost = _uiState.value.isHost
         roomJanitorJob?.cancel()
         hostClosedSession = null
+        pendingActivities.clear()
+        pendingGuestActions.clear()
         viewModelScope.launch {
             try {
                 manager.leaveRoom(roomCode, isHost)
@@ -1275,6 +1379,7 @@ class ListenTogetherViewModel(
                 Log.e("ListenTogether", "Failed setting recommendation status played: ${e.message}", e)
             }
             onHostPlayTrack?.invoke(recommendation.track)
+            announceRoomActivity(str(R.string.playing_x_u2019s_pick_u201c_x_u201d, recommendation.recommendedByName, recommendation.track.title))
         }
     }
 
@@ -1290,6 +1395,7 @@ class ListenTogetherViewModel(
                 Log.e("ListenTogether", "Failed setting recommendation status accepted: ${e.message}", e)
             }
             onHostAddToQueue?.invoke(recommendation.track)
+            announceRoomActivity(str(R.string.x_added_x, recommendation.recommendedByName, recommendation.track.title))
         }
     }
 
@@ -1299,6 +1405,7 @@ class ListenTogetherViewModel(
         recommendationsJob?.cancel()
         heartbeatJob?.cancel()
 
+        val activityTracker = com.auralis.music.data.sync.RoomActivityTracker()
         roomJob = viewModelScope.launch {
             manager.observeRoomState(roomCode).collect { state ->
                 if (state == null || state.status == "closed") {
@@ -1322,6 +1429,8 @@ class ListenTogetherViewModel(
                         showPill(str(R.string.host_has_disconnected), PillType.HOST_DISCONNECTED)
                     }
                 } else {
+                    val newActivity = activityTracker.newActivities(state.activity)
+                    if (!_uiState.value.isHost) newActivity.filter { it.shouldNotify(_uiState.value.currentUserId) }.forEach { showPill(it.message) }
                     _uiState.update { current ->
                         // The members subcollection is the roster. The room document's
                         // membersList only ever holds the host, so it is just a placeholder
@@ -1495,7 +1604,7 @@ class ListenTogetherViewModel(
         // The host's queue changed (a guest's "play next" / "add to queue", a reorder...) with the
         // same song playing: guests used to see it only after the next song change.
         val roomQueueIds = state.queue.map { it.id }
-        if (pendingSkipTrackId == null && state.queue.isNotEmpty() && roomQueueIds != lastAppliedQueueIds) {
+        if (pendingSkipTrackId == null && roomQueueIds != lastAppliedQueueIds) {
             lastAppliedQueueIds = roomQueueIds
             val queueIndex = ListenTogetherSyncMath.resolveQueueIndex(state.queue, state.queueIndex, hostTrack.id)
             Log.d("ListenTogether", "[Guest Sync] Host queue changed -> ${state.queue.size} songs, current at $queueIndex")

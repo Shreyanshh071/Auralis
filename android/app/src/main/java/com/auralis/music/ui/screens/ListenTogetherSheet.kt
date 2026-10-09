@@ -126,7 +126,8 @@ fun ListenTogetherSheet(
     onDeclineRecommendation: (RoomRecommendation) -> Unit = {},
     onHostSettingsChange: (RoomSettings) -> Unit = {},
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPopup: Boolean = false
 ) {
     val context = LocalContext.current
     var joinCodeInput by remember { mutableStateOf("") }
@@ -144,7 +145,7 @@ fun ListenTogetherSheet(
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
-            .statusBarsPadding()
+            .then(if (isPopup) Modifier else Modifier.statusBarsPadding())
     ) {
         Column(
             modifier = Modifier
@@ -666,7 +667,7 @@ fun ListenTogetherSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.padding(bottomChromePadding()))
+            Spacer(modifier = if (isPopup) Modifier.height(20.dp) else Modifier.padding(bottomChromePadding()))
         }
     }
 }
@@ -684,7 +685,7 @@ private fun RoomRuleRows(
         RoomRuleRow(
             icon = Icons.AutoMirrored.Filled.PlaylistAdd,
             title = str(R.string.guests_can_add_songs),
-            subtitle = str(R.string.songs_they_add_go_into_your_queue),
+            subtitle = str(R.string.guests_manage_queue_description),
             checked = settings.guestsCanAddSongs,
             enabled = true,
             onCheckedChange = { onChange(settings.copy(guestsCanAddSongs = it)) },
@@ -865,8 +866,9 @@ private fun GuestPermissionsCard(
 ) {
     val lines = listOf(
         when {
+            settings.requireApproval && settings.guestsCanAddSongs -> str(R.string.room_queue_manage_with_approval)
             settings.requireApproval -> str(R.string.you_can_ask_to_add_songs_the_host_allows)
-            settings.guestsCanAddSongs -> str(R.string.you_can_add_songs_to_the_queue_song_menu)
+            settings.guestsCanAddSongs -> str(R.string.room_queue_manage_allowed)
             else -> str(R.string.only_the_host_adds_songs)
         },
         if (settings.guestsCanControlPlayback) str(R.string.you_can_play_pause_and_seek_for_everyone)

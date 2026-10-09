@@ -577,6 +577,13 @@
     <string name="create_broadcast_room">Create Broadcast Room</string>
     <string name="guests_can_add_songs">Guests can add songs</string>
     <string name="songs_they_add_go_into_your_queue">Songs they add go into your queue</string>
+    <string name="guests_manage_queue_description">Add, reorder and remove songs in the room queue</string>
+    <string name="room_queue_manage_allowed">You can add, reorder and remove songs in the room queue</string>
+    <string name="room_queue_manage_with_approval">You can reorder and remove songs; additions need host approval</string>
+    <string name="room_queue_edit_blocked">The host has turned off guest queue editing</string>
+    <string name="room_queue_edit_stale">The queue changed before %1$s\'s edit. Please try again.</string>
+    <string name="room_queue_song_moved">%1$s reordered “%2$s” in the queue</string>
+    <string name="room_queue_song_removed">%1$s removed “%2$s” from the queue</string>
     <string name="guests_can_control_playback">Guests can control playback</string>
     <string name="play_pause_and_seek_for_everyone">Play, pause and seek for everyone</string>
     <string name="guests_can_play_songs">Guests can play songs</string>

@@ -748,6 +748,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
     }
 
+    /** Synchronous action hook; room synchronization methods do not emit user actions. */
+    var roomActionObserver: ((com.auralis.music.data.sync.GuestCommand) -> Unit)? = null
+
     fun play(
         track: Track,
         initialSeekMs: Long = 0L,
@@ -962,6 +965,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 _isBuffering.value = false
             }
         }
+        roomActionObserver?.invoke(com.auralis.music.data.sync.GuestCommand(com.auralis.music.data.sync.GuestCommand.PLAY_TRACK, track = track))
     }
 
     private var prefetchJob: Job? = null
@@ -1376,7 +1380,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
      * update this guest's queue in place, keeping the song that's playing untouched.
      */
     fun syncQueue(newQueue: List<Track>, currentIndex: Int) {
-        if (newQueue.isEmpty()) return
+        if (newQueue.isEmpty()) {
+            _queueState.value = queueManager.setQueue(emptyList(), -1, preserveOrderIfSame = false, isUserQueue = true)
+            return
+        }
         val cur = _currentTrack.value
         val q = newQueue.toMutableList()
         // Keep the exact copy playing here (it may be the host's matched video id).
@@ -1548,7 +1555,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() cold-start/stream-reload for '${curTrack.title}' (seek=${safeSeekMs}ms)")
             play(curTrack, initialSeekMs = safeSeekMs)
+            return
         }
+        roomActionObserver?.invoke(com.auralis.music.data.sync.GuestCommand(com.auralis.music.data.sync.GuestCommand.PLAY))
     }
 
     fun pause() {
@@ -1572,6 +1581,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         youTubeEngine.pause()
         _isPlaying.value = false
         publishDiscordPresenceNow()
+        roomActionObserver?.invoke(com.auralis.music.data.sync.GuestCommand(com.auralis.music.data.sync.GuestCommand.PAUSE))
         // The running service observes isPlaying; pausing must not start a new foreground service.
         persistQueue()
     }
@@ -1604,6 +1614,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val bounded = positionMs.coerceAtLeast(0L)
         _userSeekEvents.tryEmit(bounded)
         _playbackPositionMs.value = bounded
+        roomActionObserver?.invoke(com.auralis.music.data.sync.GuestCommand(com.auralis.music.data.sync.GuestCommand.SEEK, positionMs = bounded))
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo(${bounded}ms)")
         if (rememberSeekWhileLoading(bounded)) {
             persistQueue()

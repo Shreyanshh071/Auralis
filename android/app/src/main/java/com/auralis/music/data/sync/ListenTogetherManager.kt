@@ -43,7 +43,11 @@ data class GuestCommand(
     val positionMs: Long = 0L,
     val seq: Long = 0L,         // increases with every request from the same guest
     /** The song a guest picked (queue, search, library...) for PLAY_TRACK. */
-    val track: Track? = null
+    val track: Track? = null,
+    val fromIndex: Int = -1,
+    val toIndex: Int = -1,
+    /** Exact ordering seen by the guest; rejects stale edits, including duplicate song IDs. */
+    val queueIds: List<String> = emptyList()
 ) {
     companion object {
         /**
@@ -58,10 +62,24 @@ data class GuestCommand(
         const val PREVIOUS = "previous"
         const val SEEK = "seek"
         const val PLAY_TRACK = "play_track"
+        const val MOVE_QUEUE_ITEM = "move_queue_item"
+        const val REMOVE_QUEUE_ITEM = "remove_queue_item"
     }
 
     /** Requests that change the song; these share the 3-second skip lock. */
     val changesSong: Boolean get() = type == NEXT || type == PREVIOUS || type == PLAY_TRACK
+    val editsQueue: Boolean get() = type == MOVE_QUEUE_ITEM || type == REMOVE_QUEUE_ITEM
+
+    fun isValidQueueEdit(queue: List<Track>): Boolean = editsQueue &&
+        queueIds == queue.map { it.id } && fromIndex in queue.indices &&
+        (type == REMOVE_QUEUE_ITEM || (toIndex in queue.indices && fromIndex != toIndex))
+
+    /** Guests see a 100-song window, so their indices aren't always the host's indices. */
+    fun queueEditOffset(queue: List<Track>, currentIndex: Int): Int? {
+        val (window, windowIndex) = ListenTogetherSyncMath.queueWindow(queue, currentIndex)
+        if (!isValidQueueEdit(window)) return null
+        return currentIndex.coerceIn(0, queue.lastIndex) - windowIndex
+    }
 }
 
 /** What the host lets guests do. Stored on the room so every member sees the same rules. */
@@ -90,8 +108,11 @@ data class RoomSettings(
     val guestsCanChangeSong: Boolean get() = guestsMayPlaySongs
 
     /** Whether the room lets a guest do [command] (a song change may still wait for the host). */
-    fun allows(command: GuestCommand): Boolean =
-        if (command.changesSong) guestsMayPlaySongs else guestsCanControlPlayback
+    fun allows(command: GuestCommand): Boolean = when {
+        command.editsQueue -> guestsCanAddSongs
+        command.changesSong -> guestsMayPlaySongs
+        else -> guestsCanControlPlayback
+    }
 
     fun toMap(): Map<String, Any> = mapOf(
         "guestsCanAddSongs" to guestsCanAddSongs,
@@ -150,7 +171,8 @@ data class NativeRoomState(
     /** Why it's closing: [ROOM_CLOSING_EMPTY] or [ROOM_CLOSING_IDLE]. */
     val closingReason: String? = null,
     /** The host closed their player on [currentTrack] (it's paused there, ready to reopen). */
-    val playerClosed: Boolean = false
+    val playerClosed: Boolean = false,
+    val activity: List<RoomActivity> = emptyList()
 )
 
 const val ROOM_CLOSING_EMPTY = "empty"
@@ -473,7 +495,8 @@ class ListenTogetherManager(
         queue: List<Track> = emptyList(),
         queueIndex: Int = -1,
         seekVersion: Long? = null,
-        playerClosed: Boolean = false
+        playerClosed: Boolean = false,
+        activities: List<RoomActivity> = emptyList()
     ) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
@@ -495,18 +518,34 @@ class ListenTogetherManager(
             val (window, windowIndex) = ListenTogetherSyncMath.queueWindow(queue, hostIndex)
             updates["queue"] = window.map(::trackToMap)
             updates["queueIndex"] = windowIndex
+        } else {
+            updates["queue"] = emptyList<Map<String, Any?>>()
+            updates["queueIndex"] = -1
         }
         if (seekVersion != null) {
             updates["seekVersion"] = seekVersion
         }
 
         try {
-            roomDoc.update(updates).await()
+            // Enqueue history and playback atomically. No extra server read/transaction, and
+            // serialize enqueueing so overlapping broadcasts cannot overwrite newer history.
+            val write = synchronized(activityHistories) {
+                if (activities.isNotEmpty()) {
+                    val history = (activityHistories[normalizedCode].orEmpty() + activities)
+                        .distinctBy { it.id }.takeLast(RoomActivity.HISTORY_LIMIT)
+                    activityHistories[normalizedCode] = history
+                    updates["activity"] = history.map { it.toMap() }
+                }
+                roomDoc.update(updates)
+            }
+            write.await()
             android.util.Log.d("ListenTogether", "[Host Broadcast OK] room=$normalizedCode, isPlaying=$isPlaying, pos=${playbackPositionMs}ms, track=${currentTrack?.title}, seekVersion=$seekVersion")
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "[Host Broadcast Error] failed updating room $normalizedCode: ${e.message}", e)
         }
     }
+
+    private val activityHistories = mutableMapOf<String, List<RoomActivity>>()
 
     /** Host: start (or with nulls, cancel) the room's closing countdown that every member sees. */
     suspend fun setRoomClosing(roomCode: String, closingAtMs: Long?, reason: String?) {
@@ -554,7 +593,10 @@ class ListenTogetherManager(
                     "type" to command.type,
                     "positionMs" to command.positionMs,
                     "seq" to command.seq,
-                    "track" to command.track?.let(::trackToMap)
+                    "track" to command.track?.let(::trackToMap),
+                    "fromIndex" to command.fromIndex,
+                    "toIndex" to command.toIndex,
+                    "queueIds" to command.queueIds
                 )
             ).await()
     }
@@ -592,7 +634,11 @@ class ListenTogetherManager(
                 trySend(null)
                 return@addSnapshotListener
             }
-            trySend(parseRoomState(snapshot))
+            val state = parseRoomState(snapshot)
+            synchronized(activityHistories) {
+                if (normalizedCode !in activityHistories) activityHistories[normalizedCode] = state.activity
+            }
+            trySend(state)
         }
 
         roomListener = registration
@@ -626,6 +672,9 @@ class ListenTogetherManager(
                         type = type,
                         positionMs = (c["positionMs"] as? Number)?.toLong() ?: 0L,
                         seq = (c["seq"] as? Number)?.toLong() ?: 0L,
+                        fromIndex = (c["fromIndex"] as? Number)?.toInt() ?: -1,
+                        toIndex = (c["toIndex"] as? Number)?.toInt() ?: -1,
+                        queueIds = (c["queueIds"] as? List<*>)?.filterIsInstance<String>().orEmpty(),
                         track = (c["track"] as? Map<*, *>)?.let { m ->
                             val id = m["id"] as? String ?: return@let null
                             Track(
@@ -892,7 +941,8 @@ class ListenTogetherManager(
             currentVideoId = currentVideoId,
             closingAtMs = ((doc.get("closing") as? Map<*, *>)?.get("at") as? Number)?.toLong(),
             closingReason = (doc.get("closing") as? Map<*, *>)?.get("reason") as? String,
-            playerClosed = trackRaw?.get("closed") as? Boolean ?: false
+            playerClosed = trackRaw?.get("closed") as? Boolean ?: false,
+            activity = (doc.get("activity") as? List<*>).orEmpty().mapNotNull(RoomActivity::from)
         )
     }
 }

@@ -12,6 +12,53 @@ import org.junit.Test
 
 class ListenTogetherRoomRulesTest {
 
+    @Test
+    fun `queue edits follow add songs independently of playback and approval`() {
+        val edits = listOf(GuestCommand(GuestCommand.MOVE_QUEUE_ITEM), GuestCommand(GuestCommand.REMOVE_QUEUE_ITEM))
+        for (edit in edits) {
+            assertTrue(RoomSettings(guestsCanAddSongs = true).allows(edit))
+            assertTrue(RoomSettings(guestsCanAddSongs = true, requireApproval = true).allows(edit))
+            assertTrue(!RoomSettings(guestsCanAddSongs = false, guestsCanControlPlayback = true,
+                guestsCanPlaySongs = true, requireApproval = true).allows(edit))
+            assertTrue(!edit.changesSong)
+        }
+    }
+
+    @Test
+    fun `queue edits reject stale ordering and invalid destinations`() {
+        val queue = listOf("a", "b", "c").map { com.auralis.music.domain.model.Track(id = it) }
+        val edit = GuestCommand(GuestCommand.MOVE_QUEUE_ITEM, fromIndex = 0, toIndex = 2,
+            queueIds = queue.map { it.id })
+        assertTrue(edit.isValidQueueEdit(queue))
+        assertTrue(!edit.isValidQueueEdit(queue.reversed()))
+        assertTrue(!edit.isValidQueueEdit(queue.dropLast(1)))
+        assertTrue(!edit.copy(fromIndex = -1).isValidQueueEdit(queue))
+        assertTrue(!edit.copy(toIndex = 3).isValidQueueEdit(queue))
+        assertTrue(!edit.copy(toIndex = 0).isValidQueueEdit(queue))
+        assertTrue(!edit.copy(queueIds = emptyList()).isValidQueueEdit(queue))
+    }
+
+    @Test
+    fun `queue removals identify the selected duplicate by its original index`() {
+        val queue = listOf("a", "b", "a").map { com.auralis.music.domain.model.Track(id = it) }
+        val edit = GuestCommand(GuestCommand.REMOVE_QUEUE_ITEM, fromIndex = 2, queueIds = queue.map { it.id })
+        assertTrue(edit.isValidQueueEdit(queue))
+        assertTrue(!edit.isValidQueueEdit(listOf(queue[0], queue[2], queue[1])))
+        assertTrue(!edit.copy(fromIndex = 3).isValidQueueEdit(queue))
+        assertTrue(!edit.isValidQueueEdit(emptyList()))
+    }
+
+    @Test
+    fun `edits in a long shared queue map to the correct host indices`() {
+        val queue = (0 until 200).map { com.auralis.music.domain.model.Track(id = "song_$it") }
+        val (window, _) = com.auralis.music.data.sync.ListenTogetherSyncMath.queueWindow(queue, 120)
+        val edit = GuestCommand(GuestCommand.MOVE_QUEUE_ITEM, fromIndex = 2, toIndex = 5,
+            queueIds = window.map { it.id })
+        assertEquals(100, edit.queueEditOffset(queue, 120))
+        assertEquals(null, edit.queueEditOffset(queue, 5))
+        assertEquals(null, edit.queueEditOffset(emptyList(), 0))
+    }
+
     private val host = RoomMember(id = "h", name = "Host", isHost = true)
     private fun guest(seq: Long?, type: String = GuestCommand.NEXT) =
         RoomMember(id = "g", name = "Guest", command = seq?.let { GuestCommand(type, 0L, it) })

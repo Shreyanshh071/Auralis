@@ -46,7 +46,8 @@ data class SongPresentationActions(
     val isLyricsShown: (Track) -> Boolean = { false },
     val hideLyrics: (Track) -> Unit = {},
     /** Ambient mode and lyrics only make sense for the song that is playing. */
-    val isNowPlaying: (Track) -> Boolean = { false }
+    val isNowPlaying: (Track) -> Boolean = { false },
+    val openListenTogether: ((Track) -> Unit)? = null
 )
 
 val LocalSongPresentationActions = staticCompositionLocalOf<SongPresentationActions?> { null }
@@ -265,6 +266,9 @@ fun TrackOptionsMenu(
                 ) { togglePin() })
             }
             presentationActions?.takeIf { it.isNowPlaying(track) }?.let { actions ->
+                actions.openListenTogether?.let { open ->
+                    add(GlassMenuItem(str(R.string.listen_together), Icons.Default.Groups) { open(track) })
+                }
                 add(GlassMenuItem(str(R.string.ambient_mode), Icons.Default.Fullscreen) { actions.openAmbient(track) })
                 val lyricsShown = actions.isLyricsShown(track)
                 add(GlassMenuItem(str(if (lyricsShown) R.string.hide_lyrics else R.string.show_lyrics), Icons.Default.Lyrics) {
@@ -582,6 +586,10 @@ fun TrackOptionsMenu(
                     // ── GROUP 4: DOWNLOAD ──
                     presentationActions?.takeIf { it.isNowPlaying(track) }?.let { actions ->
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(actionCardColor)) {
+                            actions.openListenTogether?.let { open ->
+                                TrackOptionRow(icon = Icons.Default.Groups, title = str(R.string.listen_together), subtitle = null,
+                                    onClick = { onDismiss(); open(track) })
+                            }
                             TrackOptionRow(icon = Icons.Default.Fullscreen, title = str(R.string.ambient_mode), subtitle = null,
                                 onClick = { onDismiss(); actions.openAmbient(track) })
                             val lyricsShown = actions.isLyricsShown(track)
