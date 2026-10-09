@@ -1,6 +1,6 @@
 package com.auralis.music.data.network
 
-import android.util.Log
+import com.auralis.music.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -97,7 +97,7 @@ object YouTubeMusicLibrary {
     }
 
     /** One browse page's playlist cards and its continuation token (visible for tests). */
-    internal fun parsePage(json: JSONObject): Pair<List<LibraryPlaylist>, String?> {
+    fun parsePage(json: JSONObject): Pair<List<LibraryPlaylist>, String?> {
         val found = LinkedHashMap<String, LibraryPlaylist>()
         collectPlaylists(json, found)
         return found.values.toList() to findContinuation(json)

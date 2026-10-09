@@ -6,7 +6,7 @@ import com.auralis.music.domain.recommendations.SimilarSeedPlanner
 import com.auralis.music.domain.search.SearchQueryMatcher
 
 /** Rank only metadata already received. Extra lookups must never delay the first visible result. */
-internal fun searchPreview(query: String, sources: List<SearchResults>): SearchResults {
+fun searchPreview(query: String, sources: List<SearchResults>): SearchResults {
     val candidates = sources.flatMap { it.songs + listOfNotNull((it.topResult as? SearchTopResult.SongResult)?.track) }
         .distinctBy { it.id }
     val (songs, recommendations) = SearchQueryMatcher.partitionResults(candidates, query)
