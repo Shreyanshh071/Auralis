@@ -32,6 +32,16 @@ class SearchQueryMatcherTest {
         assertEquals("x", matches.first().id)
     }
 
+    @Test
+    fun `hugely popular partial title ranks above obscure exact titles`() {
+        val katseye = Track(id = "k", title = "Touch", artist = "KATSEYE", album = "Touch", views = "539M plays")
+        val omarion = Track(id = "o", title = "Touch", artist = "Omarion", album = "O", views = "36M plays")
+        val small = Track(id = "s", title = "Touch", artist = "Anno Domini Beats", album = "Touch", views = "104K plays")
+        val cascada = Track(id = "c", title = "Everytime We Touch (Radio Edit)", artist = "Cascada", album = "Everytime We Touch", views = "837M plays")
+        val (matches, _) = SearchQueryMatcher.partitionResults(listOf(small, omarion, cascada, katseye), "touch")
+        assertEquals(listOf("k", "c", "o", "s"), matches.map { it.id })
+    }
+
     private fun createTrack(id: String, title: String, artist: String, album: String? = null): Track {
         return Track(
             id = id,
