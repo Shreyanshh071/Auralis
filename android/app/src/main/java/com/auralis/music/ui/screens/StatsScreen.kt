@@ -1062,8 +1062,8 @@ fun StatsScreen(
                     onAddToQueue(trk)
                     selectedTrackForMenu = null
                 },
-                onGoToArtist = {
-                    onArtistClick(Artist(id = "", name = trk.artist))
+                onGoToArtist = { artistName ->
+                    onArtistClick(Artist(id = "", name = artistName))
                     selectedTrackForMenu = null
                 },
                 onAddToPlaylist = { playlist ->

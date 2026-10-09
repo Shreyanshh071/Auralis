@@ -2,6 +2,8 @@ package com.auralis.music.ui
 
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.layout
@@ -408,6 +410,8 @@ fun AuralisApp(
     var isProfileOpen by rememberSaveable { mutableStateOf(false) }
     var isHistoryOpen by rememberSaveable { mutableStateOf(false) }
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
+    // The credited artists of a multi-artist credit someone tapped, for the "Choose artist" picker.
+    var artistChoices by remember { mutableStateOf<List<com.auralis.music.domain.model.Artist>>(emptyList()) }
     var isAmbientOpen by rememberSaveable { mutableStateOf(false) }
     var isExternalCreatePlaylistOpen by remember { mutableStateOf(false) }
     var isHomeMenuOpen by remember { mutableStateOf(false) }
@@ -439,6 +443,28 @@ fun AuralisApp(
     }
 
     fun openArtistDetail(artist: com.auralis.music.domain.model.Artist) {
+        // A song credit like "benny blanco & Juice WRLD" is several artists: let the user pick one
+        // instead of opening whichever channel a search for the whole credit finds.
+        if (!artist.id.startsWith("UC")) {
+            val credits = com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(artist.name)
+            if (credits.size > 1) {
+                artistChoices = credits.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
+                // "Simon & Garfunkel" is one artist: if a channel carries the whole credit, offer it first.
+                coroutineScope.launch {
+                    val whole = try {
+                        kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                            viewModelProvider.searchRepository.searchArtists(artist.name)
+                        }?.firstOrNull {
+                            it.id.startsWith("UC") && com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) ==
+                                com.auralis.music.domain.search.SearchQueryMatcher.normalize(artist.name)
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+                    if (whole != null && artistChoices.size == credits.size &&
+                        artistChoices.map { it.name } == credits) artistChoices = listOf(whole) + artistChoices
+                }
+                return
+            }
+        }
         val alreadyInDetail = currentDestination == AppDestination.EXPLORE && searchUiState.detailStack.isNotEmpty()
         if (detailOriginDestination == null && currentDestination != AppDestination.EXPLORE) {
             detailOriginDestination = currentDestination
@@ -2430,6 +2456,28 @@ fun AuralisApp(
                     showMiniPlayerTrackOptions = false
                 },
                 onDismiss = { showMiniPlayerTrackOptions = false }
+            )
+        }
+
+        if (artistChoices.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = { artistChoices = emptyList() },
+                title = { Text(str(R.string.choose_artist)) },
+                text = {
+                    Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                        artistChoices.forEach { choice ->
+                            TextButton(
+                                onClick = {
+                                    artistChoices = emptyList()
+                                    openArtistDetail(choice)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text(choice.name, modifier = Modifier.fillMaxWidth()) }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { artistChoices = emptyList() }) { Text(str(R.string.cancel)) } }
             )
         }
 

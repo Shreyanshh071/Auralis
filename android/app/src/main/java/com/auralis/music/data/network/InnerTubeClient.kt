@@ -3,6 +3,7 @@ package com.auralis.music.data.network
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.TrackDeduplicator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -16,16 +17,31 @@ import org.json.JSONObject
 open class InnerTubeClient(
     private val client: OkHttpClient = NetworkClientProvider.okHttpClient
 ) {
+    private data class CachedSearch(val timeMs: Long, val results: SearchResults)
+    private val recentSearches = java.util.concurrent.ConcurrentHashMap<String, CachedSearch>()
+    private fun cachedSearch(query: String, params: String?): SearchResults? =
+        recentSearches[query.lowercase() + "|" + params.orEmpty()]?.takeIf {
+            System.nanoTime() / 1_000_000 - it.timeMs < 60_000L
+        }?.results
+    private fun rememberSearch(query: String, params: String?, results: SearchResults): SearchResults {
+        if (results.isNotEmpty()) {
+            if (recentSearches.size >= 48) recentSearches.entries.minByOrNull { it.value.timeMs }?.let { recentSearches.remove(it.key, it.value) }
+            recentSearches[query.lowercase() + "|" + params.orEmpty()] = CachedSearch(System.nanoTime() / 1_000_000, results)
+        }
+        return results
+    }
+
     companion object {
         private val ALBUM_TRACK_PLAYS = Regex("\"text\":\"([0-9.,]+[KMB]?) plays\"")
         private const val YT_MUSIC_API = "https://music.youtube.com/youtubei/v1"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        const val FILTER_SONGS = "EgWKAQIIAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
-        const val FILTER_VIDEOS = "EgWKAQIQAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
-        const val FILTER_ARTISTS = "EgWKAQIgAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
+        const val FILTER_SONGS = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"
+        const val FILTER_VIDEOS = "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D"
+        const val FILTER_ARTISTS = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D"
         const val FILTER_PLAYLISTS = "EgeKAQQoADgBahIQBRAJEAoQAxAOEAQQEBAVEBE%3D"
-        const val FILTER_ALBUMS = "EgWKAQIYAWoSEAUQCRAKEAMQDhAEEBAQFRAR"
+        const val FILTER_ALBUMS = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D"
+        private val releaseTypeCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     }
 
     /**
@@ -35,6 +51,7 @@ open class InnerTubeClient(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext SearchResults()
 
+        cachedSearch(trimmed, params)?.let { return@withContext it }
         try {
             val requestBody = createWebRemixContext(trimmed, params)
             val request = Request.Builder()
@@ -44,13 +61,30 @@ open class InnerTubeClient(
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext SearchResults()
-
-            val body = response.body?.string() ?: return@withContext SearchResults()
-            val json = JSONObject(body)
-            parseYtMusicSearchResults(json)
+            val body = client.searchBody(request, 15_000L)
+            rememberSearch(trimmed, params, parseYtMusicSearchResults(JSONObject(body)))
         } catch (e: Exception) {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            SearchResults(requestFailed = true)
+        }
+    }
+
+    /** Separate cancellable transport for requests replaced on every edit of the search field. */
+    open suspend fun searchLive(query: String, params: String? = null): SearchResults = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return@withContext SearchResults()
+        cachedSearch(trimmed, params)?.let { return@withContext it }
+        try {
+            val request = Request.Builder()
+                .url("$YT_MUSIC_API/search?prettyPrint=false")
+                .post(createWebRemixContext(trimmed, params).toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+            rememberSearch(trimmed, params, parseYtMusicSearchResults(JSONObject(client.searchBody(request, 15_000L))))
+        } catch (e: Exception) {
+            // Query cancellation must propagate so abandoned requests cannot publish results.
+            kotlin.coroutines.coroutineContext.ensureActive()
             SearchResults()
         }
     }
@@ -183,8 +217,7 @@ open class InnerTubeClient(
                 .header("Referer", "https://music.youtube.com/")
                 .header("Origin", "https://music.youtube.com")
                 .build()
-            val body = client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string() else null }
-                ?: return@withContext 0L to 0
+            val body = client.searchBody(request, 15_000L)
             val trackPlays = ALBUM_TRACK_PLAYS.findAll(body).map {
                 com.auralis.music.domain.search.SearchQueryMatcher.parsePlayCount(it.groupValues[1] + " plays")
             }.toList()
@@ -192,7 +225,48 @@ open class InnerTubeClient(
             // summing those would let a single outvote its own song, so it counts its biggest track.
             (if (trackPlays.size <= 4) trackPlays.maxOrNull() ?: 0L else trackPlays.sum()) to trackPlays.size
         } catch (_: Exception) {
+            kotlin.coroutines.coroutineContext.ensureActive()
             0L to 0
+        }
+    }
+
+    /**
+     * "single", "ep" or "album": the label YouTube Music puts on a release page ("Single • KATSEYE
+     * • 2025"), or null when it can't be read. Search results only say "album" for most uploads.
+     */
+    open suspend fun getReleaseType(browseId: String): String? = withContext(Dispatchers.IO) {
+        if (!browseId.startsWith("MPRE")) return@withContext null
+        releaseTypeCache[browseId]?.let { return@withContext it }
+        try {
+            val payload = JSONObject().apply {
+                put("context", JSONObject().put("client", JSONObject().apply {
+                    put("clientName", "WEB_REMIX")
+                    put("clientVersion", "1.20241028.01.00")
+                    put("hl", "en")
+                    put("gl", "US")
+                }))
+                put("browseId", browseId)
+            }
+            val request = Request.Builder()
+                .url("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+            // The page header's subtitle starts with the release type. Other releases' cards on the
+            // page carry the same kind of subtitle, so only the header's counts.
+            val body = client.searchBody(request, 6_000L)
+            val headerStart = body.indexOf("\"musicResponsiveHeaderRenderer\"").takeIf { it >= 0 } ?: return@withContext null
+            val type = Regex(""""subtitle":\{"runs":\[\{"text":"(Single|EP|Album)"""").find(body, headerStart)
+                ?.groupValues?.get(1)?.lowercase()
+            if (type != null) {
+                if (releaseTypeCache.size > 500) releaseTypeCache.clear()
+                releaseTypeCache[browseId] = type
+            }
+            type
+        } catch (_: Exception) {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            null
         }
     }
 
@@ -218,10 +292,7 @@ open class InnerTubeClient(
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext emptyList()
-
-            val body = response.body?.string() ?: return@withContext emptyList()
+            val body = client.searchBody(request, 15_000L)
             val json = JSONObject(body)
             val queueDatas = json.optJSONArray("queueDatas") ?: return@withContext emptyList()
 
@@ -899,18 +970,36 @@ open class InnerTubeClient(
         }
     }
 
+    /** "33.6M monthly audience" / "66 subscribers" -> the number, for telling same-named channels apart. */
+    private fun followerCount(text: String?): Long = com.auralis.music.domain.search.SearchQueryMatcher.parsePlayCount(
+        text?.let { Regex("""[\d.,]+\s*[KkMmBb]?""").find(it)?.value?.replace(" ", "") })
+
     suspend fun getArtistPage(artist: Artist): ArtistPage? = withContext(Dispatchers.IO) {
+        var resolvedArtist = artist
         try {
             var effectiveChannelId = artist.id
 
             // If channelId is not a real YouTube channel ID, search to resolve it
             if (!effectiveChannelId.startsWith("UC")) {
-                val searchArtists = search(artist.name, FILTER_ARTISTS)
-                val match = searchArtists.artists.firstOrNull { it.id.startsWith("UC") }
-                    ?: search(artist.name).artists.firstOrNull { it.id.startsWith("UC") }
+                val matcher = com.auralis.music.domain.search.SearchQueryMatcher
+                // "Juice WRLD" also matches "BABY juice WRLD" (66 subscribers) by containment, and
+                // the artist filter can list such an account first: a channel named exactly like the
+                // artist wins, and among equal names the most subscribed one is the official artist.
+                fun pick(candidates: List<Artist>): Artist? {
+                    val channels = candidates.filter { it.id.startsWith("UC") }
+                    val exact = channels.filter { matcher.normalize(it.name) == matcher.normalize(artist.name) }
+                    return exact.maxByOrNull { followerCount(it.subscribers) }
+                        ?: channels.filter { matcher.isAuthorMatch(it.name, artist.name) }
+                            .maxByOrNull { followerCount(it.subscribers) }
+                }
+                val filtered = search(artist.name, FILTER_ARTISTS).artists
+                val exactInFilter = filtered.any { it.id.startsWith("UC") && matcher.normalize(it.name) == matcher.normalize(artist.name) }
+                val match = if (exactInFilter) pick(filtered) else pick(filtered + search(artist.name).artists)
                 if (match != null) {
                     effectiveChannelId = match.id
+                    resolvedArtist = match
                 }
+                if (!effectiveChannelId.startsWith("UC")) throw java.io.IOException("Artist identity not resolved")
             }
 
             val requestBody = createBrowseContext(effectiveChannelId)
@@ -921,25 +1010,16 @@ open class InnerTubeClient(
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                // Fallback to search if browse fails
-                val searchHits = search("${artist.name} top songs")
-                return@withContext if (searchHits.songs.isNotEmpty()) {
-                    ArtistPage(
-                        artist = artist,
-                        bannerUrl = artist.thumbnail,
-                        topSongs = searchHits.songs
-                    )
-                } else null
-            }
-
-            val body = response.body?.string() ?: return@withContext null
+            val body = client.searchBody(request, 6_000L)
             val json = JSONObject(body)
 
             val header = json.optJSONObject("header")?.optJSONObject("musicImmersiveHeaderRenderer")
                 ?: json.optJSONObject("header")?.optJSONObject("musicVisualHeaderRenderer")
                 ?: json.optJSONObject("header")?.optJSONObject("musicHeaderRenderer")
+                ?: json.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")
+                ?: artistSections(json).let { sections ->
+                    (0 until sections.length()).firstNotNullOfOrNull { sections.optJSONObject(it)?.optJSONObject("musicResponsiveHeaderRenderer") }
+                }
 
             val artistName = header?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
                 ?.ifBlank { artist.name } ?: artist.name
@@ -972,7 +1052,7 @@ open class InnerTubeClient(
                     ?.optJSONObject("musicThumbnailRenderer")
                     ?.optJSONObject("thumbnail")
                     ?.optJSONArray("thumbnails")
-            var bannerUrl = getBestThumbnailUrl(bannerThumbs, null).ifBlank { artist.thumbnail }
+            var bannerUrl = getBestThumbnailUrl(bannerThumbs, null).ifBlank { resolvedArtist.thumbnail }
 
             // If banner is missing or the known all-black Donda square, resolve HD portrait via Wikipedia
             if (bannerUrl.isNullOrBlank() ||
@@ -980,7 +1060,7 @@ open class InnerTubeClient(
                 artistName.equals("Kanye West", ignoreCase = true) ||
                 artistName.equals("Ye", ignoreCase = true)
             ) {
-                val wikiPortrait = fetchWikipediaArtistPortrait(artistName)
+                val wikiPortrait = kotlinx.coroutines.withTimeoutOrNull(800L) { fetchWikipediaArtistPortrait(artistName) }
                 if (!wikiPortrait.isNullOrBlank()) {
                     bannerUrl = wikiPortrait
                 }
@@ -998,14 +1078,7 @@ open class InnerTubeClient(
             val singles = mutableListOf<PlaylistResult>()
             val similarArtists = mutableListOf<Artist>()
 
-            val sectionList = json.optJSONObject("contents")
-                ?.optJSONObject("singleColumnBrowseResultsRenderer")
-                ?.optJSONArray("tabs")
-                ?.optJSONObject(0)
-                ?.optJSONObject("tabRenderer")
-                ?.optJSONObject("content")
-                ?.optJSONObject("sectionListRenderer")
-                ?.optJSONArray("contents") ?: JSONArray()
+            val sectionList = artistSections(json)
 
             var albumShelvesSeen = 0
             for (i in 0 until sectionList.length()) {
@@ -1098,10 +1171,10 @@ open class InnerTubeClient(
                     (trkArtist.contains(targetName) || targetName.contains(trkArtist)) &&
                     !trk.title.contains("cover", ignoreCase = true) &&
                     !trk.title.contains("karaoke", ignoreCase = true)
-                }.ifEmpty { searchHits.songs }
+                }
             }
 
-            val finalArtist = artist.copy(
+            val finalArtist = resolvedArtist.copy(
                 id = effectiveChannelId,
                 name = artistName,
                 thumbnail = bannerUrl ?: artist.thumbnail,
@@ -1121,14 +1194,32 @@ open class InnerTubeClient(
                 radioPlaylistId = radioPlaylistId
             )
         } catch (e: Exception) {
-            val searchHits = search("${artist.name} top songs")
-            if (searchHits.songs.isNotEmpty()) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val songs = try { search(artist.name, FILTER_SONGS).songs.filter {
+                com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(it.artist, artist.name)
+            } } catch (_: Exception) { kotlinx.coroutines.currentCoroutineContext().ensureActive(); emptyList() }
+            if (songs.isNotEmpty()) {
                 ArtistPage(
-                    artist = artist,
-                    bannerUrl = artist.thumbnail,
-                    topSongs = searchHits.songs
+                    artist = resolvedArtist,
+                    bannerUrl = resolvedArtist.thumbnail,
+                    topSongs = songs
                 )
             } else null
+        }
+    }
+
+    internal fun artistSections(root: JSONObject): JSONArray {
+        val contents = root.optJSONObject("contents")
+        val browse = contents?.optJSONObject("singleColumnBrowseResultsRenderer")
+            ?: contents?.optJSONObject("twoColumnBrowseResultsRenderer")
+        val primary = browse?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
+        val secondary = browse?.optJSONObject("secondaryContents")?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents")
+        return JSONArray().apply {
+            listOfNotNull(primary, secondary).forEach { sections ->
+                for (i in 0 until sections.length()) put(sections.optJSONObject(i))
+            }
         }
     }
 
@@ -1339,6 +1430,12 @@ open class InnerTubeClient(
                     if (topResult == null && cardTop != null) {
                         topResult = cardTop
                     }
+                    val cardContents = cardShelf.optJSONArray("contents") ?: JSONArray()
+                    for (j in 0 until cardContents.length()) {
+                        cardContents.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer")?.let {
+                            parseMusicListItem(it, songs, artists, albums, playlists)
+                        }
+                    }
                 }
 
                 val shelf = section?.optJSONObject("musicShelfRenderer")
@@ -1348,6 +1445,16 @@ open class InnerTubeClient(
                         val item = shelfContents.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer")
                         if (item != null) {
                             parseMusicListItem(item, songs, artists, albums, playlists)
+                        }
+                    }
+                }
+                // Current general search wraps each result in itemSectionRenderer rather than
+                // musicShelfRenderer. Skipping it leaves only the top music-video card.
+                val items = section?.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")
+                if (items != null) {
+                    for (j in 0 until items.length()) {
+                        items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer")?.let {
+                            parseMusicListItem(it, songs, artists, albums, playlists)
                         }
                     }
                 }
@@ -1417,7 +1524,8 @@ open class InnerTubeClient(
             return SearchTopResult.ArtistResult(artist)
         } else if (onTapPageType == "MUSIC_PAGE_TYPE_ALBUM" || cardType.contains("album") || cardType.contains("ep") || cardType.contains("single") || (browseId != null && (browseId.startsWith("MPRE") || browseId.startsWith("OLAK")) && videoId.isNullOrBlank())) {
             val author = if (subParts.size > 1) subParts[1] else null
-            val album = PlaylistResult(id = browseId ?: "pl:$title:${author.orEmpty()}", title = title, thumbnail = thumbUrl.ifBlank { null }, author = author)
+            val album = PlaylistResult(id = browseId ?: "pl:$title:${author.orEmpty()}", title = title, thumbnail = thumbUrl.ifBlank { null }, author = author,
+                releaseType = cardType.takeIf { it == "album" || it == "single" || it == "ep" })
             if (albums.none { it.id == album.id }) {
                 albums.add(0, album)
             }
@@ -1544,7 +1652,7 @@ open class InnerTubeClient(
         var viewsStr: String? = null
         var itemType = ""
 
-        val typeKeywords = setOf("song", "video", "artist", "album", "single", "ep", "playlist")
+        val typeKeywords = setOf("song", "video", "artist", "album", "single", "ep", "playlist", "episode", "podcast")
 
         if (col1Runs != null) {
             // The subtitle is "•"-separated sections, e.g.
@@ -1611,7 +1719,7 @@ open class InnerTubeClient(
                         if (artistName == "Unknown Artist") artistName = text
                     }
                     text.matches(Regex("""\d+:\d+(:\d+)?""")) -> durationSec = parseDurationToSeconds(text)
-                    lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener") || lowerText.contains("subscriber") -> viewsStr = text
+                    lowerText.contains("play") || lowerText.contains("view") || lowerText.contains("listener") || lowerText.contains("subscriber") || lowerText.contains("audience") -> viewsStr = text
                     typeKeywords.contains(lowerText) -> itemType = lowerText
                     index == countIndex && artistName != "Unknown Artist" -> viewsStr = text
                     artistName == "Unknown Artist" -> artistName = text
@@ -1680,15 +1788,19 @@ open class InnerTubeClient(
         ) null else albumName
 
         if (itemPageType == "MUSIC_PAGE_TYPE_ARTIST" || itemType.contains("artist") || (browseId != null && browseId.startsWith("UC") && videoId.isNullOrBlank())) {
-            if (artists.none { it.id == browseId || it.name.equals(title, ignoreCase = true) }) {
-                artists.add(
-                    Artist(
-                        id = browseId ?: "yt:$title",
-                        name = title,
-                        thumbnail = thumbUrl.ifBlank { null },
-                        query = "$title top songs"
-                    )
-                )
+            val candidate = Artist(
+                id = browseId ?: "yt:$title",
+                name = title,
+                thumbnail = thumbUrl.ifBlank { null },
+                subscribers = viewsStr,
+                query = "$title top songs"
+            )
+            val sameName = artists.indexOfFirst { it.id == browseId || it.name.equals(title, ignoreCase = true) }
+            if (sameName < 0) {
+                artists.add(candidate)
+            } else if (artists[sameName].id != browseId && followerCount(viewsStr) > followerCount(artists[sameName].subscribers)) {
+                // Two channels with one name: keep the one more people follow (the official artist).
+                artists[sameName] = candidate
             }
         } else if (isAlbum && videoId.isNullOrBlank()) {
             val albumId = browseId ?: "pl:$title:$cleanArtist"
@@ -1698,7 +1810,8 @@ open class InnerTubeClient(
                         id = albumId,
                         title = title,
                         thumbnail = thumbUrl.ifBlank { null },
-                        author = cleanArtist
+                        author = cleanArtist,
+                        releaseType = itemType.takeIf { it == "album" || it == "single" || it == "ep" }
                     )
                 )
             }
@@ -1714,6 +1827,8 @@ open class InnerTubeClient(
                 )
             }
         } else if (!videoId.isNullOrBlank()) {
+            // Podcast episodes ("Episode • Sep 17 • Show") are not songs.
+            if (itemType == "episode" || itemType == "podcast") return
             if (songs.none { it.id == videoId }) {
                 songs.add(
                     Track(
@@ -1787,7 +1902,9 @@ open class InnerTubeClient(
         return JSONObject().apply {
             put("query", query)
             if (!params.isNullOrBlank()) put("params", params)
-            put("context", createClientContext())
+            put("context", createClientContext().apply {
+                getJSONObject("client").put("hl", "en").put("gl", "US")
+            })
         }
     }
 
@@ -1821,9 +1938,7 @@ open class InnerTubeClient(
                 .url(url)
                 .header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)")
                 .build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
-            val body = response.body?.string() ?: return@withContext null
+            val body = client.searchBody(request, 1_500L)
             val json = JSONObject(body)
             val pages = json.optJSONObject("query")?.optJSONObject("pages") ?: return@withContext null
             val firstKey = pages.keys().asSequence().firstOrNull() ?: return@withContext null
@@ -1837,9 +1952,8 @@ open class InnerTubeClient(
             val searchEncoded = java.net.URLEncoder.encode("${artistName.trim()} musician", "UTF-8")
             val searchUrl = "https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=$searchEncoded&gsrlimit=1&prop=pageimages&pithumbsize=1280&format=json"
             val searchReq = Request.Builder().url(searchUrl).header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)").build()
-            val searchResp = client.newCall(searchReq).execute()
-            if (searchResp.isSuccessful) {
-                val sBody = searchResp.body?.string() ?: return@withContext null
+            run {
+                val sBody = client.searchBody(searchReq, 1_500L)
                 val sJson = JSONObject(sBody)
                 val sPages = sJson.optJSONObject("query")?.optJSONObject("pages") ?: return@withContext null
                 val sKey = sPages.keys().asSequence().firstOrNull() ?: return@withContext null

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.SearchResults
+import com.auralis.music.domain.model.SearchTopResult
+import com.auralis.music.domain.search.SearchQueryMatcher
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.recognition.AudioRecognitionManager
 import com.auralis.music.domain.recognition.RecognitionHistoryItem
@@ -13,6 +15,9 @@ import com.auralis.music.domain.recognition.RecognitionMode
 import com.auralis.music.domain.recognition.RecognitionState
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -31,6 +36,7 @@ sealed interface ExploreDetail {
     data class Artist(
         val artistPage: ArtistPage,
         val isLoading: Boolean = false,
+        val loadFailed: Boolean = false,
         val stableKey: String = "artist:${artistPage.artist.id.ifBlank { artistPage.artist.name }}"
     ) : ExploreDetail {
         override val key: String get() = stableKey
@@ -53,6 +59,7 @@ data class SearchUiState(
     val recentQueries: List<String> = emptyList(),
     val isSearching: Boolean = false,
     val hasSubmittedSearch: Boolean = false,
+    val searchFailed: Boolean = false,
     val isRecognitionOpen: Boolean = false,
     val detailStack: List<ExploreDetail> = emptyList(),
     val selectedArtistPage: ArtistPage? = null,
@@ -102,6 +109,47 @@ class SearchViewModel(
     private var searchJob: Job? = null
     private var suggestionsJob: Job? = null
     private var liveSongsJob: Job? = null
+    private val liveSongCache = linkedMapOf<String, List<Track>>()
+    private val artistPages = java.util.concurrent.ConcurrentHashMap<String, ArtistPage>()
+    private val artistRequests = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ArtistPage?>>()
+
+    private fun artistPageRequest(artist: Artist): kotlinx.coroutines.Deferred<ArtistPage?> {
+        val key = artist.name.lowercase()
+        artistRequests[key]?.let { return it }
+        val request = viewModelScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            val page = try {
+                withTimeout(12_000L) {
+                    com.auralis.music.data.network.LocalizedContent.run { searchRepository.getArtistPage(artist) }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                null
+            }
+            if (page != null && (page.topSongs.isNotEmpty() || page.albums.isNotEmpty() || page.singles.isNotEmpty())) {
+                if (artistPages.size >= 24) artistPages.remove(artistPages.keys.first())
+                artistPages[key] = page
+            }
+            page
+        }
+        artistRequests[key] = request
+        request.invokeOnCompletion { artistRequests.remove(key, request) }
+        request.start()
+        return request
+    }
+
+    private fun preloadSearchArtists(results: SearchResults) {
+        val credits = com.auralis.music.domain.recommendations.SimilarSeedPlanner
+            .splitArtistCredit(results.songs.firstOrNull()?.artist)
+        val artists = listOfNotNull(results.primaryArtist).filter {
+            com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(it.name).size == 1
+        } + credits.map { name ->
+            results.artists.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                ?: Artist(id = "yt:$name", name = name)
+        } + results.artists
+        artists.distinctBy { it.name.lowercase() }.take(2).forEach { artist ->
+            if (artistPages[artist.name.lowercase()] == null) artistPageRequest(artist)
+        }
+    }
 
     fun onQueryChange(newQuery: String) {
         suggestionsJob?.cancel()
@@ -123,19 +171,23 @@ class SearchViewModel(
         }
 
         val trimmed = newQuery.trim()
+        val cacheKey = trimmed.lowercase()
         _uiState.update {
+            val reusable = SearchQueryMatcher.partitionResults(it.liveSongRecommendations, trimmed).first
             it.copy(
                 query = newQuery,
+                isSearching = false,
+                searchFailed = false,
                 hasSubmittedSearch = false,
                 suggestions = emptyList(),
-                liveSongRecommendations = emptyList(),
+                liveSongRecommendations = liveSongCache[cacheKey] ?: reusable.take(8),
                 searchResults = SearchResults()
             )
         }
 
         // 1. Fast text autocomplete suggestions (top 3)
         suggestionsJob = viewModelScope.launch {
-            delay(20)
+            delay(120)
             val suggestions = try {
                 searchRepository.getSuggestions(trimmed).take(3)
             } catch (_: Exception) {
@@ -148,14 +200,22 @@ class SearchViewModel(
 
         // 2. Direct song recommendations (ranked by popularity & views)
         liveSongsJob = viewModelScope.launch {
-            delay(30)
-            val songs = try {
-                com.auralis.music.data.network.LocalizedContent.run { searchRepository.searchSongs(trimmed) }
+            // Let a short burst of typing settle, then show either provider as soon as it arrives.
+            delay(120)
+            try {
+                searchRepository.searchLiveSongs(trimmed) { songs ->
+                    if (isActive && _uiState.value.query.trim() == trimmed && songs.isNotEmpty()) {
+                        val visible = songs.take(8)
+                        if (liveSongCache.size >= 24) liveSongCache.remove(liveSongCache.keys.first())
+                        liveSongCache[cacheKey] = visible
+                        _uiState.update { it.copy(liveSongRecommendations = visible) }
+                    }
+                }
+                if (isActive) preloadSearchArtists(SearchResults(songs = _uiState.value.liveSongRecommendations.take(1)))
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
-                emptyList()
-            }
-            if (isActive) {
-                _uiState.update { it.copy(liveSongRecommendations = songs.take(8)) }
+                // Keep already received songs if the optional second request fails.
             }
         }
     }
@@ -211,14 +271,19 @@ class SearchViewModel(
         liveSongsJob?.cancel()
         searchJob?.cancel()
 
+        val cachedSongs = liveSongCache[trimmed.lowercase()]
+            ?: _uiState.value.liveSongRecommendations.takeIf { _uiState.value.query.trim().equals(trimmed, ignoreCase = true) }
+            ?: emptyList()
+        val immediate = com.auralis.music.data.repository.searchPreview(trimmed, listOf(SearchResults(songs = cachedSongs)))
         _uiState.update {
             it.copy(
                 query = trimmed,
-                isSearching = true,
+                isSearching = immediate.isEmpty(),
+                searchFailed = false,
                 hasSubmittedSearch = true,
                 suggestions = emptyList(),
                 liveSongRecommendations = emptyList(),
-                searchResults = SearchResults(),
+                searchResults = immediate,
                 detailStack = emptyList(),
                 selectedArtistPage = null,
                 selectedAlbum = null
@@ -229,12 +294,29 @@ class SearchViewModel(
             val isPaused = context?.let { ctx ->
                 com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseSearchHistory
             } ?: false
-            if (!isPaused) {
-                searchRepository.recordSearchQuery(trimmed)
+            if (!isPaused) launch {
+                try { searchRepository.recordSearchQuery(trimmed) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { }
             }
-            val results = com.auralis.music.data.network.LocalizedContent.run { searchRepository.search(trimmed) }
+            val results = try {
+                searchRepository.search(trimmed) { received ->
+                    if (isActive && _uiState.value.hasSubmittedSearch && trimmed.equals(_uiState.value.query.trim(), ignoreCase = true)) {
+                        _uiState.update { it.copy(searchResults = received, isSearching = false, searchFailed = false) }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (isActive && trimmed.equals(_uiState.value.query.trim(), ignoreCase = true)) {
+                    _uiState.update { it.copy(isSearching = false, searchFailed = true) }
+                }
+                return@launch
+            }
             if (isActive && trimmed.equals(_uiState.value.query.trim(), ignoreCase = true)) {
-                _uiState.update { it.copy(searchResults = results, isSearching = false, hasSubmittedSearch = true) }
+                _uiState.update { it.copy(searchResults = results, isSearching = false, hasSubmittedSearch = true,
+                    searchFailed = results.requestFailed) }
+                preloadSearchArtists(results)
             }
         }
     }
@@ -247,11 +329,20 @@ class SearchViewModel(
         val state = _uiState.value
         when (val top = state.detailStack.lastOrNull()) {
             is ExploreDetail.Artist -> {
-                val page = com.auralis.music.data.network.LocalizedContent.run {
-                    searchRepository.getArtistPage(top.artistPage.artist)
-                } ?: return
+                val loaded = try {
+                    withTimeout(12_000L) { com.auralis.music.data.network.LocalizedContent.run {
+                        searchRepository.getArtistPage(top.artistPage.artist)
+                    } }
+                } catch (e: Exception) {
+                    if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                    null
+                }
+                val page = loaded?.let {
+                    if (it.topSongs.isEmpty()) it.copy(topSongs = top.artistPage.topSongs) else it
+                } ?: top.artistPage
                 _uiState.update { cur ->
-                    val stack = cur.detailStack.map { if (it === top) top.copy(artistPage = page, isLoading = false) else it }
+                    val stack = cur.detailStack.map { if (it === top) top.copy(artistPage = page, isLoading = false,
+                        loadFailed = page.topSongs.isEmpty()) else it }
                     cur.copy(
                         detailStack = stack,
                         selectedArtistPage = if (stack.lastOrNull() is ExploreDetail.Artist) page else cur.selectedArtistPage
@@ -275,9 +366,19 @@ class SearchViewModel(
             else -> {
                 val query = state.query.trim()
                 if (!state.hasSubmittedSearch || query.isBlank()) return
-                val results = com.auralis.music.data.network.LocalizedContent.run { searchRepository.search(query) }
+                val results = try {
+                    withTimeout(12_000L) {
+                        com.auralis.music.data.network.LocalizedContent.run { searchRepository.search(query) }
+                    }
+                } catch (e: Exception) {
+                    if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                    _uiState.update { cur ->
+                        if (cur.query.trim().equals(query, ignoreCase = true)) cur.copy(searchFailed = true) else cur
+                    }
+                    return
+                }
                 _uiState.update { cur ->
-                    if (cur.query.trim().equals(query, ignoreCase = true)) cur.copy(searchResults = results) else cur
+                    if (cur.query.trim().equals(query, ignoreCase = true)) cur.copy(searchResults = results, searchFailed = false) else cur
                 }
             }
         }
@@ -295,6 +396,7 @@ class SearchViewModel(
                 searchResults = SearchResults(),
                 isSearching = false,
                 hasSubmittedSearch = false,
+                searchFailed = false,
                 detailStack = emptyList(),
                 selectedArtistPage = null,
                 isLoadingArtist = false,
@@ -319,27 +421,31 @@ class SearchViewModel(
             artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail!!.contains("i.ytimg.com") && !artist.thumbnail!!.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") -> artist.thumbnail
             else -> null
         }
-        val initialPage = ArtistPage(artist = artist.copy(thumbnail = verifiedBanner ?: artist.thumbnail), bannerUrl = verifiedBanner)
-        val newEntry = ExploreDetail.Artist(artistPage = initialPage, isLoading = true)
+        val cachedPage = artistPages[artist.name.lowercase()]
+        val initialPage = cachedPage ?: ArtistPage(
+            artist = artist.copy(thumbnail = verifiedBanner ?: artist.thumbnail), bannerUrl = verifiedBanner)
+        val newEntry = ExploreDetail.Artist(artistPage = initialPage, isLoading = cachedPage == null)
 
         _uiState.update { current ->
             val updatedStack = if (resetStack) listOf(newEntry) else current.detailStack + newEntry
             current.copy(
                 detailStack = updatedStack,
                 selectedArtistPage = initialPage,
-                isLoadingArtist = true,
+                isLoadingArtist = cachedPage == null,
                 selectedAlbum = if (resetStack) null else current.selectedAlbum,
                 selectedAlbumTracks = if (resetStack) emptyList() else current.selectedAlbumTracks,
                 isLoadingAlbum = if (resetStack) false else current.isLoadingAlbum
             )
         }
 
+        if (cachedPage != null) return
+        val request = artistPageRequest(artist)
         viewModelScope.launch {
-            val page = com.auralis.music.data.network.LocalizedContent.run { searchRepository.getArtistPage(artist) } ?: initialPage
+            val page = request.await() ?: initialPage
             _uiState.update { current ->
                 val updatedStack = current.detailStack.map { detail ->
                     if (detail is ExploreDetail.Artist && (detail.artistPage.artist.id == artist.id || detail.artistPage.artist.name.equals(artist.name, ignoreCase = true))) {
-                        detail.copy(artistPage = page, isLoading = false)
+                        detail.copy(artistPage = page, isLoading = false, loadFailed = page.topSongs.isEmpty())
                     } else {
                         detail
                     }

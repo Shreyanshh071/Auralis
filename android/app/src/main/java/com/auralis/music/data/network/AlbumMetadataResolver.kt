@@ -3,6 +3,7 @@ package com.auralis.music.data.network
 import android.util.LruCache
 import com.auralis.music.domain.search.SearchQueryMatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
@@ -122,7 +123,9 @@ object AlbumMetadataResolver {
 
     private val compilationPattern = Regex(
         """(?i)\b(greatest hits|the hits|best of|the best|highlights|essentials|anthology|collection|the very best|hits|the singles|singles\s+(collection|\d)|b-sides|rarities|definitive|the complete|retrospective)\b""" +
-            """|\b(19|20)?\d{2}\s*[-–]\s*(19|20)?\d{2}\b"""
+            """|\b(19|20)?\d{2}\s*[-–]\s*(19|20)?\d{2}\b""" +
+            // Numbered series ("Pure Lovers, Vol. 2", "Piano Covers, Vol. 16") are compilations.
+            """|[,:]\s*vol(\.|ume)?\s*\d+"""
     )
 
     /**
@@ -213,7 +216,7 @@ object AlbumMetadataResolver {
                         return@withContext resolved
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
         }
 
         // 1. If this is a movie/show soundtrack track, e.g. "Apna Bana Le (From "Bhediya")",
@@ -247,7 +250,7 @@ object AlbumMetadataResolver {
                         return@withContext resolved
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
         }
 
         // Set when iTunes says the song's home is a single; reported instead of "nothing found".
@@ -265,10 +268,7 @@ object AlbumMetadataResolver {
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build()
 
-            val response = NetworkClientProvider.okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
-
-            val body = response.body?.string() ?: return@withContext null
+            val body = NetworkClientProvider.okHttpClient.searchBody(request, 15_000L)
             val json = JSONObject(body)
             val results = json.optJSONArray("results") ?: return@withContext null
 
@@ -409,7 +409,7 @@ object AlbumMetadataResolver {
                             break
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
 
                 val resolved = ResolvedAlbum(
                     // Label with the YouTube Music album's own title when we found it, so the name
@@ -426,7 +426,7 @@ object AlbumMetadataResolver {
                 }
                 return@withContext resolved
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
 
         // 3. Fallback: Search YouTube Music Albums directly with strict artist & mashup filtering
         try {
@@ -478,7 +478,7 @@ object AlbumMetadataResolver {
                     return@withContext resolved
                 }
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
 
         // A standalone single: say so, so "View album" can show "Single" instead of guessing.
         singleRelease?.let { release ->

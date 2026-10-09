@@ -14,11 +14,16 @@ import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.search.SearchQueryMatcher
 import com.auralis.music.data.network.AlbumMetadataResolver
 import com.auralis.music.data.network.NetworkClientProvider
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 import okhttp3.Request
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -33,61 +38,55 @@ class SearchRepositoryImpl(
     private val searchHistory: SearchHistoryStore
 ) : SearchRepository {
 
-    override suspend fun search(query: String): SearchResults = withContext(Dispatchers.IO) {
+    override suspend fun search(query: String): SearchResults = search(query) {}
+
+    override suspend fun search(query: String, onResults: (SearchResults) -> Unit): SearchResults = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext SearchResults()
 
         coroutineScope {
-            // Fetch official songs, albums, and artists in parallel with general search
-            val songsDeferred = async {
-                try {
-                    innerTubeClient.search(trimmed, InnerTubeClient.FILTER_SONGS).songs
-                } catch (e: Exception) {
-                    emptyList<Track>()
-                }
+            val responses = kotlinx.coroutines.channels.Channel<SearchResults>(4)
+            suspend fun fetch(params: String?): SearchResults {
+                val result = try { innerTubeClient.search(trimmed, params) }
+                catch (e: Exception) { kotlin.coroutines.coroutineContext.ensureActive(); SearchResults() }
+                responses.send(result)
+                return result
             }
+            val songsDeferred = async { fetch(InnerTubeClient.FILTER_SONGS).songs }
             val albumsDeferred = async {
-                try {
-                    val res = innerTubeClient.search(trimmed, InnerTubeClient.FILTER_ALBUMS)
-                    if (res.albums.isNotEmpty()) res.albums else res.playlists
-                } catch (e: Exception) {
-                    emptyList<PlaylistResult>()
-                }
+                val res = fetch(InnerTubeClient.FILTER_ALBUMS)
+                if (res.albums.isNotEmpty()) res.albums else res.playlists
             }
-            val artistsDeferred = async {
-                try {
-                    innerTubeClient.search(trimmed, InnerTubeClient.FILTER_ARTISTS).artists
-                } catch (e: Exception) {
-                    emptyList<Artist>()
-                }
-            }
-            val generalDeferred = async {
-                try {
-                    innerTubeClient.search(trimmed)
-                } catch (e: Exception) {
-                    SearchResults()
-                }
-            }
+            val artistsDeferred = async { fetch(InnerTubeClient.FILTER_ARTISTS).artists }
+            val generalDeferred = async { fetch(null) }
 
+            // Spelling suggestions are supplementary and cannot hold the submitted search open.
             val topSuggestionDeferred = async {
-                if (trimmed.length >= 2) {
-                    try {
-                        val sugs = suggestionsClient.getSuggestions(trimmed)
-                        val best = sugs.firstOrNull { it.isNotBlank() && !it.equals(trimmed, ignoreCase = true) }
-                        if (best != null) {
-                            innerTubeClient.search(best, InnerTubeClient.FILTER_SONGS).songs
-                        } else emptyList()
-                    } catch (_: Exception) {
-                        emptyList()
+                withTimeoutOrNull(3_000L) {
+                    if (trimmed.length < 2) emptyList() else {
+                        try {
+                            val best = suggestionsClient.getSuggestions(trimmed).firstOrNull {
+                                it.isNotBlank() && !it.equals(trimmed, ignoreCase = true)
+                            }
+                            if (best != null) innerTubeClient.search(best, InnerTubeClient.FILTER_SONGS).songs else emptyList()
+                        } catch (e: Exception) { kotlin.coroutines.coroutineContext.ensureActive(); emptyList() }
                     }
-                } else emptyList()
+                } ?: emptyList()
             }
-
-            val officialSongs: List<Track> = songsDeferred.await()
-            val officialAlbums: List<PlaylistResult> = albumsDeferred.await()
-            val officialArtists: List<Artist> = artistsDeferred.await()
-            val generalResults: SearchResults = generalDeferred.await()
-            val suggestionSongs: List<Track> = topSuggestionDeferred.await()
+            val received = mutableListOf<SearchResults>()
+            repeat(4) {
+                received += responses.receive()
+                val preview = searchPreview(trimmed, received)
+                if (preview.isNotEmpty()) onResults(preview)
+            }
+            if (received.all { it.isEmpty() } && received.any { it.requestFailed }) {
+                throw IOException("Search could not reach the music service")
+            }
+            val officialSongs = songsDeferred.await()
+            val officialAlbums = albumsDeferred.await()
+            val officialArtists = artistsDeferred.await()
+            val generalResults = generalDeferred.await()
+            val suggestionSongs = topSuggestionDeferred.await()
 
             val cardTrack = (generalResults.topResult as? SearchTopResult.SongResult)?.track
             val allSongs: List<Track> = (officialSongs + generalResults.songs + suggestionSongs + listOfNotNull(cardTrack)).distinctBy { it.id }
@@ -151,7 +150,24 @@ class SearchRepositoryImpl(
                         )
                     }
 
-                    // Matching title and artist alone does not establish the same recording or release.
+                    // Only match by title if the artist ALSO matches!
+                    val matchByTitleAndArtist = officialSongs
+                        .filter { cand ->
+                            !cand.thumbnail.isNullOrBlank() &&
+                            !cand.thumbnail.contains("i.ytimg.com/vi/") &&
+                            cand.title.equals(t.title, ignoreCase = true) &&
+                            SearchQueryMatcher.isAuthorMatch(cand.artist, t.artist)
+                        }
+                        .maxByOrNull { SearchQueryMatcher.parsePlayCount(it.views) }
+
+                    if (matchByTitleAndArtist != null && !matchByTitleAndArtist.thumbnail.isNullOrBlank()) {
+                        val bestViews = listOfNotNull(t.views, matchByTitleAndArtist.views).maxByOrNull { SearchQueryMatcher.parsePlayCount(it) } ?: t.views
+                        return t.copy(
+                            thumbnail = matchByTitleAndArtist.thumbnail,
+                            album = if (t.album.isNullOrBlank()) matchByTitleAndArtist.album else t.album,
+                            views = bestViews
+                        )
+                    }
                 }
                 return t
             }
@@ -261,32 +277,24 @@ class SearchRepositoryImpl(
             // leading candidates' own pages are read for their real per-track plays.
             // Capped so a slow album page can't hold up the whole search; without it the album is
             // judged by its songs in the results alone.
-            val relevantAlbumPages = (sameNameAlbums + rankedAlbums.filter { album ->
-                SearchQueryMatcher.evaluateAlbumMatch(album, trimmed)?.tier?.priority?.let { it <= SearchQueryMatcher.MatchTier.CLOSE_TITLE.priority } == true
-            }).filter { it.id.startsWith("MPRE") }.distinctBy { it.id }.take(8)
-            val pageInfo: Map<String, Pair<Long, Int>> = relevantAlbumPages.map { album ->
+            val pageInfo: Map<String, Pair<Long, Int>> = sameNameAlbums.take(2).map { album ->
                 async {
                     album.id to (kotlinx.coroutines.withTimeoutOrNull(2_500L) {
                         innerTubeClient.getAlbumPlays(album.id)
                     } ?: (0L to 0))
                 }
             }.associate { it.await() }
-            // A single or remix release can arrive through the album filter. Judge it against
-            // its own title track, not against the top song (which may be by another artist).
-            fun isSongRelease(album: PlaylistResult): Boolean = isTitleTrackRelease(
-                album = album,
-                songs = songsForPlays,
-                albumPlays = maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L),
-                pageTrackCount = pageInfo[album.id]?.second?.takeIf { it > 0 } ?: album.trackCount
-            )
+            // A release of up to four tracks by the song's own artist, named like the song, is that
+            // song's single ("creep", "blinding lights"): it never outranks the song itself.
+            fun isSongsOwnSingle(album: PlaylistResult): Boolean {
+                val song = topMatchedSong ?: return false
+                if (!topSongIsExactTitle || !SearchQueryMatcher.isAuthorMatch(song.artist, album.author.orEmpty())) return false
+                val tracks = pageInfo[album.id]?.second ?: 0
+                val plays = maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L)
+                return tracks in 1..4 || (tracks == 0 && plays <= topSongViews)
+            }
             fun totalAlbumPlays(album: PlaylistResult): Long =
-                if (isSongRelease(album)) {
-                    val titleTrackPlays = songsForPlays.filter {
-                        SearchQueryMatcher.normalize(it.title) == SearchQueryMatcher.normalize(album.title) &&
-                            SearchQueryMatcher.isAuthorMatch(it.artist, album.author.orEmpty())
-                    }.maxOfOrNull { SearchQueryMatcher.parsePlayCount(it.views) } ?: 0L
-                    minOf(maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L), titleTrackPlays)
-                }
+                if (isSongsOwnSingle(album)) minOf(maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L), topSongViews)
                 else maxOf(albumPlays(album), pageInfo[album.id]?.first ?: 0L)
             val queriedAlbum = sameNameAlbums.maxByOrNull { totalAlbumPlays(it) }
                 ?: exactAlbumMatch ?: ytmAlbumResult?.album?.takeIf { isYtmAlbumValidMatch }
@@ -359,16 +367,45 @@ class SearchRepositoryImpl(
                 else -> null
             }
 
-            val runnerUp = selectAlsoMatchingResult(
-                query = trimmed,
-                topResult = resolvedTopResult,
-                matchedSongs = finalMatchedSongs,
-                queriedAlbum = queriedAlbum,
-                queriedAlbumPlays = queriedAlbumPlays,
-                albumIsTitleTrackRelease = queriedAlbum?.let { isSongRelease(it) } ?: false
-            )
-            val runnerUpAlbumPlays = if (runnerUp is SearchTopResult.AlbumResult) queriedAlbumPlays
-                else (resolvedTopResult as? SearchTopResult.AlbumResult)?.let { queriedAlbumPlays } ?: 0L
+            // Both featured slots come from the same relevance/popularity ordering. They can
+            // be two songs, two albums, or one of each; a single is not a second copy of its song.
+            val albumCounts = sameNameAlbums.associate { it.id to totalAlbumPlays(it) }
+            val featuredRanking = rankMixedSearchResults(trimmed, finalMatchedSongs,
+                sameNameAlbums.filterNot { isSongsOwnSingle(it) }, albumCounts).let { ranked ->
+                // The same artist's same-named release needs more than 10% over the song itself
+                // (see albumBeatsSong): "creep" is Radiohead's song, with the Creep EP below it.
+                val first = ranked.firstOrNull() as? SearchTopResult.AlbumResult
+                val song = topMatchedSong
+                if (first != null && song != null && topSongIsExactTitle &&
+                    SearchQueryMatcher.isAuthorMatch(song.artist, first.album.author.orEmpty()) &&
+                    (albumCounts[first.album.id] ?: 0L) < topSongViews + topSongViews / 10) {
+                    val songEntry = ranked.firstOrNull { it is SearchTopResult.SongResult && it.track.id == song.id }
+                    if (songEntry != null) listOf(songEntry) + ranked.filterNot { it === songEntry } else ranked
+                } else ranked
+            }
+            if (resolvedTopResult !is SearchTopResult.ArtistResult && featuredRanking.isNotEmpty()) {
+                resolvedTopResult = featuredRanking.first()
+            }
+            // A query that names an artist ("daft punk") means the artist, unless an upload titled
+            // like them is actually more listened than all their songs here together.
+            val namedArtist = ytmArtistResult?.artist?.takeIf { isYtmArtistValidMatch }
+                ?: exactArtistMatch?.takeIf { it.id.startsWith("UC") }
+            if (namedArtist != null && resolvedTopResult !is SearchTopResult.ArtistResult) {
+                val norm = SearchQueryMatcher.normalize(namedArtist.name)
+                val artistPlays = songsForPlays.filter { song ->
+                    com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(song.artist)
+                        .any { SearchQueryMatcher.normalize(it) == norm }
+                }.sumOf { SearchQueryMatcher.parsePlayCount(it.views) }
+                val topPlays = when (val top = resolvedTopResult) {
+                    is SearchTopResult.SongResult -> SearchQueryMatcher.parsePlayCount(top.track.views)
+                    is SearchTopResult.AlbumResult -> albumCounts[top.album.id] ?: 0L
+                    else -> 0L
+                }
+                if (artistPlays > topPlays) resolvedTopResult = SearchTopResult.ArtistResult(namedArtist)
+            }
+            val runnerUp = if (resolvedTopResult is SearchTopResult.ArtistResult) null else featuredRanking.getOrNull(1)
+            val runnerUpAlbumPlays = (runnerUp as? SearchTopResult.AlbumResult)?.let { albumCounts[it.album.id] }
+                ?: (resolvedTopResult as? SearchTopResult.AlbumResult)?.let { albumCounts[it.album.id] } ?: 0L
 
             // Resolve Primary Artist (e.g. Radiohead for "OK Computer", Kanye West for "Graduation", Elley Duhé for "MIDDLE OF THE NIGHT")
             var primaryArtist: Artist? = when {
@@ -387,9 +424,16 @@ class SearchRepositoryImpl(
                         } else null
                 }
                 resolvedTopResult is SearchTopResult.SongResult -> {
-                    val songArtist = resolvedTopResult.track.artist
+                    // The first credited artist is the song's artist ("Darshan Raval, Asees Kaur & ..."),
+                    // not whichever co-credited name happens to come first in the artist results.
+                    // A duo credited as one act ("Simon & Garfunkel") keeps its whole name.
+                    val fullCredit = resolvedTopResult.track.artist
+                    val wholeAct = (enrichedArtists + officialArtists).find { it.name.equals(fullCredit, ignoreCase = true) }
+                    val songArtist = if (wholeAct != null) fullCredit else com.auralis.music.domain.recommendations.SimilarSeedPlanner
+                        .splitArtistCredit(fullCredit).firstOrNull() ?: fullCredit
                     if (songArtist.isNotBlank() && !songArtist.equals("Unknown Artist", ignoreCase = true) && !songArtist.equals("YouTube Artist", ignoreCase = true)) {
-                        enrichedArtists.find { it.name.equals(songArtist, ignoreCase = true) || songArtist.contains(it.name, ignoreCase = true) }
+                        enrichedArtists.find { it.name.equals(songArtist, ignoreCase = true) }
+                            ?: enrichedArtists.find { songArtist.contains(it.name, ignoreCase = true) }
                             ?: officialArtists.find { it.name.equals(songArtist, ignoreCase = true) }
                             ?: Artist(
                                 id = "yt:$songArtist",
@@ -415,24 +459,62 @@ class SearchRepositoryImpl(
                 else -> exactArtistMatch ?: enrichedArtists.firstOrNull()
             }
 
-            // Ensure primaryArtist has their real verified YouTube photo
-            if (primaryArtist != null && (primaryArtist.thumbnail.isNullOrBlank() || primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/"))) {
-                val realArtist = officialArtists.find { it.name.equals(primaryArtist.name, ignoreCase = true) }
-                    ?: generalResults.artists.find { it.name.equals(primaryArtist.name, ignoreCase = true) }
+            // The remaining lookups are independent network calls: run them together so the full
+            // results cost the slowest one, not their sum.
+            val topTrackForAlbum = (resolvedTopResult as? SearchTopResult.SongResult)?.track
+            val artistNeedingPhoto = primaryArtist?.takeIf { it.thumbnail.isNullOrBlank() || it.thumbnail!!.contains("i.ytimg.com/vi/") }
+            val artistPhotoDeferred = async {
+                val artistName = artistNeedingPhoto?.name ?: return@async null
+                officialArtists.find { it.name.equals(artistName, ignoreCase = true) }
+                    ?: generalResults.artists.find { it.name.equals(artistName, ignoreCase = true) }
                     ?: try {
-                        val artistSearch = innerTubeClient.search(primaryArtist.name, InnerTubeClient.FILTER_ARTISTS).artists
-                        artistSearch.firstOrNull {
-                            it.name.equals(primaryArtist.name, ignoreCase = true) || it.name.contains(primaryArtist.name, ignoreCase = true)
-                        } ?: artistSearch.firstOrNull()
-                    } catch (_: Exception) { null }
-
-                if (realArtist != null && !realArtist.thumbnail.isNullOrBlank()) {
-                    primaryArtist = primaryArtist.copy(
-                        id = if (realArtist.id.startsWith("UC")) realArtist.id else primaryArtist.id,
-                        thumbnail = realArtist.thumbnail
-                    )
+                        val artistSearch = withTimeoutOrNull(3_000L) { innerTubeClient.search(artistName, InnerTubeClient.FILTER_ARTISTS).artists } ?: emptyList()
+                        val norm = SearchQueryMatcher.normalize(artistName)
+                        artistSearch.firstOrNull { it.id.startsWith("UC") && SearchQueryMatcher.normalize(it.name) == norm }
+                            ?: artistSearch.firstOrNull { it.name.contains(artistName, ignoreCase = true) }
+                    } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+            }
+            // Songs that arrived without their album (general results leave it out) get it from
+            // YouTube Music's own record of each upload, in one batched request.
+            val albumLookupIds = (listOfNotNull(topTrackForAlbum?.id) +
+                finalMatchedSongs.filter { it.album.isNullOrBlank() }.map { it.id }).distinct().take(25)
+            val queueDeferred = async {
+                if (albumLookupIds.isEmpty()) emptyMap() else try {
+                    (withTimeoutOrNull(2_500L) { innerTubeClient.getQueue(albumLookupIds) } ?: emptyList())
+                        .associateBy { it.id }
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyMap<String, Track>() }
+            }
+            // A song whose release is named like the song may be a single or an album's title
+            // track: its release page says which ("Single • 2024" / "Album • 2020").
+            val ambiguousReleaseIds = finalMatchedSongs.take(12)
+                .filter { !it.albumId.isNullOrBlank() && AlbumMetadataResolver.isRedundantOrSingle(it.album, it.title) }
+                .mapNotNull { it.albumId }.distinct()
+                .filter { id -> allAlbums.none { it.id == id && it.releaseType != null } }
+            val releaseTypeDeferreds = ambiguousReleaseIds.map { id ->
+                async {
+                    id to try { withTimeoutOrNull(2_500L) { innerTubeClient.getReleaseType(id) } }
+                        catch (e: CancellationException) { throw e } catch (_: Exception) { null }
                 }
             }
+            val topNeedsResolving = topTrackForAlbum != null &&
+                (AlbumMetadataResolver.needsResolving(topTrackForAlbum.album, topTrackForAlbum.title) ||
+                    topTrackForAlbum.albumId.isNullOrBlank() || topTrackForAlbum.album.isNullOrBlank())
+            val resolverDeferred = async {
+                if (!topNeedsResolving) null else try {
+                    withTimeoutOrNull(4_000L) {
+                        AlbumMetadataResolver.resolveAlbum(topTrackForAlbum!!.title, primaryArtist?.name ?: topTrackForAlbum.artist, innerTubeClient)
+                    }
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+            }
+
+            val realArtist = artistPhotoDeferred.await()
+            if (primaryArtist != null && realArtist != null && !realArtist.thumbnail.isNullOrBlank() && artistNeedingPhoto != null) {
+                primaryArtist = primaryArtist.copy(
+                    id = if (realArtist.id.startsWith("UC")) realArtist.id else primaryArtist.id,
+                    thumbnail = realArtist.thumbnail
+                )
+            }
+            val queueTracks: Map<String, Track> = queueDeferred.await()
 
             // Set when the album service confirmed a full album, e.g. "After Hours" by The Weeknd:
             // named like its title track, but 14 songs, not a single.
@@ -456,11 +538,10 @@ class SearchRepositoryImpl(
                         )
                     } else {
                         // 2. Resolve authentic studio album via AlbumMetadataResolver (Apple Music / iTunes + YTM)
-                        val resolved = try {
-                            AlbumMetadataResolver.resolveAlbum(track.title, targetArtist, innerTubeClient)
-                        } catch (_: Exception) { null }
+                        val resolved = resolverDeferred.await()
 
-                        if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank()) {
+                        if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() &&
+                            !AlbumMetadataResolver.isCompilation(resolved.albumTitle)) {
                             albumConfirmedNotSingle = true
                             val updatedTrack = track.copy(
                                 album = resolved.albumTitle,
@@ -475,9 +556,7 @@ class SearchRepositoryImpl(
                             )
                         } else {
                             // 3. Fetch authentic album metadata via getSongDetails (InnerTube get_queue)
-                            val detailedTrack = try {
-                                innerTubeClient.getSongDetails(track.id)
-                            } catch (_: Exception) { null }
+                            val detailedTrack = queueTracks[track.id]
 
                             if (detailedTrack != null && !detailedTrack.albumId.isNullOrBlank() && !detailedTrack.album.isNullOrBlank() && !AlbumMetadataResolver.needsResolving(detailedTrack.album, track.title)) {
                                 resolvedTopResult = SearchTopResult.SongResult(
@@ -525,7 +604,7 @@ class SearchRepositoryImpl(
             }
 
             val finalAlbums = if (primaryAlbum != null) {
-                listOf(primaryAlbum) + rankedAlbums.filterNot { it.id == primaryAlbum.id }
+                listOf(primaryAlbum) + rankedAlbums.filterNot { it.id == primaryAlbum.id || it.title.equals(primaryAlbum.title, ignoreCase = true) }
             } else {
                 rankedAlbums
             }
@@ -533,7 +612,12 @@ class SearchRepositoryImpl(
             // Propagate resolved authentic album to matching songs
             val resolvedTopTrack = (resolvedTopResult as? SearchTopResult.SongResult)?.track
             val resolvedCleanTopTitle = resolvedTopTrack?.let { AlbumMetadataResolver.cleanTrackTitle(it.title).lowercase() }
-            val finalSongsWithAlbums = finalMatchedSongs.map { s ->
+            val finalSongsWithAlbums = finalMatchedSongs.map { song ->
+                val known = queueTracks[song.id]
+                if (song.album.isNullOrBlank() && known != null && !known.album.isNullOrBlank()) {
+                    song.copy(album = known.album, albumId = known.albumId ?: song.albumId)
+                } else song
+            }.map { s ->
                 if (resolvedTopTrack != null && !resolvedTopTrack.album.isNullOrBlank()) {
                     val sCleanTitle = AlbumMetadataResolver.cleanTrackTitle(s.title).lowercase()
                     val isArtistMatch = SearchQueryMatcher.isAuthorMatch(s.artist, resolvedTopTrack.artist)
@@ -547,13 +631,29 @@ class SearchRepositoryImpl(
                 }
             }
 
-            val albumPlayCounts = finalAlbums.associate { it.id to totalAlbumPlays(it) }
-            val rankedMatches = rankMixedSearchResults(trimmed, finalSongsWithAlbums, finalAlbums, albumPlayCounts)
+            // Searching an artist ("radiohead") means their songs, most played first, not uploads
+            // that only mention the name in their title ("Radiohead - Creep // Español + Lyrics").
+            val searchedArtist = (resolvedTopResult as? SearchTopResult.ArtistResult)?.artist
+            val orderedSongs = if (searchedArtist == null) finalSongsWithAlbums else {
+                val norm = SearchQueryMatcher.normalize(searchedArtist.name)
+                val byArtist = { t: Track ->
+                    com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(t.artist)
+                        .any { SearchQueryMatcher.normalize(it) == norm }
+                }
+                val ownSongs = (finalSongsWithAlbums + allSongs.map { upgradeTrackThumb(it) })
+                    .filter(byArtist).distinctBy { it.id }
+                    .sortedWith(compareByDescending<Track> { SearchQueryMatcher.parsePlayCount(it.views) }
+                        .thenBy { AlbumMetadataResolver.isRedundantOrSingle(it.album, it.title) })
+                    // The single and the album upload of one song are one entry: the most played, and
+                    // the album's copy when they tie.
+                    .distinctBy { SearchQueryMatcher.normalize(AlbumMetadataResolver.cleanTrackTitle(it.title)) }
+                ownSongs + finalSongsWithAlbums.filterNot { song -> ownSongs.any { it.id == song.id } }
+            }
 
             SearchResults(
                 topResult = resolvedTopResult,
-                recommendations = finalRecommendations,
-                songs = finalSongsWithAlbums,
+                recommendations = finalRecommendations.filterNot { rec -> orderedSongs.any { it.id == rec.id } },
+                songs = orderedSongs,
                 albums = finalAlbums,
                 artists = finalArtists,
                 playlists = generalResults.playlists,
@@ -561,9 +661,32 @@ class SearchRepositoryImpl(
                 primaryAlbum = primaryAlbum,
                 runnerUp = runnerUp,
                 albumPlays = runnerUpAlbumPlays,
-                rankedMatches = rankedMatches,
-                albumPlayCounts = albumPlayCounts
+                albumPlayCounts = albumCounts,
+                requestFailed = received.any { it.requestFailed },
+                releaseTypes = allAlbums.mapNotNull { a -> a.releaseType?.let { a.id to it } }.toMap() +
+                    releaseTypeDeferreds.mapNotNull { d -> d.await().let { (id, type) -> type?.let { id to it } } }
             )
+        }
+    }
+
+    override suspend fun searchLiveSongs(query: String, onResults: (List<Track>) -> Unit) = coroutineScope {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return@coroutineScope
+        val responses = kotlinx.coroutines.channels.Channel<Pair<Boolean, List<Track>>>(2)
+        listOf(true, false).forEach { filtered ->
+            launch(Dispatchers.IO) {
+                val songs = innerTubeClient.searchLive(trimmed, if (filtered) InnerTubeClient.FILTER_SONGS else null).songs
+                responses.send(filtered to songs)
+            }
+        }
+        var filteredSongs = emptyList<Track>()
+        var generalSongs = emptyList<Track>()
+        repeat(2) {
+            val (filtered, songs) = responses.receive()
+            if (filtered) filteredSongs = songs else generalSongs = songs
+            val candidates = (filteredSongs + generalSongs).distinctBy { it.id }
+            val (matched, remaining) = SearchQueryMatcher.partitionResults(candidates, trimmed)
+            if (candidates.isNotEmpty()) onResults(if (matched.isNotEmpty()) matched else remaining.take(10))
         }
     }
 
@@ -810,6 +933,7 @@ class SearchRepositoryImpl(
 
             return@withContext emptyList()
         } catch (_: Exception) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             emptyList()
         }
     }

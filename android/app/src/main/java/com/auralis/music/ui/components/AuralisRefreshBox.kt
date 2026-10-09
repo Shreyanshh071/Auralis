@@ -18,7 +18,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -31,7 +30,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.dynamicPrimary
-import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -91,15 +89,19 @@ fun AuralisRefreshBox(
     content: @Composable BoxScope.() -> Unit
 ) {
     var refreshing by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    // Start only after Compose has applied isRefreshing=true to the pull modifier.
+    // A no-op (e.g. search history) or cache hit can otherwise set true and false in
+    // the same frame, leaving Material's release animation parked at the threshold.
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            try { refresh() } finally { refreshing = false }
+        }
+    }
     AuralisRefreshBox(
         isRefreshing = refreshing,
         onRefresh = {
             if (!refreshing) {
                 refreshing = true
-                scope.launch {
-                    try { refresh() } finally { refreshing = false }
-                }
             }
         },
         modifier = modifier,

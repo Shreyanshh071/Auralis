@@ -1009,8 +1009,8 @@ fun HomeScreen(
             onStartRadio = { onStartRadio(track) },
             isPinned = isPinned,
             onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
-            onGoToArtist = {
-                onArtistClick(Artist(id = "", name = track.artist))
+            onGoToArtist = { artistName ->
+                onArtistClick(Artist(id = "", name = artistName))
             },
             onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
                 val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)

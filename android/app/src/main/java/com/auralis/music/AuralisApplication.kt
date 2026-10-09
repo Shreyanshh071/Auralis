@@ -40,6 +40,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         if (timber.log.Timber.treeCount == 0) timber.log.Timber.plant(timber.log.Timber.DebugTree())
         com.zemer.cipher.ZemerCipher.initialize(this)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            kotlinx.coroutines.delay(1000L)
             try {
                 com.auralis.music.data.network.AudioStreamResolver.init(this@AuralisApplication)
                 com.auralis.music.data.download.AuralisDownloadManager.init(this@AuralisApplication)

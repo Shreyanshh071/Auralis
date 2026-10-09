@@ -20,7 +20,12 @@ data class SearchResults(
     // Total plays of the same-named album (top result or runner-up), for its subtitle.
     val albumPlays: Long = 0L,
     val rankedMatches: List<SearchTopResult> = emptyList(),
-    val albumPlayCounts: Map<String, Long> = emptyMap()
+    val albumPlayCounts: Map<String, Long> = emptyMap(),
+    val requestFailed: Boolean = false,
+    // Release id -> "single" / "ep" / "album" as YouTube Music labels it, so a song row can say
+    // "Single" or name its album even when the album shares the song's title.
+    val releaseTypes: Map<String, String> = emptyMap(),
+    val isComplete: Boolean = true
 ) {
     fun isEmpty(): Boolean = topResult == null && rankedMatches.isEmpty() && songs.isEmpty() && albums.isEmpty() && recommendations.isEmpty() && artists.isEmpty() && playlists.isEmpty() && primaryArtist == null && primaryAlbum == null
     fun isNotEmpty(): Boolean = !isEmpty()

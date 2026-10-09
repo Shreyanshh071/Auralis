@@ -2233,9 +2233,9 @@ fun NowPlayingModal(
             // These three were never wired for the player's own ⋮ sheet, so "Start radio",
             // "View artist" and "View album" silently did nothing from the player.
             onStartRadio = { onStartRadioTrack(track) },
-            onGoToArtist = {
+            onGoToArtist = { artistName ->
                 onArtistClick?.invoke(com.auralis.music.domain.model.Artist(
-                    id = "", name = track.artist, thumbnail = track.thumbnail
+                    id = "", name = artistName
                 ))
             },
             onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
@@ -2269,9 +2269,9 @@ fun NowPlayingModal(
                 if (removeIndex < 0 || removeIndex == uiState.currentIndex) null else { { remove(removeIndex) } }
             },
             onStartRadio = { onStartRadioTrack(selectedTrack) },
-            onGoToArtist = {
+            onGoToArtist = { artistName ->
                 onArtistClick?.invoke(com.auralis.music.domain.model.Artist(
-                    id = "", name = selectedTrack.artist, thumbnail = selectedTrack.thumbnail
+                    id = "", name = artistName
                 ))
             },
             onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
