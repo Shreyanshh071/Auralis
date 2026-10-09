@@ -1,6 +1,7 @@
 package com.auralis.music.data.network
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -22,26 +23,18 @@ class SearchSuggestionsClient(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
 
-        // 1. Ultra-fast Google Suggestion API (< 20ms response time)
+        // 1. Google text suggestions, cancelled when the query changes
         try {
             val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&hl=${ContentLocale.hl()}&gl=${ContentLocale.gl()}&q=$encoded"
+            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=$encoded"
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (!body.isNullOrBlank()) {
-                    val parsed = parseSuggestionsJson(body)
-                    if (parsed.isNotEmpty()) {
-                        return@withContext parsed
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+            val parsed = parseSuggestionsJson(client.searchBody(request, 30_000L))
+            if (parsed.isNotEmpty()) return@withContext parsed
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
 
         // 2. Fallback: YouTube Music InnerTube Suggestion Engine
         try {
@@ -51,8 +44,8 @@ class SearchSuggestionsClient(
                     put("client", JSONObject().apply {
                         put("clientName", "WEB_REMIX")
                         put("clientVersion", "1.20241201.01.00")
-                        put("hl", ContentLocale.hl())
-                        put("gl", ContentLocale.gl())
+                        put("hl", "en")
+                        put("gl", "US")
                     })
                 })
             }
@@ -64,17 +57,9 @@ class SearchSuggestionsClient(
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (!body.isNullOrBlank()) {
-                    val ytmSuggestions = parseYtMusicSuggestionsJson(body)
-                    if (ytmSuggestions.isNotEmpty()) {
-                        return@withContext ytmSuggestions
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+            val parsed = parseYtMusicSuggestionsJson(client.searchBody(request, 30_000L))
+            if (parsed.isNotEmpty()) return@withContext parsed
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
 
         emptyList()
     }

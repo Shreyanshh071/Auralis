@@ -18,6 +18,7 @@ internal class LaunchLogoView(context: Context, private val onRemoved: () -> Uni
         scaleType = ImageView.ScaleType.FIT_CENTER
     }
     private var started = false
+    private val removeOverlay = Runnable { (parent as? ViewGroup)?.removeView(this) }
     private val callback = object : Animatable2.AnimationCallback() {
         override fun onAnimationEnd(drawable: Drawable?) {
             // Keep the backdrop opaque: fading this whole container exposes Home
@@ -39,11 +40,27 @@ internal class LaunchLogoView(context: Context, private val onRemoved: () -> Uni
     fun reveal() {
         if (started) return
         started = true
-        // Establish a hardware-rendered first frame before starting the native vector animator.
-        icon.postOnAnimation { mark.start() }
+        val animateVisibleMark = Runnable {
+            icon.postOnAnimation {
+                if (isAttachedToWindow) {
+                    mark.start()
+                    // Allow the original 850ms drawing and 160ms fade to finish.
+                    postDelayed(removeOverlay, 2_000L)
+                }
+            }
+        }
+        // Posting to the next vsync alone can start RenderThread's animator before Compose's
+        // first expensive frame reaches the screen. Wait for that frame to be committed first.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && isHardwareAccelerated) {
+            viewTreeObserver.registerFrameCommitCallback(animateVisibleMark)
+            invalidate()
+        } else {
+            post(animateVisibleMark)
+        }
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(removeOverlay)
         mark.unregisterAnimationCallback(callback)
         mark.stop()
         icon.animate().cancel()

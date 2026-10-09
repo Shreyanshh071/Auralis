@@ -79,6 +79,8 @@ private val PILL_BG: Color
 fun ArtistScreen(
     artistPage: ArtistPage,
     isLoading: Boolean,
+    loadFailed: Boolean = false,
+    onRetry: () -> Unit = {},
     currentTrackId: String?,
     isPlaying: Boolean,
     userPlaylists: List<Playlist> = emptyList(),
@@ -564,17 +566,20 @@ fun ArtistScreen(
                 }
             } else if (artistPage.topSongs.isEmpty()) {
                 item {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(24.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = str(R.string.no_songs_found_for_this_artist),
+                            text = str(if (loadFailed) R.string.artist_load_failed else R.string.no_songs_found_for_this_artist),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (loadFailed) {
+                            TextButton(onClick = onRetry) { Text(str(R.string.retry)) }
+                        }
                     }
                 }
             } else {

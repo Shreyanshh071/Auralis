@@ -151,6 +151,10 @@
     <string name="x_offline_songs_available">%1$s offline songs available</string>
     <string name="downloading">Downloading</string>
     <string name="retry">Retry</string>
+    <string name="search_unavailable">Could not load search results</string>
+    <string name="artist_load_failed">Could not load this artist. Please try again.</string>
+    <string name="choose_artist">Choose artist</string>
+    <string name="search_unavailable_detail">The search service is taking too long or could not be reached. Please try again.</string>
     <string name="folder_options">Folder options</string>
     <string name="retry_download">Retry download</string>
     <string name="delete_downloads">Delete downloads</string>

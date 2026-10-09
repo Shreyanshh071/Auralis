@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // A recreated activity (display/text-size change) has no new system splash
         // exit callback. Keep its restored screen instead of adding a stuck overlay.
-        if (savedInstanceState == null) holdSplashUntilHomeArtworkIsReady()
+        if (savedInstanceState == null) showFastLaunch()
         else launchTouchGate.splashRemoved()
         DiscordSocialSdkInit.setEngineActivity(this)
         liveNavDestination.value = extractNavDestination(intent)
@@ -156,7 +156,6 @@ class MainActivity : ComponentActivity() {
 
         Log.d("AuralisPlayback", "[MainActivity] onCreate - connected to AuralisAudioPlayer (track=${audioPlayer.currentTrack.value?.title}, isPlaying=${audioPlayer.isPlaying.value})")
 
-        com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
         val googleAccountSyncManager = GoogleAccountSyncManager(
             context = applicationContext,
             libraryRepository = libraryRepository,
@@ -165,6 +164,7 @@ class MainActivity : ComponentActivity() {
         )
         // Defer cloud sync slightly past initial frame draw so DB/network doesn't contend with cold startup
         lifecycleScope.launch(Dispatchers.IO) {
+            com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
             kotlinx.coroutines.delay(3000L)
             googleAccountSyncManager.startContinuousCloudSync(this)
             // Listening stats live on the account too, so a reinstall doesn't wipe them.
@@ -173,6 +173,7 @@ class MainActivity : ComponentActivity() {
 
         // Background update check & notification on startup
         lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(1000L)
             try {
                 val updaterStore = com.auralis.music.data.datastore.UpdaterDataStore(applicationContext)
                 val autoCheck = updaterStore.settingsFlow.first().autoCheckUpdates
@@ -414,46 +415,16 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    /**
-     * Makes launch one smooth motion instead of splash -> Home with empty tiles -> artwork popping in:
-     * - Speed dial covers (first page) are decoded into memory while the launch screen is still up,
-     *   using the same URL and size the tiles request, so Home's first frame is already complete.
-     * - The first frame waits for that, never longer than [SPLASH_HOLD_MAX_MS].
-     * - The system splash shows three dots. A native vector grows their paths in one
-     *   fixed-size view, then dissolves directly into the prepared first frame.
-     */
-    private fun holdSplashUntilHomeArtworkIsReady() {
+    /** Shows the first Home frame without waiting for image downloads or decoding. */
+    private fun showFastLaunch() {
         val startMs = android.os.SystemClock.uptimeMillis()
-        val artworkReady = java.util.concurrent.atomic.AtomicBoolean(false)
-        lifecycleScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.withTimeoutOrNull(SPLASH_HOLD_MAX_MS) {
-                val pages = com.auralis.music.data.datastore.HomeRecommendationsCache.getCachedSpeedDial(applicationContext)
-                val loader = coil.Coil.imageLoader(applicationContext)
-                kotlinx.coroutines.coroutineScope {
-                    pages.firstOrNull().orEmpty().mapNotNull { it.image?.takeIf { url -> url.isNotBlank() } }
-                        .map { raw ->
-                            val url = com.auralis.music.ui.components.getOptimizedThumbnailUrl(raw) ?: raw
-                            launch {
-                                loader.execute(
-                                    coil.request.ImageRequest.Builder(applicationContext)
-                                        .data(url)
-                                        .size(384, 384)
-                                        .allowHardware(true)
-                                        .build()
-                                )
-                            }
-                        }
-                }
-            }
-            artworkReady.set(true)
-        }
-
         val content = findViewById<android.view.View>(android.R.id.content)
         val decor = window.decorView as android.view.ViewGroup
         // Keep one fixed icon size across the system/app splash handoff. Android's
         // starting-window icon surface can otherwise resize when handed to the activity.
         val launchLogo = com.auralis.music.ui.components.LaunchLogoView(this) {
             launchTouchGate.splashRemoved()
+            Log.d("AuralisStartup", "Home revealed ${android.os.SystemClock.uptimeMillis() - startMs}ms after launch setup")
         }
         decor.addView(launchLogo, android.view.ViewGroup.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -461,40 +432,18 @@ class MainActivity : ComponentActivity() {
         ))
         content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
-                val go = artworkReady.get() || android.os.SystemClock.uptimeMillis() - startMs > SPLASH_HOLD_MAX_MS
-                if (go) {
-                    content.viewTreeObserver.removeOnPreDrawListener(this)
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) launchLogo.post { launchLogo.reveal() }
-                }
-                return go
+                content.viewTreeObserver.removeOnPreDrawListener(this)
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) launchLogo.post { launchLogo.reveal() }
+                return true
             }
         })
-        // Make sure a frame is attempted once the cap passes even if nothing else invalidates.
-        content.postDelayed({ content.invalidate() }, SPLASH_HOLD_MAX_MS + 20)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashView ->
-                // Submit an opaque app splash frame before removing the system
-                // cover, so the handoff cannot briefly expose the content below.
-                if (launchLogo.isHardwareAccelerated) {
-                    launchLogo.viewTreeObserver.registerFrameCommitCallback {
-                        splashView.remove()
-                        launchLogo.reveal()
-                    }
-                    launchLogo.invalidate()
-                } else {
-                    launchLogo.postOnAnimation {
-                        splashView.remove()
-                        launchLogo.reveal()
-                    }
-                }
+                splashView.remove()
+                launchLogo.reveal()
             }
         }
-    }
-
-    private companion object {
-        /** Longest the launch screen waits for Home's artwork before showing Home anyway. */
-        const val SPLASH_HOLD_MAX_MS = 700L
     }
 
 }

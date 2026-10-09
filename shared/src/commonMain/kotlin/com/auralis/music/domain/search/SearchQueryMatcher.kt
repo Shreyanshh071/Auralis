@@ -387,10 +387,10 @@ object SearchQueryMatcher {
         val lowerArtist = track.artist.lowercase(Locale.ROOT)
         val lowerQuery = query.lowercase(Locale.ROOT)
         val derivative = listOf("cover", "piano version", "tribute", "karaoke", "slowed", "sped up", "8d audio",
-            "lo-fi", "lofi", "remake", "orchestra", "symphony").any { lowerTitle.contains(it) } ||
-            listOf("tribute", "karaoke", "cover", "orchestra", "symphony").any { lowerArtist.contains(it) }
+            "lo-fi", "lofi", "remake", "orchestra", "symphony", "nightcore").any { lowerTitle.contains(it) } ||
+            listOf("tribute", "karaoke", "cover", "orchestra", "symphony", "nightcore").any { lowerArtist.contains(it) }
         if (!derivative) return false
-        return listOf("cover", "piano", "slowed", "karaoke", "remake", "lofi", "lo-fi", "orchestra", "symphony")
+        return listOf("cover", "piano", "slowed", "karaoke", "remake", "lofi", "lo-fi", "orchestra", "symphony", "nightcore")
             .none { lowerQuery.contains(it) }
     }
 

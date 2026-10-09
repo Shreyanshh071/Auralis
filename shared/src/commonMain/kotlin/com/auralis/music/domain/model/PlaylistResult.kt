@@ -13,5 +13,6 @@ data class PlaylistResult(
     val title: String,           // Playlist title
     val thumbnail: String? = null,
     val author: String? = null,  // Curating channel or artist
-    val trackCount: Int? = null  // Total number of songs
+    val trackCount: Int? = null, // Total number of songs
+    val releaseType: String? = null // "album", "single" or "ep" when YouTube Music labels it
 )

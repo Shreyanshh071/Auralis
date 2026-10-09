@@ -78,7 +78,7 @@ fun TrackOptionsMenu(
     onStartRadio: (() -> Unit)? = null,
     onPinToSpeedDial: (() -> Unit)? = null,
     isPinned: Boolean = false,
-    onGoToArtist: (() -> Unit)? = null,
+    onGoToArtist: ((String) -> Unit)? = null,
     onGoToAlbum: ((albumId: String?, albumTitle: String, albumArtist: String?, albumArt: String?) -> Unit)? = null,
     onAddToPlaylist: (Playlist) -> Unit,
     onCreatePlaylistAndAdd: (String) -> Unit,
@@ -104,6 +104,41 @@ fun TrackOptionsMenu(
     var useGlassMenu by remember { mutableStateOf(glassAnchor != null) }
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
+    var showArtistPicker by remember(track.id) { mutableStateOf(false) }
+    val creditedArtists = remember(track.artist) {
+        com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(track.artist)
+    }
+    fun viewArtist() {
+        if (onGoToArtist == null) return
+        if (creditedArtists.size > 1) {
+            showArtistPicker = true
+        } else {
+            onGoToArtist(creditedArtists.firstOrNull() ?: track.artist)
+            onDismiss()
+        }
+    }
+    if (showArtistPicker) {
+        AlertDialog(
+            onDismissRequest = { showArtistPicker = false },
+            title = { Text(str(R.string.choose_artist)) },
+            text = {
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    creditedArtists.forEach { artistName ->
+                        TextButton(
+                            onClick = {
+                                showArtistPicker = false
+                                onGoToArtist?.invoke(artistName)
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(artistName, modifier = Modifier.fillMaxWidth()) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showArtistPicker = false }) { Text(str(R.string.cancel)) } }
+        )
+    }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var localIsFavorite by remember(isFavorite) { mutableStateOf(isFavorite) }
@@ -258,7 +293,8 @@ fun TrackOptionsMenu(
                 if (isDownloaded) AuralisDownloadManager.removeDownload(track.id) else AuralisDownloadManager.downloadTrack(track)
             })
             add(GlassMenuItem(str(R.string.view_album), Icons.Default.Album, enabled = displayAlbum != null) { openAlbum() })
-            add(GlassMenuItem(str(R.string.view_artist), Icons.Default.Person) { onGoToArtist?.invoke() })
+            add(GlassMenuItem(str(R.string.view_artist), Icons.Default.Person,
+                enabled = onGoToArtist != null, dismisses = false) { viewArtist() })
             if (!queueReferenceStyle) {
                 add(GlassMenuItem(
                     if (localIsPinned) str(R.string.unpin_from_speed_dial) else str(R.string.pin_to_speed_dial),
@@ -635,10 +671,8 @@ fun TrackOptionsMenu(
                             icon = Icons.Default.Person,
                             title = str(R.string.view_artist),
                             subtitle = track.artist.ifBlank { str(R.string.unknown_artist) },
-                            onClick = {
-                                onGoToArtist?.invoke()
-                                onDismiss()
-                            }
+                            enabled = onGoToArtist != null,
+                            onClick = { viewArtist() }
                         )
 
                         HorizontalDivider(

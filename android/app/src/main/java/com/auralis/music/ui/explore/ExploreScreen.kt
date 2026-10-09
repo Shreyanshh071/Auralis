@@ -62,6 +62,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.SearchTopResult
 import androidx.compose.runtime.Composable
@@ -87,6 +88,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.PlaylistResult
@@ -175,6 +178,7 @@ fun ExploreScreen(
     val themeBackground = MaterialTheme.dynamicBackground
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val retryScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
 
@@ -277,6 +281,8 @@ fun ExploreScreen(
                         ArtistScreen(
                             artistPage = renderedDetail.artistPage,
                             isLoading = renderedDetail.isLoading,
+                            loadFailed = renderedDetail.loadFailed,
+                            onRetry = { retryScope.launch { onRefresh() } },
                             currentTrackId = currentTrackId,
                             isPlaying = isPlaying,
                             userPlaylists = userPlaylists,
@@ -559,6 +565,8 @@ fun ExploreScreen(
                             SearchResultsView(
                                 results = uiState.searchResults,
                                 query = uiState.query,
+                                searchFailed = uiState.searchFailed,
+                                onRetry = { onSearch(uiState.query) },
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
                                 onTrackClick = handleTrackClick,
@@ -740,8 +748,8 @@ fun ExploreScreen(
             onStartRadio = { onStartRadio(track) },
             isPinned = isPinned,
             onPinToSpeedDial = { onPinTrackToSpeedDial?.invoke(track) },
-            onGoToArtist = {
-                onOpenArtist(Artist(id = "", name = track.artist))
+            onGoToArtist = { artistName ->
+                onOpenArtist(Artist(id = "", name = artistName))
             },
             onGoToAlbum = { albumId, albumTitle, albumArtist, albumArt ->
                 val cached = com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album)
@@ -808,6 +816,8 @@ private fun DiagonalInsertArrow(
 private fun SearchResultsView(
     results: com.auralis.music.domain.model.SearchResults,
     query: String = "",
+    searchFailed: Boolean = false,
+    onRetry: () -> Unit = {},
     currentTrackId: String?,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -826,20 +836,31 @@ private fun SearchResultsView(
     val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
         (results.primaryArtist != null && query.isNotBlank() &&
             com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist!!.name, query))
-    val rankedMatches = results.remainingRankedMatches(if (isArtistSearch) null else primaryAlbum?.id)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (!results.isComplete || (searchFailed && results.isNotEmpty())) {
+            item(key = "search_completion_status") {
+                if (searchFailed) {
+                    TextButton(onClick = onRetry) { Text("Some results could not load. Retry") }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("Loading full results…", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
         // ====================================================================
         // STEP 1 — TOP RESULT
         // ====================================================================
         if (results.topResult != null) {
             item(key = "header_top_result") {
                 Text(
-                    text = str(R.string.top_result),
+                    text = "Top result",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -856,8 +877,9 @@ private fun SearchResultsView(
             item(key = topResultKey) {
                 SearchHeroCard(
                     result = results.topResult!!,
-                    albumPlays = (results.topResult as? SearchTopResult.AlbumResult)?.album?.id
-                        ?.let { results.albumPlayCounts[it] } ?: results.albumPlays,
+                    albumPlays = (results.topResult as? SearchTopResult.AlbumResult)?.let {
+                        results.albumPlayCounts[it.album.id]
+                    } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
                     onTrackClick = onTrackClick,
                     onArtistClick = onArtistClick,
@@ -875,7 +897,7 @@ private fun SearchResultsView(
         results.runnerUp?.let { runnerUp ->
             item(key = "header_also_matching") {
                 Text(
-                    text = str(R.string.also_matching),
+                    text = "Also matching",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -885,8 +907,9 @@ private fun SearchResultsView(
             item(key = "card_also_matching") {
                 SearchHeroCard(
                     result = runnerUp,
-                    albumPlays = (runnerUp as? SearchTopResult.AlbumResult)?.album?.id
-                        ?.let { results.albumPlayCounts[it] } ?: results.albumPlays,
+                    albumPlays = (runnerUp as? SearchTopResult.AlbumResult)?.let {
+                        results.albumPlayCounts[it.album.id]
+                    } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
                     onTrackClick = onTrackClick,
                     onArtistClick = onArtistClick,
@@ -980,7 +1003,7 @@ private fun SearchResultsView(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = str(R.string.top_songs_info),
+                                        text = "Top songs & info",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1030,7 +1053,7 @@ private fun SearchResultsView(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = primaryAlbum.author ?: str(R.string.album),
+                                        text = primaryAlbum.author ?: "Album",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1097,7 +1120,7 @@ private fun SearchResultsView(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = str(R.string.top_songs_albums),
+                                    text = "Top songs & albums",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -1146,7 +1169,7 @@ private fun SearchResultsView(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = primaryAlbum.author ?: str(R.string.album),
+                                    text = primaryAlbum.author ?: "Album",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -1162,52 +1185,36 @@ private fun SearchResultsView(
         // ====================================================================
         // STEP 3 — ACTUAL SEARCH RESULTS (REAL QUERY-MATCHED SONGS)
         // ====================================================================
-        if (rankedMatches.isNotEmpty() || results.topResult == null && results.runnerUp == null) {
-            item(key = "header_matching_songs") {
-                Text(
-                    text = when {
-                        rankedMatches.any { it is SearchTopResult.AlbumResult } -> str(R.string.songs_albums)
-                        isArtistSearch -> str(R.string.top_songs)
-                        else -> "Songs"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                )
-            }
+        item(key = "header_matching_songs") {
+            Text(
+                text = if (isArtistSearch) "Top Songs" else "Songs",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+            )
         }
 
-        if (rankedMatches.isNotEmpty()) {
+        if (results.songs.isNotEmpty()) {
             items(
-                items = rankedMatches,
-                key = { match -> when (match) {
-                    is SearchTopResult.SongResult -> "match_song_${match.track.id}"
-                    is SearchTopResult.AlbumResult -> "match_album_${match.album.id}"
-                    is SearchTopResult.ArtistResult -> "match_artist_${match.artist.id}"
-                } },
-                contentType = { match -> if (match is SearchTopResult.AlbumResult) "album" else "song" }
-            ) { match ->
-                when (match) {
-                    is SearchTopResult.SongResult -> TrackRowItem(
-                        track = match.track,
-                        isCurrent = match.track.id == currentTrackId,
-                        isPlaying = isPlaying,
-                        playlist = listOf(match.track),
-                        onTrackClick = onTrackClick,
-                        onPlayNext = onPlayNext,
-                        onAddToQueue = onAddToQueue,
-                        onMenuClick = onMenuClick
-                    )
-                    is SearchTopResult.AlbumResult -> AlbumRowItem(
-                        album = match.album,
-                        plays = results.albumPlayCounts[match.album.id] ?: 0L,
-                        onClick = { onPlaylistClick(match.album) }
-                    )
-                    is SearchTopResult.ArtistResult -> Unit
-                }
+                items = results.songs,
+                key = { "match_${it.id}" },
+                contentType = { "song" }
+            ) { track ->
+                val isCurrent = track.id == currentTrackId
+                TrackRowItem(
+                    track = track,
+                    releaseTypes = results.releaseTypes,
+                    isCurrent = isCurrent,
+                    isPlaying = isPlaying,
+                    playlist = listOf(track),
+                    onTrackClick = onTrackClick,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
+                    onMenuClick = onMenuClick
+                )
             }
-        } else if (results.topResult == null && results.runnerUp == null) {
+        } else {
             item(key = "empty_matching_songs") {
                 Column(
                     modifier = Modifier
@@ -1216,15 +1223,15 @@ private fun SearchResultsView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = str(R.string.no_matching_results_found),
+                        text = "No matching songs found",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (query.isNotBlank()) str(R.string.no_songs_or_albums_match_x_check_spellin, query)
-                        else str(R.string.no_songs_found_for_this_search),
+                        text = if (query.isNotBlank()) "No songs match \"$query\". Check spelling or try searching another artist or title."
+                        else "No songs found for this search.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1247,13 +1254,13 @@ private fun SearchResultsView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = str(R.string.recommendations),
+                        text = "Recommendations",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = str(R.string.x_suggested, recommendations.size),
+                        text = "${recommendations.size} suggested",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1281,6 +1288,7 @@ private fun SearchResultsView(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlbumRowItem(album: PlaylistResult, plays: Long, onClick: () -> Unit) {
     Row(
@@ -1332,6 +1340,7 @@ private fun TrackRowItem(
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlayNext: ((Track) -> Unit)? = null,
     onAddToQueue: ((Track) -> Unit)? = null,
+    releaseTypes: Map<String, String> = emptyMap(),
     onMenuClick: (Track) -> Unit
 ) {
     com.auralis.music.ui.components.SwipeableTrackContainer(
@@ -1363,14 +1372,22 @@ private fun TrackRowItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val subtitleText = remember(track.artist, track.album, track.views, track.title) {
+                val singleLabel = str(R.string.single)
+                val releaseType = track.albumId?.let { releaseTypes[it] }
+                val subtitleText = remember(track.artist, track.album, track.views, track.title, singleLabel, releaseType) {
                     buildString {
                         if (track.artist.isNotBlank()) {
                             append(track.artist)
                         }
-                        val isRedundantAlbum = com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title)
-                        if (!isRedundantAlbum && !track.album.isNullOrBlank()) {
-                            append(" • ${track.album}")
+                        // "Single" where YouTube Music labels the release a single, the album's name where
+                        // it labels it an album or EP. Unlabelled, an album that merely repeats the song
+                        // title is left out: it could be either.
+                        when {
+                            releaseType == "single" -> append(" • $singleLabel")
+                            track.album.isNullOrBlank() -> Unit
+                            releaseType != null ||
+                                !com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title) ->
+                                append(" • ${track.album}")
                         }
                         if (!track.views.isNullOrBlank()) {
                             append(" • ${track.views}")

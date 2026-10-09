@@ -641,8 +641,8 @@ fun AlbumScreen(
                     onStartRadio(track)
                     selectedTrackForMenu = null
                 },
-                onGoToArtist = {
-                    onOpenArtist(Artist(id = "", name = track.artist))
+                onGoToArtist = { artistName ->
+                    onOpenArtist(Artist(id = "", name = artistName))
                     selectedTrackForMenu = null
                 },
                 onAddToPlaylist = { playlist ->
