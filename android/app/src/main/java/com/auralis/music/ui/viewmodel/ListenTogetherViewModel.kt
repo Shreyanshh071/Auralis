@@ -1176,7 +1176,7 @@ class ListenTogetherViewModel(
                     val message = when (command.type) {
                         GuestCommand.PLAY -> "$name pressed play"
                         GuestCommand.PAUSE -> "$name paused"
-                        GuestCommand.PLAY_TRACK -> "$name played “${command.track?.title}”"
+                        GuestCommand.PLAY_TRACK -> "$name played \u201c${command.track?.title}\u201d"
                         GuestCommand.SEEK -> "$name moved the song position"
                         else -> null
                     }
