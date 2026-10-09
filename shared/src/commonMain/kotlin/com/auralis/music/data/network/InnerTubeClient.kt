@@ -41,7 +41,20 @@ open class InnerTubeClient(
         const val FILTER_ARTISTS = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D"
         const val FILTER_PLAYLISTS = "EgeKAQQoADgBahIQBRAJEAoQAxAOEAQQEBAVEBE%3D"
         const val FILTER_ALBUMS = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D"
+        const val SEARCH_LOG_TAG = "AuralisSearch"
+
+        fun searchFilterName(params: String?): String = when (params) {
+            null -> "general"
+            FILTER_SONGS -> "songs"
+            FILTER_VIDEOS -> "videos"
+            FILTER_ARTISTS -> "artists"
+            FILTER_PLAYLISTS -> "playlists"
+            FILTER_ALBUMS -> "albums"
+            else -> "custom"
+        }
         private val releaseTypeCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+        /** Album page play totals, kept 30 min: search reads the same few pages on every repeat. */
+        private val albumPlaysCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Pair<Long, Int>>>()
     }
 
     /**
@@ -52,6 +65,7 @@ open class InnerTubeClient(
         if (trimmed.isBlank()) return@withContext SearchResults()
 
         cachedSearch(trimmed, params)?.let { return@withContext it }
+        val startedNs = System.nanoTime()
         try {
             val requestBody = createWebRemixContext(trimmed, params)
             val request = Request.Builder()
@@ -65,6 +79,10 @@ open class InnerTubeClient(
             rememberSearch(trimmed, params, parseYtMusicSearchResults(JSONObject(body)))
         } catch (e: Exception) {
             kotlin.coroutines.coroutineContext.ensureActive()
+            // Which of the four searches failed, how long it waited and why ("Some results could
+            // not load" on the search screen).
+            com.auralis.music.util.Log.w(SEARCH_LOG_TAG, "search[${searchFilterName(params)}] '$trimmed' failed after " +
+                "${(System.nanoTime() - startedNs) / 1_000_000}ms: ${e.javaClass.simpleName}: ${e.message}")
             SearchResults(requestFailed = true)
         }
     }
@@ -200,6 +218,7 @@ open class InnerTubeClient(
     /** (total plays, number of tracks with a play count) from the album's page; (0, 0) if unreadable. */
     open suspend fun getAlbumPlays(browseId: String): Pair<Long, Int> = withContext(Dispatchers.IO) {
         if (!browseId.startsWith("MPRE")) return@withContext 0L to 0
+        albumPlaysCache[browseId]?.takeIf { System.nanoTime() / 1_000_000 - it.first < 30 * 60_000L }?.let { return@withContext it.second }
         try {
             val payload = JSONObject().apply {
                 put("context", JSONObject().put("client", JSONObject().apply {
@@ -223,7 +242,12 @@ open class InnerTubeClient(
             }.toList()
             // A single or short EP is mostly versions of one song (remix, instrumental, sped up):
             // summing those would let a single outvote its own song, so it counts its biggest track.
-            (if (trackPlays.size <= 4) trackPlays.maxOrNull() ?: 0L else trackPlays.sum()) to trackPlays.size
+            val plays = (if (trackPlays.size <= 4) trackPlays.maxOrNull() ?: 0L else trackPlays.sum()) to trackPlays.size
+            if (plays.second > 0) {
+                if (albumPlaysCache.size > 300) albumPlaysCache.clear()
+                albumPlaysCache[browseId] = System.nanoTime() / 1_000_000 to plays
+            }
+            plays
         } catch (_: Exception) {
             kotlin.coroutines.coroutineContext.ensureActive()
             0L to 0
