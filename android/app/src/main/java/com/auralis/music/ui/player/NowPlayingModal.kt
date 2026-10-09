@@ -1617,18 +1617,18 @@ fun NowPlayingModal(
                 // 🎵 C. MAIN PLAYER VIEW (ALBUM ART, SCRUBBER, CONTROLS, UTILITY)
                 // ============================================================
                 NowPlayingTab.PLAYER -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    AdaptivePlayerBody {
+                        val spacing = playerSpacingScale()
+                        Spacer(modifier = Modifier.playerGap(ideal = 8.dp, minimum = 2.dp, grow = 0.5f))
+
                         // ── CENTER ARTWORK WITH AMBIENT HALO GLOW ──
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
+                        // The body keeps this slot at its full width-derived square; gaps and
+                        // text below give up height first.
+                        BoxWithConstraints(
+                            modifier = Modifier.playerArtwork(widthFraction = 0.98f),
                             contentAlignment = Alignment.Center
                         ) {
+                            val artworkSide = minOf(maxWidth * 0.98f, maxHeight)
                             // Main Album Artwork Carousel (Native Jetpack Compose Horizontal Pager)
                             HorizontalPager(
                                 state = pagerState,
@@ -1640,8 +1640,7 @@ fun NowPlayingModal(
                                     snapPositionalThreshold = 0.35f
                                 ),
                                 modifier = Modifier
-                                    .fillMaxWidth(0.98f)
-                                    .aspectRatio(1f)
+                                    .size(artworkSide)
                                     // No shadow here: it is drawn for the whole pager, so it showed
                                     // as a box behind the cards while they shrink mid-swipe.
                                     .graphicsLayer {
@@ -1735,9 +1734,16 @@ fun NowPlayingModal(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        // Cover-to-lyric and lyric-to-title match the classic player's reference
+                        // spacing, scaled to the screen width; spare height goes above the cover
+                        // and under the deck.
+                        Spacer(modifier = Modifier.playerGap(ideal = 13.dp * spacing, minimum = 6.dp))
 
-                        if (uiState.showInlineLyrics) {
+                        if (!uiState.showInlineLyrics) {
+                            // Hidden preview keeps its room so the cover and title stay put.
+                            Spacer(modifier = Modifier.playerGap(ideal = inlineLyricsSlotHeight(), minimum = 0.dp))
+                            Spacer(modifier = Modifier.playerGap(ideal = 15.dp * spacing, minimum = 4.dp))
+                        } else {
                             InlinePlayerLyrics(
                                 lyrics = uiState.lyrics,
                                 positionState = lyricsPositionState,
@@ -1746,18 +1752,14 @@ fun NowPlayingModal(
                                 trackId = track.id,
                                 isPlaying = uiState.isPlaying,
                                 isBuffering = uiState.isBuffering,
-                                onOpenFullLyrics = { currentTab = NowPlayingTab.LYRICS },
-                                modifier = Modifier.padding(bottom = 8.dp)
+                                onOpenFullLyrics = { currentTab = NowPlayingTab.LYRICS }
                             )
+                            Spacer(modifier = Modifier.playerGap(ideal = 15.dp * spacing, minimum = 4.dp))
                         }
 
                         // ── TRACK INFO & ACTION BUTTONS (ADD TO PLAYLIST + LIKE HEART) ──
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                        AdaptiveTrackActions {
+                            Column {
                                 TrackInfoTransition(
                                     track = activeTrack,
                                     queue = queue,
@@ -1774,8 +1776,6 @@ fun NowPlayingModal(
                                         )
                                 )
                             }
-
-                            Spacer(modifier = Modifier.width(8.dp))
 
                             // ── SEGMENTED CAPSULE PILL (PLAYLIST + DOWNLOAD + LIKE + MORE) ──
                             val downloadedIds by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
@@ -1901,7 +1901,7 @@ fun NowPlayingModal(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.playerGap(ideal = 14.dp, minimum = 6.dp))
 
                         // ── TIME SCRUBBER SLIDER & TIMESTAMPS (SQUIGGLY WAVEFORM) ──
                         // Wrapped so the per-tick position read happens inside a
@@ -1925,7 +1925,7 @@ fun NowPlayingModal(
                                 .graphicsLayer { alpha = controlsAlpha }
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.playerGap(ideal = 16.dp, minimum = 8.dp))
 
                         // ── MAIN PLAYBACK CONTROLS (PREVIOUS, WIDE THICK WHITE PLAY/PAUSE PILL, NEXT) ──
                         Row(
@@ -2016,14 +2016,13 @@ fun NowPlayingModal(
                              }
                         }
 
-                        Spacer(modifier = Modifier.height(34.dp))
+                        Spacer(modifier = Modifier.playerGap(ideal = 34.dp, minimum = 12.dp))
 
                         // ── SECONDARY CONTROLS (STANDALONE FLOATING ICONS: SLEEP, SHUFFLE, REPEAT, AUDIO OUTPUT) ──
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .graphicsLayer { alpha = controlsAlpha }
-                                .padding(bottom = 18.dp),
+                                .graphicsLayer { alpha = controlsAlpha },
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -2062,6 +2061,8 @@ fun NowPlayingModal(
                                 onClick = { showAudioOutputSheet = true }
                             )
                         }
+
+                        Spacer(modifier = Modifier.playerGap(ideal = 18.dp, minimum = 6.dp, grow = 0.5f))
                     }
                 }
             }
@@ -3016,6 +3017,7 @@ private fun TrackTextContent(
     onArtistClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
+    val fit = LocalPlayerFit.current
     Column(modifier = modifier) {
         Text(
             text = title,
@@ -3024,7 +3026,7 @@ private fun TrackTextContent(
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            fontSize = 20.sp,
+            fontSize = 20.sp * fit.titleScale,
             modifier = Modifier.basicMarquee()
         )
         Spacer(modifier = Modifier.height(2.dp))
@@ -3035,7 +3037,7 @@ private fun TrackTextContent(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            fontSize = 14.sp,
+            fontSize = 14.sp * fit.artistScale,
             modifier = Modifier.clickable(enabled = onArtistClick != null) {
                 onArtistClick?.invoke()
             }

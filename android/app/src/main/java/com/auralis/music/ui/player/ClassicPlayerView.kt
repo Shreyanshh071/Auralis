@@ -69,6 +69,7 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -275,7 +276,7 @@ fun ClassicPlayerView(
     var heroMetadataPositionInRoot by remember { mutableStateOf(Offset.Zero) }
     var heroMetadataSize by remember { mutableStateOf(IntSize.Zero) }
 
-    Column(
+    AdaptivePlayerBody(
         modifier = modifier
             .fillMaxSize()
             .statusBarsPadding()
@@ -303,9 +304,11 @@ fun ClassicPlayerView(
                         onToggleQueue()
                     }
                 }
-            },
-        horizontalAlignment = Alignment.CenterHorizontally
+            }
     ) {
+        val playerFit = LocalPlayerFit.current
+        val spacing = playerSpacingScale()
+        Spacer(modifier = Modifier.playerGap(ideal = 12.dp, minimum = 6.dp))
         // The handle is ordinary sheet chrome; the existing outer sheet still owns dragging.
         Box(
             modifier = Modifier
@@ -313,7 +316,7 @@ fun ClassicPlayerView(
                 .onGloballyPositioned {
                     onHandleBottomMeasured(it.positionInRoot().y.roundToInt() + it.size.height)
                 }
-                .padding(top = 12.dp, bottom = 4.dp),
+                .padding(bottom = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -324,23 +327,32 @@ fun ClassicPlayerView(
                     .clickable(onClick = onDismiss)
             )
         }
+        Spacer(modifier = Modifier.playerGap(ideal = 10.dp, minimum = 4.dp))
         // ── 1. TOP HEADER: "Now Playing" + current song name ──
         ClassicTopBar(
             songTitle = displayedTrack.title,
             controlsAlpha = controlsAlpha,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 8.dp)
                 .then(headerMotionModifier)
         )
 
-        Spacer(modifier = Modifier.weight(0.5f))
+        // Header-to-cover, cover-to-lyric and lyric-to-title spacing are fixed dp values taken
+        // from the reference phone (432x960dp), so every screen shows the same rhythm. Only a
+        // short screen tightens them; spare height on a tall one goes under the controls.
+        Spacer(modifier = Modifier.playerGap(ideal = 40.dp * spacing, minimum = 4.dp))
 
         // ── 2. CENTER ALBUM ARTWORK ──
-        Box(
+        // The body sizes this slot: full width-derived square unless every gap and text step
+        // below is already spent.
+        BoxWithConstraints(
+            modifier = Modifier.playerArtwork(horizontalInset = 28.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val artworkSize = minOf(maxWidth - 56.dp, maxHeight)
+            Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 28.dp)
+                .size(artworkSize)
                 .onGloballyPositioned { coordinates ->
                     if (compactHeaderProgress.value <= 0.001f || heroArtworkWidthPx == 0f) {
                         heroArtworkPositionInRoot = coordinates.positionInRoot()
@@ -476,12 +488,20 @@ fun ClassicPlayerView(
             }
         }
 
-        Box(
-            modifier = Modifier.weight(1.0f).fillMaxWidth()
+        }
+
+        Spacer(modifier = Modifier.playerGap(ideal = 13.dp * spacing, minimum = 4.dp))
+
+        if (!uiState.showInlineLyrics) {
+            // Hidden preview keeps its room, so nothing moves when it is toggled; on a short
+            // screen this empty room is the first height given back.
+            Spacer(modifier = Modifier.playerGap(ideal = inlineLyricsSlotHeight(), minimum = 0.dp))
+        } else Box(
+            modifier = Modifier.fillMaxWidth()
                 .graphicsLayer { alpha = 1f - compactHeaderProgress.value },
             contentAlignment = Alignment.Center
         ) {
-            if (uiState.showInlineLyrics) {
+            run {
                 InlinePlayerLyrics(
                     lyrics = uiState.lyrics,
                     positionState = inlineLyricsPositionState,
@@ -496,8 +516,10 @@ fun ClassicPlayerView(
             }
         }
 
+        Spacer(modifier = Modifier.playerGap(ideal = 15.dp * spacing, minimum = 4.dp))
+
         // ── 3. TRACK INFO & ACTIONS ROW (TITLE/ARTIST + OVERFLOW & LIKE BUTTONS) ──
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 26.dp)
@@ -513,27 +535,25 @@ fun ClassicPlayerView(
                     // move; the compact header's own title is revealed at its final spot, under
                     // the shrinking cover. A travelling title dragged across the incoming content.
                     alpha = controlsAlpha * ClassicPlayerViewportMotion.expandedMetadataAlpha(compactHeaderProgress.value)
-                },
-            verticalAlignment = Alignment.CenterVertically
+                }
         ) {
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
+            AdaptiveTrackActions {
+            Column {
                 Text(
                     text = displayedTrack.title,
                     style = MaterialTheme.typography.titleLarge,
-                    fontSize = 21.sp,
+                    fontSize = 21.sp * playerFit.titleScale,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = if (heroActionsEnabled) Modifier.basicMarquee() else Modifier
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = displayedTrack.artist,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontSize = 15.sp,
+                    fontSize = 15.sp * playerFit.artistScale,
                     fontWeight = FontWeight.Normal,
                     color = Color.White.copy(alpha = 0.75f),
                     maxLines = 1,
@@ -550,8 +570,7 @@ fun ClassicPlayerView(
                 )
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
-
+            Row(verticalAlignment = Alignment.CenterVertically) {
             // 3-dots Overflow Menu button
             Box(
                 modifier = Modifier
@@ -601,7 +620,10 @@ fun ClassicPlayerView(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        }
+        }
+
+        Spacer(modifier = Modifier.playerGap(ideal = 10.dp, minimum = 6.dp))
 
         // A single draw layer keeps the timeline, transport, and volume in lockstep
         // while the queue/lyrics viewport keeps its own measured bounds.
@@ -640,7 +662,7 @@ fun ClassicPlayerView(
 
         Spacer(
             modifier = Modifier
-                .weight(0.6f)
+                .playerGap(ideal = 16.dp, minimum = 6.dp, grow = 1f)
                 .onGloballyPositioned { coordinates ->
                     if (coordinates.size.height > 0) {
                         onControlsBottomSpacerMeasured(coordinates.size.height)
@@ -969,7 +991,7 @@ fun ClassicCompactPlaybackControls(
                 .graphicsLayer { alpha = controlsAlpha },
             // Without the side pills the three transport buttons sit grouped in the middle.
             horizontalArrangement = if (showTransportPills) Arrangement.SpaceBetween
-                else Arrangement.spacedBy(38.dp, Alignment.CenterHorizontally),
+                else Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showTransportPills && onToggleShuffle != null) {

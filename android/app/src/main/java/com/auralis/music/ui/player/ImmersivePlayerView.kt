@@ -103,6 +103,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -188,6 +189,10 @@ private val ACTION_SIZE = 44.dp
 private val SKIP_GLYPH_SIZE = 53.dp
 private val PLAY_GLYPH_SIZE = 74.dp
 private val PLAY_TOUCH_SIZE = 92.dp
+private val PLAY_TOUCH_SIZE_TIGHT = 78.dp
+/** The expanded title starts no higher than this fraction of the sleeve (its faded foot). */
+private const val TITLE_MIN_SLEEVE_FRACTION = 0.86f
+private const val DECK_MAX_STEP = 1 + PlayerFit.MAX_STEP
 private val HANDLE_STRIP_HEIGHT = 32.dp
 /** Rows fade out over this band above the controls, and are fully hidden beneath them. */
 private val CONTROLS_FADE_ABOVE = 36.dp
@@ -262,6 +267,16 @@ fun ImmersivePlayerContainer(
 
     var containerOriginInRoot by remember { mutableStateOf(Offset.Zero) }
     var containerWidthPx by remember { mutableIntStateOf(0) }
+    var containerHeightPx by remember { mutableIntStateOf(0) }
+    // How far the deck under the sleeve has tightened so the title stays on the sleeve's faded
+    // foot instead of climbing over the cover: 1 = gaps, 2-4 = the shared PlayerFit text steps.
+    // Only ever rises for one screen size / font scale / lyric state, so it cannot oscillate.
+    val fontScale = density.fontScale
+    var deckStep by remember(containerWidthPx, containerHeightPx, fontScale, uiState.showInlineLyrics) {
+        mutableIntStateOf(0)
+    }
+    val deckTight = deckStep >= 1
+    val playerFit = PlayerFit((deckStep - 1).coerceAtLeast(0))
     var compactArtOriginInRoot by remember { mutableStateOf<Offset?>(null) }
     var compactArtSizePx by remember { mutableIntStateOf(0) }
     var showLyricsProviders by remember { mutableStateOf(false) }
@@ -273,8 +288,15 @@ fun ImmersivePlayerContainer(
     var controlsHeightPx by remember { mutableIntStateOf(0) }
     val controlsHeightDp = with(density) { controlsHeightPx.toDp() }
     val controlsVisible = currentTab == NowPlayingTab.PLAYER || controlsShown
+    val previewSpec = remember(playerFit.step) {
+        PreviewLyricSpec(scale = playerFit.lyricsScale, maxLines = if (playerFit.step >= PlayerFit.MAX_STEP) 1 else 3)
+    }
+    val previewLineHeight = if (previewSpec.maxLines == 1) {
+        with(density) { (BasePreviewLyricStyle.lineHeight * previewSpec.scale).toDp() } + 10.dp
+    } else PREVIEW_LINE_HEIGHT
     val previewHeight by animateDpAsState(
-        targetValue = if (currentTab == NowPlayingTab.LYRICS || uiState.showInlineLyrics) PREVIEW_LINE_HEIGHT else 24.dp,
+        targetValue = if (currentTab == NowPlayingTab.LYRICS || uiState.showInlineLyrics) previewLineHeight
+            else if (deckTight) 12.dp else 24.dp,
         animationSpec = if (LocalReducedMotion.current) snap() else tween(250, easing = FastOutSlowInEasing),
         label = "immersivePreviewHeight"
     )
@@ -337,6 +359,7 @@ fun ImmersivePlayerContainer(
             .onGloballyPositioned {
                 containerOriginInRoot = it.positionInRoot()
                 containerWidthPx = it.size.width
+                containerHeightPx = it.size.height
             }
     ) {
         // The cover's colours carried on below it; the seam rides the cover's bottom edge.
@@ -443,10 +466,23 @@ fun ImmersivePlayerContainer(
                         Spacer(Modifier.weight(1f))
                         ImmersiveTitleBlock(
                             track = track,
+                            fit = playerFit,
                             onShowTrackOptions = onShowTrackOptions,
-                            onArtistClick = onArtistClick
+                            onArtistClick = onArtistClick,
+                            modifier = Modifier.onGloballyPositioned { coords ->
+                                // The title may sit on the sleeve's faded foot, not over the cover
+                                // itself. Measured only at rest on the player, where the deck is up.
+                                if (!heroAtRest || currentTab != NowPlayingTab.PLAYER || controlsHeightPx == 0 ||
+                                    containerWidthPx == 0 || hidePlayerThumbnail
+                                ) return@onGloballyPositioned
+                                val titleTop = coords.positionInRoot().y - containerOriginInRoot.y
+                                val composedStep = deckStep
+                                if (titleTop < containerWidthPx * TITLE_MIN_SLEEVE_FRACTION &&
+                                    composedStep < DECK_MAX_STEP
+                                ) deckStep = composedStep + 1
+                            }
                         )
-                        Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.height(if (deckTight) 8.dp else 18.dp))
                     }
                 }
 
@@ -633,6 +669,7 @@ fun ImmersivePlayerContainer(
                                 .height(previewHeight)
                         ) { lyricsOpen ->
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                                CompositionLocalProvider(LocalPreviewLyricSpec provides previewSpec) {
                                 if (lyricsOpen) {
                                     LyricsSourceCaption(lyrics = uiState.lyrics, onChange = { showLyricsProviders = true })
                                 } else if (uiState.showInlineLyrics) {
@@ -647,6 +684,7 @@ fun ImmersivePlayerContainer(
                                         onClick = { onTabChange(NowPlayingTab.LYRICS) }
                                     )
                                 }
+                                }
                             }
                         }
 
@@ -659,21 +697,23 @@ fun ImmersivePlayerContainer(
                             onSeekTo = onSeekTo
                         )
 
-                        Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.height(if (deckTight) 6.dp else 18.dp))
 
                         ImmersiveTransportRow(
                             isPlaying = uiState.isPlaying,
                             isLoading = uiState.isBuffering && !uiState.isPlaying,
                             onPrevious = onPreviousClick,
                             onPlayPause = onPlayPauseClick,
-                            onNext = onNextClick
+                            onNext = onNextClick,
+                            // Same 74dp glyph; only the invisible touch padding around it shrinks.
+                            playTouchSize = if (deckTight) PLAY_TOUCH_SIZE_TIGHT else PLAY_TOUCH_SIZE
                         )
 
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(if (deckTight) 8.dp else 20.dp))
 
                         ImmersiveVolumeRow()
 
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(if (deckTight) 4.dp else 10.dp))
                     }
                 }
             }
@@ -692,8 +732,9 @@ fun ImmersivePlayerContainer(
                     .graphicsLayer { alpha = controlsAlpha }
             )
 
-            // Room the reference keeps under the row (its output caption sits here).
-            Spacer(Modifier.height(44.dp))
+            // Room the reference keeps under the row (its output caption sits here); the first
+            // thing a short screen gives back.
+            Spacer(Modifier.height(if (deckTight) 12.dp else 44.dp))
         }
 
         if (showLyricsProviders) {
@@ -852,6 +893,7 @@ private fun ImmersiveHandleStrip(
 @Composable
 private fun ImmersiveTitleBlock(
     track: Track,
+    fit: PlayerFit,
     onShowTrackOptions: () -> Unit,
     onArtistClick: ((Artist) -> Unit)?,
     modifier: Modifier = Modifier
@@ -864,7 +906,7 @@ private fun ImmersiveTitleBlock(
             Text(
                 text = track.title,
                 color = Color.White,
-                fontSize = 20.sp,
+                fontSize = 20.sp * fit.titleScale,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -872,7 +914,7 @@ private fun ImmersiveTitleBlock(
             Text(
                 text = track.artist,
                 color = Color.White.copy(alpha = 0.62f),
-                fontSize = 18.sp,
+                fontSize = 18.sp * fit.artistScale,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clickable(
@@ -1210,6 +1252,7 @@ private fun fillerLine(arrayRes: Int): String =
 
 @Composable
 private fun FillerText(text: String, withNote: Boolean) {
+    val PreviewLyricStyle = previewLyricStyle()
     if (withNote) {
         Icon(
             imageVector = Icons.Rounded.MusicNote,
@@ -1227,7 +1270,24 @@ private fun FillerText(text: String, withNote: Boolean) {
     )
 }
 
-private val PreviewLyricStyle = TextStyle(
+/** Lets a host with less room (the inline player preview) shrink and cap the preview line. */
+internal class PreviewLyricSpec(val scale: Float = 1f, val maxLines: Int = 3)
+
+internal val LocalPreviewLyricSpec = androidx.compose.runtime.compositionLocalOf { PreviewLyricSpec() }
+
+@Composable
+private fun previewLyricStyle(): TextStyle {
+    val scale = LocalPreviewLyricSpec.current.scale
+    return remember(scale) {
+        if (scale == 1f) BasePreviewLyricStyle
+        else BasePreviewLyricStyle.copy(
+            fontSize = BasePreviewLyricStyle.fontSize * scale,
+            lineHeight = BasePreviewLyricStyle.lineHeight * scale
+        )
+    }
+}
+
+internal val BasePreviewLyricStyle = TextStyle(
     fontSize = 17.sp,
     fontWeight = FontWeight.ExtraBold,
     lineHeight = 21.sp,
@@ -1250,6 +1310,8 @@ private fun MetroPreviewText(
     isBuffering: Boolean
 ) {
     val text = line.text.trim()
+    val PreviewLyricStyle = previewLyricStyle()
+    val previewMaxLines = LocalPreviewLyricSpec.current.maxLines
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     BoxWithConstraints {
@@ -1258,7 +1320,8 @@ private fun MetroPreviewText(
             (measurer.measure(text, PreviewLyricStyle, softWrap = false).size.width + 2).coerceAtMost(availablePx)
         }
         Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
-            if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty()) {
+            // The word renderer wraps freely; a one-line host gets the plain, ellipsized line.
+            if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty() && previewMaxLines > 1) {
                 MetroLyricsLine(
                     line = line,
                     words = line.words,
@@ -1274,7 +1337,7 @@ private fun MetroPreviewText(
                     isPlaying = isPlaying && !isBuffering
                 )
             } else {
-                Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = 3)
+                Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -1301,13 +1364,15 @@ private fun MetroPreviewWordMorph(
     hasWordTiming: Boolean
 ) {
     val toText = toLine.text.trim()
+    val PreviewLyricStyle = previewLyricStyle()
+    val previewMaxLines = LocalPreviewLyricSpec.current.maxLines
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val fromWords = remember(fromText) { previewMorphWords(fromText) }
     val toWords = remember(toText) { previewMorphWords(toText) }
     val timedWords = if (hasWordTiming) toLine.words.orEmpty() else emptyList()
     if (fromWords.isEmpty() || toWords.isEmpty()) {
-        Text(toText, style = PreviewLyricStyle.copy(color = Color.White), maxLines = 3)
+        Text(toText, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
         return
     }
     BoxWithConstraints {
@@ -1337,7 +1402,9 @@ private fun MetroPreviewWordMorph(
             toWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
         }
         val heightPx = maxOf(fromLayout.size.height, toLayout.size.height)
-            .coerceAtMost(with(density) { 58.dp.roundToPx() })
+            .coerceAtMost(with(density) {
+                minOf(58.dp.roundToPx(), (PreviewLyricStyle.lineHeight * previewMaxLines).roundToPx())
+            })
         Canvas(Modifier.width(with(density) { widthPx.toDp() }).height(with(density) { heightPx.toDp() })) {
             val p = progress.coerceIn(0f, 1f)
             fromWords.indices.forEach { index ->
@@ -1535,7 +1602,8 @@ private fun ImmersiveTransportRow(
     isLoading: Boolean,
     onPrevious: () -> Unit,
     onPlayPause: () -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    playTouchSize: Dp = PLAY_TOUCH_SIZE
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1550,7 +1618,7 @@ private fun ImmersiveTransportRow(
             onClick = onPrevious
         )
         if (isLoading) {
-            Box(Modifier.size(PLAY_TOUCH_SIZE), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(playTouchSize), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp, modifier = Modifier.size(38.dp))
             }
         } else {
@@ -1558,7 +1626,7 @@ private fun ImmersiveTransportRow(
                 icon = if (isPlaying) R.drawable.ic_transport_pause else R.drawable.ic_transport_play,
                 contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
                 size = PLAY_GLYPH_SIZE,
-                touchSize = PLAY_TOUCH_SIZE,
+                touchSize = playTouchSize,
                 onClick = onPlayPause
             )
         }
