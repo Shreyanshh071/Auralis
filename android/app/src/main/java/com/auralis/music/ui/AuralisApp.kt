@@ -777,7 +777,9 @@ fun AuralisApp(
         com.auralis.music.ui.glass.LiquidGlassContext(combinedGlassBackdrop, glassIsDark, dockCollapse)
     }
     val glassContext = if (glassEnabled) anyGlassContext else null
-    val miniGlassContext = if (recordGlassBackdrop) anyGlassContext else null
+    // The mini player is glass only when its own background style says so: the glass theme
+    // presets that style but never overrides a Blur/Gradient/etc. the user picked afterwards.
+    val miniGlassContext = if (miniPlayerGlass) anyGlassContext else null
     chromeCollapse[0] = dockCollapse
     LaunchedEffect(currentDestination, collapseOnScroll) { dockMinimize.expand() }
     LaunchedEffect(isPlayerSheetActive) { if (isPlayerSheetActive) dockMinimize.expand() }

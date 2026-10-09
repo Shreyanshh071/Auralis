@@ -753,7 +753,7 @@ fun ThemeAndColorsScreen(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                onClick = { onUpdateSettings(settings.copy(liquidGlass = !settings.liquidGlass)) },
+                onClick = { onUpdateSettings(settings.withLiquidGlass(!settings.liquidGlass)) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -783,7 +783,7 @@ fun ThemeAndColorsScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     androidx.compose.material3.Switch(
                         checked = settings.liquidGlass,
-                        onCheckedChange = { onUpdateSettings(settings.copy(liquidGlass = it)) }
+                        onCheckedChange = { onUpdateSettings(settings.withLiquidGlass(it)) }
                     )
                 }
             }
@@ -956,3 +956,13 @@ private fun TripleTonePaletteCircle(
         )
     }
 }
+
+/**
+ * Turning the glass theme on presets the mini player to the glass background so the dock and
+ * mini player match; the mini-player background style stays the user's to change afterwards.
+ */
+private fun com.auralis.music.domain.model.AppearanceSettings.withLiquidGlass(enabled: Boolean) =
+    if (enabled && !liquidGlass) copy(
+        liquidGlass = true,
+        miniPlayerBackgroundStyle = com.auralis.music.ui.player.PlayerBackgroundStyle.APPLE_MUSIC.displayName
+    ) else copy(liquidGlass = enabled)
