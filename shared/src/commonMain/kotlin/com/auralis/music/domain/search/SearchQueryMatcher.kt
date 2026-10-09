@@ -763,6 +763,18 @@ object SearchQueryMatcher {
 
     private fun hasRemasterTag(title: String): Boolean = REMASTER_REGEX.containsMatchIn(tagSegments(title))
 
+    private fun recordingVersionMarkers(track: Track): Set<String> {
+        // Single releases can put the version only in the album name. Do not treat
+        // unrelated compilation/album labels as tags on every song they contain.
+        val singleAlbum = track.album?.takeIf { baseTitle(it) == baseTitle(track.title) }
+        return versionMarkers(track.title) + versionMarkers(singleAlbum.orEmpty())
+    }
+
+    private fun featuredArtists(track: Track): List<String> =
+        (FEATURE_REGEX.findAll(tagSegments(track.title)) +
+            FEATURE_REGEX.findAll(tagSegments(track.album.orEmpty())))
+            .map { it.groupValues[1] }.toList()
+
     private val ARTIST_SEPARATOR_REGEX = Regex("""(?i)[,&/+]|\b(?:feat\.?|ft\.?|featuring|with|and|x|vs\.?)\s""")
 
     /**
@@ -833,8 +845,8 @@ object SearchQueryMatcher {
             if (delta > MAX_RECORDING_DELTA_SEC) return "length ${candidate.duration}s vs ${target.duration}s"
         }
 
-        val targetMarkers = versionMarkers(target.title)
-        val candidateMarkers = versionMarkers(candidate.title)
+        val targetMarkers = recordingVersionMarkers(target)
+        val candidateMarkers = recordingVersionMarkers(candidate)
         if (targetMarkers != candidateMarkers) return "version tag ${candidateMarkers.joinToString()} vs ${targetMarkers.joinToString()}"
 
         // Someone the source never credits, named anywhere on the candidate: "(feat. X)" in its
@@ -843,10 +855,14 @@ object SearchQueryMatcher {
         val targetArtist = if (target.artist.equals("Spotify Artist", ignoreCase = true)) "" else target.artist
         if (targetArtist.isNotBlank()) {
             val credited = normalize("$targetArtist ${target.title} ${target.album.orEmpty()}")
-            val features = (FEATURE_REGEX.findAll(tagSegments(candidate.title)) +
-                FEATURE_REGEX.findAll(tagSegments(candidate.album.orEmpty()))).map { it.groupValues[1] }
-            if (features.any { hasUncreditedArtist(credited, it) }) return "uncredited featured artist"
+            if (featuredArtists(candidate).any { hasUncreditedArtist(credited, it) }) return "uncredited featured artist"
 
+        }
+        // Equal duration does not prove the same recording. A requested feature must
+        // also be credited somewhere on the candidate, even if its title is shortened.
+        val candidateCredits = normalize("${candidate.artist} ${candidate.title} ${candidate.album.orEmpty()}")
+        if (featuredArtists(target).any { hasUncreditedArtist(candidateCredits, it) }) {
+            return "missing requested featured artist"
         }
         return null
     }
