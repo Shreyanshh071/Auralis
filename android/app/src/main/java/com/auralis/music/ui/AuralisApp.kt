@@ -404,6 +404,7 @@ fun AuralisApp(
     }
 
     var isListenTogetherOpen by rememberSaveable { mutableStateOf(false) }
+    var showListenTogetherPopup by rememberSaveable { mutableStateOf(false) }
     var isProfileOpen by rememberSaveable { mutableStateOf(false) }
     var isHistoryOpen by rememberSaveable { mutableStateOf(false) }
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
@@ -431,6 +432,7 @@ fun AuralisApp(
         isHistoryOpen = false
         isProfileOpen = false
         isListenTogetherOpen = false
+        showListenTogetherPopup = false
         isStatsOpen = false
         isWrappedOpen = false
         searchViewModelState?.closeRecognitionModal()
@@ -803,7 +805,13 @@ fun AuralisApp(
         openLyrics = { track -> preparePresentationTrack(track); obtainPlayerViewModel().showLyrics(); expandPlayer() },
         isLyricsShown = { track -> playerUiState.showInlineLyrics && playerUiState.currentTrack?.id == track.id },
         hideLyrics = { obtainPlayerViewModel().hideLyrics() },
-        isNowPlaying = { track -> playerUiState.currentTrack?.id == track.id }
+        isNowPlaying = { track -> (playerUiState.currentTrack ?: audioPlayerTrack)?.id == track.id },
+        openListenTogether = { track ->
+            if ((playerUiState.currentTrack ?: audioPlayerTrack)?.id == track.id) {
+                obtainListenTogetherViewModel()
+                showListenTogetherPopup = true
+            }
+        }
     )
 
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
@@ -924,7 +932,12 @@ fun AuralisApp(
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        text = if (listenTogetherUiState.isHost) str(R.string.streaming_to_room) else str(R.string.synced_with_host_controls_locked),
+                                        text = when {
+                                            listenTogetherUiState.isHost -> str(R.string.streaming_to_room)
+                                            room.settings.guestsCanControlPlayback || room.settings.guestsMayPlaySongs ->
+                                                str(R.string.synced_with_host)
+                                            else -> str(R.string.synced_with_host_controls_locked)
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                     )
@@ -1495,18 +1508,12 @@ fun AuralisApp(
             }
         }
 
-        // Listen Together Sheet with unified navigation transition
-        AnimatedVisibility(
-            visible = isListenTogetherOpen,
-            enter = auralisHeaderPageEnter(),
-            exit = auralisHeaderPageExit(),
-            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(togetherGlassBackdrop) else Modifier)
-        ) {
-            CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
+        @Composable
+        fun ListenTogetherContent(isPopup: Boolean = false, onDismiss: () -> Unit) {
                 val ltVM = obtainListenTogetherViewModel()
                 ListenTogetherSheet(
                     uiState = listenTogetherUiState,
-                    currentTrack = playerUiState.currentTrack,
+                    currentTrack = playerUiState.currentTrack ?: audioPlayerTrack,
                     isPlaying = playerUiState.isPlaying,
                     queue = playerUiState.queue,
                     playbackPositionMs = playerUiState.playbackPositionMs,
@@ -1544,8 +1551,36 @@ fun AuralisApp(
                     },
                     onDeclineRecommendation = { rec -> ltVM.declineRecommendation(rec) },
                     onHostSettingsChange = { ltVM.updateHostSettings(it) },
-                    onDismiss = { isListenTogetherOpen = false }
+                    onDismiss = onDismiss,
+                    isPopup = isPopup
                 )
+        }
+
+        // The page entry points retain the full screen; song menus open the same controls in a dialog.
+        AnimatedVisibility(
+            visible = isListenTogetherOpen,
+            enter = auralisHeaderPageEnter(),
+            exit = auralisHeaderPageExit(),
+            modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(togetherGlassBackdrop) else Modifier)
+        ) {
+            CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
+                ListenTogetherContent { isListenTogetherOpen = false }
+            }
+        }
+
+        if (showListenTogetherPopup) {
+            val popupHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.82f
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showListenTogetherPopup = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    modifier = Modifier.padding(horizontal = 20.dp).widthIn(max = 560.dp).fillMaxWidth().height(popupHeight),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.dynamicBackground
+                ) {
+                    ListenTogetherContent(isPopup = true) { showListenTogetherPopup = false }
+                }
             }
         }
 
@@ -2039,7 +2074,7 @@ fun AuralisApp(
                                     },
                                     onRemoveQueueItem = { index ->
                                         if (guestNow()) {
-                                            notifyGuestControlBlocked()
+                                            obtainListenTogetherViewModel().requestQueueEdit(index)
                                         } else {
                                             currentPV.removeQueueItem(index)
                                             if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
@@ -2058,7 +2093,7 @@ fun AuralisApp(
                                     },
                                     onReorderQueue = { fromIndex, toIndex ->
                                         if (guestNow()) {
-                                            notifyGuestControlBlocked()
+                                            obtainListenTogetherViewModel().requestQueueEdit(fromIndex, toIndex)
                                         } else {
                                             currentPV.moveQueueItem(fromIndex, toIndex)
                                             if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
