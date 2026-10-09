@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import com.auralis.music.R
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,6 +24,8 @@ data class UpdateInfo(
     val releaseNotes: String? = null,
     val downloadUrl: String? = null,
     val htmlUrl: String? = null,
+    /** Size of the release's APK asset, when GitHub reports it. */
+    val downloadSizeBytes: Long? = null,
     val isChecking: Boolean = false,
     val error: String? = null
 )
@@ -89,6 +92,7 @@ object UpdateChecker {
 
                 // Find APK asset
                 var downloadUrl: String? = null
+                var downloadSize: Long? = null
                 val assets = json.optJSONArray("assets")
                 if (assets != null) {
                     for (i in 0 until assets.length()) {
@@ -96,6 +100,7 @@ object UpdateChecker {
                         val name = asset?.optString("name", "") ?: ""
                         if (name.endsWith(".apk", ignoreCase = true)) {
                             downloadUrl = asset?.optString("browser_download_url")
+                            downloadSize = asset?.optLong("size", 0L)?.takeIf { it > 0L }
                             break
                         }
                     }
@@ -113,7 +118,8 @@ object UpdateChecker {
                     releaseTitle = releaseName,
                     releaseNotes = releaseNotes,
                     downloadUrl = downloadUrl,
-                    htmlUrl = htmlUrl
+                    htmlUrl = htmlUrl,
+                    downloadSizeBytes = downloadSize
                 )
             }
         } catch (e: Exception) {
@@ -197,18 +203,97 @@ object UpdateChecker {
         }
     }
 
+    /**
+     * Downloads the APK into the app cache, continuing a paused or interrupted download from
+     * where it stopped (HTTP Range). Cancelling the calling coroutine pauses it: the partial
+     * file is kept for the next call. Returns the finished APK.
+     */
+    suspend fun downloadApk(
+        context: Context,
+        downloadUrl: String,
+        versionName: String,
+        expectedBytes: Long? = null,
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
+    ): File = withContext(Dispatchers.IO) {
+        val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val apkFile = File(updateDir, "Auralis-v$versionName.apk")
+        val partFile = File(updateDir, "Auralis-v$versionName.apk.part")
+        // Older versions' leftovers are never resumed into this one.
+        updateDir.listFiles()?.forEach { if (it != apkFile && it != partFile) it.delete() }
+        if (apkFile.exists()) {
+            // Only a file of the size GitHub reports is a finished download: older builds wrote
+            // straight to this name, so an interrupted one can leave a truncated APK behind.
+            if (expectedBytes != null && apkFile.length() == expectedBytes) {
+                onProgress(apkFile.length(), apkFile.length())
+                return@withContext apkFile
+            }
+            apkFile.delete()
+        }
+
+        val already = if (partFile.exists()) partFile.length() else 0L
+        val request = Request.Builder()
+            .url(downloadUrl)
+            .header("User-Agent", "Auralis-Android-App")
+            .apply { if (already > 0L) header("Range", "bytes=$already-") }
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == 416 && already > 0L) {
+                // The partial file already holds the whole APK.
+                partFile.renameTo(apkFile)
+                return@withContext apkFile
+            }
+            if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+            val body = response.body ?: throw Exception("Empty APK response")
+            val resumed = response.code == 206 && already > 0L
+            var downloaded = if (resumed) already else 0L
+            val total = if (body.contentLength() > 0) downloaded + body.contentLength() else -1L
+            onProgress(downloaded, total)
+            body.byteStream().use { input ->
+                java.io.FileOutputStream(partFile, resumed).use { output ->
+                    val buffer = ByteArray(16 * 1024)
+                    var lastReport = 0L
+                    while (true) {
+                        ensureActive()
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        downloaded += read
+                        if (downloaded - lastReport >= 64 * 1024) {
+                            lastReport = downloaded
+                            onProgress(downloaded, total)
+                        }
+                    }
+                    output.flush()
+                }
+            }
+            if (total > 0 && downloaded != total) throw Exception("Download incomplete")
+            onProgress(downloaded, if (total > 0) total else downloaded)
+        }
+        if (!partFile.renameTo(apkFile)) throw Exception("Could not save the update")
+        apkFile
+    }
+
+    /** True when the user still has to allow Auralis to install apps before [installApk] works. */
+    fun needsInstallPermission(context: Context): Boolean =
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()
+
+    /** Opens the system "Install unknown apps" page for Auralis. */
+    fun openInstallPermissionSettings(context: Context) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val manageIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+            data = android.net.Uri.parse("package:${context.packageName}")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(manageIntent)
+    }
+
     fun installApk(context: Context, apkFile: File) {
         try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                if (!context.packageManager.canRequestPackageInstalls()) {
-                    Toast.makeText(context, "Please allow Auralis to install unknown apps", Toast.LENGTH_LONG).show()
-                    val manageIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                        data = android.net.Uri.parse("package:${context.packageName}")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(manageIntent)
-                    return
-                }
+            if (needsInstallPermission(context)) {
+                Toast.makeText(context, "Please allow Auralis to install unknown apps", Toast.LENGTH_LONG).show()
+                openInstallPermissionSettings(context)
+                return
             }
 
             val apkUri = FileProvider.getUriForFile(
