@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** Filters short-form videos at import time without rejecting short audio recordings by duration alone. */
-internal object YouTubeShortsFilter {
+object YouTubeShortsFilter {
     private const val MAX_SHORT_SECONDS = 180L
     private val cutoffDate = "2024-10-15"
     private val nonMusicCategories = setOf(

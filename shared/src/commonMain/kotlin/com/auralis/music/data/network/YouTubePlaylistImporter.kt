@@ -92,7 +92,7 @@ class YouTubePlaylistImporter(
 
         fun extractBestThumbnailUrl(thumbnails: JSONArray?): String? = PlaylistThumbnails.extractBestThumbnailUrl(thumbnails)
 
-        internal fun extractPlaylistThumbnail(json: JSONObject): String? = PlaylistThumbnails.extractPlaylistThumbnail(json)
+        fun extractPlaylistThumbnail(json: JSONObject): String? = PlaylistThumbnails.extractPlaylistThumbnail(json)
 
         private fun extractPlaylistAuthor(json: JSONObject): String? {
             fun extractAuthorFromHeader(header: JSONObject?): String? {
@@ -230,7 +230,7 @@ class YouTubePlaylistImporter(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            android.util.Log.w("YouTubePlaylistImporter", "Could not import playlist $cleanId: ${e.message}")
+            com.auralis.music.util.Log.w("YouTubePlaylistImporter", "Could not import playlist $cleanId: ${e.message}")
             if (e is IllegalArgumentException) throw e
         }
 
@@ -253,14 +253,14 @@ class YouTubePlaylistImporter(
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    android.util.Log.w("YouTubePlaylistImporter", "Browse returned HTTP ${response.code}")
+                    com.auralis.music.util.Log.w("YouTubePlaylistImporter", "Browse returned HTTP ${response.code}")
                     null
                 } else response.body?.string()?.let(::JSONObject)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            android.util.Log.w("YouTubePlaylistImporter", "Browse request failed: ${e.message}")
+            com.auralis.music.util.Log.w("YouTubePlaylistImporter", "Browse request failed: ${e.message}")
             null
         }
     }
