@@ -29,12 +29,14 @@ private const val UNFOLD_STAGGER_MS = 55L
  * another, pushing everything below it down the page, with a soft spring settle and a slight
  * downward drift. Runs once, only during the first moments after the screen opened
  * ([openedAtMs], from `SystemClock.uptimeMillis()`), never when content scrolls into view later.
+ * [canPlay] is read once, when the block first appears: a list passes "not scrolled yet", so
+ * rows that scroll into view inside the window stay put instead of dropping in.
  */
 @Composable
-fun UnfoldIn(order: Int, openedAtMs: Long, content: @Composable () -> Unit) {
+fun UnfoldIn(order: Int, openedAtMs: Long, canPlay: () -> Boolean = { true }, content: @Composable () -> Unit) {
     val reducedMotion = LocalReducedMotion.current
     val play = remember {
-        !reducedMotion && android.os.SystemClock.uptimeMillis() - openedAtMs < UNFOLD_WINDOW_MS
+        !reducedMotion && android.os.SystemClock.uptimeMillis() - openedAtMs < UNFOLD_WINDOW_MS && canPlay()
     }
     val visible = remember { MutableTransitionState(!play) }
     LaunchedEffect(Unit) {

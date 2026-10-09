@@ -3,9 +3,6 @@ package com.auralis.music.ui.screens
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,10 +22,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.auralis.music.data.datastore.UpdaterDataStore
 import com.auralis.music.data.datastore.UpdaterSettings
 import com.auralis.music.data.network.UpdateChecker
-import com.auralis.music.data.network.UpdateInfo
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
@@ -51,11 +48,9 @@ fun UpdaterScreen(
     val settings by dataStore.settingsFlow.collectAsState(initial = UpdaterSettings())
 
     val currentVersion = remember { UpdateChecker.getCurrentVersion(context) }
-    var isChecking by remember { mutableStateOf(false) }
-    var updateResult by remember { mutableStateOf<UpdateInfo?>(null) }
-    var showUpdateDialog by remember { mutableStateOf(false) }
-    var isDownloading by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableStateOf(0f) }
+    var showUpdateFlow by rememberSaveable { mutableStateOf(false) }
+    val updatePhase by UpdateFlow.phase.collectAsState()
+    val isChecking = updatePhase == UpdatePhase.Checking
 
     val primaryColor = MaterialTheme.dynamicPrimary
     val surfaceColor = MaterialTheme.dynamicSurface
@@ -212,22 +207,9 @@ fun UpdaterScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = !isChecking) {
-                                        isChecking = true
-                                        scope.launch {
-                                            val info = UpdateChecker.checkForUpdates(context)
-                                            isChecking = false
-                                            updateResult = info
-                                            if (info.hasUpdate) {
-                                                showUpdateDialog = true
-                                            } else {
-                                                if (info.error != null) {
-                                                    Toast.makeText(context, str(R.string.update_check_x, info.error), Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, str(R.string.auralis_is_up_to_date_v_x, currentVersion), Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        }
+                                    .clickable {
+                                        showUpdateFlow = true
+                                        UpdateFlow.open(context)
                                     }
                                     .padding(horizontal = 16.dp, vertical = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -271,111 +253,8 @@ fun UpdaterScreen(
             }
         }
 
-        // ── UPDATE AVAILABLE DIALOG ──
-        if (showUpdateDialog && updateResult != null) {
-            val info = updateResult!!
-            AlertDialog(
-                onDismissRequest = {
-                    if (!isDownloading) showUpdateDialog = false
-                },
-                containerColor = surfaceColor,
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = null,
-                            tint = primaryColor,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(str(R.string.new_version_available), fontWeight = FontWeight.Bold, color = onBackground)
-                    }
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = str(R.string.auralis_v_x_is_ready_to_install, info.latestVersion),
-                            fontWeight = FontWeight.SemiBold,
-                            color = primaryColor,
-                            fontSize = 14.5.sp
-                        )
-                        if (!info.releaseNotes.isNullOrBlank() && !isDownloading) {
-                            Text(
-                                text = info.releaseNotes,
-                                color = onSurfaceVariant,
-                                fontSize = 13.sp,
-                                maxLines = 8
-                            )
-                        }
-
-                        if (isDownloading) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                LinearProgressIndicator(
-                                    progress = { downloadProgress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = primaryColor,
-                                    trackColor = primaryColor.copy(alpha = 0.2f)
-                                )
-                                Text(
-                                    text = if (downloadProgress > 0f) str(R.string.downloading_update_x, (downloadProgress * 100).toInt()) else str(R.string.starting_download),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        enabled = !isDownloading,
-                        onClick = {
-                            val apkUrl = info.downloadUrl
-                            if (!apkUrl.isNullOrBlank() && apkUrl.endsWith(".apk", ignoreCase = true)) {
-                                isDownloading = true
-                                downloadProgress = 0f
-                                scope.launch {
-                                    val res = UpdateChecker.downloadAndInstallApk(
-                                        context = context,
-                                        downloadUrl = apkUrl,
-                                        versionName = info.latestVersion,
-                                        onProgress = { p -> downloadProgress = p }
-                                    )
-                                    isDownloading = false
-                                    if (res.isSuccess) {
-                                        showUpdateDialog = false
-                                    } else {
-                                        Toast.makeText(context, str(R.string.download_failed_x, res.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            } else {
-                                val url = info.htmlUrl ?: "https://github.com/Shreyanshh071/Auralis/releases"
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, str(R.string.could_not_open_download_link), Toast.LENGTH_SHORT).show()
-                                }
-                                showUpdateDialog = false
-                            }
-                        }
-                    ) {
-                        Text(if (isDownloading) str(R.string.downloading_2) else str(R.string.update_now), fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    if (!isDownloading) {
-                        TextButton(onClick = { showUpdateDialog = false }) {
-                            Text(str(R.string.later), color = onSurfaceVariant)
-                        }
-                    }
-                }
-            )
+        if (showUpdateFlow) {
+            UpdateFlowScreen(onDismiss = { showUpdateFlow = false })
         }
     }
 }

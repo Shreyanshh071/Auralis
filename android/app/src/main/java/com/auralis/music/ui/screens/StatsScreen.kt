@@ -223,6 +223,14 @@ fun StatsScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     // When the screen opened: cards unfold in only during the first moments, never on scroll.
     val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
+    // Once the list has been scrolled, rows arriving on screen no longer unfold.
+    val statsListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var statsScrolled by remember { mutableStateOf(false) }
+    LaunchedEffect(statsListState) {
+        androidx.compose.runtime.snapshotFlow { statsListState.isScrollInProgress }
+            .collect { if (it) statsScrolled = true }
+    }
+    val statsUnfoldOpen: () -> Boolean = { !statsScrolled }
 
     val isDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
     val themePrimary = MaterialTheme.dynamicPrimary
@@ -417,6 +425,7 @@ fun StatsScreen(
                     .then(if (statsGlass != null) Modifier.layerBackdrop(contentBackdrop) else Modifier)
             ) {
                 LazyColumn(
+                    state = statsListState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(22.dp)
@@ -436,7 +445,7 @@ fun StatsScreen(
                     if (topArtist != null || topSong != null) {
                         item(key = "your_highlights") {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                UnfoldIn(0, openedAtMs) { Row(
+                                UnfoldIn(0, openedAtMs, statsUnfoldOpen) { Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
@@ -457,7 +466,7 @@ fun StatsScreen(
                                 } }
 
                                 // Card 1: Top Artist
-                                topArtist?.let { artist -> UnfoldIn(1, openedAtMs) {
+                                topArtist?.let { artist -> UnfoldIn(1, openedAtMs, statsUnfoldOpen) {
                                     Surface(
                                         shape = RoundedCornerShape(22.dp),
                                         color = surfaceCardColor,
@@ -554,7 +563,7 @@ fun StatsScreen(
                                 } }
 
                                 // Card 2: Top Song
-                                topSong?.let { song -> UnfoldIn(2, openedAtMs) {
+                                topSong?.let { song -> UnfoldIn(2, openedAtMs, statsUnfoldOpen) {
                                     Surface(
                                         shape = RoundedCornerShape(22.dp),
                                         color = surfaceCardColor,
@@ -642,7 +651,7 @@ fun StatsScreen(
                     // Section: Listening Overview
                     item(key = "listening_overview") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            UnfoldIn(3, openedAtMs) { Text(
+                            UnfoldIn(3, openedAtMs, statsUnfoldOpen) { Text(
                                 text = str(R.string.listening_overview),
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
@@ -652,7 +661,7 @@ fun StatsScreen(
                             ) }
 
                             // Hero Card: Total Time Listened
-                            UnfoldIn(4, openedAtMs) {
+                            UnfoldIn(4, openedAtMs, statsUnfoldOpen) {
                             Surface(
                                 shape = RoundedCornerShape(24.dp),
                                 color = surfaceCardColor,
@@ -734,7 +743,7 @@ fun StatsScreen(
                             }
 
                             // Row of 3 mini metric cards
-                            UnfoldIn(5, openedAtMs) {
+                            UnfoldIn(5, openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -790,7 +799,7 @@ fun StatsScreen(
 
                     // Section: Top Songs
                     if (topSongs.isNotEmpty()) {
-                        item(key = "top_songs_header") { UnfoldIn(6, openedAtMs) {
+                        item(key = "top_songs_header") { UnfoldIn(6, openedAtMs, statsUnfoldOpen) {
                             Text(
                                 text = str(R.string.top_songs),
                                 style = MaterialTheme.typography.titleMedium.copy(
@@ -801,7 +810,7 @@ fun StatsScreen(
                             )
                         } }
 
-                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs) {
+                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -874,7 +883,7 @@ fun StatsScreen(
 
                     // Section: Top Artists
                     if (topArtists.isNotEmpty()) {
-                        item(key = "top_artists_header") { UnfoldIn(14, openedAtMs) {
+                        item(key = "top_artists_header") { UnfoldIn(14, openedAtMs, statsUnfoldOpen) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = str(R.string.top_artists),
@@ -886,7 +895,7 @@ fun StatsScreen(
                             )
                         } }
 
-                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs) {
+                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
