@@ -1215,7 +1215,7 @@ class LibraryViewModel(
 }
 
 private const val RECORDING_REVIEW_KEY = "recording_review_version"
-private const val RECORDING_REVIEW_VERSION = 2
+private const val RECORDING_REVIEW_VERSION = 3
 
 /** Weekly / Monthly Most playlists hold every song played in the window (as Metrolist), capped for safety. */
 private const val MOST_PLAYLIST_SIZE = 500

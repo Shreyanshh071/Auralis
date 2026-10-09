@@ -18,6 +18,37 @@ class RecordingMatchTest {
         Track(id = id, title = title, artist = artist, album = album, duration = duration)
 
     @Test
+    fun `same duration original cannot replace requested JENNIE feature`() {
+        val original = t("original", "Dracula", "Tame Impala", "Deadbeat", 206)
+        val featured = t("featured", "Dracula", "Tame Impala", "Dracula (with JENNIE) + Instrumental", 206)
+        val target = t("sp_featured", "Dracula (with JENNIE)", "Tame Impala, JENNIE", "Dracula", 206)
+        assertNotNull(SearchQueryMatcher.recordingMismatch(target, original))
+        assertNull(SearchQueryMatcher.recordingMismatch(target, featured))
+        assertEquals("featured", SearchQueryMatcher.findBestCandidateForTrack(target, listOf(original, featured))?.id)
+        assertNull(SearchQueryMatcher.findBestCandidateForTrack(target, listOf(original)))
+    }
+
+    @Test
+    fun `same duration feature is recognized from source release name alone`() {
+        val target = t("sp_featured", "Dracula", "Tame Impala", "Dracula (with JENNIE)", 206)
+        val original = t("original", "Dracula", "Tame Impala", "Deadbeat", 206)
+        val featured = t("featured", "Dracula", "Tame Impala & JENNIE", "Dracula", 206)
+        assertNotNull(SearchQueryMatcher.recordingMismatch(target, original))
+        assertEquals("featured", SearchQueryMatcher.findBestCandidateForTrack(target, listOf(original, featured))?.id)
+    }
+
+    @Test
+    fun `same duration remix labeled only in single album stays distinct`() {
+        val original = t("original", "Dracula", "Tame Impala", "Deadbeat", 206)
+        val remix = t("remix", "Dracula", "Tame Impala", "Dracula (Remix)", 206)
+        assertNotNull(SearchQueryMatcher.recordingMismatch(original, remix))
+        assertNotNull(SearchQueryMatcher.recordingMismatch(remix, original))
+        assertNull(SearchQueryMatcher.recordingMismatch(remix, remix))
+        val compilation = original.copy(album = "Remix Collection (Live)")
+        assertNull(SearchQueryMatcher.recordingMismatch(original, compilation))
+    }
+
+    @Test
     fun `album cut beats a top-ranked radio edit`() {
         val spotify = t("sp_bss", "Bitter Sweet Symphony", "The Verve", "Urban Hymns", 358)
         val results = listOf(

@@ -90,7 +90,7 @@ object AudioStreamResolver {
     fun init(context: android.content.Context) {
         try {
             clearCache()
-            matchPreferences = context.getSharedPreferences("auralis_recording_matches_v2", android.content.Context.MODE_PRIVATE)
+            matchPreferences = context.getSharedPreferences("auralis_recording_matches_v3", android.content.Context.MODE_PRIVATE)
             matchPreferences?.all?.forEach { (id, value) ->
                 if ((id.startsWith("sp_") || id.startsWith("spotify:")) && value is String &&
                     value.matches(Regex("[A-Za-z0-9_-]{11}"))) {
