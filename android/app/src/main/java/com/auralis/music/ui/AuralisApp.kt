@@ -1167,7 +1167,6 @@ fun AuralisApp(
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainLibraryViewModel().addTracksToPlaylist(plId, tracks)
-                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_playlist, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1281,7 +1280,6 @@ fun AuralisApp(
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             libVM.addTracksToPlaylist(plId, tracks)
-                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_playlist, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1394,7 +1392,6 @@ fun AuralisApp(
                                                 onAddToPlaylist = { plId, track -> libVM.addTrackToPlaylist(plId, track) },
                                                 onRemoveFromPlaylist = { plId, trackId ->
                                                     libVM.removeTrackFromPlaylist(plId, trackId)
-                                                    android.widget.Toast.makeText(context, str(R.string.removed_from_playlist), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onImportYouTubePlaylist = { libVM.importYouTubePlaylist(it) },
                                                 onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
@@ -2391,12 +2388,10 @@ fun AuralisApp(
                 userPlaylists = libraryUiState.playlists,
                 onAddToPlaylist = { playlist ->
                     libVM.addTrackToPlaylist(playlist.id, curTrack)
-                    android.widget.Toast.makeText(context, str(R.string.added_to_x, playlist.title), android.widget.Toast.LENGTH_SHORT).show()
                     showMiniPlayerTrackOptions = false
                 },
                 onCreatePlaylistAndAdd = { title ->
                     libVM.createPlaylistAndAddTrack(title, curTrack)
-                    android.widget.Toast.makeText(context, str(R.string.created_and_added_to_x, title), android.widget.Toast.LENGTH_SHORT).show()
                     showMiniPlayerTrackOptions = false
                 },
                 onDismiss = { showMiniPlayerTrackOptions = false }
