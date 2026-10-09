@@ -331,11 +331,13 @@ object AlbumMetadataResolver {
                         (collectionName.contains(cleanKnownAlbum, ignoreCase = true) || cleanKnownAlbum.contains(collectionName, ignoreCase = true))) {
                         score += 200
                     }
-                    // Hits compilations re-release the song later ("The Highlights" for Starboy);
-                    // the parent studio album is what "View album" should open.
+                    // Hits compilations and "Various Artists" playlists re-release the song later
+                    // ("The Highlights" for Starboy, "Pop Internacional 2022" for MIDDLE OF THE
+                    // NIGHT); they are never its home. A penalty was not enough: any non-single
+                    // gets +100, so a compilation still beat the song's own single.
                     val isCompilation = isCompilation(collectionName) ||
                         item.optString("collectionArtistName").equals("Various Artists", ignoreCase = true)
-                    if (isCompilation) score -= 40
+                    if (isCompilation) continue
 
                     candidates.add(
                         Candidate(
