@@ -763,14 +763,15 @@ fun AuralisApp(
     // collapses them by default, with or without the glass theme.
     val collapseOnScroll = appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.NEW.displayName ||
         appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.MATERIAL3.displayName
+    val dockHiddenByOverlay = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
     val dockMinimized = collapseOnScroll && dockMinimize.isMinimized && hasMiniPlayer &&
         (appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.NEW.displayName ||
             appearanceSettings.miniPlayerDesign == com.auralis.music.domain.model.MiniPlayerDesign.MATERIAL3.displayName) &&
-        !isNowPlayingOpen
+        !isNowPlayingOpen && !dockHiddenByOverlay
     val dockCollapse = animateFloatAsState(
         targetValue = if (dockMinimized) 1f else 0f,
-        // A little overshoot so it drops in and settles, like the reference motion.
-        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 320f),
+        // One monotonic spring drives the host bounds and all mini-player content.
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 1f, stiffness = 400f),
         label = "dockCollapse"
     )
     val anyGlassContext = remember(combinedGlassBackdrop, glassIsDark) {
@@ -783,6 +784,9 @@ fun AuralisApp(
     chromeCollapse[0] = dockCollapse
     LaunchedEffect(currentDestination, collapseOnScroll) { dockMinimize.expand() }
     LaunchedEffect(isPlayerSheetActive) { if (isPlayerSheetActive) dockMinimize.expand() }
+    // These screens hide the dock, so the mini player must release its reserved side gaps
+    // and expand with the same spring that drives its width, controls, and vertical position.
+    LaunchedEffect(dockHiddenByOverlay) { if (dockHiddenByOverlay) dockMinimize.expand() }
 
     fun preparePresentationTrack(track: com.auralis.music.domain.model.Track) {
         if (track.id != (playerUiState.currentTrack ?: audioPlayerTrack)?.id) {
@@ -2151,7 +2155,7 @@ fun AuralisApp(
                                 // carries 10dp of padding of its own, Material3 none).
                                 val endInset = if (hasDockButton) sideInset else if (isMaterial3) 14.dp else 4.dp
                                 Modifier.layout { measurable, constraints ->
-                                    val c = dockCollapse.value.coerceIn(0f, 1.1f)
+                                    val c = dockCollapse.value.coerceIn(0f, 1f)
                                     val start = (sideInset.toPx() * c).toInt()
                                     val end = (endInset.toPx() * c).toInt()
                                     val available = (constraints.maxWidth - start - end).coerceAtLeast(0)
