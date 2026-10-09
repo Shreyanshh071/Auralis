@@ -488,7 +488,7 @@ object SearchQueryMatcher {
             MatchTier.ARTIST_MATCH -> 4
             MatchTier.METADATA_PARTIAL -> 5
         }
-        val sorted = scoredMatches
+        val sortedMatchedTracks = scoredMatches
             .sortedWith(
                 compareBy<ScoredTrack> { group(it) }
                     .thenBy { isUnwantedDerivative(it.track, trimmed) || (isMusicVideoTitle(it.track.title) && !trimmed.contains("video", ignoreCase = true)) }
@@ -496,23 +496,7 @@ object SearchQueryMatcher {
                     .thenByDescending { it.score }
                     .thenBy { it.originalIndex }
             )
-        // An exact title only keeps its place over a partial one with comparable plays: "touch" put
-        // ten songs titled "Touch" (down to a 104K-play upload) above Cascada's 837M-play "Everytime
-        // We Touch". A partial title now goes above every exact one it has 10x the plays of.
-        val exactGroup = ArrayDeque(sorted.filter { group(it) == 1 })
-        val partialGroup = ArrayDeque(sorted.filter { group(it) == 2 })
-        val merged = mutableListOf<ScoredTrack>()
-        while (exactGroup.isNotEmpty() || partialGroup.isNotEmpty()) {
-            val exact = exactGroup.firstOrNull()
-            val partial = partialGroup.firstOrNull()
-            val partialPlays = partial?.let { parsePlayCount(it.track.views) } ?: 0L
-            merged += if (exact == null || (partial != null && partialPlays > 0L &&
-                    !isUnwantedDerivative(partial.track, trimmed) &&
-                    partialPlays >= parsePlayCount(exact.track.views) * 10L)) {
-                partialGroup.removeFirst()
-            } else exactGroup.removeFirst()
-        }
-        val sortedMatchedTracks = (merged + sorted.filter { group(it) > 2 }).map { it.track }
+            .map { it.track }
 
         // Deduplicate matched songs so higher quality studio audio tracks take precedence over music videos,
         // while preserving distinct performance cuts (e.g. Live, Acoustic, Remix) for user search queries.
