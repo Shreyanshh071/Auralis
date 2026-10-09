@@ -1,6 +1,6 @@
 package com.auralis.music.data.network
 
-import android.util.LruCache
+import androidx.collection.LruCache
 import com.auralis.music.domain.search.SearchQueryMatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -19,7 +19,7 @@ data class ResolvedAlbum(
 
 object AlbumMetadataResolver {
     private const val ITUNES_SEARCH_API = "https://itunes.apple.com/search"
-    internal val memoryCache = LruCache<String, ResolvedAlbum>(500)
+    val memoryCache = LruCache<String, ResolvedAlbum>(500)
 
     fun clearCache() {
         synchronized(memoryCache) {

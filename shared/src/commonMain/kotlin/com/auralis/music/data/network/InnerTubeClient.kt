@@ -1208,7 +1208,7 @@ open class InnerTubeClient(
         }
     }
 
-    internal fun artistSections(root: JSONObject): JSONArray {
+    fun artistSections(root: JSONObject): JSONArray {
         val contents = root.optJSONObject("contents")
         val browse = contents?.optJSONObject("singleColumnBrowseResultsRenderer")
             ?: contents?.optJSONObject("twoColumnBrowseResultsRenderer")
