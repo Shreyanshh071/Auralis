@@ -13,7 +13,7 @@ import okhttp3.Request
 import okhttp3.Response
 
 /** Bounds the entire request, closes every response, and cancels HTTP when the query changes. */
-internal suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
+suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
     withTimeout(budgetMs) {
         suspendCancellableCoroutine { continuation ->
             val call = newCall(request)
