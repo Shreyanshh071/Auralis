@@ -27,7 +27,9 @@ suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
                 override fun onResponse(call: Call, response: Response) {
                     try {
                         val body = response.use {
-                            if (!it.isSuccessful) throw IOException("Search HTTP ${it.code}")
+                            // The start of the error body says why (YouTube's 403s carry a reason).
+                            if (!it.isSuccessful) throw IOException("Search HTTP ${it.code} " +
+                                (it.body?.string().orEmpty().replace(Regex("\\s+"), " ").take(200)))
                             it.body?.string() ?: throw IOException("Empty search response")
                         }
                         continuation.resume(body)

@@ -274,7 +274,10 @@ class SearchViewModel(
         val cachedSongs = liveSongCache[trimmed.lowercase()]
             ?: _uiState.value.liveSongRecommendations.takeIf { _uiState.value.query.trim().equals(trimmed, ignoreCase = true) }
             ?: emptyList()
-        val immediate = com.auralis.music.data.repository.searchPreview(trimmed, listOf(SearchResults(songs = cachedSongs)))
+        // A recent identical search shows complete at once (the repository refreshes it quietly);
+        // otherwise rank whatever live suggestions already arrived.
+        val immediate = searchRepository.cachedSearch(trimmed)?.takeIf { it.isNotEmpty() }
+            ?: com.auralis.music.data.repository.searchPreview(trimmed, listOf(SearchResults(songs = cachedSongs)))
         _uiState.update {
             it.copy(
                 query = trimmed,

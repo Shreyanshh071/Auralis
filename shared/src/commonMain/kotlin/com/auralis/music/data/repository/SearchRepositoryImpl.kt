@@ -40,25 +40,55 @@ class SearchRepositoryImpl(
 
     override suspend fun search(query: String): SearchResults = search(query) {}
 
+    // Finished searches: searching the same thing again shows its results at once while they refresh.
+    private data class FinishedSearch(val timeMs: Long, val results: SearchResults)
+    private val finishedSearches = java.util.concurrent.ConcurrentHashMap<String, FinishedSearch>()
+
+    override fun cachedSearch(query: String): SearchResults? =
+        finishedSearches[query.trim().lowercase()]?.takeIf { System.nanoTime() / 1_000_000 - it.timeMs < FINISHED_SEARCH_TTL_MS }?.results
+
+    private fun rememberFinished(query: String, results: SearchResults) {
+        if (finishedSearches.size >= 32) finishedSearches.entries.minByOrNull { it.value.timeMs }?.let { finishedSearches.remove(it.key, it.value) }
+        finishedSearches[query.lowercase()] = FinishedSearch(System.nanoTime() / 1_000_000, results)
+    }
+
+    private companion object {
+        /** How long a stuck core request may hold back ranking once another has answered. */
+        const val CORE_WAIT_MS = 2_500L
+        /** Extra wait for albums/artists once songs and general results are in. */
+        const val CORE_GRACE_MS = 800L
+        const val FINISHED_SEARCH_TTL_MS = 30 * 60_000L
+    }
+
     override suspend fun search(query: String, onResults: (SearchResults) -> Unit): SearchResults = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext SearchResults()
+        // A recent search shows straight away and refreshes quietly: no previews or half-built
+        // results replace it, only the refreshed result at the end.
+        val cached = cachedSearch(trimmed)
+        if (cached != null) onResults(cached)
+        val emit: (SearchResults) -> Unit = if (cached != null) { _ -> } else onResults
+        // One summary line per search (tag AuralisSearch): when each request answered and what
+        // the supplementary lookups cost, so slow or failing searches can be read from logcat.
+        val startedNs = System.nanoTime()
+        val timings = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-        coroutineScope {
+        val fresh = coroutineScope {
+            fun elapsedMs() = (System.nanoTime() - startedNs) / 1_000_000
+            suspend fun <T> timed(label: String, block: suspend () -> T): T {
+                val from = System.nanoTime()
+                try { return block() } finally { timings[label] = "${(System.nanoTime() - from) / 1_000_000}ms" }
+            }
             val responses = kotlinx.coroutines.channels.Channel<SearchResults>(4)
             suspend fun fetch(params: String?): SearchResults {
                 val result = try { innerTubeClient.search(trimmed, params) }
                 catch (e: Exception) { kotlin.coroutines.coroutineContext.ensureActive(); SearchResults() }
+                timings[InnerTubeClient.searchFilterName(params)] = "${elapsedMs()}ms" + if (result.requestFailed) " FAILED" else ""
                 responses.send(result)
                 return result
             }
-            val songsDeferred = async { fetch(InnerTubeClient.FILTER_SONGS).songs }
-            val albumsDeferred = async {
-                val res = fetch(InnerTubeClient.FILTER_ALBUMS)
-                if (res.albums.isNotEmpty()) res.albums else res.playlists
-            }
-            val artistsDeferred = async { fetch(InnerTubeClient.FILTER_ARTISTS).artists }
-            val generalDeferred = async { fetch(null) }
+            val coreParams = listOf(InnerTubeClient.FILTER_SONGS, InnerTubeClient.FILTER_ALBUMS, InnerTubeClient.FILTER_ARTISTS, null)
+            val coreRequests = coreParams.map { params -> async { fetch(params) } }
 
             // Spelling suggestions are supplementary and cannot hold the submitted search open.
             val topSuggestionDeferred = async {
@@ -73,20 +103,43 @@ class SearchRepositoryImpl(
                     }
                 } ?: emptyList()
             }
+            // Rank as soon as the four core requests are in, but once something has arrived never wait
+            // more than CORE_WAIT_MS for the rest: on some networks YouTube Music refuses a request
+            // (HTTP 403) only after 6-10 s, and the whole search used to wait for that. A late
+            // request is folded in when it lands (below).
             val received = mutableListOf<SearchResults>()
-            repeat(4) {
-                received += responses.receive()
+            var coreDeadlineNs = startedNs + CORE_WAIT_MS * 1_000_000
+            var mainAnswered = false
+            while (received.size < coreRequests.size) {
+                // Once songs and general results are in (they decide the top result and the song list),
+                // or any three have answered, the rest get a short grace period, not the full wait.
+                val answered = coreRequests.filter { it.isCompleted && !it.await().requestFailed }
+                if (!mainAnswered && (answered.size >= 3 || (coreRequests[0] in answered && coreRequests[3] in answered))) {
+                    mainAnswered = true
+                    coreDeadlineNs = minOf(coreDeadlineNs, System.nanoTime() + CORE_GRACE_MS * 1_000_000)
+                }
+                val waitMs = (coreDeadlineNs - System.nanoTime()) / 1_000_000
+                val next = when {
+                    received.none { it.isNotEmpty() } -> responses.receive()
+                    waitMs <= 0 -> null
+                    else -> withTimeoutOrNull(waitMs) { responses.receive() }
+                } ?: break
+                received += next
                 val preview = searchPreview(trimmed, received)
-                if (preview.isNotEmpty()) onResults(preview)
+                if (preview.isNotEmpty()) emit(preview)
             }
-            if (received.all { it.isEmpty() } && received.any { it.requestFailed }) {
+            if (received.size == coreRequests.size && received.all { it.isEmpty() } && received.any { it.requestFailed }) {
                 throw IOException("Search could not reach the music service")
             }
-            val officialSongs = songsDeferred.await()
-            val officialAlbums = albumsDeferred.await()
-            val officialArtists = artistsDeferred.await()
-            val generalResults = generalDeferred.await()
-            val suggestionSongs = topSuggestionDeferred.await()
+
+            // Ranks one set of core responses: emits the ranked result before the optional lookups
+            // (artist photo, album card, album names, Single labels) and returns it with them filled in.
+            suspend fun rank(core: List<SearchResults>, suggestionSongs: List<Track>, requestFailed: Boolean,
+                             emitRanked: Boolean): SearchResults = coroutineScope {
+            val officialSongs = core[0].songs
+            val officialAlbums = core[1].let { if (it.albums.isNotEmpty()) it.albums else it.playlists }
+            val officialArtists = core[2].artists
+            val generalResults = core[3]
 
             val cardTrack = (generalResults.topResult as? SearchTopResult.SongResult)?.track
             val allSongs: List<Track> = (officialSongs + generalResults.songs + suggestionSongs + listOfNotNull(cardTrack)).distinctBy { it.id }
@@ -277,13 +330,13 @@ class SearchRepositoryImpl(
             // leading candidates' own pages are read for their real per-track plays.
             // Capped so a slow album page can't hold up the whole search; without it the album is
             // judged by its songs in the results alone.
-            val pageInfo: Map<String, Pair<Long, Int>> = sameNameAlbums.take(2).map { album ->
+            val pageInfo: Map<String, Pair<Long, Int>> = timed("albumPages") { sameNameAlbums.take(2).map { album ->
                 async {
-                    album.id to (kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                    album.id to (kotlinx.coroutines.withTimeoutOrNull(1_500L) {
                         innerTubeClient.getAlbumPlays(album.id)
                     } ?: (0L to 0))
                 }
-            }.associate { it.await() }
+            }.associate { it.await() } }
             // A release of up to four tracks by the song's own artist, named like the song, is that
             // song's single ("creep", "blinding lights"): it never outranks the song itself.
             fun isSongsOwnSingle(album: PlaylistResult): Boolean {
@@ -463,8 +516,8 @@ class SearchRepositoryImpl(
             // results cost the slowest one, not their sum.
             val topTrackForAlbum = (resolvedTopResult as? SearchTopResult.SongResult)?.track
             val artistNeedingPhoto = primaryArtist?.takeIf { it.thumbnail.isNullOrBlank() || it.thumbnail!!.contains("i.ytimg.com/vi/") }
-            val artistPhotoDeferred = async {
-                val artistName = artistNeedingPhoto?.name ?: return@async null
+            val artistPhotoDeferred = async { timed("artistPhoto") {
+                val artistName = artistNeedingPhoto?.name ?: return@timed null
                 officialArtists.find { it.name.equals(artistName, ignoreCase = true) }
                     ?: generalResults.artists.find { it.name.equals(artistName, ignoreCase = true) }
                     ?: try {
@@ -473,17 +526,17 @@ class SearchRepositoryImpl(
                         artistSearch.firstOrNull { it.id.startsWith("UC") && SearchQueryMatcher.normalize(it.name) == norm }
                             ?: artistSearch.firstOrNull { it.name.contains(artistName, ignoreCase = true) }
                     } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
-            }
+            } }
             // Songs that arrived without their album (general results leave it out) get it from
             // YouTube Music's own record of each upload, in one batched request.
             val albumLookupIds = (listOfNotNull(topTrackForAlbum?.id) +
                 finalMatchedSongs.filter { it.album.isNullOrBlank() }.map { it.id }).distinct().take(25)
-            val queueDeferred = async {
+            val queueDeferred = async { timed("queue") {
                 if (albumLookupIds.isEmpty()) emptyMap() else try {
                     (withTimeoutOrNull(2_500L) { innerTubeClient.getQueue(albumLookupIds) } ?: emptyList())
                         .associateBy { it.id }
                 } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyMap<String, Track>() }
-            }
+            } }
             // A song whose release is named like the song may be a single or an album's title
             // track: its release page says which ("Single • 2024" / "Album • 2020").
             val ambiguousReleaseIds = finalMatchedSongs.take(12)
@@ -499,22 +552,28 @@ class SearchRepositoryImpl(
             val topNeedsResolving = topTrackForAlbum != null &&
                 (AlbumMetadataResolver.needsResolving(topTrackForAlbum.album, topTrackForAlbum.title) ||
                     topTrackForAlbum.albumId.isNullOrBlank() || topTrackForAlbum.album.isNullOrBlank())
-            val resolverDeferred = async {
+            val resolverDeferred = async { timed("albumResolver") {
                 if (!topNeedsResolving) null else try {
                     withTimeoutOrNull(4_000L) {
                         AlbumMetadataResolver.resolveAlbum(topTrackForAlbum!!.title, primaryArtist?.name ?: topTrackForAlbum.artist, innerTubeClient)
                     }
                 } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
-            }
+            } }
 
-            val realArtist = artistPhotoDeferred.await()
+            // Everything above decides what is shown and in what order; what follows only fills in
+            // details, so the result can be shown before the optional lookups answer.
+            val rankedPrimaryArtist = primaryArtist
+            val rankedTopResult = resolvedTopResult
+            fun assemble(realArtist: Artist?, queueTracks: Map<String, Track>, resolved: com.auralis.music.data.network.ResolvedAlbum?,
+                         lateReleaseTypes: Map<String, String>): SearchResults {
+            var primaryArtist = rankedPrimaryArtist
+            var resolvedTopResult = rankedTopResult
             if (primaryArtist != null && realArtist != null && !realArtist.thumbnail.isNullOrBlank() && artistNeedingPhoto != null) {
                 primaryArtist = primaryArtist.copy(
                     id = if (realArtist.id.startsWith("UC")) realArtist.id else primaryArtist.id,
                     thumbnail = realArtist.thumbnail
                 )
             }
-            val queueTracks: Map<String, Track> = queueDeferred.await()
 
             // Set when the album service confirmed a full album, e.g. "After Hours" by The Weeknd:
             // named like its title track, but 14 songs, not a single.
@@ -538,7 +597,6 @@ class SearchRepositoryImpl(
                         )
                     } else {
                         // 2. Resolve authentic studio album via AlbumMetadataResolver (Apple Music / iTunes + YTM)
-                        val resolved = resolverDeferred.await()
 
                         if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() &&
                             !AlbumMetadataResolver.isCompilation(resolved.albumTitle)) {
@@ -650,7 +708,7 @@ class SearchRepositoryImpl(
                 ownSongs + finalSongsWithAlbums.filterNot { song -> ownSongs.any { it.id == song.id } }
             }
 
-            SearchResults(
+            return SearchResults(
                 topResult = resolvedTopResult,
                 recommendations = finalRecommendations.filterNot { rec -> orderedSongs.any { it.id == rec.id } },
                 songs = orderedSongs,
@@ -662,11 +720,47 @@ class SearchRepositoryImpl(
                 runnerUp = runnerUp,
                 albumPlays = runnerUpAlbumPlays,
                 albumPlayCounts = albumCounts,
-                requestFailed = received.any { it.requestFailed },
-                releaseTypes = allAlbums.mapNotNull { a -> a.releaseType?.let { a.id to it } }.toMap() +
-                    releaseTypeDeferreds.mapNotNull { d -> d.await().let { (id, type) -> type?.let { id to it } } }
+                requestFailed = requestFailed,
+                releaseTypes = allAlbums.mapNotNull { a -> a.releaseType?.let { a.id to it } }.toMap() + lateReleaseTypes
             )
+            }
+
+            if (emitRanked) emit(assemble(null, emptyMap(), null, emptyMap()))
+            assemble(
+                realArtist = artistPhotoDeferred.await(),
+                queueTracks = queueDeferred.await(),
+                resolved = resolverDeferred.await(),
+                lateReleaseTypes = releaseTypeDeferreds.mapNotNull { d -> d.await().let { (id, type) -> type?.let { id to it } } }.toMap()
+            )
+            }
+
+            // Missing responses count as empty until they land. A spelling suggestion that is not back
+            // yet is left out rather than reshuffling the songs later.
+            val core = coreRequests.map { if (it.isCompleted) it.await() else SearchResults() }
+            val suggestionSongs = if (topSuggestionDeferred.isCompleted) topSuggestionDeferred.await() else emptyList()
+            val first = rank(core, suggestionSongs, core.any { it.requestFailed }, emitRanked = true)
+            if (coreRequests.all { it.isCompleted && !it.await().requestFailed }) return@coroutineScope first
+
+            // A late or failed core request: show the first result with its details, then wait for
+            // the straggler (retrying a failed request once) and rank again with everything.
+            emit(first)
+            val settled = coreRequests.mapIndexed { i, request ->
+                async {
+                    val answer = request.await()
+                    if (!answer.requestFailed) answer
+                    else timed("retry-${InnerTubeClient.searchFilterName(coreParams[i])}") { innerTubeClient.search(trimmed, coreParams[i]) }
+                }
+            }.map { it.await() }
+            val failed = settled.any { it.requestFailed }
+            if (settled == core) first.copy(requestFailed = failed)
+            else rank(settled, suggestionSongs, failed, emitRanked = false)
         }
+        com.auralis.music.util.Log.i(InnerTubeClient.SEARCH_LOG_TAG, "search '$trimmed' done in ${(System.nanoTime() - startedNs) / 1_000_000}ms" +
+            (if (cached != null) " (cached result shown first)" else "") + "; failed=${fresh.requestFailed}; " +
+            timings.entries.sortedBy { it.key }.joinToString { "${it.key}=${it.value}" })
+        if (!fresh.requestFailed) rememberFinished(trimmed, fresh)
+        // A refresh that lost a request never replaces a complete earlier result.
+        if (fresh.requestFailed && cached != null) cached else fresh
     }
 
     override suspend fun searchLiveSongs(query: String, onResults: (List<Track>) -> Unit) = coroutineScope {
