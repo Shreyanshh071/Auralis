@@ -28,7 +28,11 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         com.auralis.music.data.datastore.ContentSettingsStore.init(this)
         com.auralis.music.data.network.ContentProxy.install()
         // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
-        com.auralis.music.data.network.YouTubeSession.init(this)
+        com.auralis.music.data.network.YouTubeSession.init(
+            com.auralis.music.util.SharedPreferencesKeyValueStore(
+                applicationContext.getSharedPreferences(com.auralis.music.data.network.YouTubeSession.PREFS_NAME, MODE_PRIVATE)
+            )
+        )
         com.auralis.music.data.network.SpotifySession.init(this)
         com.auralis.music.data.sync.LocalDataOwner.init(this)
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = cacheDir

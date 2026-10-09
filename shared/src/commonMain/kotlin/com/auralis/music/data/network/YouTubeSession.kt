@@ -1,7 +1,6 @@
 package com.auralis.music.data.network
 
-import android.content.Context
-import android.content.SharedPreferences
+import com.auralis.music.util.KeyValueStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,14 +18,15 @@ import java.security.MessageDigest
  * Auralis's servers. It is sent only to YouTube, and only for songs YouTube says need an age check.
  */
 object YouTubeSession {
-    private const val PREFS = "auralis_youtube_session"
+    /** Where Android keeps the session (SharedPreferences file name). */
+    const val PREFS_NAME = "auralis_youtube_session"
     private const val KEY_COOKIE = "cookie"
     private const val KEY_VISITOR_DATA = "visitor_data"
     private const val KEY_AUTH_USER = "auth_user"
     private const val KEY_ACCOUNT_LABEL = "account_label"
     private const val KEY_DATA_SYNC_ID = "data_sync_id"
 
-    private var prefs: SharedPreferences? = null
+    private var prefs: KeyValueStore? = null
 
     @Volatile private var cookie: String = ""
     @Volatile var visitorData: String = ""
@@ -42,9 +42,9 @@ object YouTubeSession {
     /** Shown in Profile so the user can tell which YouTube account is linked. */
     val accountLabel: StateFlow<String> = _accountLabel.asStateFlow()
 
-    fun init(context: Context) {
+    fun init(store: KeyValueStore) {
         if (prefs != null) return
-        val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val p = store
         prefs = p
         cookie = p.getString(KEY_COOKIE, "").orEmpty()
         visitorData = p.getString(KEY_VISITOR_DATA, "").orEmpty()
@@ -61,13 +61,13 @@ object YouTubeSession {
         this.visitorData = visitorData
         this.authUser = authUser.filter(Char::isDigit).ifBlank { "0" }
         this.dataSyncId = normalizeDataSyncId(dataSyncId)
-        prefs?.edit()
-            ?.putString(KEY_COOKIE, cookie)
-            ?.putString(KEY_VISITOR_DATA, visitorData)
-            ?.putString(KEY_AUTH_USER, this.authUser)
-            ?.putString(KEY_ACCOUNT_LABEL, accountLabel)
-            ?.putString(KEY_DATA_SYNC_ID, this.dataSyncId)
-            ?.apply()
+        prefs?.putStrings(linkedMapOf(
+            KEY_COOKIE to cookie,
+            KEY_VISITOR_DATA to visitorData,
+            KEY_AUTH_USER to this.authUser,
+            KEY_ACCOUNT_LABEL to accountLabel,
+            KEY_DATA_SYNC_ID to this.dataSyncId
+        ))
         _accountLabel.value = accountLabel
         _signedIn.value = hasAuthCookies(cookie)
     }
@@ -77,7 +77,7 @@ object YouTubeSession {
         visitorData = ""
         authUser = "0"
         dataSyncId = ""
-        prefs?.edit()?.clear()?.apply()
+        prefs?.clear()
         _accountLabel.value = ""
         _signedIn.value = false
     }
