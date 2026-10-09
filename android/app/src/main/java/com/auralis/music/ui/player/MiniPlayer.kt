@@ -1140,10 +1140,10 @@ private fun NewMiniPlayerPillView(
     val favoriteExit = auralisIconSwapExit()
     // Liquid glass theme: glass pill, and a compact form while tucked into the minimized dock.
     val glass = if (isPureBlack) null else com.auralis.music.ui.glass.LocalMiniPlayerGlass.current
+    val lightGlass = glass?.isDark == false
+    val contentColor = if (lightGlass) Color(0xFF1B1B1F) else Color.White
+    val glassTint = if (lightGlass) Color.White.copy(alpha = 0.70f) else Color(0xFF101010).copy(alpha = 0.70f)
     val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
-    val isCompact by remember(dockCollapse) {
-        derivedStateOf { (dockCollapse?.value ?: 0f) > 0.5f }
-    }
 
     val actualBgColor = if (isPureBlack) {
         Color.Black
@@ -1221,7 +1221,7 @@ private fun NewMiniPlayerPillView(
             .padding(horizontal = 10.dp, vertical = 5.dp)
             .then(
                 if (glass != null) {
-                    Modifier.liquidGlass(glass, pillShape).clip(pillShape)
+                    Modifier.liquidGlass(glass, pillShape, tint = glassTint).clip(pillShape)
                 } else {
                     Modifier
                         .shadow(
@@ -1308,7 +1308,7 @@ private fun NewMiniPlayerPillView(
                             isPlaying = isPlaying,
                             progressState = if (isCurrent) progressState else null,
                             progressProvider = effectiveProgressProvider,
-                            progressColor = Color.White,
+                            progressColor = contentColor,
                             isLiquidGlass = !isPureBlack && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
                             sharedTransitionScope = if (isSharedActive) sharedTransitionScope else null,
                             animatedVisibilityScope = if (isSharedActive) animatedVisibilityScope else null,
@@ -1325,28 +1325,22 @@ private fun NewMiniPlayerPillView(
                                 Text(
                                     text = pageTrack.title,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White,
+                                    color = contentColor,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = !isCompact,
-                                    enter = fadeIn(tween(220)) + androidx.compose.animation.expandVertically(tween(260)),
-                                    exit = fadeOut(tween(160)) + androidx.compose.animation.shrinkVertically(tween(220))
-                                ) {
-                                Column {
+                                Column(modifier = Modifier.miniPlayerDockReveal(dockCollapse, horizontal = false)) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = pageTrack.artist,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
+                                    color = if (glass != null) contentColor.copy(alpha = 0.78f) else if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                }
                                 }
                             }
                         }
@@ -1356,17 +1350,15 @@ private fun NewMiniPlayerPillView(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            val actionButtonBg = if (isPureBlack) Color(0xFF181818) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
-            val actionButtonBorder = if (!isPureBlack && activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
+            val actionButtonBg = if (glass != null) contentColor.copy(alpha = 0.10f) else if (isPureBlack) Color(0xFF181818) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
+            val actionButtonBorder = if (glass != null) {
+                Modifier.border(0.8.dp, contentColor.copy(alpha = 0.16f), CircleShape)
+            } else if (!isPureBlack && activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
                 Modifier.border(0.8.dp, Color.White.copy(alpha = 0.18f), CircleShape)
             } else Modifier
 
-            androidx.compose.animation.AnimatedVisibility(
-                visible = !isCompact,
-                enter = fadeIn(tween(220)) + androidx.compose.animation.expandHorizontally(tween(280)),
-                exit = fadeOut(tween(140)) + androidx.compose.animation.shrinkHorizontally(tween(240))
-            ) {
             Row(
+                modifier = Modifier.miniPlayerDockReveal(dockCollapse, horizontal = true),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1382,7 +1374,7 @@ private fun NewMiniPlayerPillView(
                     Icon(
                         imageVector = Icons.Outlined.Person,
                         contentDescription = str(R.string.artist_x, activeTrack?.artist ?: ""),
-                        tint = Color.White.copy(alpha = 0.85f),
+                        tint = contentColor,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1399,7 +1391,7 @@ private fun NewMiniPlayerPillView(
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = str(R.string.add_to_playlist),
-                        tint = Color.White.copy(alpha = 0.85f),
+                        tint = contentColor,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -1421,12 +1413,11 @@ private fun NewMiniPlayerPillView(
                         Icon(
                             imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (fav) str(R.string.favorited) else str(R.string.favorite),
-                            tint = if (fav) Color(0xFFFF4081) else Color.White.copy(alpha = 0.85f),
+                            tint = if (fav) { if (lightGlass) Color(0xFFC2185B) else Color(0xFFFF4081) } else contentColor,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
-            }
             }
         }
     }
@@ -1492,7 +1483,7 @@ private fun MiniPlayerArtworkDisc(
                 )
 
                 // 2. Full 360-degree background track ring - ALWAYS visible at any playback state (0%, 10%, 50%, 90%, paused)
-                val trackColor = if (isLiquidGlass) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.28f)
+                val trackColor = progressColor.copy(alpha = if (isLiquidGlass) 0.35f else 0.28f)
                 drawArc(
                     color = trackColor,
                     startAngle = 0f,
