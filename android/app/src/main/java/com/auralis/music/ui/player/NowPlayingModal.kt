@@ -2240,11 +2240,9 @@ fun NowPlayingModal(
             },
             onAddToPlaylist = { playlist ->
                 onAddToPlaylist(playlist.id, track)
-                Toast.makeText(context, str(R.string.added_to_x, playlist.title), Toast.LENGTH_SHORT).show()
             },
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
-                Toast.makeText(context, str(R.string.created_and_added_to_x, title), Toast.LENGTH_SHORT).show()
             },
             onDismiss = { showTrackOptions = false }
         )
@@ -2290,12 +2288,10 @@ fun NowPlayingModal(
             userPlaylists = userPlaylists,
             onAddToPlaylist = { playlist ->
                 onAddToPlaylist(playlist.id, track)
-                Toast.makeText(context, str(R.string.added_to_x, playlist.title), Toast.LENGTH_SHORT).show()
                 showPlaylistPicker = false
             },
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
-                Toast.makeText(context, str(R.string.created_and_added_to_x, title), Toast.LENGTH_SHORT).show()
                 showPlaylistPicker = false
             },
             onDismiss = { showPlaylistPicker = false }

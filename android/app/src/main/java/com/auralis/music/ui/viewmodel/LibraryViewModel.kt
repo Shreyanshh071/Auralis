@@ -523,6 +523,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             val playlist = libraryRepository.createPlaylist(title.trim(), description?.trim())
             libraryRepository.addTrackToPlaylist(playlist.id, track)
+            com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.created_and_added_to_x, playlist.title))
         }
     }
 
@@ -838,6 +839,7 @@ class LibraryViewModel(
                 }
             } else {
                 libraryRepository.removeTrackFromPlaylist(playlistId, trackId)
+                com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.removed_from_playlist))
             }
         }
     }
