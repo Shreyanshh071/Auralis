@@ -601,151 +601,27 @@ fun ExploreScreen(
                             }
                         }
                         SearchBodyState.SUGGESTIONS -> {
-                            val animateItems = !LocalReducedMotion.current
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
+                            androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.search.LocalSearchUi provides phoneSearchUi) {
+                            com.auralis.music.ui.search.SearchSuggestionsList(
+                                query = uiState.query,
+                                suggestions = uiState.suggestions,
+                                liveSongs = uiState.liveSongRecommendations,
+                                recentQueries = uiState.recentQueries,
+                                currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
                                 contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
-                                if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
-                                    items(
-                                        items = uiState.suggestions.take(3),
-                                        key = { "sug_$it" }
-                                    ) { suggestion ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
-                                                .clickable {
-                                                    focusManager.clearFocus(force = true)
-                                                    keyboardController?.hide()
-                                                    onSearch(suggestion)
-                                                }
-                                                .padding(vertical = 10.dp, horizontal = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Search,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
-                                                modifier = Modifier.size(22.dp)
-                                            )
-
-                                            Spacer(modifier = Modifier.width(16.dp))
-
-                                            Text(
-                                                text = suggestion,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onBackground,
-                                                fontSize = 16.sp,
-                                                modifier = Modifier.weight(1f)
-                                            )
-
-                                            IconButton(
-                                                onClick = { onQueryChange(suggestion) },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                DiagonalInsertArrow()
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 2. Direct Live Song Recommendations (Top Songs section right below text suggestions)
-                                if (uiState.query.isNotBlank() && uiState.liveSongRecommendations.isNotEmpty()) {
-                                    item(key = "header_top_songs") {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = str(R.string.top_songs),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontSize = 17.sp,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
-                                        )
-                                    }
-
-                                    items(
-                                        items = uiState.liveSongRecommendations,
-                                        key = { trk -> "live_song_${trk.id}" }
-                                    ) { track ->
-                                        val isCurrent = track.id == currentTrackId
-                                        androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.search.LocalSearchUi provides phoneSearchUi) {
-                                            com.auralis.music.ui.search.TrackRowItem(
-                                                track = track,
-                                                isCurrent = isCurrent,
-                                                isPlaying = isPlaying,
-                                                playlist = listOf(track),
-                                                onTrackClick = handleTrackClick,
-                                                onPlayNext = onPlayNext,
-                                                onAddToQueue = onAddToQueue,
-                                                onMenuClick = { selectedTrackForMenu = track }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // 2. Recent Searches History Items (when input is empty)
-                                if (uiState.query.isBlank()) {
-                                    items(
-                                        items = uiState.recentQueries,
-                                        key = { "recent_$it" }
-                                    ) { query ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
-                                                .clickable {
-                                                    focusManager.clearFocus(force = true)
-                                                    keyboardController?.hide()
-                                                    onSearch(query)
-                                                }
-                                                .padding(vertical = 12.dp, horizontal = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.History,
-                                                contentDescription = str(R.string.history),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-
-                                            Spacer(modifier = Modifier.width(16.dp))
-
-                                            Text(
-                                                text = query,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onBackground,
-                                                fontSize = 16.sp,
-                                                modifier = Modifier.weight(1f)
-                                            )
-
-                                            // Remove from history
-                                            IconButton(
-                                                onClick = { onRemoveRecentQuery(query) },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = str(R.string.remove),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-
-                                            Spacer(modifier = Modifier.width(4.dp))
-
-                                            // Diagonal insert arrow (↖)
-                                            IconButton(
-                                                onClick = { onQueryChange(query) },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                    }
-                                }
+                                onSearch = { text ->
+                                    focusManager.clearFocus(force = true)
+                                    keyboardController?.hide()
+                                    onSearch(text)
+                                },
+                                onInsert = onQueryChange,
+                                onRemoveRecent = onRemoveRecentQuery,
+                                onTrackClick = handleTrackClick,
+                                onPlayNext = onPlayNext,
+                                onAddToQueue = onAddToQueue,
+                                onMenuClick = { track -> selectedTrackForMenu = track }
+                            )
                             }
                         }
                     }
@@ -792,43 +668,6 @@ fun ExploreScreen(
             isInListenTogetherRoom = isInListenTogetherRoom,
             onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
-        )
-    }
-}
-
-/**
- * Custom 60fps canvas-rendered diagonal insert arrow (↖) matching YouTube Music.
- */
-@Composable
-private fun DiagonalInsertArrow(
-    modifier: Modifier = Modifier,
-    tint: Color = Color.White.copy(alpha = 0.60f)
-) {
-    Canvas(modifier = modifier.size(16.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = 1.8.dp.toPx()
-
-        // Main diagonal arrow shaft
-        drawLine(
-            color = tint,
-            start = Offset(w * 0.82f, h * 0.82f),
-            end = Offset(w * 0.18f, h * 0.18f),
-            strokeWidth = stroke
-        )
-        // Top horizontal arrow bar
-        drawLine(
-            color = tint,
-            start = Offset(w * 0.18f, h * 0.18f),
-            end = Offset(w * 0.68f, h * 0.18f),
-            strokeWidth = stroke
-        )
-        // Left vertical arrow bar
-        drawLine(
-            color = tint,
-            start = Offset(w * 0.18f, h * 0.18f),
-            end = Offset(w * 0.18f, h * 0.68f),
-            strokeWidth = stroke
         )
     }
 }

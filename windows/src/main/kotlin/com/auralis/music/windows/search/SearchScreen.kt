@@ -85,6 +85,9 @@ fun SearchScreen(
     onUnavailable: (String) -> Unit,
     onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = { onUnavailable("Artist pages on Windows come next") },
     onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = { onUnavailable("Album pages on Windows come next") },
+    onPlayNext: (com.auralis.music.domain.model.Track) -> Unit = {},
+    onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit = {},
+    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit = { onUnavailable("Song options on Windows come next") },
     /** Changes each time Ctrl+F asks for the search field. */
     focusRequests: Int = 0,
     onTypingChange: (Boolean) -> Unit = {}
@@ -124,14 +127,26 @@ fun SearchScreen(
                         onTrackClick = { track, list ->
                             if (onPlay != null) onPlay(track, list) else onUnavailable("Playback needs VLC (64-bit)")
                         },
-                        onMenuClick = { onUnavailable("Song options on Windows come next") },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onMenuClick = onMenuClick,
                         onArtistClick = onOpenArtist,
                         onPlaylistClick = onOpenAlbum
                     )
                 }
                 state.hasSubmitted && state.searchFailed -> CenteredMessage("Couldn't reach YouTube Music.", action = "Retry") { state.search() }
                 state.hasSubmitted -> CenteredMessage("No results for “${state.query}”")
-                else -> RecentSearches(state)
+                else -> SuggestionsOrRecent(
+                    state = state,
+                    currentTrackId = currentTrackId,
+                    isPlaying = isPlaying,
+                    onPlay = { track, list ->
+                        if (onPlay != null) onPlay(track, list) else onUnavailable("Playback needs VLC (64-bit)")
+                    },
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
+                    onMenuClick = onMenuClick
+                )
             }
         }
     }
@@ -194,49 +209,39 @@ private fun SearchBar(
     }
 }
 
+/** Before a search is submitted: the phone's suggestions while typing, recent searches when empty. */
 @Composable
-private fun RecentSearches(state: DesktopSearchState) {
+private fun SuggestionsOrRecent(
+    state: DesktopSearchState,
+    currentTrackId: String?,
+    isPlaying: Boolean,
+    onPlay: (com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit,
+    onPlayNext: (com.auralis.music.domain.model.Track) -> Unit,
+    onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit,
+    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit
+) {
     val recent by state.recentQueries.collectAsState(initial = emptyList())
-    if (recent.isEmpty()) {
+    if (state.query.isBlank() && recent.isEmpty()) {
         CenteredMessage("Search for songs, albums and artists")
         return
     }
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        item {
-            Text(
-                text = "Recent searches",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
-            )
-        }
-        items(recent, key = { "recent_$it" }) { query ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { state.search(query) }
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(14.dp))
-                Text(
-                    text = query,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = { state.removeRecent(query) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                }
-            }
-        }
+    CompositionLocalProvider(LocalSearchUi provides DesktopSearchUi) {
+        com.auralis.music.ui.search.SearchSuggestionsList(
+            query = state.query,
+            suggestions = state.suggestions,
+            liveSongs = state.liveSongs,
+            recentQueries = recent,
+            currentTrackId = currentTrackId,
+            isPlaying = isPlaying,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            onSearch = { state.search(it) },
+            onInsert = state::onQueryChange,
+            onRemoveRecent = state::removeRecent,
+            onTrackClick = onPlay,
+            onPlayNext = onPlayNext,
+            onAddToQueue = onAddToQueue,
+            onMenuClick = onMenuClick
+        )
     }
 }
 

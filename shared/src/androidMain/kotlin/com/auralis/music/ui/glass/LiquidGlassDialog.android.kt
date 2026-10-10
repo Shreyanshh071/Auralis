@@ -15,10 +15,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import com.kyant.backdrop.Backdrop
 
+@Composable
+actual fun rememberDialogPageAnchor(): Any? = LocalView.current
+
 /** Align a modal window's glass with the page recorded in the activity window. */
-internal fun Modifier.liquidGlassDialog(
-    glass: LiquidGlassContext, shape: CornerBasedShape, pageView: View
+actual fun Modifier.liquidGlassDialog(
+    glass: LiquidGlassContext, shape: CornerBasedShape, pageAnchor: Any?
 ): Modifier = composed {
+    val pageView = pageAnchor as View
     val dialogView = LocalView.current
     var windowOffset by remember { mutableStateOf(Offset.Zero) }
     val alignedBackdrop = remember(glass.backdrop, windowOffset) {

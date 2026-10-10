@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import com.auralis.music.data.download.AuralisDownloadManager
+import androidx.compose.runtime.collectAsState
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.i18n.Strings
 import com.auralis.music.ui.i18n.str
@@ -30,6 +31,12 @@ class PhonePlatformActions(private val context: Context) : PlatformActions {
     override fun isDownloading(trackId: String) = AuralisDownloadManager.isDownloading(trackId)
     override fun downloadTrack(track: Track) = AuralisDownloadManager.downloadTrack(track)
     override fun removeDownload(trackId: String) = AuralisDownloadManager.removeDownload(trackId)
+
+    @androidx.compose.runtime.Composable
+    override fun hasActiveDownloads(): Boolean =
+        AuralisDownloadManager.activeDownloads.collectAsState().value.isNotEmpty()
+
+    override fun clearAllDownloads() = AuralisDownloadManager.clearAllDownloads()
 
     override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) {
         com.auralis.music.data.download.PlaylistDownloadCoordinator.enqueue(

@@ -1,6 +1,6 @@
 package com.auralis.music.data.network
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.TrackSource
@@ -154,7 +154,7 @@ class SpotifyPlaylistImporter(
                 java.util.Base64.getEncoder().encodeToString(input.toByteArray(Charsets.UTF_8))
             } catch (_: Throwable) {
                 try {
-                    android.util.Base64.encodeToString(input.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+                    com.auralis.music.util.Base64Compat.encodeNoWrap(input.toByteArray(Charsets.UTF_8))
                 } catch (_: Throwable) {
                     ""
                 }
@@ -199,9 +199,9 @@ class SpotifyPlaylistImporter(
 
         // 1. Try Spotify Developer Client Credentials flow
         val effectiveClientId = clientId?.trim()?.ifBlank { null }
-            ?: runCatching { com.auralis.music.BuildConfig.SPOTIFY_CLIENT_ID.trim().ifBlank { null } }.getOrNull()
+            ?: runCatching { SpotifyPlatform.clientId().trim().ifBlank { null } }.getOrNull()
         val effectiveClientSecret = clientSecret?.trim()?.ifBlank { null }
-            ?: runCatching { com.auralis.music.BuildConfig.SPOTIFY_CLIENT_SECRET.trim().ifBlank { null } }.getOrNull()
+            ?: runCatching { SpotifyPlatform.clientSecret().trim().ifBlank { null } }.getOrNull()
 
         if (!effectiveClientId.isNullOrBlank() && !effectiveClientSecret.isNullOrBlank()) {
             try {
@@ -1250,13 +1250,13 @@ class SpotifyPlaylistImporter(
                                   completedCounter.incrementAndGet()
                                   return@withPermit track
                               }
-                              AudioStreamResolver.getMatchedVideoId(track.id)?.let { preparedId ->
+                              RecordingMatches.getMatchedVideoId(track.id)?.let { preparedId ->
                                   completedCounter.incrementAndGet()
                                   return@withPermit track.copy(id = preparedId,
-                                      duration = AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration))
+                                      duration = RecordingMatches.getEffectiveDurationSec(track.id, track.duration))
                               }
                               // Yield briefly only if user is actively resolving current live playback
-                            while (AudioStreamResolver.isPlaybackResolving) {
+                            while (SpotifyPlatform.isPlaybackResolving()) {
                                 kotlinx.coroutines.delay(100)
                             }
 
@@ -1269,7 +1269,7 @@ class SpotifyPlaylistImporter(
 
                             if (topMatch != null) {
                                 Log.i(TAG, "Matched Spotify track '${track.title}' -> '${topMatch.id}' (${topMatch.title})")
-                                AudioStreamResolver.rememberMatchedVideoId(track.id, topMatch.id, topMatch.duration)
+                                SpotifyPlatform.rememberMatchedVideoId(track.id, topMatch.id, topMatch.duration)
                                 track.copy(
                                     id = topMatch.id,
                                     // Matching audio must not replace Spotify's release cover
@@ -1528,5 +1528,22 @@ class SpotifyPlaylistImporter(
                 tracks = tracks
             )
         } else null
+    }
+}
+
+/** What Spotify import needs from the app it runs in; the phone sets these at startup. */
+object SpotifyPlatform {
+    /** Spotify developer credentials from the build, if any (the phone's BuildConfig). */
+    @Volatile var clientId: () -> String = { "" }
+    @Volatile var clientSecret: () -> String = { "" }
+    /** True while the player is looking up the song being started; matching waits so it starts fast. */
+    @Volatile var isPlaybackResolving: () -> Boolean = { false }
+    /** Keeps a Spotify song's matched YouTube recording (the phone also saves it). */
+    @Volatile var rememberMatchedVideoId: (spotifyId: String, youtubeId: String, durationSec: Long) -> Unit = { spotifyId, youtubeId, durationSec ->
+        if ((spotifyId.startsWith("sp_") || spotifyId.startsWith("spotify:")) &&
+            youtubeId.isNotBlank() && !youtubeId.startsWith("sp_") && !youtubeId.startsWith("spotify:")) {
+            RecordingMatches.matchedVideoIds[spotifyId] = youtubeId
+            if (durationSec > 0L) RecordingMatches.matchedDurations[spotifyId] = durationSec
+        }
     }
 }

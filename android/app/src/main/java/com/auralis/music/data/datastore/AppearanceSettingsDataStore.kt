@@ -31,14 +31,14 @@ val Context.appearanceSettingsDataStore: DataStore<Preferences> by preferencesDa
 
 class AppearanceSettingsDataStore(
     private val context: Context
-) {
+) : com.auralis.music.ui.theme.AppearanceSettingsStore {
     private val dataStore = context.appearanceSettingsDataStore
 
     /**
      * Instantly returns default AppearanceSettings for Frame 0 to guarantee non-blocking startup.
      * Asynchronous updates flow through settingsFlow via StateFlow / collectAsState.
      */
-    fun getInitialSettings(): AppearanceSettings {
+    override fun getInitialSettings(): AppearanceSettings {
         return AppearanceSettings()
     }
 
@@ -103,7 +103,7 @@ class AppearanceSettingsDataStore(
         val SHOW_UPLOADED_PLAYLIST = booleanPreferencesKey("show_uploaded_playlist")
     }
 
-    val settingsFlow: Flow<AppearanceSettings> = dataStore.data
+    override val settingsFlow: Flow<AppearanceSettings> = dataStore.data
         .catch { exception ->
             if (exception is IOException || exception is androidx.datastore.core.CorruptionException) {
                 emit(emptyPreferences())
@@ -188,7 +188,7 @@ class AppearanceSettingsDataStore(
             )
         }
 
-    suspend fun updateSettings(settings: AppearanceSettings) {
+    override suspend fun updateSettings(settings: AppearanceSettings) {
         try {
             dataStore.edit { preferences ->
                 preferences[HIGH_REFRESH_RATE] = settings.highRefreshRate
@@ -249,7 +249,7 @@ class AppearanceSettingsDataStore(
         }
     }
 
-    suspend fun hideMostPlayedPlaylist(playlistId: String) {
+    override suspend fun hideMostPlayedPlaylist(playlistId: String) {
         val key = when (playlistId) {
             "smart_top_50" -> SHOW_TOP_PLAYLIST
             "smart_weekly_most" -> SHOW_WEEKLY_MOST_PLAYLIST

@@ -19,6 +19,11 @@ interface PlatformActions {
     fun isDownloading(trackId: String): Boolean
     fun downloadTrack(track: Track)
     fun removeDownload(trackId: String)
+    /** True while any song is downloading for offline play. */
+    @androidx.compose.runtime.Composable
+    fun hasActiveDownloads(): Boolean
+    fun clearAllDownloads()
+
     /** Downloads a whole playlist for offline playback. */
     fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>)
 
@@ -40,6 +45,9 @@ object NoPlatformActions : PlatformActions {
     override fun downloadTrack(track: Track) {}
     override fun removeDownload(trackId: String) {}
     override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) {}
+    @androidx.compose.runtime.Composable
+    override fun hasActiveDownloads() = false
+    override fun clearAllDownloads() {}
     override fun saveTextFile(fileName: String, content: String) = ""
     @androidx.compose.runtime.Composable
     override fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit = {}

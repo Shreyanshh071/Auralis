@@ -1,6 +1,8 @@
 package com.auralis.music.ui.screens
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
@@ -103,6 +105,23 @@ fun LibraryScreen(
         onCloseExternalCreateDialog = onCloseExternalCreateDialog,
         isTrackPinned = isTrackPinned,
         onPinTrackToSpeedDial = onPinTrackToSpeedDial,
+        // Offline folders: the phone's download jobs, read straight from the coordinator.
+        downloadsHub = { args ->
+            val jobs by com.auralis.music.data.download.PlaylistDownloadCoordinator.jobs.collectAsState()
+            com.auralis.music.ui.library.DownloadedHubView(
+                downloadedTracks = args.downloadedTracks,
+                downloadedJobs = jobs.values.toList(),
+                userPlaylists = args.userPlaylists,
+                currentTrackId = args.currentTrackId,
+                isPlaying = args.isPlaying,
+                onBack = args.onBack,
+                onOpenFolder = args.onOpenFolder,
+                onPlayTracks = args.onPlayTracks,
+                onDeleteJob = args.onDeleteJob,
+                onRetryJob = args.onRetryJob,
+                onClearAllDownloads = args.onClearAllDownloads
+            )
+        },
         modifier = modifier
     )
 }
