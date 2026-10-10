@@ -52,6 +52,9 @@ class SearchRepositoryImpl(
         finishedSearches[query.lowercase()] = FinishedSearch(System.nanoTime() / 1_000_000, results)
     }
 
+    /** A finished album lookup: [album] is null when it found nothing. */
+    private class ResolverAnswer(val album: com.auralis.music.data.network.ResolvedAlbum?)
+
     private companion object {
         /** How long a stuck core request may hold back ranking once another has answered. */
         const val CORE_WAIT_MS = 2_500L
@@ -568,20 +571,34 @@ class SearchRepositoryImpl(
             val topNeedsResolving = topTrackForAlbum != null &&
                 (AlbumMetadataResolver.needsResolving(topTrackForAlbum.album, topTrackForAlbum.title) ||
                     topTrackForAlbum.albumId.isNullOrBlank() || topTrackForAlbum.album.isNullOrBlank())
-            val resolverDeferred = async { timed("albumResolver") {
+            // A finished lookup (its answer, possibly "nothing found"), or null if it timed out or failed.
+            val resolverDeferred: kotlinx.coroutines.Deferred<ResolverAnswer?> = async { timed("albumResolver") {
                 if (!topNeedsResolving) null else try {
                     withTimeoutOrNull(4_000L) {
-                        AlbumMetadataResolver.resolveAlbum(topTrackForAlbum!!.title, primaryArtist?.name ?: topTrackForAlbum.artist, innerTubeClient)
+                        ResolverAnswer(AlbumMetadataResolver.resolveAlbum(topTrackForAlbum!!.title, primaryArtist?.name ?: topTrackForAlbum.artist, innerTubeClient))
                     }
                 } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
             } }
+            // The same lookup answered earlier (any search), so the first result can use it at once.
+            val cachedResolverAnswer = if (!topNeedsResolving) null else
+                AlbumMetadataResolver.getCached(topTrackForAlbum!!.title, primaryArtist?.name ?: topTrackForAlbum.artist)?.let { ResolverAnswer(it) }
+
+            // Another upload of the top song in the results already received that sits on a real album
+            // ("Blinding Lights" on After Hours next to its single): that album is known at once.
+            fun albumUploadOfSameSong(track: Track): Track? = songsForPlays.firstOrNull { other ->
+                other.id != track.id && other.albumId?.startsWith("MPRE") == true && !other.album.isNullOrBlank() &&
+                    !AlbumMetadataResolver.needsResolving(other.album, other.title) &&
+                    SearchQueryMatcher.isSameSong(other, track) &&
+                    SearchQueryMatcher.unrequestedVersionTags(other, trimmed).isEmpty()
+            }
 
             // Everything above decides what is shown and in what order; what follows only fills in
             // details, so the result can be shown before the optional lookups answer.
             val rankedPrimaryArtist = primaryArtist
             val rankedTopResult = resolvedTopResult
-            fun assemble(realArtist: Artist?, queueTracks: Map<String, Track>, resolved: com.auralis.music.data.network.ResolvedAlbum?,
+            fun assemble(realArtist: Artist?, queueTracks: Map<String, Track>, resolverAnswer: ResolverAnswer?,
                          lateReleaseTypes: Map<String, String>): SearchResults {
+            val resolved = resolverAnswer?.album
             var primaryArtist = rankedPrimaryArtist
             var resolvedTopResult = rankedTopResult
             if (primaryArtist != null && realArtist != null && !realArtist.thumbnail.isNullOrBlank() && artistNeedingPhoto != null) {
@@ -611,8 +628,18 @@ class SearchRepositoryImpl(
                             thumbnail = track.thumbnail.ifBlank { null },
                             author = targetArtist
                         )
-                    } else {
-                        // 2. Resolve authentic studio album via AlbumMetadataResolver (Apple Music / iTunes + YTM)
+                    } else albumUploadOfSameSong(track)?.let { onAlbum ->
+                        // 2. The same song's album upload among the results already received.
+                        albumConfirmedNotSingle = true
+                        resolvedTopResult = SearchTopResult.SongResult(track.copy(album = onAlbum.album, albumId = onAlbum.albumId))
+                        PlaylistResult(
+                            id = onAlbum.albumId!!,
+                            title = onAlbum.album!!,
+                            thumbnail = onAlbum.thumbnail.ifBlank { null } ?: track.thumbnail.ifBlank { null },
+                            author = targetArtist
+                        )
+                    } ?: run {
+                        // 3. Resolve authentic studio album via AlbumMetadataResolver (Apple Music / iTunes + YTM)
 
                         if (resolved != null && !resolved.isSingle && resolved.albumTitle.isNotBlank() &&
                             !AlbumMetadataResolver.isCompilation(resolved.albumTitle)) {
@@ -670,6 +697,29 @@ class SearchRepositoryImpl(
                 }
             }
 
+            // Release labels known so far: from album results, the release pages read for this search,
+            // and release pages read by earlier searches.
+            val knownReleaseTypes = allAlbums.mapNotNull { a -> a.releaseType?.let { a.id to it } }.toMap() + lateReleaseTypes
+            fun releaseTypeOf(id: String) = knownReleaseTypes[id] ?: InnerTubeClient.cachedReleaseType(id)
+
+            // A song that is only a single gets a release card of its own: its artwork labelled
+            // "Single", not clickable. Only when two sources agree: YouTube Music labels its release a
+            // single, and the album lookup found it on a single and on no album. "Nothing found" is not
+            // enough: Radiohead's Creep is on Pablo Honey, which iTunes doesn't list at all.
+            val topTrackNow = (resolvedTopResult as? SearchTopResult.SongResult)?.track
+            var singleCard = false
+            if (primaryAlbum == null && topTrackNow != null && !topTrackNow.albumId.isNullOrBlank() &&
+                releaseTypeOf(topTrackNow.albumId!!) == "single" && resolved?.isSingle == true) {
+                primaryAlbum = PlaylistResult(
+                    id = topTrackNow.albumId!!,
+                    title = topTrackNow.album?.takeIf { it.isNotBlank() } ?: topTrackNow.title,
+                    thumbnail = topTrackNow.thumbnail.ifBlank { null },
+                    author = primaryArtist?.name ?: topTrackNow.artist,
+                    releaseType = "single"
+                )
+                singleCard = true
+            }
+
             // Ensure prioritized ordering
             val finalArtists = if (primaryArtist != null) {
                 listOf(primaryArtist) + enrichedArtists.filterNot { it.name.equals(primaryArtist.name, ignoreCase = true) }
@@ -677,8 +727,9 @@ class SearchRepositoryImpl(
                 enrichedArtists
             }
 
-            val finalAlbums = if (primaryAlbum != null) {
-                listOf(primaryAlbum) + rankedAlbums.filterNot { it.id == primaryAlbum.id || it.title.equals(primaryAlbum.title, ignoreCase = true) }
+            val listedAlbum = primaryAlbum?.takeIf { !singleCard }
+            val finalAlbums = if (listedAlbum != null) {
+                listOf(listedAlbum) + rankedAlbums.filterNot { it.id == listedAlbum.id || it.title.equals(listedAlbum.title, ignoreCase = true) }
             } else {
                 rankedAlbums
             }
@@ -733,19 +784,24 @@ class SearchRepositoryImpl(
                 playlists = generalResults.playlists,
                 primaryArtist = primaryArtist,
                 primaryAlbum = primaryAlbum,
+                primarySingle = singleCard,
                 runnerUp = runnerUp,
                 albumPlays = runnerUpAlbumPlays,
                 albumPlayCounts = albumCounts,
                 requestFailed = requestFailed,
-                releaseTypes = allAlbums.mapNotNull { a -> a.releaseType?.let { a.id to it } }.toMap() + lateReleaseTypes
+                releaseTypes = knownReleaseTypes
             )
             }
 
-            if (emitRanked) emit(assemble(null, emptyMap(), null, emptyMap()))
+            // Albums get_queue reported for these uploads in earlier searches.
+            val cachedQueueTracks = albumLookupIds.mapNotNull { id ->
+                InnerTubeClient.cachedQueueAlbum(id)?.let { (album, albumId) -> id to Track(id, "", "", album = album, albumId = albumId) }
+            }.toMap()
+            if (emitRanked) emit(assemble(null, cachedQueueTracks, cachedResolverAnswer, emptyMap()))
             assemble(
                 realArtist = artistPhotoDeferred.await(),
-                queueTracks = queueDeferred.await(),
-                resolved = resolverDeferred.await(),
+                queueTracks = cachedQueueTracks + queueDeferred.await(),
+                resolverAnswer = resolverDeferred.await() ?: cachedResolverAnswer,
                 lateReleaseTypes = releaseTypeDeferreds.mapNotNull { d -> d.await().let { (id, type) -> type?.let { id to it } } }.toMap()
             )
             }

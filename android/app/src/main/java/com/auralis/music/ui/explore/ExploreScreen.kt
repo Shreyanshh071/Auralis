@@ -828,11 +828,13 @@ private fun SearchResultsView(
     onPlaylistClick: (PlaylistResult) -> Unit
 ) {
     val allArtists = (listOfNotNull(results.primaryArtist) + results.artists).distinctBy { it.id }
-    val allAlbums = (listOfNotNull(results.primaryAlbum) + results.albums + results.playlists).distinctBy { it.id }
+    // A single's release card is not an album: it is never listed (or opened) as one.
+    val allAlbums = (listOfNotNull(results.primaryAlbum?.takeIf { !results.primarySingle }) + results.albums + results.playlists).distinctBy { it.id }
     val primaryArtist = results.primaryArtist ?: results.artists.firstOrNull()
     val primaryAlbum = results.primaryAlbum?.takeIf { album ->
         primaryArtist == null || com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
     }
+    val isSingleRelease = primaryAlbum != null && results.primarySingle
     val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
         (results.primaryArtist != null && query.isNotBlank() &&
             com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist!!.name, query))
@@ -925,8 +927,8 @@ private fun SearchResultsView(
         if (!isArtistSearch && (primaryArtist != null || primaryAlbum != null)) {
             item(key = "header_artist_album") {
                 val headerTitle = when {
-                    primaryArtist != null && primaryAlbum != null -> "Artist & Album"
-                    primaryAlbum != null -> "Album"
+                    primaryArtist != null && primaryAlbum != null -> if (isSingleRelease) "Artist & Single" else "Artist & Album"
+                    primaryAlbum != null -> if (isSingleRelease) "Single" else "Album"
                     else -> "Artist"
                 }
                 Text(
@@ -1016,7 +1018,7 @@ private fun SearchResultsView(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { onPlaylistClick(primaryAlbum) },
+                                .then(if (isSingleRelease) Modifier else Modifier.clickable { onPlaylistClick(primaryAlbum) }),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
                             shape = RoundedCornerShape(16.dp)
                         ) {
@@ -1036,7 +1038,7 @@ private fun SearchResultsView(
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "ALBUM",
+                                        text = if (isSingleRelease) "SINGLE" else "ALBUM",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
@@ -1132,7 +1134,7 @@ private fun SearchResultsView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .clickable { onPlaylistClick(primaryAlbum) },
+                            .then(if (isSingleRelease) Modifier else Modifier.clickable { onPlaylistClick(primaryAlbum) }),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
                         shape = RoundedCornerShape(16.dp)
                     ) {
@@ -1152,7 +1154,7 @@ private fun SearchResultsView(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "ALBUM",
+                                    text = if (isSingleRelease) "SINGLE" else "ALBUM",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary,

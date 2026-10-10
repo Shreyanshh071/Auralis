@@ -21,9 +21,48 @@ object AlbumMetadataResolver {
     private const val ITUNES_SEARCH_API = "https://itunes.apple.com/search"
     val memoryCache = LruCache<String, ResolvedAlbum>(500)
 
+    // Lookups survive app restarts (each app hands over a store at startup), so a song looked up
+    // once shows its album or Single card with the first results the next time.
+    @Volatile private var store: com.auralis.music.util.KeyValueStore? = null
+    private const val STORE_KEY = "album_lookups"
+
+    fun persistTo(kv: com.auralis.music.util.KeyValueStore) {
+        store = kv
+        val saved = kv.getString(STORE_KEY, "").orEmpty()
+        if (saved.isBlank()) return
+        try {
+            val entries = JSONObject(saved)
+            synchronized(memoryCache) {
+                for (key in entries.keys()) {
+                    val e = entries.getJSONObject(key)
+                    memoryCache.put(key, ResolvedAlbum(
+                        albumTitle = e.getString("t"),
+                        albumId = e.optString("id").ifBlank { null },
+                        albumArt = e.optString("art").ifBlank { null },
+                        artistName = e.optString("a").ifBlank { null },
+                        isSingle = e.optBoolean("s")
+                    ))
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    /** Writes the cache to the store; called with the [memoryCache] lock held. */
+    private fun persist() {
+        val kv = store ?: return
+        val entries = JSONObject()
+        // Least to most recently used, so reloading keeps the same eviction order.
+        for ((key, v) in memoryCache.snapshot()) {
+            entries.put(key, JSONObject().put("t", v.albumTitle).put("id", v.albumId ?: "")
+                .put("art", v.albumArt ?: "").put("a", v.artistName ?: "").put("s", v.isSingle))
+        }
+        kv.putStrings(mapOf(STORE_KEY to entries.toString()))
+    }
+
     fun clearCache() {
         synchronized(memoryCache) {
             memoryCache.evictAll()
+            persist()
         }
     }
 
@@ -211,7 +250,7 @@ object AlbumMetadataResolver {
                             isSingle = false
                         )
                         synchronized(memoryCache) {
-                            memoryCache.put(cacheKey, resolved)
+                            memoryCache.put(cacheKey, resolved); persist()
                         }
                         return@withContext resolved
                     }
@@ -245,7 +284,7 @@ object AlbumMetadataResolver {
                             isSingle = false
                         )
                         synchronized(memoryCache) {
-                            memoryCache.put(cacheKey, resolved)
+                            memoryCache.put(cacheKey, resolved); persist()
                         }
                         return@withContext resolved
                     }
@@ -278,7 +317,9 @@ object AlbumMetadataResolver {
                 val artworkUrl: String?,
                 val itArtist: String,
                 val isSingle: Boolean,
-                val releaseDate: String
+                val releaseDate: String,
+                val isExactTitle: Boolean,
+                val isSecondary: Boolean
             )
 
             val candidates = mutableListOf<Candidate>()
@@ -346,7 +387,9 @@ object AlbumMetadataResolver {
                             artworkUrl = rawArtwork.ifBlank { null }?.replace("100x100bb", "1200x1200bb"),
                             itArtist = itArtist,
                             isSingle = isSingle,
-                            releaseDate = releaseDate
+                            releaseDate = releaseDate,
+                            isExactTitle = isExactTitle,
+                            isSecondary = isSecondary
                         )
                     )
                 }
@@ -359,9 +402,15 @@ object AlbumMetadataResolver {
                 compareByDescending<Candidate> { it.score }
                     .thenBy { it.releaseDate.ifBlank { "9999" } }
             ).firstOrNull()
+            // "Single" only for the song itself: same title, not a remix / live / acoustic cut on
+            // some EP ("Creep (Acoustic)" on the Creep EP is not Creep being a single).
             if (bestCandidate != null && bestCandidate.isSingle) {
-                singleRelease = bestCandidate.collectionName
-                singleArt = bestCandidate.artworkUrl
+                candidates.filter { it.isSingle && it.isExactTitle && !it.isSecondary }
+                    .minByOrNull { it.releaseDate.ifBlank { "9999" } }
+                    ?.let { single ->
+                        singleRelease = single.collectionName
+                        singleArt = single.artworkUrl
+                    }
             }
             if (bestCandidate != null && !bestCandidate.isSingle) {
                 var ytmAlbumId: String? = null
@@ -424,7 +473,7 @@ object AlbumMetadataResolver {
                 )
 
                 synchronized(memoryCache) {
-                    memoryCache.put(cacheKey, resolved)
+                    memoryCache.put(cacheKey, resolved); persist()
                 }
                 return@withContext resolved
             }
@@ -475,7 +524,7 @@ object AlbumMetadataResolver {
                         isSingle = false
                     )
                     synchronized(memoryCache) {
-                        memoryCache.put(cacheKey, resolved)
+                        memoryCache.put(cacheKey, resolved); persist()
                     }
                     return@withContext resolved
                 }
@@ -485,7 +534,7 @@ object AlbumMetadataResolver {
         // A standalone single: say so, so "View album" can show "Single" instead of guessing.
         singleRelease?.let { release ->
             val single = ResolvedAlbum(albumTitle = release, albumArt = singleArt, artistName = cleanArtist, isSingle = true)
-            synchronized(memoryCache) { memoryCache.put(cacheKey, single) }
+            synchronized(memoryCache) { memoryCache.put(cacheKey, single); persist() }
             return@withContext single
         }
         null
