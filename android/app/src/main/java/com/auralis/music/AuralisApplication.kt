@@ -51,7 +51,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
                 applicationContext.getSharedPreferences(com.auralis.music.data.network.YouTubeSession.PREFS_NAME, MODE_PRIVATE)
             )
         )
-        com.auralis.music.data.network.SpotifySession.init(this)
+        com.auralis.music.data.network.PhoneSpotifySession.init(this)
         // Album lookups and release labels from earlier searches, so a song's album or Single card
         // appears with the first results (its own small file; the database is untouched).
         val searchLookups = com.auralis.music.util.SharedPreferencesKeyValueStore(getSharedPreferences("auralis_album_lookups", MODE_PRIVATE))

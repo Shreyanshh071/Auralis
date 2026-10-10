@@ -1,10 +1,6 @@
 package com.auralis.music.data.network
 
-import android.content.Context
-import android.content.SharedPreferences
-import android.net.Uri
-import android.util.Log
-import android.webkit.CookieManager
+import com.auralis.music.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,23 +17,37 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * Manages the user's Spotify Web Player session and tokens.
  *
- * Like [YouTubeSession], user credentials never leave the phone: cookies and tokens are stored
- * in private SharedPreferences and sent only to Spotify to read the user's playlists and Liked Songs.
+ * Like [YouTubeSession], user credentials never leave the device: cookies and tokens are stored
+ * in the app's private [Store] and sent only to Spotify to read the user's playlists and Liked Songs.
  */
 object SpotifySession {
     private const val TAG = "SpotifySession"
-    private const val PREFS = "auralis_spotify_session"
-    private const val KEY_COOKIE = "cookie"
-    private const val KEY_ACCESS_TOKEN = "access_token"
-    private const val KEY_EXPIRES_AT = "expires_at"
-    private const val KEY_ACCOUNT_LABEL = "account_label"
-    private const val KEY_USER_ID = "user_id"
-    private const val KEY_AVATAR_URL = "avatar_url"
+    const val PREFS = "auralis_spotify_session"
+    const val KEY_COOKIE = "cookie"
+    const val KEY_ACCESS_TOKEN = "access_token"
+    const val KEY_EXPIRES_AT = "expires_at"
+    const val KEY_ACCOUNT_LABEL = "account_label"
+    const val KEY_USER_ID = "user_id"
+    const val KEY_AVATAR_URL = "avatar_url"
 
     const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
-    private var prefs: SharedPreferences? = null
+    /** Where the session is kept: the phone's SharedPreferences (same keys and types as before), a file on desktop. */
+    interface Store {
+        fun getString(key: String): String
+        fun getLong(key: String): Long
+        /** Writes in one edit; values are String or Long. */
+        fun put(values: Map<String, Any>)
+        fun clear()
+    }
+
+    /** The platform's browser cookies for a Spotify page (the sign-in web view); empty where there is none. */
+    @Volatile var webCookies: (url: String) -> String = { "" }
+    /** Clears the sign-in web view's Spotify cookies, on sign-out. */
+    @Volatile var clearWebCookies: () -> Unit = {}
+
+    private var prefs: Store? = null
 
     @Volatile private var cookie: String = ""
     @Volatile private var accessToken: String = ""
@@ -60,16 +70,16 @@ object SpotifySession {
             .build()
     }
 
-    fun init(context: Context) {
+    fun init(store: Store) {
         if (prefs != null) return
-        val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val p = store
         prefs = p
-        cookie = p.getString(KEY_COOKIE, "").orEmpty()
-        accessToken = p.getString(KEY_ACCESS_TOKEN, "").orEmpty()
-        expiresAtMs = p.getLong(KEY_EXPIRES_AT, 0L)
-        userId = p.getString(KEY_USER_ID, "").orEmpty()
-        avatarUrl = p.getString(KEY_AVATAR_URL, "").orEmpty()
-        val label = p.getString(KEY_ACCOUNT_LABEL, "").orEmpty()
+        cookie = p.getString(KEY_COOKIE)
+        accessToken = p.getString(KEY_ACCESS_TOKEN)
+        expiresAtMs = p.getLong(KEY_EXPIRES_AT)
+        userId = p.getString(KEY_USER_ID)
+        avatarUrl = p.getString(KEY_AVATAR_URL)
+        val label = p.getString(KEY_ACCOUNT_LABEL)
         _accountLabel.value = label
         _signedIn.value = hasAuth(cookie, accessToken)
     }
@@ -90,14 +100,16 @@ object SpotifySession {
         this.userId = userId
         this.avatarUrl = avatarUrl
 
-        prefs?.edit()
-            ?.putString(KEY_COOKIE, cookie)
-            ?.putString(KEY_ACCESS_TOKEN, accessToken)
-            ?.putLong(KEY_EXPIRES_AT, expiresAtMs)
-            ?.putString(KEY_ACCOUNT_LABEL, accountLabel)
-            ?.putString(KEY_USER_ID, userId)
-            ?.putString(KEY_AVATAR_URL, avatarUrl)
-            ?.apply()
+        prefs?.put(
+            mapOf(
+                KEY_COOKIE to cookie,
+                KEY_ACCESS_TOKEN to accessToken,
+                KEY_EXPIRES_AT to expiresAtMs,
+                KEY_ACCOUNT_LABEL to accountLabel,
+                KEY_USER_ID to userId,
+                KEY_AVATAR_URL to avatarUrl
+            )
+        )
 
         _accountLabel.value = accountLabel
         _signedIn.value = hasAuth(cookie, accessToken)
@@ -110,26 +122,13 @@ object SpotifySession {
         expiresAtMs = 0L
         userId = ""
         avatarUrl = ""
-        prefs?.edit()?.clear()?.apply()
+        prefs?.clear()
         _accountLabel.value = ""
         _signedIn.value = false
 
         // Clear web cookies for Spotify
         try {
-            val manager = CookieManager.getInstance()
-            for (site in listOf("https://open.spotify.com", "https://accounts.spotify.com", "https://spotify.com")) {
-                val host = Uri.parse(site).host.orEmpty()
-                val baseDomain = host.substringAfter('.', host)
-                manager.getCookie(site).orEmpty().split(";")
-                    .mapNotNull { it.substringBefore('=').trim().takeIf(String::isNotBlank) }
-                    .forEach { name ->
-                        for (domain in listOf(host, ".$baseDomain")) {
-                            manager.setCookie(site, "$name=; Domain=$domain; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
-                        }
-                        manager.setCookie(site, "$name=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
-                    }
-            }
-            manager.flush()
+            clearWebCookies()
         } catch (e: Exception) {
             Log.w(TAG, "Error clearing Spotify cookies: ${e.message}")
         }
@@ -165,7 +164,7 @@ object SpotifySession {
         // Token expired or missing; attempt refresh using stored session cookies
         val currentCookie = cookie.ifBlank {
             try {
-                CookieManager.getInstance().getCookie("https://open.spotify.com").orEmpty()
+                webCookies("https://open.spotify.com")
             } catch (_: Exception) { "" }
         }
 
@@ -179,10 +178,7 @@ object SpotifySession {
             if (refreshed != null) {
                 accessToken = refreshed.first
                 expiresAtMs = refreshed.second
-                prefs?.edit()
-                    ?.putString(KEY_ACCESS_TOKEN, refreshed.first)
-                    ?.putLong(KEY_EXPIRES_AT, refreshed.second)
-                    ?.apply()
+                prefs?.put(mapOf(KEY_ACCESS_TOKEN to refreshed.first, KEY_EXPIRES_AT to refreshed.second))
                 return@withContext refreshed.first
             }
         } catch (e: Exception) {

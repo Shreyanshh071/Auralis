@@ -55,6 +55,7 @@ fun AuralisDesktopApp(
     library: com.auralis.music.domain.repository.LibraryRepository,
     history: com.auralis.music.domain.repository.HistoryRepository,
     homePlatform: com.auralis.music.ui.viewmodel.HomePlatform,
+    libraryFlags: com.auralis.music.util.KeyValueStore,
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
@@ -84,6 +85,15 @@ fun AuralisDesktopApp(
     }
     androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
     val platformActions = remember { com.auralis.music.ui.components.DesktopPlatformActions(showUnavailable) }
+    val libraryViewModel = remember {
+        com.auralis.music.ui.viewmodel.LibraryViewModel(
+            libraryRepository = library,
+            historyRepository = history,
+            platform = com.auralis.music.desktop.library.DesktopLibraryPlatform(libraryFlags, showUnavailable)
+        )
+    }
+    // The song options sheet, for song rows that hand their menu to the window (search, playlists).
+    var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
     val queue = playback?.queue?.collectAsState()?.value
     val playerState = playback?.state?.collectAsState()?.value
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
@@ -146,7 +156,10 @@ fun AuralisDesktopApp(
                                 searchRepository = searchRepository,
                                 playback = playback,
                                 browse = browse,
-                                onOpenPlaylist = { showUnavailable("Playlists open from Library, which comes next on Windows") },
+                                onOpenPlaylist = { id ->
+                                    libraryViewModel.selectPlaylist(id)
+                                    destination = DesktopDestination.LIBRARY
+                                },
                                 onNavigateToSearch = { destination = DesktopDestination.SEARCH },
                                 showMessage = showUnavailable
                             )
@@ -158,12 +171,37 @@ fun AuralisDesktopApp(
                                 onUnavailable = showUnavailable,
                                 onOpenArtist = browse::openArtist,
                                 onOpenAlbum = { browse.openAlbum(it) },
+                                onPlayNext = { track ->
+                                    playback?.playNext(track)
+                                    showUnavailable(com.auralis.music.ui.i18n.str(com.auralis.music.ui.i18n.Strings.playing_next_x, track.title))
+                                },
+                                onAddToQueue = { track ->
+                                    playback?.addToQueue(track)
+                                    showUnavailable(com.auralis.music.ui.i18n.str(com.auralis.music.ui.i18n.Strings.added_to_queue_x, track.title))
+                                },
+                                onMenuClick = { menuTrack = it },
                                 focusRequests = searchFocusRequests,
                                 onTypingChange = { typing = it }
                             )
-                            DesktopDestination.LIBRARY -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
-                                NotBuiltYet("Library", "Local library comes after playback.")
-                            }
+                            DesktopDestination.LIBRARY -> com.auralis.music.windows.library.DesktopLibrary(
+                                viewModel = libraryViewModel,
+                                homeViewModel = homeViewModel,
+                                library = library,
+                                playback = playback,
+                                browse = browse,
+                                showMessage = showUnavailable
+                            )
+                        }
+                        menuTrack?.let { track ->
+                            com.auralis.music.windows.library.DesktopTrackMenu(
+                                track = track,
+                                library = library,
+                                playback = playback,
+                                browse = browse,
+                                homeViewModel = homeViewModel,
+                                showMessage = showUnavailable,
+                                onDismiss = { menuTrack = null }
+                            )
                         }
                         androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
                     }

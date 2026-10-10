@@ -1,6 +1,6 @@
 package com.auralis.music.data.network
 
-import android.util.Log
+import com.auralis.music.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -10,7 +10,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /** The web player's persisted queries work with its session token, unlike scoped OAuth REST calls. */
-internal object SpotifyWebApi {
+object SpotifyWebApi {
     private const val TAG = "SpotifyWebApi"
     private const val QUERY_URL = "https://api-partner.spotify.com/pathfinder/v2/query"
     private const val HASH_REGISTRY = "https://francescograzioso.github.io/Meld/spotify-gql-hashes.json"

@@ -1,6 +1,6 @@
 package com.auralis.music.data.network
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.TrackSource
@@ -17,10 +17,10 @@ object SpotifyLibrary {
     private const val TAG = "SpotifyLibrary"
     const val LIKED_SONGS_ID = "liked_songs"
 
-    internal fun hasMorePages(pageSize: Int, nextOffset: Int, totalCount: Int): Boolean =
+    fun hasMorePages(pageSize: Int, nextOffset: Int, totalCount: Int): Boolean =
         pageSize > 0 && (totalCount < 0 || nextOffset < totalCount)
 
-    internal fun playlistCover(data: JSONObject): String? {
+    fun playlistCover(data: JSONObject): String? {
         fun firstUrl(sources: JSONArray?): String? {
             if (sources == null) return null
             for (index in 0 until sources.length()) {
@@ -141,7 +141,7 @@ object SpotifyLibrary {
     }
 
     /** Spotify's libraryV3 wraps each playlist in an item/data pair. */
-    internal fun parseGqlPlaylists(items: JSONArray): List<LibraryPlaylist> = buildList {
+    fun parseGqlPlaylists(items: JSONArray): List<LibraryPlaylist> = buildList {
         for (i in 0 until items.length()) {
             val wrapper = items.optJSONObject(i)?.optJSONObject("item") ?: continue
             if (!wrapper.optString("__typename").contains("Playlist", ignoreCase = true)) continue
@@ -173,7 +173,7 @@ object SpotifyLibrary {
     }
 
     /** Converts a fetchPlaylist or fetchLibraryTracks page to the app's import track model. */
-    internal fun parseGqlTracks(items: JSONArray, likedSongs: Boolean, out: MutableList<Track>) {
+    fun parseGqlTracks(items: JSONArray, likedSongs: Boolean, out: MutableList<Track>) {
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
             val wrapper = item.optJSONObject(if (likedSongs) "track" else "itemV2") ?: continue

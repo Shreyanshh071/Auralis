@@ -77,6 +77,7 @@ fun main(args: Array<String>) {
         }
     }
     val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"))
+    val libraryFlags = PropertiesFileKeyValueStore(java.io.File(dataDir, "library-flags.properties"))
 
     val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
         ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
@@ -103,6 +104,7 @@ fun main(args: Array<String>) {
                 library,
                 history,
                 homePlatform,
+                libraryFlags,
                 playback,
                 lyrics,
                 onShortcutHandler = { shortcutHandler = it },

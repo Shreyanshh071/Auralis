@@ -1,5 +1,7 @@
 package com.auralis.music.ui.library
 
+import com.auralis.music.ui.i18n.Strings
+
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.filled.LockOpen
@@ -20,7 +22,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
-import com.auralis.music.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,11 +81,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -221,7 +217,7 @@ enum class PlaylistSortOption(val label: String) {
     BY_ARTIST("Artist (A-Z)")
 }
 
-internal fun sortLibraryPlaylists(
+fun sortLibraryPlaylists(
     playlists: List<Playlist>,
     order: String,
     recentPlayedAtByTrackId: Map<String, Long>
@@ -317,16 +313,16 @@ fun LibraryScreen(
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
+    /** The phone's Downloads hub (offline folders), shown when Downloaded is opened; null where there are no downloads. */
+    downloadsHub: (@Composable (DownloadsHubArgs) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val appearanceContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val appearanceStore = remember {
-        com.auralis.music.data.datastore.AppearanceSettingsDataStore(appearanceContext)
-    }
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
+    val appearanceStore = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
     val appearanceScope = rememberCoroutineScope()
     fun removePlaylist(id: String) {
         if (isRemovableMostPlayedPlaylist(id)) {
-            appearanceScope.launch { appearanceStore.hideMostPlayedPlaylist(id) }
+            appearanceScope.launch { appearanceStore?.hideMostPlayedPlaylist(id) }
         } else {
             onDeletePlaylist(id)
         }
@@ -350,8 +346,8 @@ fun LibraryScreen(
     val likedPlaylist = remember(uiState.favorites) {
         Playlist(
             id = "smart_liked",
-            title = str(R.string.liked),
-            description = str(R.string.auto_saved_tracks),
+            title = str(Strings.liked),
+            description = str(Strings.auto_saved_tracks),
             tracks = uiState.favorites,
             createdAt = Long.MAX_VALUE
         )
@@ -359,20 +355,19 @@ fun LibraryScreen(
     val downloadedPlaylist = remember(uiState.downloadedTracks) {
         Playlist(
             id = "smart_downloaded",
-            title = str(R.string.downloaded),
+            title = str(Strings.downloaded),
             description = "${uiState.downloadedTracks.size} offline songs",
             tracks = uiState.downloadedTracks,
             createdAt = Long.MAX_VALUE - 1
         )
     }
-    val activeDownloads by com.auralis.music.data.download.AuralisDownloadManager.activeDownloads.collectAsState()
-    val isJobDownloading = activeDownloads.isNotEmpty() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
+    val isJobDownloading = platformActions.hasActiveDownloads() || uiState.downloadedJobs.any { it.status == "DOWNLOADING" }
     val hasDownloads = uiState.downloadedTracks.isNotEmpty() || isJobDownloading
     val top50Playlist = remember(uiState.top50Tracks) {
         Playlist(
             id = "smart_top_50",
-            title = str(R.string.top_most_played),
-            description = str(R.string.your_most_played_tracks),
+            title = str(Strings.top_most_played),
+            description = str(Strings.your_most_played_tracks),
             tracks = uiState.top50Tracks,
             createdAt = Long.MAX_VALUE - 2
         )
@@ -380,8 +375,8 @@ fun LibraryScreen(
     val weeklyMostPlaylist = remember(uiState.weeklyMostTracks) {
         Playlist(
             id = "smart_weekly_most",
-            title = str(R.string.weekly_most_played),
-            description = str(R.string.most_played_in_the_last_7_days),
+            title = str(Strings.weekly_most_played),
+            description = str(Strings.most_played_in_the_last_7_days),
             tracks = uiState.weeklyMostTracks,
             createdAt = Long.MAX_VALUE - 4
         )
@@ -389,8 +384,8 @@ fun LibraryScreen(
     val monthlyMostPlaylist = remember(uiState.monthlyMostTracks) {
         Playlist(
             id = "smart_monthly_most",
-            title = str(R.string.monthly_most_played),
-            description = str(R.string.most_played_in_the_last_30_days),
+            title = str(Strings.monthly_most_played),
+            description = str(Strings.most_played_in_the_last_30_days),
             tracks = uiState.monthlyMostTracks,
             createdAt = Long.MAX_VALUE - 5
         )
@@ -398,14 +393,14 @@ fun LibraryScreen(
     val cachedPlaylist = remember(uiState.cachedTracks) {
         Playlist(
             id = "smart_cached",
-            title = str(R.string.cached_streamed),
-            description = str(R.string.locally_buffered_tracks),
+            title = str(Strings.cached_streamed),
+            description = str(Strings.locally_buffered_tracks),
             tracks = uiState.cachedTracks,
             createdAt = Long.MAX_VALUE - 3
         )
     }
 
-    androidx.activity.compose.BackHandler(
+    com.auralis.music.ui.components.PlatformBackHandler(
         enabled = uiState.selectedPlaylist != null || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
     ) {
         if (selectedPlaylistForMenu != null) selectedPlaylistForMenu = null
@@ -542,20 +537,19 @@ fun LibraryScreen(
                 }
             }
         } else if (screenKey == "downloaded_hub") {
-            DownloadedHubView(
-                downloadedTracks = uiState.downloadedTracks,
-                downloadedJobs = uiState.downloadedJobs,
-                userPlaylists = uiState.playlists,
-                currentTrackId = currentTrackId,
-                isPlaying = isPlaying,
-                onBack = onCloseSmartCollection,
-                onOpenFolder = { folderPl -> onPlaylistSelect(folderPl) },
-                onPlayTracks = { track, list -> onTrackClick(track, list) },
-                onDeleteJob = onDeletePlaylistJob,
-                onRetryJob = onRetryPlaylistJob,
-                onClearAllDownloads = {
-                    com.auralis.music.data.download.AuralisDownloadManager.clearAllDownloads()
-                }
+            downloadsHub?.invoke(
+                DownloadsHubArgs(
+                    downloadedTracks = uiState.downloadedTracks,
+                    userPlaylists = uiState.playlists,
+                    currentTrackId = currentTrackId,
+                    isPlaying = isPlaying,
+                    onBack = onCloseSmartCollection,
+                    onOpenFolder = { folderPl -> onPlaylistSelect(folderPl) },
+                    onPlayTracks = { track, list -> onTrackClick(track, list) },
+                    onDeleteJob = onDeletePlaylistJob,
+                    onRetryJob = onRetryPlaylistJob,
+                    onClearAllDownloads = { platformActions.clearAllDownloads() }
+                )
             )
         } else {
 
@@ -617,7 +611,7 @@ fun LibraryScreen(
                     // ================================================================
                     if (headerGlass != null) {
                         LiquidGlassPageTitle(
-                            str(R.string.library),
+                            str(Strings.library),
                             scrollOffsetPx = {
                                 if (isGridView) {
                                     if (gridScrollState.firstVisibleItemIndex == 0) gridScrollState.firstVisibleItemScrollOffset
@@ -643,13 +637,13 @@ fun LibraryScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Image(
-                                    painter = painterResource(R.drawable.ic_auralis_header_logo),
-                                    contentDescription = str(R.string.auralis_logo),
+                                    painter = com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(),
+                                    contentDescription = str(Strings.auralis_logo),
                                     colorFilter = ColorFilter.tint(themeOnBackground),
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Text(
-                                    text = str(R.string.library),
+                                    text = str(Strings.library),
                                     style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = themeOnBackground,
@@ -665,19 +659,19 @@ fun LibraryScreen(
                                     onClick = onOpenHistory,
                                     modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                                 ) {
-                                    Icon(Icons.Default.History, contentDescription = str(R.string.history), tint = themeOnBackground.copy(alpha = 0.85f))
+                                    Icon(Icons.Default.History, contentDescription = str(Strings.history), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
                                 IconButton(
                                     onClick = onOpenListenTogether,
                                     modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                                 ) {
-                                    Icon(Icons.Default.Groups, contentDescription = str(R.string.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
+                                    Icon(Icons.Default.Groups, contentDescription = str(Strings.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
                                 IconButton(
                                     onClick = onOpenProfile,
                                     modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                                 ) {
-                                    Icon(Icons.Default.AccountCircle, contentDescription = str(R.string.profile), tint = themeOnBackground.copy(alpha = 0.85f))
+                                    Icon(Icons.Default.AccountCircle, contentDescription = str(Strings.profile), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
                             }
                         }
@@ -733,7 +727,7 @@ fun LibraryScreen(
                                 ) {
                                     if (searchQuery.isEmpty()) {
                                         Text(
-                                            text = str(R.string.search_library),
+                                            text = str(Strings.search_library),
                                             style = TextStyle(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 15.sp,
@@ -766,7 +760,7 @@ fun LibraryScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = str(R.string.clear),
+                                        contentDescription = str(Strings.clear),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -802,7 +796,7 @@ fun LibraryScreen(
                                 IconButton(onClick = { isSearchActive = true }) {
                                     Icon(
                                         imageVector = Icons.Default.Search,
-                                        contentDescription = str(R.string.search_library_2),
+                                        contentDescription = str(Strings.search_library_2),
                                         tint = MaterialTheme.colorScheme.onBackground,
                                         modifier = Modifier.size(22.dp)
                                     )
@@ -813,7 +807,7 @@ fun LibraryScreen(
                                 }) {
                                     Icon(
                                         imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
-                                        contentDescription = if (isGridView) str(R.string.switch_to_list_view) else str(R.string.switch_to_grid_view),
+                                        contentDescription = if (isGridView) str(Strings.switch_to_list_view) else str(Strings.switch_to_grid_view),
                                         tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
                                         modifier = Modifier.size(22.dp)
                                     )
@@ -1013,7 +1007,7 @@ fun LibraryScreen(
         val sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
         AlertDialog(
             onDismissRequest = { showSortMenu = false },
-            title = { Text(str(R.string.sort_playlists_by), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
+            title = { Text(str(Strings.sort_playlists_by), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
             containerColor = CARD_DARK_BG,
             text = {
                 Column {
@@ -1046,7 +1040,7 @@ fun LibraryScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showSortMenu = false }) { Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                TextButton(onClick = { showSortMenu = false }) { Text(str(Strings.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         )
     }
@@ -1055,7 +1049,7 @@ fun LibraryScreen(
     if (showCreateDialog) {
         var playlistInput by remember { mutableStateOf("") }
         val dialogShape = RoundedCornerShape(28.dp)
-        val pageView = androidx.compose.ui.platform.LocalView.current
+        val pageView = com.auralis.music.ui.glass.rememberDialogPageAnchor()
 
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
@@ -1065,7 +1059,7 @@ fun LibraryScreen(
             tonalElevation = if (headerGlass != null) 0.dp else AlertDialogDefaults.TonalElevation,
             title = {
                 Text(
-                    text = str(R.string.new_playlist),
+                    text = str(Strings.new_playlist),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -1077,7 +1071,7 @@ fun LibraryScreen(
                         onValueChange = { playlistInput = it },
                         placeholder = {
                             Text(
-                                str(R.string.playlist_title),
+                                str(Strings.playlist_title),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 13.sp
                             )
@@ -1108,7 +1102,7 @@ fun LibraryScreen(
                     )
                 ) {
                     Text(
-                        text = str(R.string.create),
+                        text = str(Strings.create),
                         color = Color.Black,
                         fontWeight = FontWeight.Bold
                     )
@@ -1116,7 +1110,7 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(str(Strings.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -1134,7 +1128,7 @@ fun LibraryScreen(
                 selectedPlaylistForMenu = null
             },
             onClearAllDownloads = {
-                com.auralis.music.data.download.AuralisDownloadManager.clearAllDownloads()
+                platformActions.clearAllDownloads()
                 selectedPlaylistForMenu = null
             }
         )
@@ -1422,7 +1416,7 @@ private fun UserPlaylistGridCard(
         Spacer(modifier = Modifier.height(2.dp))
 
         Text(
-            text = str(R.string.x_songs, playlist.tracks.size),
+            text = str(Strings.x_songs, playlist.tracks.size),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp
@@ -1569,7 +1563,7 @@ private fun UserPlaylistListRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = str(R.string.x_songs, playlist.tracks.size),
+                text = str(Strings.x_songs, playlist.tracks.size),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp
@@ -1592,13 +1586,13 @@ private fun UserPlaylistListRow(
 // 🔄 PLAYLIST REORDER SWAP LOGIC & STALE-LAYOUT HYSTERESIS PROTECTION
 // ============================================================================
 
-internal data class PlaylistReorderItemInfo(
+data class PlaylistReorderItemInfo(
     val key: Any,
     val offset: Int,
     val size: Int
 )
 
-internal class PlaylistDragReorderState(
+class PlaylistDragReorderState(
     var lastSwappedItemId: String? = null,
     var lastSwapDirection: Int = 0 // -1 for UP, 1 for DOWN
 ) {
@@ -1608,14 +1602,14 @@ internal class PlaylistDragReorderState(
     }
 }
 
-internal data class SwapAction(
+data class SwapAction(
     val fromIndex: Int,
     val toIndex: Int,
     val swappedItemId: String,
     val direction: Int // -1 for UP, 1 for DOWN
 )
 
-internal fun evaluateTargetSwap(
+fun evaluateTargetSwap(
     currentId: String,
     localItemIds: List<String>,
     visibleSongItems: List<PlaylistReorderItemInfo>,
@@ -1677,7 +1671,7 @@ internal fun evaluateTargetSwap(
     return null
 }
 
-internal fun <T> applyTargetSwap(
+fun <T> applyTargetSwap(
     currentId: String,
     localItems: MutableList<T>,
     idSelector: (T) -> String,
@@ -1733,7 +1727,7 @@ private fun PlaylistDetailView(
     onReorderTracks: ((Int, Int) -> Unit)? = null,
     onMenuClick: (Track) -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val haptic = LocalHapticFeedback.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     var showOptionsMenu by remember { mutableStateOf(false) }
@@ -1908,7 +1902,7 @@ private fun PlaylistDetailView(
         }
     }
 
-    androidx.activity.compose.BackHandler(enabled = true) {
+    com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
         if (showOptionsMenu) {
             showOptionsMenu = false
         } else if (isSearchActive) {
@@ -1953,7 +1947,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = str(R.string.back),
+                    contentDescription = str(Strings.back),
                     tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
@@ -1982,7 +1976,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                    contentDescription = str(R.string.search),
+                    contentDescription = str(Strings.search),
                     tint = if (isSearchActive) LIME_TEXT else Color.White,
                     modifier = Modifier.size(24.dp)
                 )
@@ -2118,7 +2112,7 @@ private fun PlaylistDetailView(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Edit,
-                                        contentDescription = str(R.string.edit_playlist_photo_and_name),
+                                        contentDescription = str(Strings.edit_playlist_photo_and_name),
                                         tint = Color.White,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -2232,7 +2226,7 @@ private fun PlaylistDetailView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
-                                    contentDescription = str(R.string.shuffle),
+                                    contentDescription = str(Strings.shuffle),
                                     tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -2261,7 +2255,7 @@ private fun PlaylistDetailView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = str(R.string.play),
+                                    contentDescription = str(Strings.play),
                                     tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -2282,7 +2276,7 @@ private fun PlaylistDetailView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = str(R.string.playlist_options),
+                                    contentDescription = str(Strings.playlist_options),
                                     tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -2330,7 +2324,7 @@ private fun PlaylistDetailView(
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = str(R.string.sort_options),
+                                        contentDescription = str(Strings.sort_options),
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -2388,21 +2382,17 @@ private fun PlaylistDetailView(
                             }
 
                             if (isCustomSort) {
-                                val lockContext = androidx.compose.ui.platform.LocalContext.current
+                                val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
                                 IconButton(
                                     onClick = {
                                         orderUnlocked = !orderUnlocked
-                                        Toast.makeText(
-                                            lockContext,
-                                            if (orderUnlocked) str(R.string.playlist_order_unlocked) else str(R.string.playlist_order_locked),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
+                                        platformActions.showMessage(if (orderUnlocked) str(Strings.playlist_order_unlocked) else str(Strings.playlist_order_locked))
                                     },
                                     modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (orderUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                                        contentDescription = if (orderUnlocked) str(R.string.lock_playlist_order) else str(R.string.unlock_playlist_order),
+                                        contentDescription = if (orderUnlocked) str(Strings.lock_playlist_order) else str(Strings.unlock_playlist_order),
                                         tint = if (orderUnlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -2558,7 +2548,7 @@ private fun PlaylistDetailView(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DragHandle,
-                                contentDescription = str(R.string.drag_to_reorder_song),
+                                contentDescription = str(Strings.drag_to_reorder_song),
                                 tint = Color.White.copy(alpha = 0.45f),
                                 modifier = Modifier.size(20.dp)
                             )
@@ -2567,7 +2557,7 @@ private fun PlaylistDetailView(
                         IconButton(onClick = {}) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = str(R.string.options),
+                                contentDescription = str(Strings.options),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -2599,7 +2589,7 @@ private fun PlaylistDetailView(
             onClearAllDownloads = {
                 showOptionsMenu = false
                 initialMenuDialog = null
-                com.auralis.music.data.download.AuralisDownloadManager.clearAllDownloads()
+                platformActions.clearAllDownloads()
             }
         )
     }
@@ -2753,7 +2743,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 ) {
                     Icon(
                         imageVector = Icons.Default.DragHandle,
-                        contentDescription = str(R.string.drag_to_reorder_song),
+                        contentDescription = str(Strings.drag_to_reorder_song),
                         tint = Color.White.copy(alpha = 0.45f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -2763,7 +2753,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             IconButton(onClick = { onMenuClick(track) }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = str(R.string.options),
+                    contentDescription = str(Strings.options),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
@@ -2794,7 +2784,7 @@ private fun LibrarySourcePills(
             val label = when (filter) {
                 LibrarySourceFilter.PLAYLISTS -> "Playlists"
                 LibrarySourceFilter.ALBUMS -> "Albums"
-                LibrarySourceFilter.SPOTIFY -> str(R.string.spotify)
+                LibrarySourceFilter.SPOTIFY -> str(Strings.spotify)
                 LibrarySourceFilter.YOUTUBE -> "YouTube Music"
             }
             val container = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -2923,7 +2913,7 @@ private fun PlaylistSearchField(
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) {
                 Text(
-                    text = str(R.string.search_in_playlist),
+                    text = str(Strings.search_in_playlist),
                     color = onBg.copy(alpha = 0.45f),
                     fontSize = 15.sp,
                     maxLines = 1,
@@ -2971,7 +2961,7 @@ private fun PlaylistSearchField(
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = str(R.string.clear),
+                    contentDescription = str(Strings.clear),
                     tint = onBg.copy(alpha = 0.85f),
                     modifier = Modifier.size(15.dp)
                 )
@@ -2979,3 +2969,17 @@ private fun PlaylistSearchField(
         }
     }
 }
+
+/** What the Downloads hub slot gets from the Library screen. */
+class DownloadsHubArgs(
+    val downloadedTracks: List<Track>,
+    val userPlaylists: List<Playlist>,
+    val currentTrackId: String?,
+    val isPlaying: Boolean,
+    val onBack: () -> Unit,
+    val onOpenFolder: (Playlist) -> Unit,
+    val onPlayTracks: (Track, List<Track>) -> Unit,
+    val onDeleteJob: (String) -> Unit,
+    val onRetryJob: (String) -> Unit,
+    val onClearAllDownloads: () -> Unit
+)

@@ -24,6 +24,9 @@ class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformAc
     override fun isDownloading(trackId: String) = false
     override fun downloadTrack(track: Track) = message("Downloads aren't available on Windows yet")
     override fun removeDownload(trackId: String) {}
+    @androidx.compose.runtime.Composable
+    override fun hasActiveDownloads() = false
+    override fun clearAllDownloads() {}
     override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) =
         message("Downloads aren't available on Windows yet")
 

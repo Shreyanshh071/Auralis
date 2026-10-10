@@ -283,7 +283,12 @@ fun AuralisTheme(
         }
     }
 
+    val appearanceStoreContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val appearanceStore = androidx.compose.runtime.remember {
+        com.auralis.music.data.datastore.AppearanceSettingsDataStore(appearanceStoreContext)
+    }
     CompositionLocalProvider(
+        LocalAppearanceSettingsStore provides appearanceStore,
         LocalAppearanceSettings provides appearanceSettings,
         LocalAuralisDynamicPalette provides dynamicPalette,
         LocalDynamicThemePrimary provides colorScheme.primary,
