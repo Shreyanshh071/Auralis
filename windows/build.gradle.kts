@@ -106,3 +106,12 @@ compose.desktop {
 }
 
 tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(prepareVlc) }
+
+// Development check: draws Windows screens to PNGs without a window (see dev/RenderScreens.kt).
+// ./gradlew :windows:renderScreens [-Pscreens=profile,settings]
+tasks.register<JavaExec>("renderScreens") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.RenderScreensKt")
+    val outDir = layout.buildDirectory.dir("screens").get().asFile
+    args = listOf(outDir.absolutePath) + (findProperty("screens")?.toString()?.split(",") ?: emptyList())
+}

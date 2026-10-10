@@ -39,6 +39,7 @@ fun DesktopLibrary(
     library: com.auralis.music.domain.repository.LibraryRepository,
     playback: DesktopPlaybackController?,
     browse: DesktopBrowseState,
+    onOpenProfile: () -> Unit,
     showMessage: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -73,7 +74,7 @@ fun DesktopLibrary(
             onCloseSmartCollection = viewModel::closeSmartCollection,
             onSortChange = viewModel::setSortOrder,
             onToggleGridView = viewModel::toggleGridView,
-            onOpenProfile = phoneOnly,
+            onOpenProfile = onOpenProfile,
             onOpenHistory = phoneOnly,
             onOpenListenTogether = phoneOnly,
             onSyncPlaylist = { viewModel.syncPlaylist(it) },

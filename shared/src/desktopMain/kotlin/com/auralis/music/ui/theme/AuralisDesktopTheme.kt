@@ -27,7 +27,7 @@ import java.util.Locale
  * The phone's AuralisTheme for desktop: the same colour schemes (the fixed Auralis scheme, a
  * curated palette, or one seeded from the playing song's artwork), the same dynamic palette and
  * locals, the phone's type scale with bundled fonts, and desktop's artwork, logos and actions.
- * Desktop is dark only for now; Material You (wallpaper colours) doesn't exist on desktop.
+ * Light, dark and Follow system as on the phone; Material You (wallpaper colours) doesn't exist on desktop.
  */
 @Composable
 fun AuralisDesktopTheme(
@@ -36,14 +36,21 @@ fun AuralisDesktopTheme(
     platformActions: PlatformActions,
     content: @Composable () -> Unit
 ) {
-    val isDark = true
+    // The phone's light/dark rule; "Follow system" follows Windows' app mode.
+    val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val isDark = when (appearanceSettings.appTheme) {
+        "Light Mode", "Light" -> false
+        "Pure AMOLED Black", "AMOLED", "Midnight Velvet Dark", "Dark Mode", "Dark" -> true
+        else -> systemInDark
+    }
     val isAmoled = appearanceSettings.appTheme == "Pure AMOLED Black" || appearanceSettings.appTheme == "AMOLED"
     val isCurated = CuratedPalettes.any { it.id == appearanceSettings.colorPalette }
     val hasArtwork = artworkPalette != null && artworkPalette != DefaultArtworkPalette && artworkPalette.seedColor != Color.Unspecified
 
-    val baseScheme = remember(isAmoled, isCurated, appearanceSettings.colorPalette, appearanceSettings.appTheme) {
+    val baseScheme = remember(isDark, isAmoled, isCurated, appearanceSettings.colorPalette, appearanceSettings.appTheme) {
         when {
             isCurated -> getCuratedColorScheme(appearanceSettings.colorPalette, isDark, isAmoled, appearanceSettings.appTheme)
+            !isDark -> LightColorScheme
             isAmoled -> AmoledDarkColorScheme
             appearanceSettings.appTheme == "Midnight Velvet Dark" -> MidnightDarkColorScheme
             else -> DarkColorScheme

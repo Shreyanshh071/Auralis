@@ -18,6 +18,7 @@ import com.auralis.music.util.PropertiesFileKeyValueStore
 import com.auralis.music.util.desktopAppDataDir
 import javax.imageio.ImageIO
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -33,6 +34,12 @@ fun main(args: Array<String>) {
     // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
     val dataDir = desktopAppDataDir()
     YouTubeSession.init(PropertiesFileKeyValueStore(java.io.File(dataDir, "youtube-session.properties")))
+    // The phone's settings files (DataStore), and content settings (language, region, proxy,
+    // lyrics providers) applied to every request as on the phone.
+    val stores = com.auralis.music.desktop.settings.DesktopDataStores(java.io.File(dataDir, "settings"))
+    com.auralis.music.data.datastore.ContentSettingsStore.init(stores.content)
+    com.auralis.music.data.network.ContentSettingsSource.current = { com.auralis.music.data.datastore.ContentSettingsStore.value }
+    com.auralis.music.data.network.ContentSettingsSource.updates = com.auralis.music.data.datastore.ContentSettingsStore.current
     val searchLookups = PropertiesFileKeyValueStore(java.io.File(dataDir, "search-lookups.properties"))
     AlbumMetadataResolver.persistTo(searchLookups)
     InnerTubeClient.persistReleaseTypesTo(searchLookups)
@@ -69,13 +76,17 @@ fun main(args: Array<String>) {
         val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         appScope.launch {
             playback.queue.map { it.current }.distinctUntilChangedBy { it?.id }.collect { track ->
-                if (track != null) {
+                // Settings > Privacy > Pause listen history, as on the phone.
+                if (track != null && !stores.privacy.settingsFlow.first().pauseListenHistory) {
                     history.addToHistory(track)
                     history.recordPlay(track)
                 }
             }
         }
     }
+    // Discord status through the Discord desktop app, with the phone's Discord settings. Nothing is
+    // sent until the user connects on the Discord page and Rich Presence is on.
+    val discord = com.auralis.music.desktop.discord.DesktopDiscordPresence(stores.discord, playback)
     val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"))
     val libraryFlags = PropertiesFileKeyValueStore(java.io.File(dataDir, "library-flags.properties"))
 
@@ -105,6 +116,7 @@ fun main(args: Array<String>) {
                 history,
                 homePlatform,
                 libraryFlags,
+                stores,
                 playback,
                 lyrics,
                 onShortcutHandler = { shortcutHandler = it },
@@ -112,7 +124,8 @@ fun main(args: Array<String>) {
                 onSelfTestDone = { passed ->
                     playback?.release()
                     kotlin.system.exitProcess(if (passed) 0 else 1)
-                }
+                },
+                discordControl = discord
             )
         }
     }
