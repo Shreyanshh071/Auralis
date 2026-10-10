@@ -1,10 +1,9 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,12 +21,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.auralis.music.R
 import com.auralis.music.ui.components.ArtworkCard
 
 import com.auralis.music.ui.theme.dynamicBackground
@@ -53,7 +50,7 @@ fun AboutScreen(
     hasActiveTrack: Boolean = false,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val onBackground = MaterialTheme.dynamicOnBackground
     val surfaceColor = MaterialTheme.dynamicSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
@@ -61,14 +58,7 @@ fun AboutScreen(
     val backgroundColor = MaterialTheme.dynamicBackground
 
     fun openUrl(url: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, str(R.string.unable_to_open_link), Toast.LENGTH_SHORT).show()
-        }
+        if (!platformActions.openUrl(url)) platformActions.showMessage(str(Strings.unable_to_open_link))
     }
 
     Scaffold(
@@ -76,7 +66,7 @@ fun AboutScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = str(R.string.about),
+                        text = str(Strings.about),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp
@@ -88,7 +78,7 @@ fun AboutScreen(
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
+                            contentDescription = str(Strings.back),
                             tint = onBackground
                         )
                     }
@@ -125,8 +115,8 @@ fun AboutScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Image(
-                            painter = painterResource(id = R.drawable.ic_auralis_logo),
-                            contentDescription = str(R.string.auralis_logo),
+                            painter = com.auralis.music.ui.components.LocalBrandImages.current.appLogo(),
+                            contentDescription = str(Strings.auralis_logo),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -138,7 +128,7 @@ fun AboutScreen(
 
                     // App Title
                     Text(
-                        text = str(R.string.auralis),
+                        text = str(Strings.auralis),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
@@ -152,7 +142,7 @@ fun AboutScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val currentVersion = remember { com.auralis.music.data.network.UpdateChecker.getCurrentVersion(context) }
+                        val currentVersion = com.auralis.music.ui.settings.LocalSettingsPlatform.current.appVersion
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = Color.Transparent,
@@ -192,20 +182,20 @@ fun AboutScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         SocialDrawableIconButton(
-                            drawableRes = R.drawable.ic_github,
-                            contentDescription = str(R.string.github),
+                            drawable = com.auralis.music.ui.components.LocalBrandImages.current.github(),
+                            contentDescription = str(Strings.github),
                             onClick = { openUrl(GITHUB_REPO_URL) }
                         )
 
                         SocialIconButton(
                             icon = Icons.Default.Language,
-                            contentDescription = str(R.string.website),
+                            contentDescription = str(Strings.website),
                             onClick = { openUrl(AURALIS_WEBSITE_URL) }
                         )
 
                         SocialIconButton(
                             icon = Icons.Default.LocalCafe,
-                            contentDescription = str(R.string.buy_me_a_chai),
+                            contentDescription = str(Strings.buy_me_a_chai),
                             onClick = { openUrl(BUY_ME_A_CHAI_URL) }
                         )
                     }
@@ -235,7 +225,7 @@ fun AboutScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = str(R.string.buy_me_a_chai),
+                                text = str(Strings.buy_me_a_chai),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -253,7 +243,7 @@ fun AboutScreen(
                                 .height(46.dp)
                         ) {
                             Text(
-                                text = str(R.string.check_for_updates),
+                                text = str(Strings.check_for_updates),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -274,7 +264,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = str(R.string.lead_developer),
+                            text = str(Strings.lead_developer),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -320,7 +310,7 @@ fun AboutScreen(
 
                             // Developer Name
                             Text(
-                                text = str(R.string.shreyansh),
+                                text = str(Strings.shreyansh),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground,
@@ -331,7 +321,7 @@ fun AboutScreen(
 
                             // Subtitle / Bio
                             Text(
-                                text = str(R.string.creator_lead_developer),
+                                text = str(Strings.creator_lead_developer),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = onSurfaceVariant,
                                 fontSize = 13.sp
@@ -345,7 +335,7 @@ fun AboutScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 CircularActionDrawableButton(
-                                    drawableRes = R.drawable.ic_github,
+                                    drawable = com.auralis.music.ui.components.LocalBrandImages.current.github(),
                                     onClick = { openUrl(DEVELOPER_GITHUB_URL) }
                                 )
 
@@ -355,13 +345,11 @@ fun AboutScreen(
                                 )
 
                                 CircularActionDrawableButton(
-                                    drawableRes = R.drawable.ic_discord,
+                                    drawable = com.auralis.music.ui.components.LocalBrandImages.current.discord(),
                                     onClick = {
                                         try {
-                                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                            val clip = android.content.ClipData.newPlainText("Discord Username", "shreyanshh12_3")
-                                            clipboard.setPrimaryClip(clip)
-                                            Toast.makeText(context, str(R.string.discord_user_shreyanshh12_3_copied_to_cl), Toast.LENGTH_SHORT).show()
+                                            platformActions.copyText("Discord Username", "shreyanshh12_3")
+                                            platformActions.showMessage(str(Strings.discord_user_shreyanshh12_3_copied_to_cl))
                                         } catch (_: Exception) {}
                                         openUrl(DEVELOPER_DISCORD_URL)
                                     }
@@ -384,7 +372,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = str(R.string.contributors),
+                            text = str(Strings.contributors),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -430,7 +418,7 @@ fun AboutScreen(
 
                             // Contributor Name
                             Text(
-                                text = str(R.string.ishaan_thakur),
+                                text = str(Strings.ishaan_thakur),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = onBackground,
@@ -441,7 +429,7 @@ fun AboutScreen(
 
                             // Subtitle
                             Text(
-                                text = str(R.string.contributor),
+                                text = str(Strings.contributor),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = onSurfaceVariant,
                                 fontSize = 13.sp
@@ -455,7 +443,7 @@ fun AboutScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 CircularActionDrawableButton(
-                                    drawableRes = R.drawable.ic_github,
+                                    drawable = com.auralis.music.ui.components.LocalBrandImages.current.github(),
                                     onClick = { openUrl(CONTRIBUTOR_GITHUB_URL) }
                                 )
                             }
@@ -488,7 +476,7 @@ private fun SocialIconButton(
 
 @Composable
 private fun SocialDrawableIconButton(
-    drawableRes: Int,
+    drawable: androidx.compose.ui.graphics.painter.Painter,
     contentDescription: String,
     onClick: () -> Unit
 ) {
@@ -497,7 +485,7 @@ private fun SocialDrawableIconButton(
         modifier = Modifier.size(38.dp)
     ) {
         Icon(
-            painter = painterResource(id = drawableRes),
+            painter = drawable,
             contentDescription = contentDescription,
             tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f),
             modifier = Modifier.size(22.dp)
@@ -531,7 +519,7 @@ private fun CircularActionIconButton(
 
 @Composable
 private fun CircularActionDrawableButton(
-    drawableRes: Int,
+    drawable: androidx.compose.ui.graphics.painter.Painter,
     onClick: () -> Unit
 ) {
     Surface(
@@ -544,7 +532,7 @@ private fun CircularActionDrawableButton(
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
-                painter = painterResource(id = drawableRes),
+                painter = drawable,
                 contentDescription = null,
                 tint = MaterialTheme.dynamicOnBackground.copy(alpha = 0.85f),
                 modifier = Modifier.size(19.dp)

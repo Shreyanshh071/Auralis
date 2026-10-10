@@ -24,6 +24,18 @@ class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformAc
     override fun isDownloading(trackId: String) = false
     override fun downloadTrack(track: Track) = message("Downloads aren't available on Windows yet")
     override fun removeDownload(trackId: String) {}
+    override fun openUrl(url: String): Boolean = runCatching {
+        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+    }.isSuccess
+
+    override fun copyText(label: String, text: String) {
+        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null) }
+    }
+
+    override fun readClipboardText(): String? = runCatching {
+        Toolkit.getDefaultToolkit().systemClipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor) as? String
+    }.getOrNull()
+
     @androidx.compose.runtime.Composable
     override fun hasActiveDownloads() = false
     override fun clearAllDownloads() {}

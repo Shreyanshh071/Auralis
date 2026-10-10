@@ -16,5 +16,22 @@ object DesktopBrandImages {
     private val header by lazy { load("ic_auralis_header_logo.png") }
     private val app by lazy { load("ic_auralis_logo.png") }
 
-    val images = BrandImages(headerLogo = { header }, appLogo = { app })
+    /** The phone's vector drawables (Android vector XML), drawn by Compose Desktop's loader. */
+    @androidx.compose.runtime.Composable
+    private fun vector(name: String): Painter {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val image = androidx.compose.runtime.remember(name, density) {
+            DesktopBrandImages::class.java.getResourceAsStream("/brand/$name")?.use {
+                androidx.compose.ui.res.loadXmlImageVector(org.xml.sax.InputSource(it), density)
+            }
+        }
+        return if (image != null) androidx.compose.ui.graphics.vector.rememberVectorPainter(image) else ColorPainter(Color.Transparent)
+    }
+
+    val images = BrandImages(
+        headerLogo = { header },
+        appLogo = { app },
+        github = { vector("ic_github.xml") },
+        discord = { vector("ic_discord.xml") }
+    )
 }

@@ -287,7 +287,14 @@ fun AuralisTheme(
     val appearanceStore = androidx.compose.runtime.remember {
         com.auralis.music.data.datastore.AppearanceSettingsDataStore(appearanceStoreContext)
     }
+    val settingsActivityContext = androidx.compose.ui.platform.LocalContext.current
+    val settingsStores = androidx.compose.runtime.remember { com.auralis.music.data.datastore.PhoneSettingsStores(appearanceStoreContext) }
+    val settingsPlatform = androidx.compose.runtime.remember(settingsActivityContext) {
+        com.auralis.music.ui.settings.PhoneSettingsPlatform(settingsActivityContext)
+    }
     CompositionLocalProvider(
+        com.auralis.music.data.datastore.LocalSettingsStores provides settingsStores,
+        com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
         LocalAppearanceSettingsStore provides appearanceStore,
         LocalAppearanceSettings provides appearanceSettings,
         LocalAuralisDynamicPalette provides dynamicPalette,
@@ -317,7 +324,9 @@ fun AuralisTheme(
 /** The logos shared UI draws, from this app's drawables. */
 private val PhoneBrandImages = com.auralis.music.ui.components.BrandImages(
     headerLogo = { androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_header_logo) },
-    appLogo = { androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_logo) }
+    appLogo = { androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_logo) },
+    github = { androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_github) },
+    discord = { androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_discord) }
 )
 
 /** Behind option sheets: the immersive player's colour field from the item's cover. */

@@ -32,6 +32,27 @@ class PhonePlatformActions(private val context: Context) : PlatformActions {
     override fun downloadTrack(track: Track) = AuralisDownloadManager.downloadTrack(track)
     override fun removeDownload(trackId: String) = AuralisDownloadManager.removeDownload(trackId)
 
+    override fun openUrl(url: String): Boolean = try {
+        context.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    override fun copyText(label: String, text: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+    }
+
+    override fun readClipboardText(): String? {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = clipboard.primaryClip
+        return if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text.toString() else null
+    }
+
     @androidx.compose.runtime.Composable
     override fun hasActiveDownloads(): Boolean =
         AuralisDownloadManager.activeDownloads.collectAsState().value.isNotEmpty()

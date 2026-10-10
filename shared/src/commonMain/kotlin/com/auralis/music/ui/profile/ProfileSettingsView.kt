@@ -1,9 +1,9 @@
 package com.auralis.music.ui.profile
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,7 +37,7 @@ fun ProfileSettingsView(
     onNavigateToAccount: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     var showQualityDialog by remember { mutableStateOf(false) }
     var showAppearanceScreen by remember { mutableStateOf(false) }
     var showUpdaterScreen by remember { mutableStateOf(false) }
@@ -50,80 +49,80 @@ fun ProfileSettingsView(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // ── 1. APPEARANCE SECTION ──
-        SettingsSectionHeader(title = str(R.string.appearance), icon = Icons.Default.Palette)
+        SettingsSectionHeader(title = str(Strings.appearance), icon = Icons.Default.Palette)
 
         SettingsClickableCard(
-            title = str(R.string.appearance_settings),
-            subtitle = str(R.string.theme_mini_player_player_lyrics_gestures),
+            title = str(Strings.appearance_settings),
+            subtitle = str(Strings.theme_mini_player_player_lyrics_gestures),
             icon = Icons.Default.ColorLens,
             onClick = { showAppearanceScreen = true }
         )
 
         // ── 2. AUDIO QUALITY SECTION ──
-        SettingsSectionHeader(title = str(R.string.audio_quality), icon = Icons.Default.GraphicEq)
+        SettingsSectionHeader(title = str(Strings.audio_quality), icon = Icons.Default.GraphicEq)
 
         SettingsClickableCard(
-            title = str(R.string.streaming_quality),
+            title = str(Strings.streaming_quality),
             subtitle = "${com.auralis.music.ui.i18n.UiLabels.of(settings.audioQuality.displayName)} • ${com.auralis.music.ui.i18n.UiLabels.of(settings.audioQuality.description)}",
             icon = Icons.Default.HighQuality,
             onClick = { showQualityDialog = true }
         )
 
         // ── 3. SPATIAL AUDIO SECTION ──
-        SettingsSectionHeader(title = str(R.string.spatial_audio), icon = Icons.Default.Headphones)
+        SettingsSectionHeader(title = str(Strings.spatial_audio), icon = Icons.Default.Headphones)
 
         SettingsSwitchCard(
-            title = str(R.string.t_3d_spatial_soundstage),
-            subtitle = str(R.string.android_audio_virtualization_when_suppor),
+            title = str(Strings.t_3d_spatial_soundstage),
+            subtitle = str(Strings.android_audio_virtualization_when_suppor),
             icon = Icons.Default.SurroundSound,
             isChecked = settings.spatialAudio,
             onCheckedChange = onToggleSpatialAudio
         )
 
         // ── 4. PLAYBACK SECTION ──
-        SettingsSectionHeader(title = str(R.string.playback), icon = Icons.Default.PlayCircleOutline)
+        SettingsSectionHeader(title = str(Strings.playback), icon = Icons.Default.PlayCircleOutline)
 
         SettingsSwitchCard(
-            title = str(R.string.gapless_playback),
-            subtitle = str(R.string.preload_the_next_track_for_smoother_tran),
+            title = str(Strings.gapless_playback),
+            subtitle = str(Strings.preload_the_next_track_for_smoother_tran),
             icon = Icons.Default.SyncAlt,
             isChecked = settings.gaplessPlayback,
             onCheckedChange = onToggleGaplessPlayback
         )
 
         SettingsSwitchCard(
-            title = str(R.string.remove_silence),
-            subtitle = str(R.string.skip_quiet_passages_during_playback),
+            title = str(Strings.remove_silence),
+            subtitle = str(Strings.skip_quiet_passages_during_playback),
             icon = Icons.Default.VolumeOff,
             isChecked = settings.skipSilence,
             onCheckedChange = onToggleSkipSilence
         )
 
         // ── 5. STORAGE SECTION ──
-        SettingsSectionHeader(title = str(R.string.storage), icon = Icons.Default.Storage)
+        SettingsSectionHeader(title = str(Strings.storage), icon = Icons.Default.Storage)
 
         SettingsClickableCard(
-            title = str(R.string.clear_cache),
-            subtitle = str(R.string.free_up_temporary_stream_buffers_and_cac),
+            title = str(Strings.clear_cache),
+            subtitle = str(Strings.free_up_temporary_stream_buffers_and_cac),
             icon = Icons.Default.CleaningServices,
             onClick = {
                 onClearCache()
-                Toast.makeText(context, str(R.string.audio_and_artwork_cache_cleared), Toast.LENGTH_SHORT).show()
+                platformActions.showMessage(str(Strings.audio_and_artwork_cache_cleared))
             }
         )
 
         // ── 6. UPDATER SECTION ──
-        SettingsSectionHeader(title = str(R.string.updater), icon = Icons.Default.SystemUpdate)
+        SettingsSectionHeader(title = str(Strings.updater), icon = Icons.Default.SystemUpdate)
 
         SettingsClickableCard(
-            title = str(R.string.updater),
-            subtitle = str(R.string.check_for_updates_and_configure_auto_upd),
+            title = str(Strings.updater),
+            subtitle = str(Strings.check_for_updates_and_configure_auto_upd),
             icon = Icons.Default.SystemUpdate,
             onClick = { showUpdaterScreen = true }
         )
 
         // ── 7. AURALIS SECTION ──
-        SettingsSectionHeader(title = str(R.string.auralis), icon = Icons.Default.Stars)
+        SettingsSectionHeader(title = str(Strings.auralis), icon = Icons.Default.Stars)
 
         AuralisHubView(
             onNavigateToAccount = onNavigateToAccount
@@ -145,7 +144,7 @@ fun ProfileSettingsView(
             containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
-                    text = str(R.string.select_audio_quality),
+                    text = str(Strings.select_audio_quality),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )

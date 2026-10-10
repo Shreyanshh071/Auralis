@@ -1,10 +1,9 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.view.HapticFeedbackConstants
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -35,16 +34,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.datastore.StorageDataStore
 import com.auralis.music.data.datastore.StorageSettings
-import com.auralis.music.data.download.AuralisDownloadManager
-import com.auralis.music.util.StorageUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,10 +50,11 @@ fun StorageSettingsScreen(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val view = LocalView.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
+    val haptics = com.auralis.music.ui.components.rememberViewHaptics()
     val scope = rememberCoroutineScope()
-    val dataStore = remember { StorageDataStore(context) }
+    val dataStore = com.auralis.music.data.datastore.LocalSettingsStores.current.storage
+    val storage = com.auralis.music.ui.settings.LocalSettingsPlatform.current.storage
     val settings by dataStore.settingsFlow.collectAsState(initial = StorageSettings())
 
     var showClearDownloadsConfirm by remember { mutableStateOf(false) }
@@ -69,9 +65,9 @@ fun StorageSettingsScreen(
 
     val refreshStorageMetrics: () -> Unit = {
         scope.launch(Dispatchers.IO) {
-            val dBytes = StorageUtils.getDownloadedSongsSizeBytes()
-            val sBytes = StorageUtils.getSongCacheSizeBytes(context)
-            val iBytes = StorageUtils.getImageCacheSizeBytes(context)
+            val dBytes = storage.downloadedSongsBytes() ?: 0L
+            val sBytes = storage.songCacheBytes()
+            val iBytes = storage.imageCacheBytes()
             withContext(Dispatchers.Main) {
                 downloadedBytes = dBytes
                 songCacheBytes = sBytes
@@ -97,7 +93,7 @@ fun StorageSettingsScreen(
             2200 to "2.2 GB",
             5500 to "5.5 GB",
             11000 to "11 GB",
-            22000 to str(R.string.unlimited)
+            22000 to str(Strings.unlimited)
         )
     }
 
@@ -141,13 +137,13 @@ fun StorageSettingsScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
+                        contentDescription = str(Strings.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = str(R.string.storage),
+                    text = str(Strings.storage),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -167,7 +163,7 @@ fun StorageSettingsScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = str(R.string.storage),
+                            text = str(Strings.storage),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -178,8 +174,8 @@ fun StorageSettingsScreen(
                         // Downloaded Songs
                         StorageActionCard(
                             icon = Icons.Default.Storage,
-                            title = str(R.string.downloaded_songs),
-                            subtitle = StorageUtils.formatBytes(downloadedBytes),
+                            title = str(Strings.downloaded_songs),
+                            subtitle = com.auralis.music.util.formatBytes(downloadedBytes),
                             onClick = {
                                 refreshStorageMetrics()
                             }
@@ -188,7 +184,7 @@ fun StorageSettingsScreen(
                         // Clear all downloads
                         StorageActionCard(
                             icon = Icons.Default.DeleteOutline,
-                            title = str(R.string.clear_all_downloads),
+                            title = str(Strings.clear_all_downloads),
                             subtitle = null,
                             onClick = {
                                 showClearDownloadsConfirm = true
@@ -201,7 +197,7 @@ fun StorageSettingsScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = str(R.string.song_cache),
+                            text = str(Strings.song_cache),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -212,11 +208,11 @@ fun StorageSettingsScreen(
                         // Enable song cache switch
                         StorageToggleCard(
                             icon = Icons.Default.Autorenew,
-                            title = str(R.string.enable_song_cache),
-                            subtitle = str(R.string.automatically_cache_songs_for_faster_fut),
+                            title = str(Strings.enable_song_cache),
+                            subtitle = str(Strings.automatically_cache_songs_for_faster_fut),
                             checked = settings.songCacheEnabled,
                             onCheckedChange = { isChecked ->
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                haptics.tick()
                                 scope.launch {
                                     dataStore.setSongCacheEnabled(isChecked)
                                 }
@@ -227,7 +223,7 @@ fun StorageSettingsScreen(
                         AnimatedVisibility(visible = settings.songCacheEnabled) {
                             StorageStepSliderCard(
                                 icon = Icons.Default.Autorenew,
-                                title = str(R.string.max_song_cache_size),
+                                title = str(Strings.max_song_cache_size),
                                 options = songCacheOptions,
                                 currentStep = currentSongCacheIndex,
                                 onStepChange = { newStep ->
@@ -244,16 +240,16 @@ fun StorageSettingsScreen(
                         // Clear song cache
                         StorageActionCard(
                             icon = Icons.Default.DeleteSweep,
-                            title = str(R.string.clear_song_cache),
+                            title = str(Strings.clear_song_cache),
                             subtitle = null,
                             onClick = {
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                haptics.longPress()
                                 scope.launch(Dispatchers.IO) {
-                                    val freed = StorageUtils.clearSongCache(context)
-                                    val freedStr = StorageUtils.formatBytes(freed)
+                                    val freed = storage.clearSongCache()
+                                    val freedStr = com.auralis.music.util.formatBytes(freed)
                                     withContext(Dispatchers.Main) {
                                         refreshStorageMetrics()
-                                        Toast.makeText(context, str(R.string.song_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
+                                        platformActions.showMessage(str(Strings.song_cache_cleared_x_freed, freedStr))
                                     }
                                 }
                             }
@@ -265,7 +261,7 @@ fun StorageSettingsScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = str(R.string.image_cache),
+                            text = str(Strings.image_cache),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -276,7 +272,7 @@ fun StorageSettingsScreen(
                         // Max image cache size slider
                         StorageStepSliderCard(
                             icon = Icons.Default.ImageSearch,
-                            title = str(R.string.max_image_cache_size),
+                            title = str(Strings.max_image_cache_size),
                             options = imageCacheOptions,
                             currentStep = currentImageCacheIndex,
                             onStepChange = { newStep ->
@@ -292,16 +288,16 @@ fun StorageSettingsScreen(
                         // Clear image cache
                         StorageActionCard(
                             icon = Icons.Default.DeleteSweep,
-                            title = str(R.string.clear_image_cache),
+                            title = str(Strings.clear_image_cache),
                             subtitle = null,
                             onClick = {
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                haptics.longPress()
                                 scope.launch(Dispatchers.IO) {
-                                    val freed = StorageUtils.clearImageCache(context)
-                                    val freedStr = StorageUtils.formatBytes(freed)
+                                    val freed = storage.clearImageCache()
+                                    val freedStr = com.auralis.music.util.formatBytes(freed)
                                     withContext(Dispatchers.Main) {
                                         refreshStorageMetrics()
-                                        Toast.makeText(context, str(R.string.image_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
+                                        platformActions.showMessage(str(Strings.image_cache_cleared_x_freed, freedStr))
                                     }
                                 }
                             }
@@ -316,22 +312,22 @@ fun StorageSettingsScreen(
     if (showClearDownloadsConfirm) {
         AlertDialog(
             onDismissRequest = { showClearDownloadsConfirm = false },
-            title = { Text(str(R.string.clear_all_downloads_3), fontWeight = FontWeight.Bold) },
-            text = { Text(str(R.string.this_will_permanently_delete_all_downloa), fontSize = 14.sp) },
+            title = { Text(str(Strings.clear_all_downloads_3), fontWeight = FontWeight.Bold) },
+            text = { Text(str(Strings.this_will_permanently_delete_all_downloa), fontSize = 14.sp) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showClearDownloadsConfirm = false
-                        AuralisDownloadManager.clearAllDownloads()
+                        platformActions.clearAllDownloads()
                         refreshStorageMetrics()
                     }
                 ) {
-                    Text(str(R.string.clear_all), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text(str(Strings.clear_all), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDownloadsConfirm = false }) {
-                    Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(str(Strings.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface
@@ -493,7 +489,7 @@ private fun StorageStepSliderCard(
     maxBytes: Long
 ) {
     val density = LocalDensity.current
-    val view = LocalView.current
+    val haptics = com.auralis.music.ui.components.rememberViewHaptics()
     val cardShape = RoundedCornerShape(18.dp)
     val cardBg = MaterialTheme.colorScheme.surface
     val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -574,7 +570,7 @@ private fun StorageStepSliderCard(
                             val rawFraction = (offset.x / width).coerceIn(0f, 1f)
                             val targetStep = kotlin.math.round(rawFraction * (stepCount - 1)).toInt().coerceIn(0, stepCount - 1)
                             if (targetStep != localStep) {
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                haptics.tick()
                                 localStep = targetStep
                                 onStepChange(targetStep)
                             }
@@ -590,7 +586,7 @@ private fun StorageStepSliderCard(
                                 val rawFraction = (offset.x / width).coerceIn(0f, 1f)
                                 val targetStep = kotlin.math.round(rawFraction * (stepCount - 1)).toInt().coerceIn(0, stepCount - 1)
                                 if (targetStep != localStep) {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    haptics.tick()
                                     localStep = targetStep
                                 }
                             }
@@ -610,7 +606,7 @@ private fun StorageStepSliderCard(
                                 val rawFraction = (change.position.x / width).coerceIn(0f, 1f)
                                 val targetStep = kotlin.math.round(rawFraction * (stepCount - 1)).toInt().coerceIn(0, stepCount - 1)
                                 if (targetStep != localStep) {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    haptics.tick()
                                     localStep = targetStep
                                 }
                             }
@@ -675,8 +671,8 @@ private fun StorageStepSliderCard(
 
         // ── THIN REAL USAGE PROGRESS BAR & STATS TEXT ──
         val usageFraction = if (maxBytes > 0L) (usedBytes.toFloat() / maxBytes.toFloat()).coerceIn(0f, 1f) else 0f
-        val usedFormatted = StorageUtils.formatBytes(usedBytes)
-        val maxFormatted = StorageUtils.formatBytes(maxBytes)
+        val usedFormatted = com.auralis.music.util.formatBytes(usedBytes)
+        val maxFormatted = com.auralis.music.util.formatBytes(maxBytes)
 
         Box(
             modifier = Modifier

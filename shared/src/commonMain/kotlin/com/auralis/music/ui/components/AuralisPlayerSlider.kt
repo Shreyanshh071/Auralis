@@ -1,11 +1,9 @@
 package com.auralis.music.ui.components
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
 
 /** The player slider (shared [AuralisSlider]) with the phone's haptic tick. */
 @Composable
@@ -25,7 +23,7 @@ fun AuralisPlayerSlider(
     /** Timestamps under the track; off for decorative previews (e.g. the style picker). */
     showTimestamps: Boolean = true
 ) {
-    val view = LocalView.current
+    val haptics = rememberViewHaptics()
     AuralisSlider(
         value = value,
         onValueChange = onValueChange,
@@ -40,6 +38,6 @@ fun AuralisPlayerSlider(
         thumbColor = thumbColor,
         textColor = textColor,
         showTimestamps = showTimestamps,
-        onTick = { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+        onTick = { haptics.tick() }
     )
 }

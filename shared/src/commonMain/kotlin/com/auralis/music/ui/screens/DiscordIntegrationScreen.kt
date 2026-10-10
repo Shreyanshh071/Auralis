@@ -1,10 +1,9 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,14 +22,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.auralis.music.R
 import com.auralis.music.data.datastore.DiscordRpcDataStore
-import com.auralis.music.data.network.discord.DiscordGatewayManager
 import com.auralis.music.domain.model.DiscordRpcSettings
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
@@ -76,11 +72,13 @@ fun DiscordIntegrationScreen(
     isPlaying: Boolean = false,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val player = remember { com.auralis.music.data.service.AuralisAudioPlayer.getInstance(context) }
-    val activeTrack by player.currentTrack.collectAsState()
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
+    val settingsPlatform = com.auralis.music.ui.settings.LocalSettingsPlatform.current
+    val player = settingsPlatform.nowPlaying
+    val discord = settingsPlatform.discord
+    val activeTrack by player.track.collectAsState()
     val activeIsPlaying by player.isPlaying.collectAsState()
-    val activePos by player.playbackPositionMs.collectAsState()
+    val activePos by player.positionMs.collectAsState()
     val activeDuration by player.durationMs.collectAsState()
 
     val effectiveTrack = activeTrack ?: currentTrack
@@ -91,7 +89,7 @@ fun DiscordIntegrationScreen(
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubFrac by remember { mutableFloatStateOf(0f) }
 
-    val dataStore = remember { DiscordRpcDataStore(context) }
+    val dataStore = com.auralis.music.data.datastore.LocalSettingsStores.current.discord
     val settings by dataStore.settingsFlow.collectAsState(initial = DiscordRpcSettings())
     val scope = rememberCoroutineScope()
 
@@ -109,7 +107,7 @@ fun DiscordIntegrationScreen(
     var showLargeTextDialog by remember { mutableStateOf(false) }
     var showSmallImageDialog by remember { mutableStateOf(false) }
 
-    androidx.activity.compose.BackHandler(enabled = true) {
+    com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
         when {
             showStatusDialog -> showStatusDialog = false
             showIntervalDialog -> showIntervalDialog = false
@@ -132,7 +130,7 @@ fun DiscordIntegrationScreen(
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
+                            contentDescription = str(Strings.back),
                             tint = TEXT_PRIMARY
                         )
                     }
@@ -156,7 +154,7 @@ fun DiscordIntegrationScreen(
             // ── LARGE PAGE TITLE ──
             item {
                 Text(
-                    text = str(R.string.discord_integration),
+                    text = str(Strings.discord_integration),
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = TEXT_PRIMARY,
@@ -168,7 +166,7 @@ fun DiscordIntegrationScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = str(R.string.account),
+                        text = str(Strings.account),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = PEACH_ACCENT,
@@ -207,8 +205,8 @@ fun DiscordIntegrationScreen(
                                         )
                                     } else {
                                         Icon(
-                                            painter = painterResource(id = R.drawable.ic_discord),
-                                            contentDescription = str(R.string.discord),
+                                            painter = com.auralis.music.ui.components.LocalBrandImages.current.discord(),
+                                            contentDescription = str(Strings.discord),
                                             tint = PEACH_ACCENT,
                                             modifier = Modifier.size(32.dp)
                                         )
@@ -219,14 +217,14 @@ fun DiscordIntegrationScreen(
 
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        text = if (settings.isLoggedIn && settings.discordUsername.isNotBlank()) settings.discordUsername else str(R.string.not_logged_in),
+                                        text = if (settings.isLoggedIn && settings.discordUsername.isNotBlank()) settings.discordUsername else str(Strings.not_logged_in),
                                         fontWeight = FontWeight.Bold,
                                         color = TEXT_PRIMARY,
                                         fontSize = 21.sp
                                     )
                                     if (!settings.isLoggedIn) {
                                         Text(
-                                            text = str(R.string.discord_presence_authorization_required),
+                                            text = str(Strings.discord_presence_authorization_required),
                                             color = TEXT_SECONDARY,
                                             fontSize = 12.5.sp
                                         )
@@ -254,7 +252,7 @@ fun DiscordIntegrationScreen(
                                         )
                                         Spacer(modifier = Modifier.width(14.dp))
                                         Text(
-                                            text = str(R.string.waiting_for_discord_authorization),
+                                            text = str(Strings.waiting_for_discord_authorization),
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Medium,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -297,7 +295,7 @@ fun DiscordIntegrationScreen(
                                         }
                                         Spacer(modifier = Modifier.width(14.dp))
                                         Text(
-                                            text = str(R.string.enable_rich_presence),
+                                            text = str(Strings.enable_rich_presence),
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.SemiBold,
                                             color = TEXT_PRIMARY,
@@ -330,18 +328,21 @@ fun DiscordIntegrationScreen(
                                             dataStore.setEnableRichPresence(false)
                                         }
                                         isAuthorizing = false
-                                        DiscordGatewayManager.getInstance(context).disconnect()
-                                        Toast.makeText(context, str(R.string.logged_out_of_discord), Toast.LENGTH_SHORT).show()
+                                        discord?.disconnect()
+                                        platformActions.showMessage(str(Strings.logged_out_of_discord))
                                     } else {
                                 isAuthorizing = true
-                                DiscordGatewayManager.getInstance(context).beginAuthorization { success, username, detail ->
+                                if (discord == null) {
+                                    isAuthorizing = false
+                                    platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.phoneOnly)
+                                } else discord.connect { success, username, detail ->
                                     isAuthorizing = false
                                     val message = if (success) {
-                                        str(R.string.connected_to_discord_as_x, username.ifBlank { "your account" })
+                                        str(Strings.connected_to_discord_as_x, username.ifBlank { "your account" })
                                     } else {
                                         detail
                                     }
-                                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                    platformActions.showMessage(message)
                                 }
                                     }
                                 },
@@ -359,9 +360,9 @@ fun DiscordIntegrationScreen(
                                 ) {
                                     Text(
                                         text = when {
-                                            settings.isLoggedIn -> str(R.string.disconnect_discord_account)
-                                            isAuthorizing -> str(R.string.open_discord_authorization)
-                                            else -> str(R.string.open_discord_authorization)
+                                            settings.isLoggedIn -> str(Strings.disconnect_discord_account)
+                                            isAuthorizing -> str(Strings.open_discord_authorization)
+                                            else -> str(Strings.open_discord_authorization)
                                         },
                                         fontWeight = FontWeight.Bold,
                                         color = when {
@@ -372,6 +373,15 @@ fun DiscordIntegrationScreen(
                                         fontSize = 14.5.sp
                                     )
                                 }
+                            // How the status reaches Discord on this platform, when it differs from the phone.
+                            discord?.note?.let { note ->
+                                Text(
+                                    text = note,
+                                    color = TEXT_SECONDARY,
+                                    fontSize = 12.5.sp,
+                                    modifier = Modifier.padding(top = 10.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -381,7 +391,7 @@ fun DiscordIntegrationScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = str(R.string.options),
+                        text = str(Strings.options),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = PEACH_ACCENT,
@@ -414,14 +424,14 @@ fun DiscordIntegrationScreen(
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column {
                                     Text(
-                                        text = str(R.string.refresh),
+                                        text = str(Strings.refresh),
                                         fontWeight = FontWeight.SemiBold,
                                         color = TEXT_PRIMARY,
                                         fontSize = 15.5.sp
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = str(R.string.manually_refresh_discord_rich_presence),
+                                        text = str(Strings.manually_refresh_discord_rich_presence),
                                         color = TEXT_SECONDARY,
                                         fontSize = 12.5.sp
                                     )
@@ -429,14 +439,14 @@ fun DiscordIntegrationScreen(
                             }
 
                             Text(
-                                text = str(R.string.refresh),
+                                text = str(Strings.refresh),
                                 color = TEXT_SECONDARY.copy(alpha = 0.6f),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.5.sp,
                                 modifier = Modifier
                                     .clickable {
-                                        DiscordGatewayManager.getInstance(context).pushPresence()
-                                        Toast.makeText(context, str(R.string.discord_rich_presence_refreshed), Toast.LENGTH_SHORT).show()
+                                        discord?.refresh()
+                                        platformActions.showMessage(str(Strings.discord_rich_presence_refreshed))
                                     }
                                     .padding(8.dp)
                             )
@@ -449,7 +459,7 @@ fun DiscordIntegrationScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = str(R.string.connection),
+                        text = str(Strings.connection),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = PEACH_ACCENT,
@@ -465,14 +475,14 @@ fun DiscordIntegrationScreen(
                         Column {
                             DiscordSettingRowItem(
                                 icon = Icons.Default.Refresh,
-                                title = str(R.string.activity_status),
+                                title = str(Strings.activity_status),
                                 value = settings.activityStatus,
                                 onClick = { showStatusDialog = true }
                             )
 
                             DiscordSettingRowItem(
                                 icon = Icons.Default.Timer,
-                                title = str(R.string.update_interval),
+                                title = str(Strings.update_interval),
                                 value = when (settings.updateIntervalSeconds) {
                                     0 -> "Disabled"
                                     60 -> "1m"
@@ -491,7 +501,7 @@ fun DiscordIntegrationScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = str(R.string.activity_content),
+                        text = str(Strings.activity_content),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = PEACH_ACCENT,
@@ -507,7 +517,7 @@ fun DiscordIntegrationScreen(
                         Column {
                             DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
-                                title = str(R.string.activity_name),
+                                title = str(Strings.activity_name),
                                 value = settings.activityName,
                                 onClick = {
                                     customActivityNameInput = settings.activityName
@@ -517,14 +527,14 @@ fun DiscordIntegrationScreen(
 
                             DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
-                                title = str(R.string.activity_details),
+                                title = str(Strings.activity_details),
                                 value = settings.activityDetails,
                                 onClick = { showActivityDetailsDialog = true }
                             )
 
                             DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
-                                title = str(R.string.activity_state),
+                                title = str(Strings.activity_state),
                                 value = settings.activityState,
                                 onClick = { showActivityStateDialog = true }
                             )
@@ -545,14 +555,14 @@ fun DiscordIntegrationScreen(
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = str(R.string.show_rpc_when_paused),
+                                        text = str(Strings.show_rpc_when_paused),
                                         fontWeight = FontWeight.SemiBold,
                                         color = TEXT_PRIMARY,
                                         fontSize = 15.sp
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = str(R.string.if_enabled_rich_presence_will_remain_vis),
+                                        text = str(Strings.if_enabled_rich_presence_will_remain_vis),
                                         color = TEXT_SECONDARY,
                                         fontSize = 12.sp,
                                         lineHeight = 16.sp
@@ -575,7 +585,7 @@ fun DiscordIntegrationScreen(
 
                             DiscordSettingRowItem(
                                 icon = Icons.Default.Headphones,
-                                title = str(R.string.activity_type),
+                                title = str(Strings.activity_type),
                                 value = settings.activityType,
                                 onClick = { showActivityTypeDialog = true }
                             )
@@ -588,7 +598,7 @@ fun DiscordIntegrationScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = str(R.string.image_options),
+                        text = str(Strings.image_options),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = PEACH_ACCENT,
@@ -604,21 +614,21 @@ fun DiscordIntegrationScreen(
                         Column {
                             DiscordSettingRowItem(
                                 icon = Icons.Default.Image,
-                                title = str(R.string.large_image),
+                                title = str(Strings.large_image),
                                 value = settings.largeImage,
                                 onClick = { showLargeImageDialog = true }
                             )
 
                             DiscordSettingRowItem(
                                 icon = Icons.Default.TextFields,
-                                title = str(R.string.large_text),
+                                title = str(Strings.large_text),
                                 value = settings.largeText,
                                 onClick = { showLargeTextDialog = true }
                             )
 
                             DiscordSettingRowItem(
                                 icon = Icons.Default.Image,
-                                title = str(R.string.small_image),
+                                title = str(Strings.small_image),
                                 value = settings.smallImage,
                                 onClick = { showSmallImageDialog = true }
                             )
@@ -631,7 +641,7 @@ fun DiscordIntegrationScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = str(R.string.preview),
+                        text = str(Strings.preview),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = TEXT_PRIMARY,
@@ -675,8 +685,8 @@ fun DiscordIntegrationScreen(
                                         val previewArtwork = effectiveTrack?.thumbnail?.ifBlank { null }
                                         if (settings.largeImage == "App icon" || settings.largeImage == "App logo") {
                                             Image(
-                                                painter = painterResource(id = R.drawable.ic_auralis_logo),
-                                                contentDescription = str(R.string.auralis_app_logo),
+                                                painter = com.auralis.music.ui.components.LocalBrandImages.current.appLogo(),
+                                                contentDescription = str(Strings.auralis_app_logo),
                                                 modifier = Modifier
                                                     .fillMaxSize()
                                                     .padding(10.dp),
@@ -692,8 +702,8 @@ fun DiscordIntegrationScreen(
                                             )
                                         } else {
                                             Image(
-                                                painter = painterResource(id = R.drawable.ic_auralis_logo),
-                                                contentDescription = str(R.string.auralis_app_logo),
+                                                painter = com.auralis.music.ui.components.LocalBrandImages.current.appLogo(),
+                                                contentDescription = str(Strings.auralis_app_logo),
                                                 modifier = Modifier
                                                     .fillMaxSize()
                                                     .padding(10.dp),
@@ -718,7 +728,7 @@ fun DiscordIntegrationScreen(
                                         ) {
                                             if (settings.smallImage == "App logo" || settings.smallImage == "App icon" || settings.smallImage == "Play state") {
                                                 Image(
-                                                    painter = painterResource(id = R.drawable.ic_auralis_logo),
+                                                    painter = com.auralis.music.ui.components.LocalBrandImages.current.appLogo(),
                                                     contentDescription = null,
                                                     modifier = Modifier.fillMaxSize(),
                                                     contentScale = ContentScale.Fit
@@ -731,7 +741,7 @@ fun DiscordIntegrationScreen(
                                                 )
                                             } else {
                                                 Image(
-                                                    painter = painterResource(id = R.drawable.ic_auralis_logo),
+                                                    painter = com.auralis.music.ui.components.LocalBrandImages.current.appLogo(),
                                                     contentDescription = null,
                                                     modifier = Modifier.fillMaxSize(),
                                                     contentScale = ContentScale.Fit
@@ -753,14 +763,14 @@ fun DiscordIntegrationScreen(
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = effectiveTrack?.title ?: str(R.string.opt_song_title),
+                                        text = effectiveTrack?.title ?: str(Strings.opt_song_title),
                                         color = TEXT_SECONDARY,
                                         fontSize = 13.5.sp,
                                         maxLines = 1,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = effectiveTrack?.artist ?: str(R.string.opt_artist_name),
+                                        text = effectiveTrack?.artist ?: str(Strings.opt_artist_name),
                                         color = TEXT_SECONDARY,
                                         fontSize = 13.sp,
                                         maxLines = 1,
@@ -810,7 +820,7 @@ fun DiscordIntegrationScreen(
                                         } else {
                                             "https://music.youtube.com/"
                                         }
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ytUrl)))
+                                        platformActions.openUrl(ytUrl)
                                     },
                                     shape = RoundedCornerShape(24.dp),
                                     colors = ButtonDefaults.buttonColors(
@@ -821,7 +831,7 @@ fun DiscordIntegrationScreen(
                                         .height(46.dp)
                                 ) {
                                     Text(
-                                        text = str(R.string.listen_on_youtube_music),
+                                        text = str(Strings.listen_on_youtube_music),
                                         color = TEXT_PRIMARY,
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 14.sp
@@ -830,8 +840,7 @@ fun DiscordIntegrationScreen(
 
                                 Button(
                                     onClick = {
-                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Shreyanshh071/Auralis"))
-                                        context.startActivity(browserIntent)
+                                        platformActions.openUrl("https://github.com/Shreyanshh071/Auralis")
                                     },
                                     shape = RoundedCornerShape(24.dp),
                                     colors = ButtonDefaults.buttonColors(
@@ -842,7 +851,7 @@ fun DiscordIntegrationScreen(
                                         .height(46.dp)
                                 ) {
                                     Text(
-                                        text = str(R.string.go_to_auralis),
+                                        text = str(Strings.go_to_auralis),
                                         color = BUTTON_DARK_TEXT,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
@@ -861,7 +870,7 @@ fun DiscordIntegrationScreen(
     // Pickers with DiscordOptionPickerBottomSheet
     if (showStatusDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.activity_status),
+            title = str(Strings.activity_status),
             options = listOf("Online", "Idle", "Do Not Disturb", "Invisible"),
             selected = settings.activityStatus,
             onSelect = {
@@ -890,15 +899,15 @@ fun DiscordIntegrationScreen(
             AlertDialog(
                 onDismissRequest = { showCustomIntervalDialog = false },
                 containerColor = CARD_BG,
-                title = { Text(str(R.string.custom_interval), fontWeight = FontWeight.Bold, color = TEXT_PRIMARY) },
+                title = { Text(str(Strings.custom_interval), fontWeight = FontWeight.Bold, color = TEXT_PRIMARY) },
                 text = {
                     Column {
-                        Text(str(R.string.enter_update_interval_in_seconds_e_g_3_t), color = TEXT_SECONDARY, fontSize = 13.sp)
+                        Text(str(Strings.enter_update_interval_in_seconds_e_g_3_t), color = TEXT_SECONDARY, fontSize = 13.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
                             value = customIntervalInput,
                             onValueChange = { customIntervalInput = it.filter { c -> c.isDigit() } },
-                            label = { Text(str(R.string.seconds)) },
+                            label = { Text(str(Strings.seconds)) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = PEACH_ACCENT,
@@ -918,18 +927,18 @@ fun DiscordIntegrationScreen(
                         showCustomIntervalDialog = false
                         showIntervalDialog = false
                     }) {
-                        Text(str(R.string.save), color = PEACH_ACCENT, fontWeight = FontWeight.Bold)
+                        Text(str(Strings.save), color = PEACH_ACCENT, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showCustomIntervalDialog = false }) {
-                        Text(str(R.string.cancel), color = TEXT_SECONDARY)
+                        Text(str(Strings.cancel), color = TEXT_SECONDARY)
                     }
                 }
             )
         } else {
             DiscordOptionPickerBottomSheet(
-                title = str(R.string.update_interval),
+                title = str(Strings.update_interval),
                 options = intervalOptions,
                 selected = currentSelected,
                 onSelect = { selectedOption ->
@@ -976,12 +985,12 @@ fun DiscordIntegrationScreen(
         AlertDialog(
             onDismissRequest = { showActivityNameDialog = false },
             containerColor = CARD_BG,
-            title = { Text(str(R.string.activity_name_2), fontWeight = FontWeight.Bold, color = TEXT_PRIMARY) },
+            title = { Text(str(Strings.activity_name_2), fontWeight = FontWeight.Bold, color = TEXT_PRIMARY) },
             text = {
                 OutlinedTextField(
                     value = customActivityNameInput,
                     onValueChange = { customActivityNameInput = it },
-                    label = { Text(str(R.string.app_name_in_discord)) },
+                    label = { Text(str(Strings.app_name_in_discord)) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = PEACH_ACCENT,
@@ -1000,12 +1009,12 @@ fun DiscordIntegrationScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = PEACH_ACCENT)
                 ) {
-                    Text(str(R.string.save), color = BUTTON_DARK_TEXT, fontWeight = FontWeight.Bold)
+                    Text(str(Strings.save), color = BUTTON_DARK_TEXT, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showActivityNameDialog = false }) {
-                    Text(str(R.string.cancel), color = TEXT_SECONDARY)
+                    Text(str(Strings.cancel), color = TEXT_SECONDARY)
                 }
             }
         )
@@ -1013,7 +1022,7 @@ fun DiscordIntegrationScreen(
 
     if (showActivityDetailsDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.activity_details),
+            title = str(Strings.activity_details),
             options = listOf("Artist name", "Album name", "Song title", "Auralis"),
             selected = settings.activityDetails,
             onSelect = {
@@ -1025,7 +1034,7 @@ fun DiscordIntegrationScreen(
 
     if (showActivityStateDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.activity_state),
+            title = str(Strings.activity_state),
             options = listOf("Artist name", "Album name", "Song title", "Auralis"),
             selected = settings.activityState,
             onSelect = {
@@ -1037,7 +1046,7 @@ fun DiscordIntegrationScreen(
 
     if (showActivityTypeDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.activity_type),
+            title = str(Strings.activity_type),
             options = listOf("Listening", "Playing", "Streaming", "Competing"),
             selected = settings.activityType,
             onSelect = {
@@ -1049,7 +1058,7 @@ fun DiscordIntegrationScreen(
 
     if (showLargeImageDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.large_image),
+            title = str(Strings.large_image),
             options = listOf("Album artwork", "App icon", "None"),
             selected = settings.largeImage,
             onSelect = {
@@ -1061,7 +1070,7 @@ fun DiscordIntegrationScreen(
 
     if (showLargeTextDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.large_text),
+            title = str(Strings.large_text),
             options = listOf("Album name", "Song title", "Auralis", "None"),
             selected = settings.largeText,
             onSelect = {
@@ -1073,7 +1082,7 @@ fun DiscordIntegrationScreen(
 
     if (showSmallImageDialog) {
         DiscordOptionPickerBottomSheet(
-            title = str(R.string.small_image),
+            title = str(Strings.small_image),
             options = listOf("Artist artwork", "Play state", "App logo", "None"),
             selected = settings.smallImage,
             onSelect = {

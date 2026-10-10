@@ -19,6 +19,13 @@ interface PlatformActions {
     fun isDownloading(trackId: String): Boolean
     fun downloadTrack(track: Track)
     fun removeDownload(trackId: String)
+    /** Opens [url] in the browser; false if nothing could open it. */
+    fun openUrl(url: String): Boolean
+    /** Puts [text] on the clipboard. */
+    fun copyText(label: String, text: String)
+    /** The clipboard's text, if it holds any. */
+    fun readClipboardText(): String?
+
     /** True while any song is downloading for offline play. */
     @androidx.compose.runtime.Composable
     fun hasActiveDownloads(): Boolean
@@ -48,6 +55,9 @@ object NoPlatformActions : PlatformActions {
     @androidx.compose.runtime.Composable
     override fun hasActiveDownloads() = false
     override fun clearAllDownloads() {}
+    override fun openUrl(url: String) = false
+    override fun copyText(label: String, text: String) {}
+    override fun readClipboardText(): String? = null
     override fun saveTextFile(fileName: String, content: String) = ""
     @androidx.compose.runtime.Composable
     override fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit = {}
