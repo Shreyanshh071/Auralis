@@ -83,6 +83,8 @@ fun SearchScreen(
     isPlaying: Boolean,
     onPlay: ((com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit)?,
     onUnavailable: (String) -> Unit,
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = { onUnavailable("Artist pages on Windows come next") },
+    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = { onUnavailable("Album pages on Windows come next") },
     /** Changes each time Ctrl+F asks for the search field. */
     focusRequests: Int = 0,
     onTypingChange: (Boolean) -> Unit = {}
@@ -123,8 +125,8 @@ fun SearchScreen(
                             if (onPlay != null) onPlay(track, list) else onUnavailable("Playback needs VLC (64-bit)")
                         },
                         onMenuClick = { onUnavailable("Song options on Windows come next") },
-                        onArtistClick = { onUnavailable("Artist pages on Windows come next") },
-                        onPlaylistClick = { onUnavailable("Album pages on Windows come next") }
+                        onArtistClick = onOpenArtist,
+                        onPlaylistClick = onOpenAlbum
                     )
                 }
                 state.hasSubmitted && state.searchFailed -> CenteredMessage("Couldn't reach YouTube Music.", action = "Retry") { state.search() }

@@ -67,11 +67,14 @@ fun AuralisDesktopApp(
     var destination by remember { mutableStateOf(DesktopDestination.SEARCH) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) }
+    val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
     val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
     val showUnavailable: (String) -> Unit = { message ->
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
     }
     androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
+    val platformActions = remember { com.auralis.music.ui.components.DesktopPlatformActions(showUnavailable) }
+    }
     val queue = playback?.queue?.collectAsState()?.value
     val playerState = playback?.state?.collectAsState()?.value
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
@@ -98,7 +101,8 @@ fun AuralisDesktopApp(
                 showPlayer = true
             }
             override fun closePlayer(): Boolean {
-                if (!showPlayer) return false
+                // Esc: closes the player first, then goes back like the phone's back gesture.
+                if (!showPlayer) return com.auralis.music.ui.components.DesktopBackDispatcher.back()
                 showPlayer = false
                 return true
             }
@@ -119,13 +123,14 @@ fun AuralisDesktopApp(
         onDispose { onShortcutHandler(null) }
     }
 
-    AuralisDesktopTheme {
+    com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = platformActions) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    Sidebar(selected = destination, onSelect = { destination = it })
+                    Sidebar(selected = destination, onSelect = { destination = it; browse.clear() })
                     Box(Modifier.weight(1f).fillMaxHeight()) {
-                        when (destination) {
+                        if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable)
+                        else when (destination) {
                             DesktopDestination.HOME -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
                                 NotBuiltYet("Home", "Recommendations come after search and playback work.")
                             }
@@ -135,6 +140,8 @@ fun AuralisDesktopApp(
                                 isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
                                 onPlay = playback?.let { it::playFrom },
                                 onUnavailable = showUnavailable,
+                                onOpenArtist = browse::openArtist,
+                                onOpenAlbum = { browse.openAlbum(it) },
                                 focusRequests = searchFocusRequests,
                                 onTypingChange = { typing = it }
                             )
