@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
  * - Line-synced lines have no end time, so a break needs >= 10s between line starts, and the end
  *   of the singing is estimated from the line's word count (display only, never lyric timing).
  */
-internal fun instrumentalBreakWindow(line: com.auralis.music.domain.model.LyricLine, nextStart: Long): Pair<Long, Long>? {
+fun instrumentalBreakWindow(line: com.auralis.music.domain.model.LyricLine, nextStart: Long): Pair<Long, Long>? {
     val knownEnd = line.effectiveEndTime
     val isGenuineBreak = if (knownEnd != null) {
         nextStart - knownEnd >= 5_000L
@@ -56,7 +56,7 @@ internal fun instrumentalBreakWindow(line: com.auralis.music.domain.model.LyricL
 }
 
 /** Rough sung length of a line with no end time: ~0.45s a word, 2.5–7s. */
-internal fun estimatedSungLengthMs(text: String): Long {
+fun estimatedSungLengthMs(text: String): Long {
     val words = text.split(Regex("""\s+""")).count { it.isNotBlank() }
     return (words * 450L + 800L).coerceIn(2_500L, 7_000L)
 }

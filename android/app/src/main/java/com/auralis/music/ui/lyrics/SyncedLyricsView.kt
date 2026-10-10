@@ -426,22 +426,53 @@ fun SyncedLyricsView(
     val coroutineScope = rememberCoroutineScope()
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     if (appearance.shouldUseExperimentalLyrics) {
-        ExperimentalLyricsView(
-            lyrics = lyrics,
-            positionState = positionState,
-            onSeekTo = onSeekTo,
-            modifier = modifier,
-            isPlaying = isPlaying,
-            isBuffering = isBuffering,
-            lyricsClockSource = lyricsClockSource,
-            offsetMs = offsetMs,
-            onOffsetChange = onOffsetChange,
-            onSearchManually = onSearchManually,
-            headerContent = null,
-            footerContent = null,
-            track = track,
-            standardLyricsBlur = standardLyricsBlur
-        )
+        val phoneLyricsContext = androidx.compose.ui.platform.LocalContext.current
+        // The shared lyrics view's platform pieces: the phone's strings, Toast, back gesture,
+        // share sheet and romanization setting.
+        val phoneLyricsUi = remember(phoneLyricsContext) {
+            LyricsUiPlatform(
+                strings = LyricsUiStrings(
+                    noLyricsAvailable = { str(R.string.no_lyrics_available) },
+                    unsyncedLyrics = { str(R.string.unsynced_lyrics) },
+                    selectUpTo5Lines = { str(R.string.select_up_to_5_lines_for_showoff) },
+                    search = { str(R.string.search) },
+                    searchSyncedLyrics = { str(R.string.search_synced_lyrics) },
+                    reSync = { str(R.string.re_sync) },
+                    cancelSelection = { str(R.string.cancel_selection) },
+                    share = { str(R.string.share) }
+                ),
+                showMessage = { android.widget.Toast.makeText(phoneLyricsContext, it, android.widget.Toast.LENGTH_SHORT).show() },
+                backHandler = { enabled, onBack -> androidx.activity.compose.BackHandler(enabled = enabled, onBack = onBack) },
+                shareSheet = { shareTrack, text, onDismiss ->
+                    com.auralis.music.ui.lyrics.share.LyricShareBottomSheet(
+                        track = shareTrack,
+                        initialLyricsText = text,
+                        onDismissRequest = onDismiss
+                    )
+                },
+                romanizedLine = { text, color, fontSize, textAlign, lineModifier ->
+                    RomanizedLine(text = text, color = color, fontSize = fontSize, textAlign = textAlign, modifier = lineModifier)
+                }
+            )
+        }
+        androidx.compose.runtime.CompositionLocalProvider(LocalLyricsUi provides phoneLyricsUi) {
+            ExperimentalLyricsView(
+                lyrics = lyrics,
+                positionState = positionState,
+                onSeekTo = onSeekTo,
+                modifier = modifier,
+                isPlaying = isPlaying,
+                isBuffering = isBuffering,
+                lyricsClockSource = lyricsClockSource,
+                offsetMs = offsetMs,
+                onOffsetChange = onOffsetChange,
+                onSearchManually = onSearchManually,
+                headerContent = null,
+                footerContent = null,
+                track = track,
+                standardLyricsBlur = standardLyricsBlur
+            )
+        }
         return
     }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1341,84 +1372,6 @@ private fun lineTextGlyphEnd(text: String, start: Int, end: Int): Int {
     return glyphEnd
 }
 
-internal fun computeLyricsProgressiveBlur(
-    standardBlur: Boolean,
-    isSynced: Boolean,
-    isPlain: Boolean,
-    isSelected: Boolean,
-    isCurrent: Boolean,
-    isUserInteracting: Boolean,
-    lineCenterPx: Float,
-    activeLineCenterPx: Float,
-    viewportStartPx: Float,
-    viewportEndPx: Float
-): Float {
-    if (!standardBlur || !isSynced || isPlain || isSelected || isCurrent) {
-        return 0f
-    }
-    // Manual reading mode stays sharp. Re-enabling sync restores the positional blur.
-    if (isUserInteracting) {
-        return 0f
-    }
-    if (!lineCenterPx.isFinite() || !activeLineCenterPx.isFinite() ||
-        !viewportStartPx.isFinite() || !viewportEndPx.isFinite() ||
-        viewportEndPx <= viewportStartPx
-    ) {
-        return 0f
-    }
-
-    val lineCenter = lineCenterPx.coerceIn(viewportStartPx, viewportEndPx)
-    val activeCenter = activeLineCenterPx.coerceIn(viewportStartPx, viewportEndPx)
-    // Use the same physical distance on both sides of the active line. Scaling each
-    // side separately made past lines almost sharp while future lines blurred deeply.
-    val falloffDistance = minOf(
-        activeCenter - viewportStartPx,
-        viewportEndPx - activeCenter
-    ).coerceAtLeast(1f)
-    val rawProgress = (kotlin.math.abs(lineCenter - activeCenter) / falloffDistance).coerceIn(0f, 1f)
-    // Keep a small crisp band around the active line, then blur toward either edge.
-    val blurProgress = ((rawProgress - 0.04f) / 0.96f).coerceIn(0f, 1f)
-    return 24f * blurProgress.pow(1.35f)
-}
-
-internal data class LyricsBlurGeometry(
-    val lineCenterPx: Float,
-    val activeLineCenterPx: Float,
-    val viewportStartPx: Float,
-    val viewportEndPx: Float
-)
-
-internal fun resolveLyricsBlurGeometry(
-    layoutInfo: LazyListLayoutInfo,
-    lineIndex: Int,
-    activeIndex: Int,
-    fallbackActiveFraction: Float,
-    fallbackViewportHeightPx: Float = 0f
-): LyricsBlurGeometry {
-    val measuredHeight = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).toFloat()
-    val viewportHeight = if (measuredHeight > 0f) measuredHeight else fallbackViewportHeightPx.coerceAtLeast(0f)
-    val viewportStart = layoutInfo.viewportStartOffset.toFloat()
-    val viewportEnd = if (measuredHeight > 0f) layoutInfo.viewportEndOffset.toFloat() else (viewportStart + viewportHeight)
-    val lineInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == lineIndex }
-    val activeInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
-    val fallbackCenter = viewportStart + viewportHeight * fallbackActiveFraction.coerceIn(0f, 1f)
-    val lineCenter = if (lineInfo != null) {
-        lineInfo.offset + lineInfo.size / 2f
-    } else if (viewportHeight > 0f && activeIndex >= 0) {
-        // Fallback: estimate line position from active line index offset to prevent initial frame-0 unblurred flash
-        val estimatedItemHeight = (viewportHeight * 0.08f).coerceIn(40f, 80f)
-        fallbackCenter + (lineIndex - activeIndex) * estimatedItemHeight
-    } else {
-        Float.NaN
-    }
-    return LyricsBlurGeometry(
-        lineCenterPx = lineCenter,
-        activeLineCenterPx = activeInfo?.let { it.offset + it.size / 2f } ?: fallbackCenter,
-        viewportStartPx = viewportStart,
-        viewportEndPx = viewportEnd
-    )
-}
-
 internal fun computeClassicLyricsLayerAlpha(
     isPlain: Boolean,
     isCurrent: Boolean,
@@ -1946,67 +1899,6 @@ private fun LyricLineRow(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-        }
-    }
-}
-
-
-/**
- * Modern circular progress countdown during song instrumental intros.
- *
- * For MetroLyrics, displays the thicker 40dp / 5.0dp MetroLyrics style.
- * For all other animation modes (Auralis Default, Apple Music, Fade, Glow, etc.),
- * displays the classic thin 34dp / 3.0dp style.
- */
-@Composable
-internal fun InstrumentalIntroIndicator(
-    currentTimeMsState: State<Long>,
-    introDurationMs: Long,
-    modifier: Modifier = Modifier,
-    isMetroLyrics: Boolean = false,
-    indicatorSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroIndicatorSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardIndicatorSize,
-    strokeWidth: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroStrokeWidth else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardStrokeWidth,
-    gapSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroTrackGapSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardTrackGapSize,
-    onSkipIntro: (() -> Unit)? = null
-) {
-    val currentTimeMs = currentTimeMsState.value
-    // Reaches 100% 650ms before line 0 starts singing, then completes and collapses smoothly
-    val effectiveEnd = (introDurationMs - 650L).coerceAtLeast(1000L)
-    val progress = (currentTimeMs.toFloat() / effectiveEnd.toFloat()).coerceIn(0f, 1f)
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.LinearEasing),
-        label = "introProgress"
-    )
-
-    val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(clickableSize)
-                .then(
-                    if (onSkipIntro != null) {
-                        Modifier
-                            .clip(CircleShape)
-                            .clickable(onClick = onSkipIntro)
-                    } else Modifier
-                )
-        ) {
-            WavyProgressIndicator(
-                progress = animatedProgress,
-                modifier = Modifier.size(indicatorSize),
-                color = Color.White.copy(alpha = 0.95f),
-                trackColor = Color.White.copy(alpha = 0.18f),
-                strokeWidth = strokeWidth,
-                gapSize = gapSize,
-            )
         }
     }
 }

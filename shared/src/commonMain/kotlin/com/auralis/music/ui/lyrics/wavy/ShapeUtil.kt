@@ -14,7 +14,7 @@ import kotlin.math.atan2
  *
  * Sourced directly from AndroidX Material 3 internal ShapeUtil.
  */
-internal fun RoundedPolygon.toPath(
+fun RoundedPolygon.toPath(
     path: Path = Path(),
     startAngle: Int = 270,
     repeatPath: Boolean = false,
@@ -37,7 +37,7 @@ internal fun RoundedPolygon.toPath(
  *
  * Sourced directly from AndroidX Material 3 internal ShapeUtil.
  */
-internal fun Morph.toPath(
+fun Morph.toPath(
     progress: Float,
     path: Path = Path(),
     startAngle: Int = 270, // 12 O'clock
