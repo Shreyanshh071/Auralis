@@ -10,7 +10,7 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-class NewPipeDownloader internal constructor(
+class NewPipeDownloader(
     private val client: OkHttpClient
 ) : Downloader() {
 
@@ -19,7 +19,7 @@ class NewPipeDownloader internal constructor(
 
         // NewPipe is synchronous. Coroutine timeouts cannot stop its blocking HTTP
         // calls; share one deadline across every request in a single extraction.
-        internal fun <T> withRequestBudget(timeoutMs: Long, block: () -> T): T {
+        fun <T> withRequestBudget(timeoutMs: Long, block: () -> T): T {
             val previous = requestDeadlineNs.get()
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
             requestDeadlineNs.set(previous?.let { minOf(it, deadline) } ?: deadline)
