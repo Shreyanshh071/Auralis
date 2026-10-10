@@ -8,6 +8,7 @@ googleServices = "4.4.4"
 composeMultiplatform = "1.7.3"
 androidxCollection = "1.4.5"
 orgJson = "20240303"
+coil3 = "3.0.4"
 
 # AndroidX Core & Lifecycle
 coreKtx = "1.15.0"
@@ -115,8 +116,14 @@ google-id = { group = "com.google.android.libraries.identity.googleid", name = "
 
 # Shared (multiplatform) module
 compose-runtime = { group = "org.jetbrains.compose.runtime", name = "runtime", version.ref = "composeMultiplatform" }
+compose-mp-ui = { group = "org.jetbrains.compose.ui", name = "ui", version.ref = "composeMultiplatform" }
+compose-mp-foundation = { group = "org.jetbrains.compose.foundation", name = "foundation", version.ref = "composeMultiplatform" }
+compose-mp-material3 = { group = "org.jetbrains.compose.material3", name = "material3", version.ref = "composeMultiplatform" }
+compose-mp-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "composeMultiplatform" }
 androidx-collection = { group = "androidx.collection", name = "collection", version.ref = "androidxCollection" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+coil3-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil3" }
+coil3-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil3" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
