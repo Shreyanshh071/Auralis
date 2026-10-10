@@ -128,6 +128,21 @@ class DesktopPlaybackController(
         }
     }
 
+    /** Puts [track] right after the playing song (or plays it when nothing is queued). */
+    fun playNext(track: Track) {
+        val q = _queue.value
+        if (q.current == null) return playFrom(track, listOf(track))
+        val tracks = q.tracks.toMutableList().apply { add(q.index + 1, track) }
+        _queue.value = q.copy(tracks = tracks)
+    }
+
+    /** Adds [track] to the end of the queue (or plays it when nothing is queued). */
+    fun addToQueue(track: Track) {
+        val q = _queue.value
+        if (q.current == null) return playFrom(track, listOf(track))
+        _queue.value = q.copy(tracks = q.tracks + track)
+    }
+
     /** Plays the song at [index] in the queue (the queue itself stays as it is). */
     fun playAt(index: Int) {
         val q = _queue.value
