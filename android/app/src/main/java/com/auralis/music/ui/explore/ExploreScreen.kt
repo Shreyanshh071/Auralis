@@ -837,21 +837,19 @@ private fun SearchResultsView(
         (results.primaryArtist != null && query.isNotBlank() &&
             com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist!!.name, query))
 
+    // Songs already shown as Top result / Also matching are not listed again below.
+    val songsBelowFeatured = results.songsBelowFeatured()
+
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (!results.isComplete || (searchFailed && results.isNotEmpty())) {
+        // A real failure stays visible; still-loading details don't get a row of their own.
+        if (searchFailed && results.isNotEmpty()) {
             item(key = "search_completion_status") {
-                if (searchFailed) {
-                    TextButton(onClick = onRetry) { Text("Some results could not load. Retry") }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Loading full results…", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
+                TextButton(onClick = onRetry) { Text("Some results could not load. Retry") }
             }
         }
         // ====================================================================
@@ -1195,9 +1193,9 @@ private fun SearchResultsView(
             )
         }
 
-        if (results.songs.isNotEmpty()) {
+        if (songsBelowFeatured.isNotEmpty()) {
             items(
-                items = results.songs,
+                items = songsBelowFeatured,
                 key = { "match_${it.id}" },
                 contentType = { "song" }
             ) { track ->
@@ -1285,6 +1283,14 @@ private fun SearchResultsView(
                 )
             }
         }
+    }
+    // While the ranked results are still on their way (partial results on screen), a thin line at
+    // the top says so without moving anything.
+    if (!results.isComplete && !searchFailed) {
+        androidx.compose.material3.LinearProgressIndicator(
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp)
+        )
+    }
     }
 }
 

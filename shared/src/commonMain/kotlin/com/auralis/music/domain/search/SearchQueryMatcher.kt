@@ -899,6 +899,52 @@ object SearchQueryMatcher {
     /** Sped up, slowed, nightcore and the like: the edits [findReuploadOfEdit] looks for. */
     fun isFanEdit(title: String): Boolean = "slowed" in versionMarkers(title)
 
+    /**
+     * Version tags (remix, live, acoustic, instrumental/karaoke, slowed/sped up, cover, mashup,
+     * part N...) in the track's title, or in the name of its own single, that [query] does not ask for.
+     */
+    fun unrequestedVersionTags(track: Track, query: String): Set<String> {
+        // Fancy-letter titles ("𝙨𝙥𝙚𝙚𝙙 𝙪𝙥") hide their tags from the patterns until folded to plain text.
+        fun plain(text: String) = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
+        val lowerQuery = plain(query).lowercase(Locale.ROOT)
+        val asked = VERSION_MARKERS.filter { (_, regex) -> regex.containsMatchIn(lowerQuery) }.map { it.first }.toSet()
+        return recordingVersionMarkers(track.copy(title = plain(track.title), album = track.album?.let(::plain))) - asked
+    }
+
+    /**
+     * Same song: same title once version brackets are removed (spelling variants such as
+     * "Wada"/"Vada" included), and an artist in common, allowing for differently spelled credits
+     * ("Mohd. Rafi" / "Mohammed Rafi", "Shreshtha" / "Shrestha").
+     */
+    fun isSameSong(a: Track, b: Track): Boolean {
+        if (romanizationKey(baseTitle(a.title)) != romanizationKey(baseTitle(b.title))) return false
+        fun names(artists: String) = artists.split(ARTIST_SEPARATOR_REGEX).map { normalize(it) }.filter { it.isNotBlank() }
+        val namesA = names(a.artist)
+        val namesB = names(b.artist)
+        return namesA.any { x -> namesB.any { y -> isSameArtistName(x, y) } }
+    }
+
+    /**
+     * Two spellings of one person: equal, within two letters for longer names, or the same surname
+     * (one letter of slack) with each other part equal or abbreviated ("mohd" in "mohammed").
+     * A shared common word alone ("Singh", "Khan", "Artist") is not enough.
+     */
+    private fun isSameArtistName(x: String, y: String): Boolean {
+        if (x == y) return true
+        if (minOf(x.length, y.length) >= 6 && levenshteinDistance(x, y) <= 2) return true
+        val a = x.split(" ").filter { it.isNotBlank() }
+        val b = y.split(" ").filter { it.isNotBlank() }
+        if (a.size != b.size || a.size < 2) return false
+        if (levenshteinDistance(a.last(), b.last()) > 1) return false
+        fun abbreviates(short: String, long: String): Boolean {
+            if (short.first() != long.first()) return false
+            var i = 0
+            for (c in long) if (i < short.length && c == short[i]) i++
+            return i == short.length
+        }
+        return a.dropLast(1).zip(b.dropLast(1)).all { (p, q) -> p == q || abbreviates(p, q) || abbreviates(q, p) }
+    }
+
     /** The title with its bracketed and " - " suffix segments removed, normalized. */
     private fun baseTitle(title: String): String {
         val noBrackets = title.replace(Regex("""[\(\[\{][^)\]\}]*[\)\]\}]"""), " ")
