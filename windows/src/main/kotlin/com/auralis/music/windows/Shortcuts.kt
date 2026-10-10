@@ -1,12 +1,24 @@
 package com.auralis.music.windows
 
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.type
+import java.awt.event.KeyEvent.VK_DOWN
+import java.awt.event.KeyEvent.VK_ESCAPE
+import java.awt.event.KeyEvent.VK_F
+import java.awt.event.KeyEvent.VK_K
+import java.awt.event.KeyEvent.VK_L
+import java.awt.event.KeyEvent.VK_LEFT
+import java.awt.event.KeyEvent.VK_M
+import java.awt.event.KeyEvent.VK_P
+import java.awt.event.KeyEvent.VK_Q
+import java.awt.event.KeyEvent.VK_RIGHT
+import java.awt.event.KeyEvent.VK_SPACE
+import java.awt.event.KeyEvent.VK_UP
 
 /** What the keyboard shortcuts can do. */
 interface ShortcutActions {
@@ -44,34 +56,37 @@ interface ShortcutActions {
 fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val ctrl = event.isCtrlPressed
+    // Compare key codes, not keys: an arrow on the number pad (Num Lock off) is a different Key
+    // from the main arrow key but the same key code, and both should work.
+    val code = event.key.nativeKeyCode
     // Work everywhere, even in the search field.
     if (ctrl) {
-        when (event.key) {
-            Key.DirectionUp -> { actions.volumeBy(0.05f); return true }
-            Key.DirectionDown -> { actions.volumeBy(-0.05f); return true }
-            Key.F, Key.K -> { actions.focusSearch(); return true }
-            Key.P -> { actions.togglePlayer(); return true }
-            Key.L -> { actions.showLyrics(); return true }
-            Key.Q -> { actions.showQueue(); return true }
+        when (code) {
+            VK_UP -> { actions.volumeBy(0.05f); return true }
+            VK_DOWN -> { actions.volumeBy(-0.05f); return true }
+            VK_F, VK_K -> { actions.focusSearch(); return true }
+            VK_P -> { actions.togglePlayer(); return true }
+            VK_L -> { actions.showLyrics(); return true }
+            VK_Q -> { actions.showQueue(); return true }
             else -> {}
         }
     }
-    if (event.key == Key.Escape && actions.closePlayer()) return true
+    if (code == VK_ESCAPE && actions.closePlayer()) return true
     if (typing) return false
     if (ctrl) {
-        when (event.key) {
-            Key.DirectionRight -> actions.next()
-            Key.DirectionLeft -> actions.previous()
+        when (code) {
+            VK_RIGHT -> actions.next()
+            VK_LEFT -> actions.previous()
             else -> return false
         }
         return true
     }
     val step = if (event.isShiftPressed) 15_000L else 5_000L
-    when (event.key) {
-        Key.Spacebar, Key.K -> actions.togglePlayPause()
-        Key.DirectionRight -> actions.seekBy(step)
-        Key.DirectionLeft -> actions.seekBy(-step)
-        Key.M -> actions.toggleMute()
+    when (code) {
+        VK_SPACE, VK_K -> actions.togglePlayPause()
+        VK_RIGHT -> actions.seekBy(step)
+        VK_LEFT -> actions.seekBy(-step)
+        VK_M -> actions.toggleMute()
         else -> return false
     }
     return true
