@@ -2,7 +2,6 @@ package com.auralis.music.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.network.LibraryArtworkRepair
@@ -24,9 +23,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Collections
 
-import android.content.Context
-import com.auralis.music.data.datastore.HomeRecommendationsCache
-import com.auralis.music.data.datastore.PlaylistListeningStore
 import com.auralis.music.domain.recommendations.PlaylistSpeedDialRanking
 import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.domain.recommendations.SpeedDialIdHelper
@@ -117,11 +113,11 @@ class HomeViewModel(
     private val historyRepository: HistoryRepository,
     private val searchRepository: SearchRepository,
     private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
-    private val context: Context? = null,
+    /** The phone's caches, listening times and artwork upkeep; null in tests that don't need them. */
+    private val platform: HomePlatform? = null,
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
     private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
-    private val libraryRepository: LibraryRepository? = null,
-    private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null
+    private val libraryRepository: LibraryRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -130,14 +126,14 @@ class HomeViewModel(
     private val artistAvatarCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
 
     @Volatile
-    internal var inMemoryPinnedItems: List<SpeedDialItem> = emptyList()
+    var inMemoryPinnedItems: List<SpeedDialItem> = emptyList()
     /** Up to three most-listened playlists with their measured listening time, highest first. */
     @Volatile private var mostListenedPlaylistItems: List<Pair<SpeedDialItem, Long>> = emptyList()
     /** Measured listening time per track ID, used to place playlists among songs. */
     @Volatile private var trackListenMs: Map<String, Long> = emptyMap()
 
     private val pinPersistenceMutex = Mutex()
-    internal val pinSequence = AtomicLong(0)
+    val pinSequence = AtomicLong(0)
 
     private fun computePinnedIds(items: List<SpeedDialItem>): Set<String> {
         val ids = mutableSetOf<String>()
@@ -167,7 +163,7 @@ class HomeViewModel(
     init {
         // Settings → Content → Quick picks: rebuild the row as soon as the mode changes.
         viewModelScope.launch(ioDispatcher) {
-            com.auralis.music.data.datastore.ContentSettingsStore.current
+            com.auralis.music.data.network.ContentSettingsSource.updates
                 .map { it.quickPicksMode }
                 .distinctUntilChanged()
                 .drop(1)
@@ -175,24 +171,22 @@ class HomeViewModel(
         }
         // App language change: content language "System default" follows it, so reload too.
         viewModelScope.launch(ioDispatcher) {
-            com.auralis.music.ui.i18n.AppLanguage.changes.drop(1).collect { refresh() }
+            com.auralis.music.data.network.ContentSettingsSource.languageChanges.drop(1).collect { refresh() }
         }
         // Settings → Content → content language / country: reload so the feed shows them now.
         viewModelScope.launch(ioDispatcher) {
-            com.auralis.music.data.datastore.ContentSettingsStore.current
+            com.auralis.music.data.network.ContentSettingsSource.updates
                 .map { it.contentLanguage to it.contentCountry }
                 .distinctUntilChanged()
                 .drop(1)
                 .collect { refresh() }
         }
-        if (context != null && libraryRepository != null) {
+        if (platform != null && libraryRepository != null) {
             viewModelScope.launch(ioDispatcher) {
-                PlaylistListeningStore.load(context)
-                val trackListenTimes = com.auralis.music.data.local.AuralisDatabase.getInstance(context)
-                    .playbackEventDao().getListenTimeByTrack()
-                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats, trackListenTimes) { playlists, stats, times ->
+                val trackListenTimes = platform.trackListenTimes()
+                combine(libraryRepository.getPlaylists(), platform.playlistListeningStats(), trackListenTimes) { playlists, stats, times ->
                     val top = PlaylistSpeedDialRanking.mostListened(playlists, stats, PlaylistSpeedDialRanking.MAX_PLAYLISTS)
-                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times.associate { it.trackId to it.totalMs }
+                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times
                 }.distinctUntilChanged().collect { (ranked, times) ->
                     trackListenMs = times
                     mostListenedPlaylistItems = ranked.map { (playlist, listenedMs) ->
@@ -212,17 +206,17 @@ class HomeViewModel(
                             pinned
                         ))
                     }
-                    HomeRecommendationsCache.saveSpeedDial(context, _uiState.value.speedDialPages)
+                    platform.saveSpeedDial(_uiState.value.speedDialPages)
                 }
             }
         }
         // 1. Immediately restore cached speed dial & recommendation shelves to UI (0ms cold start latency)
         viewModelScope.launch(ioDispatcher) {
-            context?.let { ctx ->
-                val cachedSpeedDial = HomeRecommendationsCache.getCachedSpeedDial(ctx)
-                val cachedRecs = HomeRecommendationsCache.getCachedSimilarRecommendations(ctx)
-                val cachedDiscover = HomeRecommendationsCache.getCachedDailyDiscover(ctx)
-                val cachedPinned = HomeRecommendationsCache.getPinnedSpeedDialItems(ctx)
+            platform?.let { ctx ->
+                val cachedSpeedDial = ctx.getCachedSpeedDial()
+                val cachedRecs = ctx.getCachedSimilarRecommendations()
+                val cachedDiscover = ctx.getCachedDailyDiscover()
+                val cachedPinned = ctx.getPinnedSpeedDialItems()
                 if (inMemoryPinnedItems.isEmpty()) {
                     inMemoryPinnedItems = cachedPinned
                 }
@@ -249,24 +243,14 @@ class HomeViewModel(
         }
 
         // Scan saved metadata once. Only missing or suspicious rows receive a verified lookup.
-        if (context != null && libraryRepository != null) {
+        if (platform != null && libraryRepository != null) {
             viewModelScope.launch(ioDispatcher) {
-                val prefs = context.getSharedPreferences("auralis_verified_artwork_repair", Context.MODE_PRIVATE)
-                if (prefs.getInt("version", 0) < 11 &&
-                    System.currentTimeMillis() - prefs.getLong("last_attempt_v11", 0L) > 24L * 60 * 60 * 1000) {
+                if (platform.artworkRepairDue()) {
                     try {
                         val corrected = mutableMapOf<String, Track>()
                         val outcome = LibraryArtworkRepair(libraryRepository).runDetailed { track ->
                             corrected[track.id] = track
-                            withContext(Dispatchers.Main) {
-                                audioPlayer?.applyVerifiedTrackMetadata(track)
-                            }
-                            try {
-                                com.auralis.music.data.download.AuralisDownloadManager
-                                    .applyVerifiedTrackMetadata(track, context)
-                            } catch (e: Exception) {
-                                android.util.Log.w("HomeViewModel", "Offline artwork update deferred: ${e.message}")
-                            }
+                            platform.onTrackMetadataVerified(track)
                         }
                         if (corrected.isNotEmpty()) {
                             com.auralis.music.data.network.ArtworkResolver.clearCache()
@@ -276,19 +260,16 @@ class HomeViewModel(
                                     track = item.track!!.copy(album = track.album, thumbnail = track.thumbnail))
                             }
                             inMemoryPinnedItems = inMemoryPinnedItems.map(::updated)
-                            HomeRecommendationsCache.savePinnedSpeedDialItems(context, inMemoryPinnedItems)
+                            platform.savePinnedSpeedDialItems(inMemoryPinnedItems)
                             _uiState.update { state ->
                                 state.copy(speedDialPages = state.speedDialPages.map { page -> page.map(::updated) })
                             }
-                            HomeRecommendationsCache.saveSpeedDial(context, _uiState.value.speedDialPages)
+                            platform.saveSpeedDial(_uiState.value.speedDialPages)
                         }
-                        prefs.edit().putLong("last_attempt_v11", System.currentTimeMillis())
-                            .apply {
-                                if (outcome.unresolved == 0) putInt("version", 11)
-                            }.apply()
-                        android.util.Log.i("HomeViewModel", "Verified ${corrected.size} library artwork corrections; ${outcome.unresolved} unresolved")
+                        platform.artworkRepairDone(outcome.unresolved)
+                        com.auralis.music.util.Log.i("HomeViewModel", "Verified ${corrected.size} library artwork corrections; ${outcome.unresolved} unresolved")
                     } catch (e: Exception) {
-                        android.util.Log.w("HomeViewModel", "Artwork repair will retry: ${e.message}")
+                        com.auralis.music.util.Log.w("HomeViewModel", "Artwork repair will retry: ${e.message}")
                     }
                 }
             }
@@ -345,7 +326,7 @@ class HomeViewModel(
                             isLoading = false
                         )
                     }
-                    context?.let { HomeRecommendationsCache.saveSpeedDial(it, _uiState.value.speedDialPages) }
+                    platform?.let { it.saveSpeedDial(_uiState.value.speedDialPages) }
                 }
             }
         }
@@ -412,7 +393,7 @@ class HomeViewModel(
                 }
 
                 // Persist current speed dial to disk cache
-                context?.let { HomeRecommendationsCache.saveSpeedDial(it, _uiState.value.speedDialPages) }
+                platform?.let { it.saveSpeedDial(_uiState.value.speedDialPages) }
 
                 // Phase 2: Decoupled background network calls (never block UI or startup frame)
                 // 1. YouTube Music Home feed
@@ -470,10 +451,7 @@ class HomeViewModel(
                     viewModelScope.launch(Dispatchers.IO) {
                         for (trk in tracksToPrewarm) {
                             try {
-                                val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
-                                if (!isCached) {
-                                    AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist, duration = trk.duration)
-                                }
+                                platform?.prewarmStream(trk)
 
                             } catch (_: Exception) {}
                         }
@@ -538,7 +516,7 @@ class HomeViewModel(
                 val seedDiscoveries = NewUserSeedProvider.fetchSeedDailyDiscover(searchRepository, innerTubeClient)
                 if (seedDiscoveries.isNotEmpty()) {
                     _uiState.update { it.copy(dailyDiscover = seedDiscoveries) }
-                    context?.let { HomeRecommendationsCache.saveDailyDiscover(it, seedDiscoveries) }
+                    platform?.let { it.saveDailyDiscover(seedDiscoveries) }
                 }
                 return@withContext
             }
@@ -593,7 +571,7 @@ class HomeViewModel(
             val finalItems = discoveries.distinctBy { it.recommendation.id }.shuffled()
             if (finalItems.isNotEmpty()) {
                 _uiState.update { it.copy(dailyDiscover = finalItems) }
-                context?.let { HomeRecommendationsCache.saveDailyDiscover(it, finalItems) }
+                platform?.let { it.saveDailyDiscover(finalItems) }
             }
         } catch (_: Exception) {}
     }
@@ -612,7 +590,7 @@ class HomeViewModel(
                 val seedRecs = NewUserSeedProvider.fetchSeedSimilarRecommendations(searchRepository)
                 if (seedRecs.isNotEmpty()) {
                     _uiState.update { it.copy(similarRecommendations = seedRecs) }
-                    context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, seedRecs) }
+                    platform?.let { it.saveSimilarRecommendations(seedRecs) }
                 }
                 return@withContext
             }
@@ -723,7 +701,7 @@ class HomeViewModel(
             val finalRecs = similarList.toList()
             if (finalRecs.isNotEmpty()) {
                 _uiState.update { it.copy(similarRecommendations = finalRecs) }
-                context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, finalRecs) }
+                platform?.let { it.saveSimilarRecommendations(finalRecs) }
             }
         } catch (_: Exception) {}
     }
@@ -743,7 +721,7 @@ class HomeViewModel(
 
             // Settings → Content → Quick picks → "Last song listened": the row is that song's radio.
             // Falls through to the usual mix when there's no history or the radio comes back empty.
-            if (com.auralis.music.data.datastore.ContentSettingsStore.value.quickPicksMode ==
+            if (com.auralis.music.data.network.ContentSettingsSource.current().quickPicksMode ==
                 com.auralis.music.domain.model.QuickPicksMode.LAST_LISTEN
             ) {
                 val last = history.firstOrNull { it.source == com.auralis.music.domain.model.TrackSource.YOUTUBE }
@@ -940,7 +918,7 @@ class HomeViewModel(
      * falling with the original position). Off → YouTube's order.
      */
     private fun orderHomeSections(sections: List<HomeSection>): List<HomeSection> {
-        if (!com.auralis.music.data.datastore.ContentSettingsStore.value.randomizeHomeOrder) return sections
+        if (!com.auralis.music.data.network.ContentSettingsSource.current().randomizeHomeOrder) return sections
         return sections.withIndex()
             .sortedByDescending { (index, _) ->
                 val weight = 1.0 / (1.0 + index * 0.5)
@@ -1066,7 +1044,7 @@ class HomeViewModel(
     fun clearHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             historyRepository.clearHistory()
-            context?.let { PlaylistListeningStore.clear(it) }
+            platform?.clearPlaylistListening()
             val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
             _uiState.update { current ->
                 val currentPinned = inMemoryPinnedItems
@@ -1159,7 +1137,7 @@ class HomeViewModel(
         return packageIntoSpeedDialPages(allItems)
     }
 
-    internal fun packageIntoSpeedDialPages(allItems: List<SpeedDialItem>): List<List<SpeedDialItem>> {
+    fun packageIntoSpeedDialPages(allItems: List<SpeedDialItem>): List<List<SpeedDialItem>> {
         if (allItems.isEmpty()) return emptyList()
 
         val pages = mutableListOf<List<SpeedDialItem>>()
@@ -1217,7 +1195,7 @@ class HomeViewModel(
         return pages
     }
 
-    internal fun buildOptimisticSpeedDialPages(
+    fun buildOptimisticSpeedDialPages(
         currentPages: List<List<SpeedDialItem>>,
         pinnedItems: List<SpeedDialItem>
     ): List<List<SpeedDialItem>> {
@@ -1301,7 +1279,7 @@ class HomeViewModel(
 
         // 2. Perform full background candidate rebuild off the Main thread and persist
         val currentSeq = pinSequence.incrementAndGet()
-        val ctx = context
+        val ctx = platform
         viewModelScope.launch(defaultDispatcher) {
             val topTracks = _uiState.value.topPlayedTracks.map { it.track }
             val historyTracks = _uiState.value.recentTracks.map { it.track }
@@ -1326,8 +1304,8 @@ class HomeViewModel(
                 withContext(ioDispatcher) {
                     pinPersistenceMutex.withLock {
                         if (isAlreadyPinned) {
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, trackItemId)
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, canonicalId)
+                            ctx.unpinSpeedDialItem(trackItemId)
+                            ctx.unpinSpeedDialItem(canonicalId)
                         } else {
                             val displayName = TitleCleaner.cleanTitle(track.title).ifBlank { track.title.trim() }
                             val item = SpeedDialItem(
@@ -1338,10 +1316,10 @@ class HomeViewModel(
                                 track = track.copy(title = displayName),
                                 isPinned = true
                             )
-                            HomeRecommendationsCache.pinSpeedDialItem(ctx, item)
+                            ctx.pinSpeedDialItem(item)
                         }
                         if (currentSeq == pinSequence.get()) {
-                            HomeRecommendationsCache.saveSpeedDial(ctx, _uiState.value.speedDialPages)
+                            ctx.saveSpeedDial(_uiState.value.speedDialPages)
                         }
                     }
                 }
@@ -1402,7 +1380,7 @@ class HomeViewModel(
 
         // 2. Perform full background candidate rebuild off the Main thread and persist
         val currentSeq = pinSequence.incrementAndGet()
-        val ctx = context
+        val ctx = platform
         viewModelScope.launch(defaultDispatcher) {
             val topTracks = _uiState.value.topPlayedTracks.map { it.track }
             val historyTracks = _uiState.value.recentTracks.map { it.track }
@@ -1427,8 +1405,8 @@ class HomeViewModel(
                 withContext(ioDispatcher) {
                     pinPersistenceMutex.withLock {
                         if (isAlreadyPinned) {
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, cleanId)
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, album.id)
+                            ctx.unpinSpeedDialItem(cleanId)
+                            ctx.unpinSpeedDialItem(album.id)
                         } else {
                             val item = SpeedDialItem(
                                 id = albumItemId,
@@ -1438,10 +1416,10 @@ class HomeViewModel(
                                 album = album,
                                 isPinned = true
                             )
-                            HomeRecommendationsCache.pinSpeedDialItem(ctx, item)
+                            ctx.pinSpeedDialItem(item)
                         }
                         if (currentSeq == pinSequence.get()) {
-                            HomeRecommendationsCache.saveSpeedDial(ctx, _uiState.value.speedDialPages)
+                            ctx.saveSpeedDial(_uiState.value.speedDialPages)
                         }
                     }
                 }
@@ -1485,7 +1463,7 @@ class HomeViewModel(
 
         // 2. Perform full background candidate rebuild off the Main thread and persist
         val currentSeq = pinSequence.incrementAndGet()
-        val ctx = context
+        val ctx = platform
         viewModelScope.launch(defaultDispatcher) {
             val topTracks = _uiState.value.topPlayedTracks.map { it.track }
             val historyTracks = _uiState.value.recentTracks.map { it.track }
@@ -1510,17 +1488,17 @@ class HomeViewModel(
                 withContext(ioDispatcher) {
                     pinPersistenceMutex.withLock {
                         if (isAlbum) {
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, cleanAlbumId)
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, itemId)
+                            ctx.unpinSpeedDialItem(cleanAlbumId)
+                            ctx.unpinSpeedDialItem(itemId)
                         } else {
-                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, itemId)
+                            ctx.unpinSpeedDialItem(itemId)
                             if (canonicalTrackId != null) {
-                                HomeRecommendationsCache.unpinSpeedDialItem(ctx, canonicalTrackId)
-                                HomeRecommendationsCache.unpinSpeedDialItem(ctx, "track-$canonicalTrackId")
+                                ctx.unpinSpeedDialItem(canonicalTrackId)
+                                ctx.unpinSpeedDialItem("track-$canonicalTrackId")
                             }
                         }
                         if (currentSeq == pinSequence.get()) {
-                            HomeRecommendationsCache.saveSpeedDial(ctx, _uiState.value.speedDialPages)
+                            ctx.saveSpeedDial(_uiState.value.speedDialPages)
                         }
                     }
                 }

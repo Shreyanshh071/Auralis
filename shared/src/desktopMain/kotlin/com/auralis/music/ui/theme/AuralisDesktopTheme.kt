@@ -87,6 +87,7 @@ fun AuralisDesktopTheme(
 
     val reducedMotion = rememberReducedMotion()
     CompositionLocalProvider(
+        com.auralis.music.ui.components.LocalWideWindowLayout provides true,
         LocalAppearanceSettings provides appearanceSettings,
         LocalAuralisDynamicPalette provides dynamicPalette,
         LocalDynamicThemePrimary provides colorScheme.primary,

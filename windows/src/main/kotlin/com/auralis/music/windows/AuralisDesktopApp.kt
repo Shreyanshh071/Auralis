@@ -52,6 +52,9 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
 @Composable
 fun AuralisDesktopApp(
     searchRepository: com.auralis.music.domain.repository.SearchRepository,
+    library: com.auralis.music.domain.repository.LibraryRepository,
+    history: com.auralis.music.domain.repository.HistoryRepository,
+    homePlatform: com.auralis.music.ui.viewmodel.HomePlatform,
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
@@ -63,11 +66,18 @@ fun AuralisDesktopApp(
     var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
     var searchFocusRequests by remember { mutableStateOf(0) }
     var typing by remember { mutableStateOf(false) }
-    // Search is the first working page on Windows, so the app opens on it.
-    var destination by remember { mutableStateOf(DesktopDestination.SEARCH) }
+    var destination by remember { mutableStateOf(DesktopDestination.HOME) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) }
     val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
+    val homeViewModel = remember {
+        com.auralis.music.ui.viewmodel.HomeViewModel(
+            historyRepository = history,
+            searchRepository = searchRepository,
+            platform = homePlatform,
+            libraryRepository = library
+        )
+    }
     val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
     val showUnavailable: (String) -> Unit = { message ->
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
@@ -130,9 +140,16 @@ fun AuralisDesktopApp(
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable)
                         else when (destination) {
-                            DesktopDestination.HOME -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
-                                NotBuiltYet("Home", "Recommendations come after search and playback work.")
-                            }
+                            DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
+                                viewModel = homeViewModel,
+                                library = library,
+                                searchRepository = searchRepository,
+                                playback = playback,
+                                browse = browse,
+                                onOpenPlaylist = { showUnavailable("Playlists open from Library, which comes next on Windows") },
+                                onNavigateToSearch = { destination = DesktopDestination.SEARCH },
+                                showMessage = showUnavailable
+                            )
                             DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(
                                 state = searchState,
                                 currentTrackId = queue?.current?.id,

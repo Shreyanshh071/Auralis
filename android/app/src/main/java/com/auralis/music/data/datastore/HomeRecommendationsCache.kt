@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import com.auralis.music.domain.recommendations.SpeedDialPins
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -118,56 +119,15 @@ object HomeRecommendationsCache {
     }
 
     suspend fun pinSpeedDialItem(context: Context, item: SpeedDialItem) {
-        val current = getPinnedSpeedDialItems(context).toMutableList()
-        current.removeAll { existing ->
-            if (item.type == SpeedDialType.TRACK && existing.type == SpeedDialType.TRACK) {
-                SpeedDialIdHelper.isSameTrack(existing.id, item.id) ||
-                    (item.track != null && existing.track != null && item.track!!.id == existing.track!!.id)
-            } else if (item.type == SpeedDialType.ALBUM && existing.type == SpeedDialType.ALBUM) {
-                val clean1 = existing.id.removePrefix("album-").removePrefix("VL")
-                val clean2 = item.id.removePrefix("album-").removePrefix("VL")
-                clean1 == clean2
-            } else {
-                existing.id == item.id
-            }
-        }
-        current.add(0, item.copy(isPinned = true))
-        savePinnedSpeedDialItems(context, current)
+        savePinnedSpeedDialItems(context, SpeedDialPins.pin(getPinnedSpeedDialItems(context), item))
     }
 
     suspend fun unpinSpeedDialItem(context: Context, itemId: String) {
-        val current = getPinnedSpeedDialItems(context).toMutableList()
-        current.removeAll { existing ->
-            if (existing.type == SpeedDialType.TRACK) {
-                SpeedDialIdHelper.isSameTrack(existing.id, itemId) ||
-                    (existing.track != null && SpeedDialIdHelper.matchesTrack(itemId, existing.track!!.id))
-            } else if (existing.type == SpeedDialType.ALBUM) {
-                val cleanId = itemId.removePrefix("album-").removePrefix("VL")
-                val existingClean = existing.id.removePrefix("album-").removePrefix("VL")
-                existingClean == cleanId || existing.id == itemId || existing.id == "album-$itemId"
-            } else {
-                existing.id == itemId
-            }
-        }
-        savePinnedSpeedDialItems(context, current)
+        savePinnedSpeedDialItems(context, SpeedDialPins.unpin(getPinnedSpeedDialItems(context), itemId))
     }
 
-    suspend fun isItemPinned(context: Context, itemId: String): Boolean {
-        val current = getPinnedSpeedDialItems(context)
-        return current.any { existing ->
-            if (existing.type == SpeedDialType.TRACK) {
-                SpeedDialIdHelper.isSameTrack(existing.id, itemId) ||
-                    (existing.track != null && SpeedDialIdHelper.matchesTrack(itemId, existing.track!!.id))
-            } else if (existing.type == SpeedDialType.ALBUM) {
-                val cleanId = itemId.removePrefix("album-").removePrefix("VL")
-                val existingClean = existing.id.removePrefix("album-").removePrefix("VL")
-                existingClean == cleanId || existing.id == itemId || existing.id == "album-$itemId"
-            } else {
-                existing.id == itemId
-            }
-        }
-    }
-
+    suspend fun isItemPinned(context: Context, itemId: String): Boolean =
+        SpeedDialPins.isPinned(getPinnedSpeedDialItems(context), itemId)
 
     suspend fun getCachedSimilarRecommendations(context: Context): List<SimilarRecommendation> {
         inMemorySimilarRecs?.let { if (it.isNotEmpty()) return it }

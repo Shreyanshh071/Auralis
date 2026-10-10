@@ -1,5 +1,7 @@
 package com.auralis.music.ui.home
 
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.ui.i18n.str
 
@@ -15,7 +17,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
-import com.auralis.music.R
 import com.auralis.music.ui.components.rememberShimmerBrush
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.components.smoothScrollToTop
@@ -51,8 +52,6 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SystemUpdate
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -163,8 +162,8 @@ fun HomeScreen(
     floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     modifier: Modifier = Modifier
 ) {
-    val showWrappedCard = com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState().value.showWrappedCard
-    val context = LocalContext.current
+    val showWrappedCard = com.auralis.music.data.network.ContentSettingsSource.updates.collectAsState().value.showWrappedCard
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val homeScrollState = rememberLazyListState()
     val reducedScrollMotion = LocalReducedMotion.current
     val headerScope = rememberCoroutineScope()
@@ -198,7 +197,7 @@ fun HomeScreen(
         } }
     }
     // When Home first appeared: its sections unfold in only during the first moments after launch.
-    val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
+    val openedAtMs = remember { com.auralis.music.util.uptimeMillis() }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedAlbumForMenu by remember { mutableStateOf<PlaylistResult?>(null) }
     var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
@@ -231,7 +230,7 @@ fun HomeScreen(
                     // ================================================================
                     item(key = "home_top_bar", contentType = "header") {
                         if (headerGlass != null) LiquidGlassPageTitle(
-                            str(R.string.home), Modifier.padding(horizontal = 16.dp),
+                            str(Strings.home), Modifier.padding(horizontal = 16.dp),
                             scrollOffsetPx = {
                                 if (homeScrollState.firstVisibleItemIndex == 0) homeScrollState.firstVisibleItemScrollOffset
                                 else Int.MAX_VALUE
@@ -250,13 +249,13 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Image(
-                                    painter = painterResource(R.drawable.ic_auralis_header_logo),
-                                    contentDescription = str(R.string.auralis_logo),
+                                    painter = com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(),
+                                    contentDescription = str(Strings.auralis_logo),
                                     colorFilter = ColorFilter.tint(themeOnBackground),
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Text(
-                                    text = str(R.string.home),
+                                    text = str(Strings.home),
                                     style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = themeOnBackground,
@@ -274,7 +273,7 @@ fun HomeScreen(
                                 ) {
                                     Icon(
                                         Icons.Default.Equalizer,
-                                        contentDescription = str(R.string.stats),
+                                        contentDescription = str(Strings.stats),
                                         tint = themeOnBackground.copy(alpha = 0.85f)
                                     )
                                 }
@@ -282,19 +281,19 @@ fun HomeScreen(
                                     onClick = onOpenHistory,
                                     modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                                 ) {
-                                    Icon(Icons.Default.History, contentDescription = str(R.string.history), tint = themeOnBackground.copy(alpha = 0.85f))
+                                    Icon(Icons.Default.History, contentDescription = str(Strings.history), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
                                 IconButton(
                                     onClick = onOpenListenTogether,
                                     modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                                 ) {
-                                    Icon(Icons.Default.Groups, contentDescription = str(R.string.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
+                                    Icon(Icons.Default.Groups, contentDescription = str(Strings.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
                                 IconButton(
                                     onClick = onOpenProfile,
                                     modifier = Modifier.tactileBounce(scaleDown = 0.90f)
                                 ) {
-                                    Icon(Icons.Default.AccountCircle, contentDescription = str(R.string.profile), tint = themeOnBackground.copy(alpha = 0.85f))
+                                    Icon(Icons.Default.AccountCircle, contentDescription = str(Strings.profile), tint = themeOnBackground.copy(alpha = 0.85f))
                                 }
                             }
                         }
@@ -314,7 +313,7 @@ fun HomeScreen(
                     if (uiState.speedDialPages.isNotEmpty()) {
                         item(key = "home_speed_dial", contentType = "speed_dial") { UnfoldIn(1, openedAtMs) {
                             Text(
-                                text = str(R.string.speed_dial),
+                                text = str(Strings.speed_dial),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = themePrimary,
@@ -324,9 +323,18 @@ fun HomeScreen(
 
                             val pagerState = rememberPagerState(pageCount = { uiState.speedDialPages.size.coerceAtMost(3) })
 
+                            androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            // A phone shows one 3x3 page at a time. A wide window (desktop) shows the
+                            // pages side by side at a fixed size instead of stretching the tiles.
+                            val speedDialPageSize = if (com.auralis.music.ui.components.LocalWideWindowLayout.current && maxWidth > 700.dp) {
+                                androidx.compose.foundation.pager.PageSize.Fixed(minOf(maxWidth - 48.dp, 460.dp))
+                            } else {
+                                androidx.compose.foundation.pager.PageSize.Fill
+                            }
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 HorizontalPager(
                                     state = pagerState,
+                                    pageSize = speedDialPageSize,
                                     key = { pageIndex ->
                                         SpeedDialIdHelper.computePageContentKey(
                                             pageIndex,
@@ -363,7 +371,7 @@ fun HomeScreen(
                                                             item = item,
                                                             modifier = Modifier.fillMaxSize(),
                                                             onClick = {
-                                                                android.util.Log.d("AuralisPlayback", "[SpeedDial Tap] item='${item.name}' (${item.id}, type=${item.type})")
+                                                                com.auralis.music.util.Log.d("AuralisPlayback", "[SpeedDial Tap] item='${item.name}' (${item.id}, type=${item.type})")
                                                                 when (item.type) {
                                                                     SpeedDialType.TRACK -> {
                                                                         val canonicalId = SpeedDialIdHelper.getCanonicalTrackId(item.id) ?: item.id
@@ -434,7 +442,7 @@ fun HomeScreen(
                                                                     else -> {
                                                                         if (item.isPinned) {
                                                                             onUnpinSpeedDial?.invoke(item.id)
-                                                                            Toast.makeText(context, str(R.string.unpinned_x, item.name), Toast.LENGTH_SHORT).show()
+                                                                            platformActions.showMessage(str(Strings.unpinned_x, item.name))
                                                                         }
                                                                     }
                                                                 }
@@ -469,6 +477,7 @@ fun HomeScreen(
                                 }
                             }
                         }
+                        }
                         Spacer(modifier = Modifier.height(18.dp))
                     }
                 }
@@ -500,20 +509,20 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = str(R.string.your_wrapped),
+                                    text = str(Strings.your_wrapped),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
                                     color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground
                                 )
                                 Text(
-                                    text = str(R.string.your_year_in_music_from_your_real_listen),
+                                    text = str(Strings.your_year_in_music_from_your_real_listen),
                                     fontSize = 13.sp,
                                     color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
-                                contentDescription = str(R.string.open_wrapped),
+                                contentDescription = str(Strings.open_wrapped),
                                 tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -533,7 +542,7 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = str(R.string.quick_picks),
+                                text = str(Strings.quick_picks),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = themePrimary,
@@ -553,7 +562,7 @@ fun HomeScreen(
                                     .padding(horizontal = 14.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = str(R.string.play_all),
+                                    text = str(Strings.play_all),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = themeOnBackground
@@ -632,7 +641,7 @@ fun HomeScreen(
                                             IconButton(onClick = { selectedTrackForMenu = track }) {
                                                 Icon(
                                                     imageVector = Icons.Default.MoreVert,
-                                                    contentDescription = str(R.string.options),
+                                                    contentDescription = str(Strings.options),
                                                     tint = themeOnBackground.copy(alpha = 0.65f),
                                                     modifier = Modifier.size(20.dp)
                                                 )
@@ -674,7 +683,7 @@ fun HomeScreen(
                 if (keepList.isNotEmpty()) {
                     item(key = "home_keep_listening", contentType = "keep_listening") { UnfoldIn(3, openedAtMs) {
                         Text(
-                            text = str(R.string.keep_listening),
+                            text = str(Strings.keep_listening),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = themePrimary,
@@ -770,7 +779,7 @@ fun HomeScreen(
                                     }
                                     Column {
                                         Text(
-                                            text = str(R.string.similar_to),
+                                            text = str(Strings.similar_to),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = themeOnBackground.copy(alpha = 0.6f)
                                         )
@@ -784,7 +793,7 @@ fun HomeScreen(
                                 }
                                 Icon(
                                     imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = str(R.string.view_artist_profile),
+                                    contentDescription = str(Strings.view_artist_profile),
                                     tint = themeOnBackground.copy(alpha = 0.6f),
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -948,7 +957,7 @@ fun HomeScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = album.author ?: str(R.string.album),
+                                                    text = album.author ?: str(Strings.album),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = themeOnBackground.copy(alpha = 0.65f),
                                                     maxLines = 1,
@@ -1056,15 +1065,11 @@ fun HomeScreen(
             },
             onShuffle = { onShuffleAlbum?.invoke(album) },
             onShare = {
-                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_SUBJECT, album.title)
-                    putExtra(
-                        android.content.Intent.EXTRA_TEXT,
-                        str(R.string.check_out_the_album_x_by_x_on_auralis_mu, album.title, album.author ?: "Various Artists", album.id.removePrefix("VL"))
-                    )
-                }
-                context.startActivity(android.content.Intent.createChooser(shareIntent, str(R.string.share_album)))
+                platformActions.shareText(
+                    subject = album.title,
+                    text = str(Strings.check_out_the_album_x_by_x_on_auralis_mu, album.title, album.author ?: "Various Artists", album.id.removePrefix("VL")),
+                    chooserTitle = str(Strings.share_album)
+                )
             },
             onPlayNext = { onPlayNextAlbum?.invoke(album) },
             onAddToQueue = { onAddToQueueAlbum?.invoke(album) },
@@ -1262,7 +1267,7 @@ private fun SpeedDialTile(
             ) {
                 Icon(
                     imageVector = Icons.Default.PushPin,
-                    contentDescription = str(R.string.pinned),
+                    contentDescription = str(Strings.pinned),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(11.dp)
                 )

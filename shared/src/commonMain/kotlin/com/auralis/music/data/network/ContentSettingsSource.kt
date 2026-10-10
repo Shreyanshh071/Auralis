@@ -11,4 +11,7 @@ object ContentSettingsSource {
 
     /** The same settings as a flow, for UI that redraws when they change. */
     @Volatile var updates: kotlinx.coroutines.flow.StateFlow<ContentSettings> = kotlinx.coroutines.flow.MutableStateFlow(ContentSettings())
+
+    /** Bumped whenever the app language changes, so screens that cache network content can reload. */
+    @Volatile var languageChanges: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0)
 }

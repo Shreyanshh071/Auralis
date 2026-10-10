@@ -14,6 +14,16 @@ object ArtworkResolver {
 
     private val resolvedArtworkCache = ConcurrentHashMap<String, String>()
 
+    /**
+     * The artwork file of an offline download, as a URL; set by the platform (the phone's
+     * download manager). Null where there are no downloads.
+     */
+    @Volatile var localArtwork: (trackId: String) -> String? = { null }
+
+    /** The official release artwork lookup (the phone's MasterArtworkResolver); null when unavailable. */
+    @Volatile var masterArtwork: suspend (title: String, artist: String, cacheKey: String, album: String?, durationSec: Long) -> String? =
+        { _, _, _, _, _ -> null }
+
     fun clearCache() {
         resolvedArtworkCache.clear()
     }
@@ -22,10 +32,7 @@ object ArtworkResolver {
 
     fun getArtwork(track: Track): String? {
         if (!track.thumbnail.isNullOrBlank()) return track.thumbnail
-        val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
-        if (localArt != null && localArt.exists() && localArt.length() > 500) {
-            return android.net.Uri.fromFile(localArt).toString()
-        }
+        localArtwork(track.id)?.let { return it }
         val key = getCacheKey(track)
         val cached = resolvedArtworkCache[key]
         if (!cached.isNullOrBlank()) return cached
@@ -60,9 +67,7 @@ object ArtworkResolver {
             return@withContext null
         }
         try {
-            val master = com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(
-                track.title, track.artist, null, getCacheKey(track), track.album, track.duration
-            )
+            val master = masterArtwork(track.title, track.artist, getCacheKey(track), track.album, track.duration)
             if (!master.isNullOrBlank()) {
                 resolvedArtworkCache[key] = master
                 return@withContext master
