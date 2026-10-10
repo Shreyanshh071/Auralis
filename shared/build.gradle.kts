@@ -56,6 +56,11 @@ kotlin {
                 implementation("com.google.protobuf:protobuf-javalite:3.25.1")
             }
         }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
     }
 }
 

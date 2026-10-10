@@ -49,12 +49,22 @@ class DesktopPlaybackController(
     /** The song whose stream was already looked up again after a playback error. */
     private var retriedTrackId: String? = null
 
+    /** The stream URL handed to libVLC for the current song. */
+    @Volatile private var currentUrl: String? = null
+
     init {
+        // Only sound counts as success: a failure streak ends when audio actually plays, not when
+        // a URL is handed to libVLC (it reports a refused stream a moment later).
+        scope.launch {
+            player.state.collect { if (it == VlcAudioPlayer.State.PLAYING) consecutiveFailures = 0 }
+        }
         player.onFinished = { scope.launch { if (_queue.value.hasNext) next() } }
         player.onError = {
             scope.launch {
                 val track = _queue.value.current ?: return@launch
-                // A stream URL can expire or be refused; look it up once more before giving up.
+                // A stream URL can expire or be refused (YouTube answers 403). Like the phone,
+                // avoid that server for a while and look the song up once more before giving up.
+                currentUrl?.let(DesktopStreamResolver::markHostFailed)
                 DesktopStreamResolver.invalidate(track.id)
                 if (retriedTrackId != track.id) {
                     retriedTrackId = track.id
@@ -169,8 +179,9 @@ class DesktopPlaybackController(
                 failed(track)
             } else {
                 player.setVolume(_volume.value)
-                player.play(url, resumeAtMs)
-                consecutiveFailures = 0
+                currentUrl = url
+                // Through the local relay, which fetches the stream in pieces YouTube accepts.
+                player.play(LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs)
             }
         }
     }
@@ -178,6 +189,11 @@ class DesktopPlaybackController(
     private fun failed(track: Track) {
         consecutiveFailures++
         _errors.tryEmit("Couldn't play “${track.title}”")
-        if (consecutiveFailures < 3 && _queue.value.current?.id == track.id && _queue.value.hasNext) next()
+        if (consecutiveFailures < 3 && _queue.value.current?.id == track.id && _queue.value.hasNext) {
+            next()
+        } else if (consecutiveFailures >= 3) {
+            com.auralis.music.util.Log.w("DesktopPlayback", "Stopped skipping after $consecutiveFailures songs in a row failed")
+            _errors.tryEmit("Playback isn't working right now. Check your connection and try again.")
+        }
     }
 }

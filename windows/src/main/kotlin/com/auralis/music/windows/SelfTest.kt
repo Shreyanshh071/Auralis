@@ -58,9 +58,27 @@ class SelfTest(val query: String, private val report: File) {
         step("playback starts", playing, "${top.title} in ${System.currentTimeMillis() - t1}ms (state ${playback.state.value})")
         if (playing) {
             val p0 = playback.positionMs.value
-            delay(4000)
+            val samples = mutableListOf<String>()
+            repeat(8) {
+                delay(500)
+                samples += "${playback.positionMs.value}/${playback.state.value.name.take(4)}"
+            }
             val p1 = playback.positionMs.value
+            com.auralis.music.util.Log.i("SelfTest", "positions every 500ms: $samples")
             step("playback advances", p1 - p0 in 3000..5500, "position ${p0}ms -> ${p1}ms over 4s, length ${playback.lengthMs.value}ms")
+            // Seek past the first megabyte or so, where the stream server is pickiest.
+            val length = playback.lengthMs.value
+            if (length > 30_000L) {
+                val target = length * 6 / 10
+                playback.seekTo(target)
+                delay(3000)
+                val after = playback.positionMs.value
+                step(
+                    "seek",
+                    after in target..target + 4500 && playback.state.value == VlcAudioPlayer.State.PLAYING,
+                    "to ${target}ms, at ${after}ms 3s later (state ${playback.state.value})"
+                )
+            }
         }
 
         val lyricState = withTimeoutOrNull(25_000) {

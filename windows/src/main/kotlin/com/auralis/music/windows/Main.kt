@@ -21,7 +21,9 @@ import javax.imageio.ImageIO
 private const val TAG = "AuralisWindows"
 
 fun main(args: Array<String>) {
-    Log.i(TAG, "Starting Auralis for Windows")
+    // The installed app has no console: its log goes to %APPDATA%\Auralisuralis.log.
+    Log.logToFile(java.io.File(desktopAppDataDir(), "auralis.log"))
+    Log.i(TAG, "Starting Auralis for Windows ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
     // Same startup as the phone's: the YouTube session and the search lookup caches load from their
     // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
     val dataDir = desktopAppDataDir()
