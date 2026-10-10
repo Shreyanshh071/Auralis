@@ -52,8 +52,10 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
 @Composable
 fun AuralisDesktopApp(
     searchRepository: com.auralis.music.domain.repository.SearchRepository,
-    playback: com.auralis.music.desktop.playback.DesktopPlaybackController?
+    playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
+    lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?
 ) {
+    var showPlayer by remember { mutableStateOf(false) }
     // Search is the first working page on Windows, so the app opens on it.
     var destination by remember { mutableStateOf(DesktopDestination.SEARCH) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -91,7 +93,22 @@ fun AuralisDesktopApp(
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                com.auralis.music.windows.player.NowPlayingBar(playback)
+                com.auralis.music.windows.player.NowPlayingBar(
+                    playback,
+                    onOpenPlayer = { if (queue?.current != null) showPlayer = true }
+                )
+            }
+            // The full player slides up over everything, like the phone's player sheet.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showPlayer && playback != null && lyrics != null,
+                enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240)),
+                exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(320)) { it } +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240))
+            ) {
+                if (playback != null && lyrics != null) {
+                    com.auralis.music.windows.player.PlayerScreen(playback, lyrics, onClose = { showPlayer = false })
+                }
             }
         }
     }

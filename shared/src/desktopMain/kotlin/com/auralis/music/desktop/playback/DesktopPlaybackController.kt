@@ -37,6 +37,8 @@ class DesktopPlaybackController(
     val state: StateFlow<VlcAudioPlayer.State> get() = player.state
     val positionMs: StateFlow<Long> get() = player.positionMs
     val lengthMs: StateFlow<Long> get() = player.lengthMs
+    /** Smooth playback clock for word-synced lyrics. */
+    val clock: com.auralis.music.data.service.PlaybackClockSource get() = player.clock
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val errors: SharedFlow<String> = _errors

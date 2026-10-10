@@ -29,6 +29,37 @@ class VlcAudioPlayer private constructor(
     private val _lengthMs = MutableStateFlow(0L)
     val lengthMs: StateFlow<Long> = _lengthMs.asStateFlow()
 
+    // The last position libVLC reported and when (System.nanoTime), for [clock].
+    @Volatile private var anchorMs = 0L
+    @Volatile private var anchorNanos = System.nanoTime()
+    @Volatile private var lastClockMs = 0L
+
+    private fun anchor(ms: Long) {
+        anchorMs = ms
+        anchorNanos = System.nanoTime()
+        lastClockMs = ms
+        _positionMs.value = ms
+    }
+
+    /**
+     * The playback clock for word-synced lyrics. libVLC reports the position only every few
+     * hundred milliseconds, while the phone's lyrics clock carries a reading forward by at most
+     * 100 ms. So this interpolates between reports with the wall clock (up to [MAX_INTERPOLATION_MS])
+     * and never steps backwards on a late report; a seek or a new song re-anchors it.
+     */
+    val clock = object : com.auralis.music.data.service.PlaybackClockSource {
+        override fun rawPositionMs(): Long {
+            if (_state.value != State.PLAYING) return lastClockMs
+            val elapsed = ((System.nanoTime() - anchorNanos) / 1_000_000L).coerceIn(0L, MAX_INTERPOLATION_MS)
+            val ms = maxOf(anchorMs + elapsed, lastClockMs)
+            lastClockMs = ms
+            return ms
+        }
+        override fun isPlaying(): Boolean = _state.value == State.PLAYING
+        override fun speed(): Float = 1f
+        override fun isBuffering(): Boolean = _state.value == State.BUFFERING
+    }
+
     /** Called (on libVLC's thread) when the current media plays to the end. */
     @Volatile var onFinished: (() -> Unit)? = null
     /** Called (on libVLC's thread) when the current media fails to play. */
@@ -41,8 +72,14 @@ class VlcAudioPlayer private constructor(
                 if (newCache < 100f && _state.value != State.PAUSED) _state.value = State.BUFFERING
                 else if (newCache >= 100f && _state.value == State.BUFFERING && mediaPlayer.status().isPlaying) _state.value = State.PLAYING
             }
-            override fun playing(mediaPlayer: MediaPlayer) { _state.value = State.PLAYING }
-            override fun paused(mediaPlayer: MediaPlayer) { _state.value = State.PAUSED }
+            override fun playing(mediaPlayer: MediaPlayer) {
+                anchorNanos = System.nanoTime()
+                _state.value = State.PLAYING
+            }
+            override fun paused(mediaPlayer: MediaPlayer) {
+                anchor(lastClockMs.coerceAtLeast(anchorMs))
+                _state.value = State.PAUSED
+            }
             override fun stopped(mediaPlayer: MediaPlayer) {
                 if (_state.value != State.ENDED && _state.value != State.ERROR) _state.value = State.IDLE
             }
@@ -54,13 +91,23 @@ class VlcAudioPlayer private constructor(
                 _state.value = State.ERROR
                 onError?.invoke()
             }
-            override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) { _positionMs.value = newTime }
+            override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
+                // A report behind the interpolated clock by less than a seek's worth is libVLC
+                // catching up, not a jump: keep the clock where it is so lyrics never step back.
+                if (newTime < lastClockMs && lastClockMs - newTime < SEEK_THRESHOLD_MS) {
+                    anchorMs = newTime
+                    anchorNanos = System.nanoTime()
+                    _positionMs.value = newTime
+                } else {
+                    anchor(newTime)
+                }
+            }
             override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) { _lengthMs.value = newLength }
         })
     }
 
     fun play(url: String, startMs: Long = 0L) {
-        _positionMs.value = startMs
+        anchor(startMs)
         _lengthMs.value = 0L
         _state.value = State.BUFFERING
         val options = buildList {
@@ -79,13 +126,14 @@ class VlcAudioPlayer private constructor(
 
     fun seekTo(ms: Long) {
         player.controls().setTime(ms.coerceAtLeast(0L))
-        _positionMs.value = ms.coerceAtLeast(0L)
+        anchor(ms.coerceAtLeast(0L))
     }
 
     fun stop() {
         player.controls().stop()
         _state.value = State.IDLE
-        _positionMs.value = 0L
+        _lengthMs.value = 0L
+        anchor(0L)
     }
 
     /** 0..1 */
@@ -100,6 +148,8 @@ class VlcAudioPlayer private constructor(
 
     companion object {
         private const val TAG = "VlcAudioPlayer"
+        private const val MAX_INTERPOLATION_MS = 1000L
+        private const val SEEK_THRESHOLD_MS = 600L
         @Volatile private var nativeLog: uk.co.caprica.vlcj.log.NativeLog? = null
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
