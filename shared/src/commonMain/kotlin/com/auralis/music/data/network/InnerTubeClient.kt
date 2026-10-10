@@ -43,6 +43,52 @@ open class InnerTubeClient(
         const val FILTER_ALBUMS = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D"
         const val SEARCH_LOG_TAG = "AuralisSearch"
 
+        /** The release type [getReleaseType] already read for this release, if any. */
+        fun cachedReleaseType(browseId: String): String? = releaseTypeCache[browseId]
+
+        // Release labels survive app restarts, like the album lookups.
+        @Volatile private var releaseTypeStore: com.auralis.music.util.KeyValueStore? = null
+        private const val RELEASE_TYPES_KEY = "release_types"
+
+        fun persistReleaseTypesTo(kv: com.auralis.music.util.KeyValueStore) {
+            releaseTypeStore = kv
+            try {
+                val saved = JSONObject(kv.getString(RELEASE_TYPES_KEY, "").orEmpty().ifBlank { "{}" })
+                for (id in saved.keys()) releaseTypeCache[id] = saved.getString(id)
+                val albums = JSONObject(kv.getString(QUEUE_ALBUMS_KEY, "").orEmpty().ifBlank { "{}" })
+                for (vid in albums.keys()) albums.getJSONObject(vid).let { queueAlbumCache[vid] = it.getString("a") to it.getString("id") }
+            } catch (_: Exception) { }
+        }
+
+        // Album of each upload as get_queue reported it (video id -> album name, album id), kept
+        // like the release labels so a song's album card can show with the first results.
+        private val queueAlbumCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+        private const val QUEUE_ALBUMS_KEY = "queue_albums"
+
+        fun cachedQueueAlbum(videoId: String): Pair<String, String>? = queueAlbumCache[videoId]
+
+        private fun rememberQueueAlbums(tracks: List<Track>) {
+            var added = false
+            for (t in tracks) {
+                val album = t.album?.takeIf { it.isNotBlank() } ?: continue
+                val id = t.albumId?.takeIf { it.isNotBlank() } ?: continue
+                if (queueAlbumCache.put(t.id, album to id) != album to id) added = true
+            }
+            if (!added) return
+            if (queueAlbumCache.size > 500) queueAlbumCache.keys.take(queueAlbumCache.size - 500).forEach { queueAlbumCache.remove(it) }
+            val kv = releaseTypeStore ?: return
+            val all = JSONObject()
+            for ((vid, entry) in queueAlbumCache) all.put(vid, JSONObject().put("a", entry.first).put("id", entry.second))
+            kv.putStrings(mapOf(QUEUE_ALBUMS_KEY to all.toString()))
+        }
+
+        private fun persistReleaseTypes() {
+            val kv = releaseTypeStore ?: return
+            val all = JSONObject()
+            for ((id, type) in releaseTypeCache) all.put(id, type)
+            kv.putStrings(mapOf(RELEASE_TYPES_KEY to all.toString()))
+        }
+
         fun searchFilterName(params: String?): String = when (params) {
             null -> "general"
             FILTER_SONGS -> "songs"
@@ -286,6 +332,7 @@ open class InnerTubeClient(
             if (type != null) {
                 if (releaseTypeCache.size > 500) releaseTypeCache.clear()
                 releaseTypeCache[browseId] = type
+                persistReleaseTypes()
             }
             type
         } catch (_: Exception) {
@@ -378,6 +425,7 @@ open class InnerTubeClient(
                     )
                 )
             }
+            rememberQueueAlbums(tracks)
             tracks
         } catch (e: Exception) {
             emptyList()

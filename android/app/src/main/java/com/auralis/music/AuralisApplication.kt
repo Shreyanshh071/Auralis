@@ -34,6 +34,11 @@ class AuralisApplication : Application(), ImageLoaderFactory {
             )
         )
         com.auralis.music.data.network.SpotifySession.init(this)
+        // Album lookups and release labels from earlier searches, so a song's album or Single card
+        // appears with the first results (its own small file; the database is untouched).
+        val searchLookups = com.auralis.music.util.SharedPreferencesKeyValueStore(getSharedPreferences("auralis_album_lookups", MODE_PRIVATE))
+        com.auralis.music.data.network.AlbumMetadataResolver.persistTo(searchLookups)
+        com.auralis.music.data.network.InnerTubeClient.persistReleaseTypesTo(searchLookups)
         com.auralis.music.data.sync.LocalDataOwner.init(this)
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = cacheDir
         // zemer-cipher logs through Timber; keep its lines in logcat for diagnosing downloads.
