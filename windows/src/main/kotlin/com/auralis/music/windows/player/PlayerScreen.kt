@@ -179,7 +179,15 @@ private fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyri
     val state by lyrics.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val playerState by playback.state.collectAsState()
-    val positionState = playback.positionMs.collectAsState()
+    val coarsePosition = playback.positionMs.collectAsState()
+    // As on the phone: the view gets the position sampled every frame and interpolated between
+    // libVLC's reports (rememberLyricsClock), not the raw reports (~4 a second), which made the
+    // word sweep and the intro circle advance in steps.
+    val positionState = com.auralis.music.ui.lyrics.rememberLyricsClock(
+        source = playback.clock,
+        enabled = playerState == VlcAudioPlayer.State.PLAYING,
+        fallbackPositionMs = coarsePosition
+    )
     val data = state.lyrics
     when {
         data == null && state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -206,9 +214,14 @@ private fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyri
 
 @Composable
 private fun PlayerSeekBar(playback: DesktopPlaybackController) {
-    val position by playback.positionMs.collectAsState()
     val length by playback.lengthMs.collectAsState()
     val state by playback.state.collectAsState()
+    // The same per-frame clock as the lyrics, so the knob glides instead of jumping ~4 times a second.
+    val position by com.auralis.music.ui.lyrics.rememberLyricsClock(
+        source = playback.clock,
+        enabled = state == VlcAudioPlayer.State.PLAYING,
+        fallbackPositionMs = playback.positionMs.collectAsState()
+    )
     val queue by playback.queue.collectAsState()
     val duration = length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
