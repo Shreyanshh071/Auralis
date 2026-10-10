@@ -1,6 +1,6 @@
 package com.auralis.music.data.network
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.data.network.provider.AmllLyricsSource
 import com.auralis.music.data.network.provider.BetterLyricsSource
 import com.auralis.music.data.network.provider.GeniusLyricsSource
@@ -54,7 +54,7 @@ class LyricsClient(
         private const val PROVIDER_TIMEOUT_MS = 6500L
 
         /** A synced candidate with fewer sung lines than this is a credit or stub, not lyrics. */
-        internal const val MIN_SUNG_LINES = 3
+        const val MIN_SUNG_LINES = 3
 
         /**
          * How long a usable line-synced candidate is held back to give a
@@ -69,7 +69,7 @@ class LyricsClient(
         private const val WORD_SYNC_GRACE_MS = 2200L
 
         /** Order of the lyrics provider sheet: word sync first, plain text last. */
-        internal val PICK_ORDER = listOf(
+        val PICK_ORDER = listOf(
             LyricsProvider.BETTER_LYRICS,
             LyricsProvider.AMLL,
             LyricsProvider.PAXSENIX,
@@ -99,21 +99,21 @@ class LyricsClient(
          * speaker-capable provider that is still running. Bounded per arrival and by
          * [ACTIVE_WORD_PROVIDER_TIMEOUT_MS] from race start, so it can never stall lyrics.
          */
-        internal const val SPEAKER_ENRICHMENT_GRACE_MS = 1000L
+        const val SPEAKER_ENRICHMENT_GRACE_MS = 1000L
 
         /**
          * How far below a speaker-less rival a speaker-tagged candidate of the same sync
          * tier may score and still be preferred. Equivalent copies of one Apple TTML from
          * two providers differ by only a few points of source bonus.
          */
-        internal const val SPEAKER_SCORE_TOLERANCE = 15.0
+        const val SPEAKER_SCORE_TOLERANCE = 15.0
 
         /**
          * Providers whose TTML can carry `ttm:agent` and that normally answer within the
          * race budget. Measured on live traffic: BetterLyrics, Paxsenix and Unison return
          * agent-tagged Apple/AMLL TTML; LRC-based providers never carry line speakers.
          */
-        internal val SPEAKER_CAPABLE_PROVIDERS = setOf(
+        val SPEAKER_CAPABLE_PROVIDERS = setOf(
             LyricsProvider.BETTER_LYRICS,
             LyricsProvider.PAXSENIX,
             LyricsProvider.UNISON,
@@ -143,7 +143,7 @@ class LyricsClient(
          * comparison, `null` when it does not (both or neither tagged, or the tagged one
          * scores too far below). Sync tier is always compared before this.
          */
-        internal fun speakerPreference(
+        fun speakerPreference(
             hasSpeakers: Boolean,
             score: Double,
             bestHasSpeakers: Boolean,
@@ -160,7 +160,7 @@ class LyricsClient(
          * metadata only when the new best has none and a speaker-capable provider is
          * still running.
          */
-        internal fun wordSettleDeadline(
+        fun wordSettleDeadline(
             currentDeadlineMs: Long,
             raceStartMs: Long,
             nowMs: Long,
@@ -192,12 +192,12 @@ class LyricsClient(
         }
 
         /** Genuine word timing outranks line timing outranks nothing. */
-        internal const val TIER_NONE = 0
-        internal const val TIER_LINE = 1
-        internal const val TIER_WORD = 2
+        const val TIER_NONE = 0
+        const val TIER_LINE = 1
+        const val TIER_WORD = 2
 
         /** Score at which a word-synced candidate is good enough to end the race. */
-        internal const val INSTANT_WIN_SCORE = 145.0
+        const val INSTANT_WIN_SCORE = 145.0
 
         /**
          * True when the playing track and a lyrics result are different versions of the song:
@@ -205,7 +205,7 @@ class LyricsClient(
          * isn't the same version. A result with no title counts as untagged, since nothing
          * vouches that it's the remix.
          */
-        internal fun isVersionClash(playbackTitle: String, candidateTitle: String?): Boolean {
+        fun isVersionClash(playbackTitle: String, candidateTitle: String?): Boolean {
             val qVersion = TitleCleaner.extractVersion(playbackTitle)
             val cVersion = candidateTitle?.takeIf { it.isNotBlank() }?.let { TitleCleaner.extractVersion(it) }
             val altering = com.auralis.music.domain.lyrics.LyricsAlignmentEngine
@@ -214,9 +214,9 @@ class LyricsClient(
         }
 
         /** Settings → Content → Lyrics → provider switches. */
-        internal fun isProviderEnabled(provider: LyricsProvider): Boolean {
+        fun isProviderEnabled(provider: LyricsProvider): Boolean {
             val id = settingsId(provider) ?: return true
-            return id !in com.auralis.music.data.datastore.ContentSettingsStore.value.disabledLyricsProviders
+            return id !in com.auralis.music.data.network.ContentSettingsSource.current().disabledLyricsProviders
         }
 
         private fun settingsId(provider: LyricsProvider): com.auralis.music.domain.model.LyricsProviderId? =
@@ -238,7 +238,7 @@ class LyricsClient(
                 LyricsProvider.LOCAL -> null
             }
 
-        internal fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
+        fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
             LyricsProvider.BETTER_LYRICS -> 5
             LyricsProvider.AMLL -> 5
             LyricsProvider.PAXSENIX -> 4
@@ -263,7 +263,7 @@ class LyricsClient(
          * A word tier requires at least two words on some line to carry a real
          * duration. One timed word is a parser artefact, not word sync.
          */
-        internal fun tierOf(data: LyricsData): Int = when {
+        fun tierOf(data: LyricsData): Int = when {
             data.lines.any { line ->
                 !line.isInstrumental && (line.words?.count { it.duration != null } ?: 0) >= 2
             } -> TIER_WORD
@@ -282,7 +282,7 @@ class LyricsClient(
          *   genuine word timing outranks line timing outranks nothing.
          * - Between two aligned word-synced candidates, Musixmatch RichSync is last.
          */
-        internal fun outranks(
+        fun outranks(
             tier: Int,
             score: Double,
             bestTier: Int,
@@ -330,7 +330,7 @@ class LyricsClient(
             }
         }
 
-        internal fun maxInternalGapMs(lines: List<LyricLine>): Long {
+        fun maxInternalGapMs(lines: List<LyricLine>): Long {
             if (lines.size < 2) return 0L
             var maxGap = 0L
             for (i in 0 until lines.size - 1) {
@@ -346,7 +346,7 @@ class LyricsClient(
         }
 
         /** Character-bigram Dice similarity of two normalized line texts (0..1). */
-        internal fun bigramSimilarity(a: String, b: String): Double {
+        fun bigramSimilarity(a: String, b: String): Double {
             if (a.length < 2 || b.length < 2) return if (a == b) 1.0 else 0.0
             val grams = HashMap<String, Int>()
             for (i in 0 until a.length - 1) grams.merge(a.substring(i, i + 2), 1, Int::plus)
@@ -392,7 +392,7 @@ class LyricsClient(
         private const val GAP_FILL_MIN_ANCHORS = 3
         private const val GAP_FILL_MAX_CLOCK_DRIFT_MS = 1_500L
 
-        internal fun fillLyricsGaps(
+        fun fillLyricsGaps(
             primary: LyricsData,
             secondaryCandidates: List<LyricsData>
         ): LyricsData {
@@ -504,7 +504,7 @@ class LyricsClient(
          * 4. Verified audio master alignment (must REJECT MasterMatchStatus.MASTER_MISMATCH).
          * 5. Top provider preference (BetterLyrics, or Unison when exact-video matched).
          */
-        internal fun isInstantWinner(
+        fun isInstantWinner(
             tier: Int,
             score: Double,
             masterMatch: com.auralis.music.domain.lyrics.MasterMatchStatus = com.auralis.music.domain.lyrics.MasterMatchStatus.EXACT_MATCH,
@@ -523,7 +523,7 @@ class LyricsClient(
             masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH &&
             (provider == LyricsProvider.BETTER_LYRICS || provider == LyricsProvider.AMLL || (provider == LyricsProvider.UNISON && isExactVideoMatch))
 
-        internal fun calculateQualityScore(
+        fun calculateQualityScore(
             cand: LyricsCandidate,
             queryDurationSec: Long?,
             queryDurationMs: Long? = null,

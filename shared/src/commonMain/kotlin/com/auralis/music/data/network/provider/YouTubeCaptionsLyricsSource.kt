@@ -1,6 +1,6 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricsData
@@ -38,34 +38,34 @@ class YouTubeCaptionsLyricsSource(
         private const val MAX_TRACKS_TRIED = 5
 
         /** Share of a track's words that must also appear in the reference lyrics. */
-        internal const val MIN_PRECISION = 0.6
+        const val MIN_PRECISION = 0.6
 
         /** Share of the reference lyrics' words the track must cover. */
-        internal const val MIN_COVERAGE = 0.4
+        const val MIN_COVERAGE = 0.4
 
         private val DIRECTION_MARKS = Regex("[‎‏‪-‮]")
 
-        internal fun tokens(text: String): Set<String> =
+        fun tokens(text: String): Set<String> =
             Regex("""[\p{L}\p{Nd}']+""").findAll(text.lowercase()).map { it.value.trim('\'') }
                 .filter { it.length > 1 }.toSet()
 
-        internal fun isBracketed(text: String): Boolean {
+        fun isBracketed(text: String): Boolean {
             val t = text.trim()
             return (t.startsWith("(") && t.endsWith(")")) || (t.startsWith("[") && t.endsWith("]"))
         }
 
         /** Lowercase letters/digits only, so `("Blinding Lights")` and `Blinding Lights` compare equal. */
-        internal fun titleKey(text: String): String = text.lowercase().replace(Regex("""[^\p{L}\p{Nd}]"""), "")
+        fun titleKey(text: String): String = text.lowercase().replace(Regex("""[^\p{L}\p{Nd}]"""), "")
 
         /** Precision and coverage of [candidate] against [reference], or null when either is empty. */
-        internal fun overlap(candidate: Set<String>, reference: Set<String>): Pair<Double, Double>? {
+        fun overlap(candidate: Set<String>, reference: Set<String>): Pair<Double, Double>? {
             if (candidate.isEmpty() || reference.isEmpty()) return null
             val shared = candidate.count { it in reference }.toDouble()
             return shared / candidate.size to shared / reference.size
         }
 
         /** Parses a json3 caption file into timed lines, dropping blank and music-note-only cues. */
-        internal fun parseJson3(body: String): List<LyricLine> {
+        fun parseJson3(body: String): List<LyricLine> {
             val events = JSONObject(body).optJSONArray("events") ?: return emptyList()
             val lines = mutableListOf<LyricLine>()
             for (i in 0 until events.length()) {

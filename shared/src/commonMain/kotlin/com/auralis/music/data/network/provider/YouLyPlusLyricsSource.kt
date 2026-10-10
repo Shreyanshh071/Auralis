@@ -1,6 +1,6 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.parser.LyricsMatcher
@@ -42,7 +42,7 @@ class YouLyPlusLyricsSource(
         private const val TAG = "YouLyPlusLyricsSource"
 
         /** Covers a cold upstream fetch (~9s measured) with headroom. */
-        internal const val REQUEST_TIMEOUT_MS = 12_000L
+        const val REQUEST_TIMEOUT_MS = 12_000L
 
         /** The race waits this long for YouLy+ when nothing synced has arrived from anyone else. */
         const val RACE_BUDGET_MS = 13_000L
@@ -53,7 +53,7 @@ class YouLyPlusLyricsSource(
         private val RATE_LIMIT_WAIT = Regex("""wait (\d+) seconds?""", RegexOption.IGNORE_CASE)
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
-        internal val MIRRORS = listOf(
+        val MIRRORS = listOf(
             "https://lyricsplus.binimum.org",
             "https://lyricsplus.prjktla.my.id",
             "https://lyricsplus.atomix.one",
@@ -65,7 +65,7 @@ class YouLyPlusLyricsSource(
         @Volatile
         private var lastWorkingMirror: String? = null
 
-        internal fun mirrorOrder(): List<String> {
+        fun mirrorOrder(): List<String> {
             val last = lastWorkingMirror ?: return MIRRORS
             return listOf(last) + MIRRORS.filter { it != last }
         }
@@ -74,7 +74,7 @@ class YouLyPlusLyricsSource(
          * Converts a KPoe JSON body into [LyricsData]. Background syllables inside a line become
          * their own background [LyricLine], matching how the TTML parser keeps `x-bg` vocals.
          */
-        internal fun parse(body: String): LyricsData? {
+        fun parse(body: String): LyricsData? {
             val json = JSONObject(body)
             val arr = json.optJSONArray("lyrics") ?: return null
             val isWordSync = json.optString("type").let { it.equals("Word", true) || it.equals("Syllable", true) }

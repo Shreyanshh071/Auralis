@@ -1,6 +1,5 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Base64
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.parser.KrcParser
@@ -148,7 +147,7 @@ class KuGouLyricsSource(
             val b64Content = dlJson.optString("content")
             if (b64Content.isBlank()) return null
 
-            val rawBytes = Base64.decode(b64Content, Base64.DEFAULT)
+            val rawBytes = com.auralis.music.util.Base64Compat.decode(b64Content)
             val decrypted = decryptKrc(rawBytes) ?: return null
             val parsed = KrcParser.parse(decrypted, LyricsProvider.KUGOU, songTitle, artistName) ?: return null
 
@@ -187,7 +186,7 @@ class KuGouLyricsSource(
             val b64Content = dlJson.optString("content")
             if (b64Content.isBlank()) return null
 
-            val lrcText = String(Base64.decode(b64Content, Base64.DEFAULT), Charsets.UTF_8)
+            val lrcText = String(com.auralis.music.util.Base64Compat.decode(b64Content), Charsets.UTF_8)
             val parsed = LrcParser.parse(lrcText, LyricsProvider.KUGOU)
             if (parsed.syncType != SyncType.PLAIN && parsed.lines.isNotEmpty()) {
                 LyricsCandidate(

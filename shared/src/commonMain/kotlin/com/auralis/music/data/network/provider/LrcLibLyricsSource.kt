@@ -212,7 +212,7 @@ class LrcLibLyricsSource(
         }
     }
 
-    internal fun parseLrcItem(json: JSONObject): LyricsData? {
+    fun parseLrcItem(json: JSONObject): LyricsData? {
         val syncedLyrics = json.optString("syncedLyrics")
         val plainLyrics = json.optString("plainLyrics")
         val trackName = json.optString("trackName")
