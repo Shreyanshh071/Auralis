@@ -1,6 +1,5 @@
 package com.auralis.music.data.datastore
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -8,18 +7,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
-import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
-
-val Context.storageDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "auralis_storage",
-    corruptionHandler = ReplaceFileCorruptionHandler {
-        emptyPreferences()
-    }
-)
 
 data class StorageSettings(
     val songCacheEnabled: Boolean = true,
@@ -27,8 +18,7 @@ data class StorageSettings(
     val maxImageCacheSizeMb: Int = 537  // 537 MB default matching screenshot
 )
 
-class StorageDataStore(private val context: Context) {
-    private val dataStore = context.storageDataStore
+class StorageDataStore(private val dataStore: DataStore<Preferences>) {
 
     companion object {
         val SONG_CACHE_ENABLED = booleanPreferencesKey("song_cache_enabled")

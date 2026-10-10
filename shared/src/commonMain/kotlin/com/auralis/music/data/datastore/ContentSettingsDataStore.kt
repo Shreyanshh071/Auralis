@@ -1,6 +1,5 @@
 package com.auralis.music.data.datastore
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
@@ -9,7 +8,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.AddToPlaylistPosition
 import com.auralis.music.domain.model.ContentSettings
 import com.auralis.music.domain.model.LyricsProviderId
@@ -29,13 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.io.IOException
 
-val Context.contentSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "auralis_content",
-    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
-)
-
-class ContentSettingsDataStore(context: Context) {
-    private val dataStore = context.applicationContext.contentSettingsDataStore
+class ContentSettingsDataStore(private val dataStore: DataStore<Preferences>) {
 
     private companion object {
         val CONTENT_LANGUAGE = stringPreferencesKey("content_language")
@@ -133,10 +125,9 @@ object ContentSettingsStore {
 
     private var started = false
 
-    fun init(context: Context) {
+    fun init(store: ContentSettingsDataStore) {
         if (started) return
         started = true
-        val store = ContentSettingsDataStore(context)
         kotlinx.coroutines.runBlocking(Dispatchers.IO) {
             kotlinx.coroutines.withTimeoutOrNull(500L) { store.settingsFlow.first() }?.let { _current.value = it }
         }

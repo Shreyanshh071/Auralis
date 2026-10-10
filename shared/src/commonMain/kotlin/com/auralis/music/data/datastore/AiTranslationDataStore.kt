@@ -1,19 +1,14 @@
 package com.auralis.music.data.datastore
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
-import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.AiTranslationSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
-val Context.aiTranslationDataStore: DataStore<Preferences> by preferencesDataStore(name = "auralis_ai_translation")
-
-class AiTranslationDataStore(context: Context) {
-    private val dataStore = context.aiTranslationDataStore
+class AiTranslationDataStore(private val dataStore: DataStore<Preferences>) {
 
     companion object {
         val PROVIDER = stringPreferencesKey("ai_provider")

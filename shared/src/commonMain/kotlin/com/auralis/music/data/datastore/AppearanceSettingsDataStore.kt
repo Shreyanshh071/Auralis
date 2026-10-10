@@ -1,6 +1,5 @@
 package com.auralis.music.data.datastore
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -10,7 +9,6 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
-import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.domain.model.LyricsAnimationMode
 import kotlinx.coroutines.Dispatchers
@@ -22,17 +20,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
-val Context.appearanceSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "auralis_appearance_settings",
-    corruptionHandler = ReplaceFileCorruptionHandler {
-        emptyPreferences()
-    }
-)
-
-class AppearanceSettingsDataStore(
-    private val context: Context
-) : com.auralis.music.ui.theme.AppearanceSettingsStore {
-    private val dataStore = context.appearanceSettingsDataStore
+class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>) : com.auralis.music.ui.theme.AppearanceSettingsStore {
 
     /**
      * Instantly returns default AppearanceSettings for Frame 0 to guarantee non-blocking startup.
@@ -245,7 +233,7 @@ class AppearanceSettingsDataStore(
                 preferences[SHOW_UPLOADED_PLAYLIST] = settings.showUploadedPlaylist
             }
         } catch (e: Exception) {
-            android.util.Log.e("AppearanceSettings", "Failed to update appearance settings", e)
+            com.auralis.music.util.Log.e("AppearanceSettings", "Failed to update appearance settings", e)
         }
     }
 
