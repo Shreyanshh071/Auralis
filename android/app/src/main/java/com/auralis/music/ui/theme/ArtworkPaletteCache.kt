@@ -28,18 +28,6 @@ import kotlinx.coroutines.withContext
 /**
  * Data class representing harmonious colors extracted from album artwork.
  */
-data class ArtworkPalette(
-    val primary: Color,
-    val secondary: Color,
-    val tertiary: Color,
-    val seedColor: Color = primary,
-    val isMonochrome: Boolean = false,
-    val glowColors: List<Color> = emptyList(),
-    val isPlaceholder: Boolean = false
-) {
-    val isDefault: Boolean
-        get() = this == ArtworkPaletteCache.defaultPalette
-}
 
 /**
  * High-performance thread-safe LRU Cache, Reactive StateFlow & Async Extractor for album artwork palettes.
@@ -60,21 +48,7 @@ object ArtworkPaletteCache {
     }
 
     // Default palette for ambient UI when no image is loaded
-    val defaultPalette = ArtworkPalette(
-        primary = Color(0xFF161619),   // Neutral Slate Charcoal
-        secondary = Color(0xFF121215), // Deep Midnight
-        tertiary = Color(0xFF0E0E10),  // Obsidian Base
-        seedColor = Color.Unspecified, // Pure unspecified seed - prevents artificial blue HCT tints!
-        isMonochrome = true,
-        glowColors = listOf(
-            Color(0xFF202024),
-            Color(0xFF161619),
-            Color(0xFF121215),
-            Color(0xFF0E0E10),
-            Color(0xFF1A1A1E),
-            Color(0xFF0A0A0C)
-        )
-    )
+    val defaultPalette = DefaultArtworkPalette
 
     // Sleek monochrome palette for black & white / grayscale album artwork (e.g. NEFFEX Fight Back)
     val monochromePalette = ArtworkPalette(
