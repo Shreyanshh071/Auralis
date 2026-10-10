@@ -29,6 +29,8 @@ dependencies {
     implementation(libs.coil3.compose)
     implementation(libs.coil3.network.okhttp)
     implementation(libs.org.json)
+    // Windows media overlay through the Windows Runtime (same JNA build VLCJ uses).
+    implementation("net.java.dev.jna:jna-jpms:5.14.0")
 }
 
 compose.desktop {

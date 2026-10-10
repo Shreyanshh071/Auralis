@@ -76,7 +76,13 @@ private val DesktopSearchUi = SearchUiPlatform(
 )
 
 @Composable
-fun SearchScreen(state: DesktopSearchState, onUnavailable: (String) -> Unit) {
+fun SearchScreen(
+    state: DesktopSearchState,
+    currentTrackId: String?,
+    isPlaying: Boolean,
+    onPlay: ((com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit)?,
+    onUnavailable: (String) -> Unit
+) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -103,9 +109,11 @@ fun SearchScreen(state: DesktopSearchState, onUnavailable: (String) -> Unit) {
                         query = state.query,
                         searchFailed = state.searchFailed,
                         onRetry = { state.search() },
-                        currentTrackId = null,
-                        isPlaying = false,
-                        onTrackClick = { _, _ -> onUnavailable("Playback on Windows comes next") },
+                        currentTrackId = currentTrackId,
+                        isPlaying = isPlaying,
+                        onTrackClick = { track, list ->
+                            if (onPlay != null) onPlay(track, list) else onUnavailable("Playback needs VLC (64-bit)")
+                        },
                         onMenuClick = { onUnavailable("Song options on Windows come next") },
                         onArtistClick = { onUnavailable("Artist pages on Windows come next") },
                         onPlaylistClick = { onUnavailable("Album pages on Windows come next") }
