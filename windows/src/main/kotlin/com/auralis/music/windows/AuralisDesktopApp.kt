@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +49,8 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.Explore),
     SEARCH("Search", Icons.Outlined.Search),
     LIBRARY("Library", Icons.Outlined.GridView),
+    PROFILE("Profile", Icons.Outlined.AccountCircle),
+    SETTINGS("Settings", Icons.Outlined.Settings),
 }
 
 @Composable
@@ -56,12 +60,15 @@ fun AuralisDesktopApp(
     history: com.auralis.music.domain.repository.HistoryRepository,
     homePlatform: com.auralis.music.ui.viewmodel.HomePlatform,
     libraryFlags: com.auralis.music.util.KeyValueStore,
+    stores: com.auralis.music.desktop.settings.DesktopDataStores,
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
     onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent) -> Boolean)?) -> Unit = {},
     selfTest: SelfTest? = null,
-    onSelfTestDone: (Boolean) -> Unit = {}
+    onSelfTestDone: (Boolean) -> Unit = {},
+    /** Discord status through the desktop Discord app; null when unavailable. */
+    discordControl: com.auralis.music.ui.settings.DiscordControl? = null,
 ) {
     var showPlayer by remember { mutableStateOf(false) }
     var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
@@ -142,7 +149,16 @@ fun AuralisDesktopApp(
         onDispose { onShortcutHandler(null) }
     }
 
-    com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = platformActions) {
+    val appearance by stores.appearance.settingsFlow.collectAsState(stores.appearance.getInitialSettings())
+    val settingsPlatform = remember(playback) {
+        com.auralis.music.windows.settings.DesktopSettingsPlatform(playback, history, searchRepository, discord = discordControl)
+    }
+    com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, platformActions = platformActions) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.auralis.music.data.datastore.LocalSettingsStores provides stores,
+        com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
+        com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance
+    ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -161,6 +177,7 @@ fun AuralisDesktopApp(
                                     destination = DesktopDestination.LIBRARY
                                 },
                                 onNavigateToSearch = { destination = DesktopDestination.SEARCH },
+                                onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 showMessage = showUnavailable
                             )
                             DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(
@@ -183,12 +200,29 @@ fun AuralisDesktopApp(
                                 focusRequests = searchFocusRequests,
                                 onTypingChange = { typing = it }
                             )
+                            DesktopDestination.PROFILE -> com.auralis.music.windows.profile.DesktopProfile(
+                                stores = stores,
+                                libraryViewModel = libraryViewModel,
+                                history = history,
+                                search = searchRepository,
+                                hasActiveTrack = queue?.current != null,
+                                onDismiss = { destination = DesktopDestination.HOME }
+                            )
+                            DesktopDestination.SETTINGS -> com.auralis.music.windows.profile.DesktopSettings(
+                                stores = stores,
+                                history = history,
+                                search = searchRepository,
+                                hasActiveTrack = queue?.current != null,
+                                onOpenProfile = { destination = DesktopDestination.PROFILE },
+                                onDismiss = { destination = DesktopDestination.HOME }
+                            )
                             DesktopDestination.LIBRARY -> com.auralis.music.windows.library.DesktopLibrary(
                                 viewModel = libraryViewModel,
                                 homeViewModel = homeViewModel,
                                 library = library,
                                 playback = playback,
                                 browse = browse,
+                                onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 showMessage = showUnavailable
                             )
                         }
@@ -231,6 +265,7 @@ fun AuralisDesktopApp(
                 }
             }
         }
+    }
     }
 }
 

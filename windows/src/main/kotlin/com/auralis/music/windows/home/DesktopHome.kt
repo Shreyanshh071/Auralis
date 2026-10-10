@@ -43,6 +43,7 @@ fun DesktopHome(
     browse: DesktopBrowseState,
     onOpenPlaylist: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
+    onOpenProfile: () -> Unit,
     showMessage: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -92,7 +93,7 @@ fun DesktopHome(
             onMoodSelect = viewModel::selectMoodFilter,
             onChipToggle = viewModel::toggleChip,
             onSurpriseMe = { viewModel.getRandomSurpriseTrack()?.let { play(it, listOf(it)) } },
-            onOpenProfile = phoneOnly,
+            onOpenProfile = onOpenProfile,
             onOpenHistory = phoneOnly,
             onOpenStats = phoneOnly,
             onOpenWrapped = phoneOnly,

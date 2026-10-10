@@ -131,6 +131,9 @@ object DesktopStreamResolver {
         return kotlinx.coroutines.runBlocking { resolve(videoId) }
     }
 
+    /** Forgets every looked-up stream (Settings' clear cache). */
+    fun clearCache() = cache.clear()
+
     fun invalidate(videoId: String) {
         cache.remove(RecordingMatches.getMatchedVideoId(videoId) ?: videoId)
     }
