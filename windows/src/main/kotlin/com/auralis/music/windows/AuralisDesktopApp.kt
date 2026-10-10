@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import javax.imageio.ImageIO
+import kotlinx.coroutines.launch
 
 enum class DesktopDestination(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.Explore),
@@ -49,20 +50,32 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun AuralisDesktopApp() {
-    var destination by remember { mutableStateOf(DesktopDestination.HOME) }
+fun AuralisDesktopApp(searchRepository: com.auralis.music.domain.repository.SearchRepository) {
+    // Search is the first working page on Windows, so the app opens on it.
+    var destination by remember { mutableStateOf(DesktopDestination.SEARCH) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) }
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    val showUnavailable: (String) -> Unit = { message ->
+        scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
+    }
 
     AuralisDesktopTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Sidebar(selected = destination, onSelect = { destination = it })
-                    Box(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 40.dp, vertical = 32.dp)) {
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
                         when (destination) {
-                            DesktopDestination.HOME -> NotBuiltYet("Home", "Recommendations come after search and playback work.")
-                            DesktopDestination.SEARCH -> NotBuiltYet("Search", "Next step: YouTube Music search on Windows.")
-                            DesktopDestination.LIBRARY -> NotBuiltYet("Library", "Local library comes after playback.")
+                            DesktopDestination.HOME -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
+                                NotBuiltYet("Home", "Recommendations come after search and playback work.")
+                            }
+                            DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(searchState, showUnavailable)
+                            DesktopDestination.LIBRARY -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
+                                NotBuiltYet("Library", "Local library comes after playback.")
+                            }
                         }
+                        androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

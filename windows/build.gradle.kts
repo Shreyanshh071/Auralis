@@ -24,6 +24,11 @@ dependencies {
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
     implementation(libs.kotlinx.coroutines.swing)
+    // Artwork (Coil 3, the multiplatform version of the phone's image loader) and the JSON library
+    // that Android has built in.
+    implementation(libs.coil3.compose)
+    implementation(libs.coil3.network.okhttp)
+    implementation(libs.org.json)
 }
 
 compose.desktop {
