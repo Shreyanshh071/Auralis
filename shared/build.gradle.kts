@@ -21,6 +21,12 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(libs.compose.runtime)
+            // Compose UI shared by the phone and Windows screens (on Android these resolve to the
+            // androidx artifacts, versions still pinned by the app's BOM).
+            implementation(libs.compose.mp.ui)
+            implementation(libs.compose.mp.foundation)
+            implementation(libs.compose.mp.material3)
+            implementation(libs.compose.mp.icons.extended)
             implementation(libs.androidx.collection)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
